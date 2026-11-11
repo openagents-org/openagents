@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Link2, MoreHorizontal, Pencil, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -10,6 +10,9 @@ import { cn } from '@/lib/utils';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { errorMessage } from './issue-ui';
+import { issueBoardPath, requestedIssueBoard, withIssueBoard } from '@/lib/issue-board-link';
+import { requestedResource } from '@/lib/resource-link';
+import { shareOrigin } from '@/lib/share-origin';
 
 export const TEAM_BOARD = 'team';
 const storageKey = (workspaceId: string) => `oa:issue-board:${workspaceId}`;
@@ -19,14 +22,34 @@ export function useIssueBoards(workspaceId: string | undefined) {
   const [boards, setBoards] = useState<IssueBoard[]>([]);
   const [boardId, setBoardIdState] = useState<string>(() => {
     if (typeof window === 'undefined' || !workspaceId) return TEAM_BOARD;
-    return window.localStorage.getItem(storageKey(workspaceId)) || TEAM_BOARD;
+    const requested = requestedIssueBoard(window.location.href);
+    if (requested) return requested;
+    try { return window.localStorage.getItem(storageKey(workspaceId)) || TEAM_BOARD; }
+    catch { return TEAM_BOARD; }
   });
   const setBoardId = useCallback((id: string) => {
     setBoardIdState(id);
+    window.history.replaceState(window.history.state, '', withIssueBoard(window.location.href, id));
     if (workspaceId) {
       try { window.localStorage.setItem(storageKey(workspaceId), id); } catch {}
     }
   }, [workspaceId]);
+  useEffect(() => {
+    if (!workspaceId) return;
+    try { window.localStorage.setItem(storageKey(workspaceId), boardId); } catch {}
+    if (requestedResource(window.location.href)?.view === 'issues') {
+      window.history.replaceState(window.history.state, '', withIssueBoard(window.location.href, boardId));
+    }
+  }, [boardId, workspaceId]);
+  useEffect(() => {
+    const onNavigate = () => setBoardIdState(requestedIssueBoard(window.location.href) || TEAM_BOARD);
+    window.addEventListener('popstate', onNavigate);
+    window.addEventListener('hashchange', onNavigate);
+    return () => {
+      window.removeEventListener('popstate', onNavigate);
+      window.removeEventListener('hashchange', onNavigate);
+    };
+  }, []);
   const reloadBoards = useCallback(async () => {
     try {
       const next = await workspaceApi.listIssueBoards();
@@ -40,15 +63,22 @@ export function useIssueBoards(workspaceId: string | undefined) {
 }
 
 /** Board tabs above the issue filters: Team issues first, then boards people added, then New board. */
-export function IssueBoardTabs({ boards, boardId, onSelect, onChanged }: {
+export function IssueBoardTabs({ boards, boardId, workspaceId, onSelect, onChanged }: {
   boards: IssueBoard[];
   boardId: string;
+  workspaceId: string;
   onSelect: (id: string) => void;
   onChanged: (selectId?: string) => void;
 }) {
   const t = useT();
   const prompt = usePrompt();
   const confirm = useConfirm();
+  const copyLink = async (id: string) => {
+    try {
+      await navigator.clipboard.writeText(new URL(issueBoardPath(workspaceId, id), shareOrigin()).toString());
+      toast.success(t('issues.boardLinkCopied'));
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
   const shown = boards.length ? boards : [{ id: TEAM_BOARD, name: t('issues.teamBoard'), default: true, active_count: 0, can_manage: false }];
   const nameTaken = (name: string, except?: string) => {
     const key = name.trim().replace(/\s+/g, ' ').toLowerCase();
@@ -117,7 +147,7 @@ export function IssueBoardTabs({ boards, boardId, onSelect, onChanged }: {
               {board.default ? t('issues.teamBoard') : board.name}
               {board.active_count > 0 && <span className="tabular-nums text-muted-foreground">{board.active_count}</span>}
             </button>
-            {selected && board.can_manage && (
+            {selected && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button type="button" aria-label={t('issues.boardActions', { name: board.name })} className="mr-1 rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
@@ -125,8 +155,11 @@ export function IssueBoardTabs({ boards, boardId, onSelect, onChanged }: {
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuItem onClick={() => void rename(board)}><Pencil className="size-4" /><span>{t('issues.renameBoard')}</span></DropdownMenuItem>
-                  <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void remove(board)}><Trash2 className="size-4" /><span>{t('issues.deleteBoard')}</span></DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => void copyLink(board.id)}><Link2 className="size-4" /><span>{t('issues.copyBoardLink')}</span></DropdownMenuItem>
+                  {board.can_manage && <>
+                    <DropdownMenuItem onClick={() => void rename(board)}><Pencil className="size-4" /><span>{t('issues.renameBoard')}</span></DropdownMenuItem>
+                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void remove(board)}><Trash2 className="size-4" /><span>{t('issues.deleteBoard')}</span></DropdownMenuItem>
+                  </>}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
