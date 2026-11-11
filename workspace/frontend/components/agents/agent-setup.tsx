@@ -17,7 +17,7 @@ import { joinNodePath } from '@/lib/node-path';
 import { desktopHost } from '@/lib/desktop-host';
 import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
-import { MarketGallery } from './agent-setup-market';
+import { MarketGallery, sortByUsage } from './agent-setup-market';
 import { SmokeTestPanel } from './smoke-test-panel';
 
 /** Agents of the chosen type listed before the rest fold behind "Show all". */
@@ -1648,7 +1648,7 @@ export function AgentSetup({
   // ---- Selection mode: the agent marketplace --------------------------------
   const statusOf = (name: string) => runtimeStatus(runtimeByType[name]);
   const checkingOf = (name: string) => detecting && !runtimeByType[name];
-  const featured = catalog.filter((e) => e.featured);
+  const featured = sortByUsage(catalog.filter((e) => e.featured));
   const readyCount = catalog.filter((e) => {
     const s = statusOf(e.name);
     return s === 'ready' || s === 'needs_login';
@@ -1662,7 +1662,7 @@ export function AgentSetup({
     { key: 'editor', label: t('connect.marketCatIde') },
   ];
   const q = marketQuery.trim().toLowerCase();
-  const visible = catalog.filter((e) => {
+  const visible = sortByUsage(catalog).filter((e) => {
     const s = statusOf(e.name);
     const tags = e.tags || [];
     if (marketCat === 'ready' && s !== 'ready' && s !== 'needs_login') return false;
