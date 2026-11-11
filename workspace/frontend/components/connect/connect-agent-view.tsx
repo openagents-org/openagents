@@ -85,7 +85,7 @@ export function ConnectAgentView({
   const isDesktop = desktopHost() !== null;
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
-  const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
+  const activeTab = selectedTab === 'local' ? 'node' : selectedTab;
   const appliedSetupRequest = useRef(connectSetupRequest);
   useEffect(() => {
     if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
@@ -359,14 +359,15 @@ export function ConnectAgentView({
         </div>
       )}
 
-      {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
+      {/* The desktop app shows both tabs too: most people arrive through it, and
+          Cloud Agents is the only place they can find hosted agents. */}
+      <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
       {activeTab === 'node' && (
-        <div className={cn('px-6 shrink-0', isDesktop && 'pt-4')}>
+        <div className="px-6 shrink-0">
           <div className="mx-auto w-full max-w-2xl">
             <CampaignConnectHint idToken={oaIdToken} />
           </div>
