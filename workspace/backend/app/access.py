@@ -35,7 +35,7 @@ import sqlite3
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import Session as SqlaSession
@@ -240,6 +240,54 @@ def reconcile_memberships(db: Session, user: User) -> None:
     # (e.g. the auto-provision check) must be able to see them in a subsequent
     # query within the same transaction.
     db.flush()
+
+
+def memberships_need_backfill(db: Session, user: User) -> bool:
+    """Whether reconcile_memberships / first-run provisioning have work to do.
+
+    Read-only. True when the user has no membership at all, or when a
+    workspace they created (`creator_email`) or a collaborator row of theirs
+    has no membership row yet — exactly the cases in which
+    reconcile_memberships would insert something. A returning user who is
+    fully migrated gets False, so the caller can skip the row lock and writes.
+    """
+    has_membership = db.execute(
+        select(WorkspaceMembership.workspace_id)
+        .where(WorkspaceMembership.user_id == user.id)
+        .limit(1)
+    ).first()
+    if not has_membership:
+        return True
+
+    email = user.email
+
+    def missing(workspace_id_column):
+        return ~exists().where(
+            WorkspaceMembership.workspace_id == workspace_id_column,
+            WorkspaceMembership.user_id == user.id,
+        )
+
+    owned_missing = db.execute(
+        select(Workspace.id)
+        .where(
+            func.lower(Workspace.creator_email) == email,
+            Workspace.status != "deleted",
+            missing(Workspace.id),
+        )
+        .limit(1)
+    ).first()
+    if owned_missing:
+        return True
+
+    collab_missing = db.execute(
+        select(WorkspaceCollaborator.id)
+        .where(
+            WorkspaceCollaborator.email == email,
+            missing(WorkspaceCollaborator.workspace_id),
+        )
+        .limit(1)
+    ).first()
+    return collab_missing is not None
 
 
 def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> Workspace:
