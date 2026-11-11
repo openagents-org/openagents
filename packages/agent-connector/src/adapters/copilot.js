@@ -50,6 +50,7 @@ const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv, defaultAgentWorkdir } = require('../paths');
 const { compareVersions } = require('../installer');
 const { CopilotStreamParser, redactSensitive } = require('./copilot-stream-parser');
+const { promptFitsArgv } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -60,6 +61,14 @@ const IS_WINDOWS = process.platform === 'win32';
 // granular `--allow-tool`/`--add-dir`, `--resume`/`--name` session control, and
 // `--secret-env-vars`/`--no-remote`. Verified end-to-end against 1.0.63.
 const MIN_VERSION = '1.0.0';
+
+// First release whose changelog documents a prompt piped over stdin as a
+// prompt-mode run alongside `-p` (1.0.78: its `sessionEnd` hook "the same way
+// `-p` does"). A prompt too long for a command line goes that way instead —
+// on Windows a channel's system prompt plus a large pinned glossary failed the
+// spawn itself with ENAMETOOLONG. An older CLI is told to upgrade rather than
+// handed a stdin it may not read.
+const STDIN_PROMPT_MIN_VERSION = '1.0.78';
 
 // Token-bearing env var NAMES Copilot reads (verified precedence via
 // `copilot help environment`): COPILOT_GITHUB_TOKEN > GH_TOKEN > GITHUB_TOKEN.
@@ -276,13 +285,14 @@ class CopilotAdapter extends BaseAdapter {
    * single discrete argv element. Permissions are least-privilege and scoped to
    * the working directory.
    */
-  _buildArgs(prompt, channel, { skipResume = false } = {}) {
+  _buildArgs(prompt, channel, { skipResume = false, viaStdin = false } = {}) {
     const wd = this.workingDir || defaultAgentWorkdir(this.agentName);
     // Required-value flags take the space form; optional-value/variadic flags
     // (--resume, --secret-env-vars, --allow-tool — declared `[=value]` /
     // `[=value...]` in `copilot --help` v1.0.63) MUST use the `=` form so the
     // next token isn't mistaken for a positional argument.
-    const args = ['-p', prompt, '--output-format', 'json', '--stream', 'on'];
+    // viaStdin: the prompt is written to the child's stdin, so no `-p`.
+    const args = [...(viaStdin ? [] : ['-p', prompt]), '--output-format', 'json', '--stream', 'on'];
 
     if (this._model) args.push('--model', this._model);
 
@@ -427,15 +437,25 @@ class CopilotAdapter extends BaseAdapter {
 
     const fullPrompt = `${this._buildSystemContext(channel)}\n\n---\n\nUser message:\n${content}`;
 
+    // Too long for a command line: pipe it over stdin instead of `-p`.
+    const viaStdin = !promptFitsArgv(fullPrompt);
+    if (viaStdin && gate.version && compareVersions(gate.version, STDIN_PROMPT_MIN_VERSION) < 0) {
+      await this.sendError(channel,
+        `This channel's instructions are too long to pass to GitHub Copilot CLI ${gate.version} on the command line `
+        + `(${fullPrompt.length} characters). Copilot CLI ${STDIN_PROMPT_MIN_VERSION} or newer takes them over stdin — `
+        + 'upgrade with: copilot update (or npm install -g @github/copilot). A shorter pinned glossary for this channel also works.');
+      return;
+    }
+
     // Up to 2 attempts: resume first, then a fresh session if resume was stale.
     for (let attempt = 0; attempt < 2; attempt++) {
       const skipResume = attempt > 0;
-      const args = this._buildArgs(fullPrompt, channel, { skipResume });
-      this._logSpawn(channel, args, skipResume);
+      const args = this._buildArgs(fullPrompt, channel, { skipResume, viaStdin });
+      this._logSpawn(channel, args, skipResume, viaStdin);
 
       let result;
       try {
-        result = await this._runTurn(channel, args);
+        result = await this._runTurn(channel, args, viaStdin ? fullPrompt : null);
       } catch (e) {
         await this.sendError(channel, `Error: ${this._redact(e.message)}`);
         return;
@@ -501,7 +521,7 @@ class CopilotAdapter extends BaseAdapter {
     return this._versionGate;
   }
 
-  _logSpawn(channel, args, skipResume) {
+  _logSpawn(channel, args, skipResume, viaStdin = false) {
     // Log a redacted, prompt-free shape of the command. The prompt is replaced
     // with a placeholder; tokens never appear in argv but redact defensively.
     const shown = [];
@@ -509,7 +529,7 @@ class CopilotAdapter extends BaseAdapter {
       if (args[i] === '-p') { shown.push('-p', '<prompt>'); i++; continue; }
       shown.push(args[i]);
     }
-    this._log(`Spawning copilot ${redactSensitive(shown.join(' '))}${skipResume ? ' (no-resume retry)' : ''}`);
+    this._log(`Spawning copilot ${redactSensitive(shown.join(' '))}${viaStdin ? ' (prompt on stdin)' : ''}${skipResume ? ' (no-resume retry)' : ''}`);
   }
 
   /**
@@ -518,7 +538,7 @@ class CopilotAdapter extends BaseAdapter {
    * the turn. Never rejects on CLI failure — failures come back as
    * `errorMessage` / `staleSession` / `timedOut` so the caller can react.
    */
-  _runTurn(channel, args) {
+  _runTurn(channel, args, stdinPrompt = null) {
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(channel)) return Promise.resolve({ userStopped: true });
     const [file, ...prefix] = this._resolveExec(this._copilotBin);
@@ -529,7 +549,7 @@ class CopilotAdapter extends BaseAdapter {
       let proc;
       try {
         proc = spawn(file, [...prefix, ...args], {
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: [stdinPrompt != null ? 'pipe' : 'ignore', 'pipe', 'pipe'],
           env,
           cwd,
           detached: !IS_WINDOWS,
@@ -539,6 +559,12 @@ class CopilotAdapter extends BaseAdapter {
         return resolve({ errorMessage: `Failed to launch Copilot CLI: ${this._redact(e.message)}` });
       }
       this._channelProcesses[channel] = proc;
+      // The whole prompt, then EOF — Copilot reads stdin to the end before the
+      // run starts. A child that exits first turns the write into EPIPE.
+      if (stdinPrompt != null && proc.stdin) {
+        proc.stdin.on('error', () => {});
+        proc.stdin.end(stdinPrompt);
+      }
 
       // Guard the child's stdio streams against 'error'. When the process is
       // SIGKILL'd on stop, macOS Node can emit a benign EPIPE/ECONNRESET 'error'

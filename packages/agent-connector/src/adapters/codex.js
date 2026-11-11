@@ -953,6 +953,21 @@ class CodexAdapter extends BaseAdapter {
         'at an endpoint that supports the full Responses API, or edit the agent and set Agent capabilities to ' +
         '"Chat only · Chat Completions API" (it then answers without running tools on this device).';
     }
+    // The base URL answers, but has nothing at /responses: an endpoint that
+    // only serves Chat Completions (or a base URL missing its path prefix).
+    // Seen as `unexpected status 404 Not Found: 404 page not found, url:
+    // http://host:port/v1/responses` on every message, read as "Codex failed
+    // to complete this run" with no hint that the setting is the cause.
+    if (/\b404\b/.test(detail) && /\/responses\b/i.test(detail)) {
+      const m = /url:\s*(\S+)/i.exec(detail);
+      let host = '';
+      try { host = new URL(m ? m[1] : (customProvider && customProvider.baseUrl) || '').host; } catch {}
+      return `${detail}\n\nThe endpoint this agent is set to${host ? ` (${host})` : ''} has no Responses API ` +
+        '(/v1/responses), which the Codex CLI sends every request to — so every run here will fail the same way. ' +
+        'Check the base URL (it usually ends in /v1), or, if that service only offers Chat Completions, edit the ' +
+        'agent and set Agent capabilities to "Chat only · Chat Completions API" (it then answers without running ' +
+        'tools on this device).';
+    }
     // A model the user's ChatGPT plan doesn't include for Codex. Seen in the
     // field with several model names picked in the workspace; every run
     // fails the same way until another model is chosen.

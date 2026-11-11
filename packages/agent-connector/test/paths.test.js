@@ -5,7 +5,7 @@ const os = require('os');
 const path = require('path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { getExtraBinDirs, getEnhancedPATH, getEnhancedEnv, whichBinary, clearBinaryLookupCache, defaultAgentWorkdir, IS_WINDOWS } = require('../src/paths');
+const { getExtraBinDirs, getEnhancedPATH, getEnhancedEnv, whichBinary, clearBinaryLookupCache, defaultAgentWorkdir, resolveAgentWorkdir, IS_WINDOWS } = require('../src/paths');
 
 describe('Paths', () => {
   it('getExtraBinDirs returns array', () => {
@@ -164,6 +164,33 @@ describe('Paths', () => {
       assert.equal(path.basename(dir), 'a_b_c_..');
       assert.equal(path.basename(defaultAgentWorkdir('')), 'default');
       assert.equal(path.basename(defaultAgentWorkdir(undefined)), 'default');
+    });
+  });
+
+  describe('resolveAgentWorkdir', () => {
+    const home = path.join(os.tmpdir(), 'oa-home');
+
+    // Field report: the web form's "haocheng-claude-a" was stored verbatim and
+    // every run died on `ENOENT: … mkdir 'haocheng-claude-a/.claude/skills/…'`.
+    it('takes a relative path from the home directory, not the daemon cwd', () => {
+      assert.equal(resolveAgentWorkdir('haocheng-claude-a', home), path.join(home, 'haocheng-claude-a'));
+      assert.equal(resolveAgentWorkdir(' projects/app ', home), path.join(home, 'projects', 'app'));
+    });
+
+    it('expands ~ and keeps an absolute path', () => {
+      assert.equal(resolveAgentWorkdir('~', home), home);
+      assert.equal(resolveAgentWorkdir('~/code', home), path.join(home, 'code'));
+      const abs = path.join(os.tmpdir(), 'abs-dir');
+      assert.equal(resolveAgentWorkdir(abs, home), abs);
+      // Untouched, separators included — normalize() turned this into
+      // \home\ubuntu\proj on Windows.
+      assert.equal(resolveAgentWorkdir('/home/ubuntu/proj', home), '/home/ubuntu/proj');
+    });
+
+    it('returns null for nothing, so callers keep their default', () => {
+      assert.equal(resolveAgentWorkdir('', home), null);
+      assert.equal(resolveAgentWorkdir('   ', home), null);
+      assert.equal(resolveAgentWorkdir(undefined, home), null);
     });
   });
 });

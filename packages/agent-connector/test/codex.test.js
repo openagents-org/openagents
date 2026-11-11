@@ -97,6 +97,18 @@ describe('Codex — secret redaction', () => {
 // ---------------------------------------------------------------------------
 
 describe('Codex — failure detail selection', () => {
+  // Field report: a custom endpoint with no Responses API failed every
+  // message as "Codex failed to complete this run".
+  it('says an endpoint without /v1/responses is the cause', () => {
+    const detail = CodexAdapter._failureDetail({
+      errorMessage: 'unexpected status 404 Not Found: 404 page not found, url: http://8.136.44.20:7863/v1/responses',
+      exitCode: 1,
+    }, { customProvider: { baseUrl: 'http://8.136.44.20:7863/v1' } });
+    assert.match(detail, /^unexpected status 404/);
+    assert.match(detail, /\(8\.136\.44\.20:7863\) has no Responses API/);
+    assert.match(detail, /Chat only · Chat Completions API/);
+  });
+
   it('prefers the turn.failed / error event message', () => {
     const detail = CodexAdapter._failureDetail({
       errorMessage: 'Incorrect API key provided: sk-Mzax7abcdef123456',

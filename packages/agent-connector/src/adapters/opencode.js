@@ -1444,9 +1444,12 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'unsupported_version';
     } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
       category = 'auth_failed';
-    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)) {
+    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)
+      || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
       // A spent account, not a busy one: waiting does not fix it. Seen in the
-      // field as "Insufficient balance" under "undetermined reason".
+      // field as "Insufficient balance" under "undetermined reason", and as a
+      // plan's "Your Pass allowance for this period is used up, and your
+      // account is set not to…" with no status code in the run's error.
       category = 'quota_exhausted';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';

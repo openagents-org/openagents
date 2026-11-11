@@ -17,7 +17,7 @@ const {
   AUTH_MODE_KEY, CLI_LOGIN, MODEL_MODE_KEY, MODEL_DEFAULT, credentialKeys, isCliLogin, modelKeys, stripForCliLogin, typeEnvFor,
 } = require('./env');
 const { configuredModel } = require('./agent-model');
-const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir } = require('./paths');
+const { getEnhancedEnv, whichBinary, IS_WINDOWS, defaultAgentWorkdir, resolveAgentWorkdir } = require('./paths');
 const { hostFreeEnv } = require('./host-agent');
 const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
@@ -733,7 +733,7 @@ class Daemon {
           type: a.type || 'unknown',
           status: (proc && proc.state) || 'stopped',
           model: model || null,
-          workingDir: a.path || null,
+          workingDir: resolveAgentWorkdir(a.path),
           apiKeyMasked: apiKey ? maskApiKey(apiKey) : null,
           authMode: this._agentAuthMode(a, apiKey),
           baseUrlHost: endpointHost(this._configuredBaseUrl(a, typeEnv)),
@@ -1128,7 +1128,10 @@ async _runNodeCommand(n, cmd) {
         // Working directory: use the one the user picked, else a managed folder
         // under the launcher home so every remote-created agent has a clean,
         // predictable home without the user typing a path.
-        let workingDir = (args.workingDir || '').trim();
+        // A relative path ("my-project") is taken from the home directory —
+        // stored as typed, it resolved against the daemon's cwd and every run
+        // failed (see resolveAgentWorkdir).
+        let workingDir = resolveAgentWorkdir(args.workingDir);
         if (!workingDir) workingDir = path.join(os.homedir(), '.openagents', 'agents', name);
         try { fs.mkdirSync(workingDir, { recursive: true }); } catch {}
         const r1 = await this._runAgn(['create', name, '--type', type, '--install', '--path', workingDir]);
@@ -1204,8 +1207,8 @@ async _runNodeCommand(n, cmd) {
         // that copy, or the agent keeps running on the old key while the save
         // says ok.
         const unshadow = Object.fromEntries(applied.map((key) => [key, '']));
-        const newDir = (args.workingDir || '').trim();
-        if (newDir && newDir !== (args.currentWorkingDir || '')) {
+        const newDir = resolveAgentWorkdir(args.workingDir);
+        if (newDir && newDir !== (resolveAgentWorkdir(args.currentWorkingDir) || '')) {
           try { fs.mkdirSync(newDir, { recursive: true }); } catch {}
           // The agent's own env goes with the entry remove/create replace, and
           // for a type that keeps its key on the agent that is the key, the
@@ -1882,7 +1885,7 @@ async _runNodeCommand(n, cmd) {
     }
 
     const env = this._buildAgentEnv(agentCfg);
-    const cwd = agentCfg.path || undefined;
+    const cwd = resolveAgentWorkdir(agentCfg.path) || undefined;
 
     while (!this._shuttingDown && !this._stoppedAgents.has(name)) {
       try {
@@ -2053,7 +2056,10 @@ async _runNodeCommand(n, cmd) {
         // explicit `path`, adapters used to fall back to process.cwd(), which on
         // a packaged Windows launcher is C:\WINDOWS\system32 — so writing
         // .claude/skills there failed with EPERM. Root it under ~/.openagents.
-        workingDir: agentCfg.path || defaultAgentWorkdir(name),
+        // resolveAgentWorkdir: an agent saved with a relative path (older
+        // launchers stored the web form's text verbatim) runs from the home
+        // directory instead of failing on every write.
+        workingDir: resolveAgentWorkdir(agentCfg.path) || defaultAgentWorkdir(name),
         toolMode: agentCfg.tool_mode || 'skills',
         // The conversation `agn join` created this agent from (Claude Code).
         seedSession: agentCfg.seed_session || null,

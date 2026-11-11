@@ -1096,6 +1096,31 @@ function defaultAgentWorkdir(agentName) {
 }
 
 /**
+ * The folder an agent's configured `path` names, as an absolute path.
+ *
+ * A path typed in the web form reaches the daemon verbatim, and a bare name
+ * such as `my-agent` used to be stored as-is — relative to whatever the
+ * daemon's cwd happened to be (`/` for a packaged Mac launcher,
+ * C:\WINDOWS\system32 on Windows). Every run then failed on its first write:
+ * `ENOENT: no such file or directory, mkdir 'my-agent/.claude/skills/…'`.
+ *
+ * A relative path is taken from the home directory, where a fresh terminal
+ * starts, and a leading `~` is expanded. Empty input returns null so callers
+ * keep their own default.
+ */
+function resolveAgentWorkdir(input, home = os.homedir()) {
+  const raw = String(input == null ? '' : input).trim();
+  if (!raw) return null;
+  // An absolute path is returned as typed: normalizing it would rewrite the
+  // separators of a path saved on another OS (`/home/me/proj` reads back as
+  // `\home\me\proj` on Windows) and show the user a folder they never set.
+  if (path.isAbsolute(raw)) return raw;
+  if (raw === '~') return home;
+  if (/^~[\\/]/.test(raw)) return path.join(home, raw.slice(2));
+  return path.join(home, raw);
+}
+
+/**
  * Reset the two 30s caches that back binary detection. Call this after
  * install / uninstall so a freshly-created bin dir (e.g. ~/.cursor/bin)
  * isn't masked by a pre-install snapshot of getExtraBinDirs(), and so a
@@ -1356,6 +1381,7 @@ module.exports = {
   getRuntimePrefix,
   getCorePrefix,
   defaultAgentWorkdir,
+  resolveAgentWorkdir,
   aiderBinDirs,
   uvToolBinDirs,
   IS_WINDOWS,

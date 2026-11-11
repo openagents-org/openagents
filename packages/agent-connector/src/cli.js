@@ -4,6 +4,7 @@
 // no-stray-console-window default on Windows. See win-console.js.
 require('./win-console').installWindowsHideDefault();
 
+const path = require('path');
 const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
@@ -203,7 +204,9 @@ async function cmdCreate(connector, flags, positional) {
   }
 
   try {
-    connector.addAgent({ name, type, role, path: flags.path || process.cwd() });
+    // Stored absolute: a relative --path is relative to this shell, and the
+    // daemon that later runs the agent has a different cwd.
+    connector.addAgent({ name, type, role, path: flags.path ? path.resolve(String(flags.path)) : process.cwd() });
 
     // Signal daemon to pick up the new agent
     try { connector.sendDaemonCommand('reload'); } catch {}
