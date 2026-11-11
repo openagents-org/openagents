@@ -879,6 +879,10 @@ export function ChatView() {
             </button>
           )}
 
+          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && currentSession && (
+            <AddThreadParticipants key={`add-participants:${currentSessionId}`} channelName={currentSessionId} />
+          )}
+
           {/* All steps toggle */}
           {hasCollapsibleSteps && (
             <Button
@@ -892,10 +896,6 @@ export function ChatView() {
             >
               <ListTree aria-hidden="true" className="size-3.5" />
             </Button>
-          )}
-
-          {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && currentSession && (
-            <AddThreadParticipants key={`add-participants:${currentSessionId}`} channelName={currentSessionId} />
           )}
 
           {!isDM && currentSessionId && threadPrivacyApplies(currentSessionId) && !currentSessionId.startsWith('routines:') && currentSession && (

@@ -534,16 +534,44 @@ it('adds people and agents without starting work, and omits the issue Tasks sect
   mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:new-agent', display_name: 'New agent', status: 'online' }, { address: 'openagents:offline-agent', status: 'offline' }] });
   await openIssue();
   expect(host.textContent).not.toContain('Break out a task');
-  await click(button('Add people or agents'));
+  const header = host.querySelector('main > header')!;
+  const participants = header.querySelector('section[aria-label="Participants"]')!;
+  expect(participants.textContent).toContain('Alice');
+  expect(participants.textContent).toContain('Research agent');
+  await click([...participants.querySelectorAll('button')].find(button => button.textContent === 'Add people or agents')!);
   const dialog = host.querySelector('[role=dialog]')!;
   await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('Bob'))!);
   await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('New agent'))!);
+  mocks.api.getIssue.mockResolvedValue({ ...issue, participants: [...issue.participants,
+    { source: 'human:bob@example.com', name: 'Bob' }, { source: 'openagents:new-agent', name: 'New agent' },
+  ] });
   await click(button('Add to issue'));
   expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith('issue-1', [
     expect.objectContaining({ kind: 'human', id: 'bob@example.com' }),
     expect.objectContaining({ kind: 'agent', id: 'new-agent' }),
   ]);
+  expect(participants.textContent).toContain('Bob');
+  expect(participants.textContent).toContain('New agent');
+  expect(mocks.ws.createTask).not.toHaveBeenCalled();
+  expect(mocks.ws.runTask).not.toHaveBeenCalled();
+});
 
+it.each([
+  { assignee: 'human:bob@example.com', assignee_name: 'Bob', name: 'Bob' },
+  { assignee: 'openagents:research-agent', assignee_name: null, name: 'Research agent' },
+  { assignee: null, assignee_name: null, name: 'Unassigned' },
+])('shows $name and issue settings inline without a Details toggle', async ({ assignee, assignee_name, name }) => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, assignee, assignee_name });
+  await openIssue();
+  const header = host.querySelector('main > header')!;
+  expect(header.querySelector('[aria-labelledby="issue-assignee-issue-1"]')?.textContent).toBe(name);
+  expect(header.querySelector('select[aria-label="Status"]')).not.toBeNull();
+  expect(header.textContent).toContain('Due date');
+  expect(header.textContent).toContain('Labels');
+  expect(button('Details')).toBeUndefined();
+  expect(host.querySelector('aside')).toBeNull();
+  expect(host.textContent).not.toContain('Workspace issue');
+  expect(host.textContent).not.toContain(t('issues.commentHint'));
 });
 
 it('clears a saved comment and reports delivery failure without inviting a duplicate submission', async () => {
