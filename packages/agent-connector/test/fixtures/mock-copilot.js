@@ -18,6 +18,9 @@
  *                           stale_session | timeout_silent | ask_user | crash
  *   MOCK_COPILOT_VERSION  = printed for `--version` (default 1.0.63)
  *   MOCK_COPILOT_ECHO_ARGS_FILE = if set, write argv (JSON) here for assertions
+ *   MOCK_COPILOT_ECHO_STDIN_FILE = if set and there is no `-p`, read the
+ *                           prompt from stdin (as the real CLI does when one is
+ *                           piped) and write it here before running
  */
 'use strict';
 
@@ -114,4 +117,14 @@ function run() {
   }
 }
 
-run();
+if (process.env.MOCK_COPILOT_ECHO_STDIN_FILE && !argv.includes('-p')) {
+  let input = '';
+  process.stdin.setEncoding('utf-8');
+  process.stdin.on('data', (c) => { input += c; });
+  process.stdin.on('end', () => {
+    try { fs.writeFileSync(process.env.MOCK_COPILOT_ECHO_STDIN_FILE, input); } catch {}
+    run();
+  });
+} else {
+  run();
+}

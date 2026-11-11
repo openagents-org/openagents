@@ -287,7 +287,21 @@ function stripCliNoise(text) {
   return String(text || '').split(/\r?\n/).filter((l) => !BENIGN_CLI_OUTPUT.test(l)).join('\n');
 }
 
+/**
+ * Whether a prompt can go to a CLI as one argv element (`-p <prompt>`).
+ * Windows caps a whole command line at 32,767 characters and Node fails the
+ * spawn itself with ENAMETOOLONG — the system prompt plus a large pinned
+ * glossary got there with a one-word message. Linux caps a single argument at
+ * 128 KiB. Both limits leave headroom for quoting and the rest of the argv.
+ * Past it, an adapter sends the prompt over stdin.
+ */
+function promptFitsArgv(prompt, platform = process.platform) {
+  const limit = platform === 'win32' ? 24000 : 100000;
+  return String(prompt || '').length <= limit;
+}
+
 module.exports = {
+  promptFitsArgv,
   SESSION_DEFAULT_RE,
   networkErrorText,
   BENIGN_CLI_OUTPUT,

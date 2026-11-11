@@ -275,6 +275,8 @@ describe('OpenCode — failure classification (8.3)', () => {
     const err = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
     assert.equal(OpenCodeAdapter._classifyFailure(err('Insufficient balance')).category, 'quota_exhausted');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid or revoked API key.')).category, 'auth_failed');
+    // A plan's allowance, quoted with no status code in the run's error.
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Your Pass allowance for this period is used up, and your account is set not to overdraw.')).category, 'quota_exhausted');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Bad Request: Failed to buffer the request body: length limit exceeded')).category, 'request_too_large');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Hệ thống đang bận, vui lòng thử lại sau ít phút.')).category, 'provider_server_error');
     const messages = OpenCodeAdapter.prototype._failureMessages();

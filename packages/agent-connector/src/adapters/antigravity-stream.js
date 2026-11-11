@@ -13,19 +13,14 @@
  * rather than a tweak to the gemini adapter.
  */
 
-const { redactSecrets } = require('./utils');
+const { redactSecrets, promptFitsArgv } = require('./utils');
 
 /**
- * Longest prompt passed as `-p <prompt>`. Past it the prompt goes over stdin
- * (agyStdinMessage). Windows caps a whole command line at 32,767 characters
- * and Node fails the spawn itself with ENAMETOOLONG — the system prompt plus a
- * large pinned glossary got there with a one-word message. Linux caps a single
- * argument at 128 KiB. Both limits are left headroom for quoting and the rest
- * of the argv.
+ * Longest prompt passed as `-p <prompt>`; past it the prompt goes over stdin
+ * (agyStdinMessage). The limits are shared — see promptFitsArgv in utils.
  */
 function agyPromptFitsArgv(prompt, platform = process.platform) {
-  const limit = platform === 'win32' ? 24000 : 100000;
-  return String(prompt || '').length <= limit;
+  return promptFitsArgv(prompt, platform);
 }
 
 /**
