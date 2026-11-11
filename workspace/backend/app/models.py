@@ -26,6 +26,7 @@ from sqlalchemy import (
     PrimaryKeyConstraint,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, UUID
@@ -131,6 +132,9 @@ class Workspace(Base):
     collaborators = relationship("WorkspaceCollaborator", back_populates="workspace", cascade="all, delete-orphan", lazy="selectin")
     memberships = relationship("WorkspaceMembership", back_populates="workspace", cascade="all, delete-orphan")
     nodes = relationship("Node", back_populates="workspace", cascade="all, delete-orphan")
+
+    # Sign-in looks up legacy-owned workspaces by lower(creator_email) (migration 095).
+    __table_args__ = (Index("idx_workspaces_creator_email_lower", func.lower(creator_email)),)
 
 
 class WorkspaceMember(Base):

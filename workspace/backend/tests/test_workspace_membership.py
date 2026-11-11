@@ -169,6 +169,39 @@ class TestAccountWorkspacesEndpoint:
         r = client.get("/v1/account/workspaces", headers={"Authorization": "Bearer bad"})
         assert r.status_code == 401
 
+    def test_migrated_user_skips_backfill(self, client, monkeypatch):
+        import app.routers.account as account_router
+        _stub_identity(monkeypatch, {"erin": _claims("erin@x.com")})
+        first = client.get("/v1/account/workspaces", headers=_auth("erin")).json()["data"]
+
+        def fail(*_args, **_kwargs):
+            raise AssertionError("a migrated user must not reconcile or provision again")
+        monkeypatch.setattr(account_router, "reconcile_memberships", fail)
+        monkeypatch.setattr(account_router, "provision_workspace", fail)
+        again = client.get("/v1/account/workspaces", headers=_auth("erin")).json()["data"]
+        assert again == first
+
+    def test_legacy_access_added_later_is_still_reconciled(self, client, db, monkeypatch):
+        _stub_identity(monkeypatch, {"fay": _claims("fay@x.com")})
+        assert len(client.get("/v1/account/workspaces", headers=_auth("fay")).json()["data"]) == 1
+        # Legacy email-keyed access granted after the first sign-in.
+        owned = Workspace(name="Owned", slug="acc2", password_hash="t1", creator_email="FAY@x.com")
+        shared = Workspace(name="Shared", slug="acc3", password_hash="t2", creator_email="g@x.com")
+        db.add_all([owned, shared]); db.flush()
+        db.add(WorkspaceCollaborator(workspace_id=shared.id, email="fay@x.com", role="viewer"))
+        db.commit()
+        roles = {w["slug"]: w["role"] for w in client.get("/v1/account/workspaces", headers=_auth("fay")).json()["data"]}
+        assert roles["acc2"] == "owner"
+        assert roles["acc3"] == "viewer"
+        assert len(roles) == 3
+
+    def test_deleted_owned_workspace_does_not_force_backfill(self, db):
+        user = get_or_create_user(db, _claims("gil@x.com"))
+        provision_workspace(db, user)
+        db.add(Workspace(name="Gone", slug="acc4", password_hash="t", creator_email="gil@x.com", status="deleted"))
+        db.commit()
+        assert access.memberships_need_backfill(db, user) is False
+
 
 # ---------------------------------------------------------------------------
 # Phase 3 — require_login default/toggle + team management

@@ -26,7 +26,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.access import provision_workspace, reconcile_memberships, resolve_current_user
+from app.access import (
+    memberships_need_backfill,
+    provision_workspace,
+    reconcile_memberships,
+    resolve_current_user,
+)
 from app.database import get_db
 from app.firebase_auth import verify_identity_token
 from app.models import (
@@ -76,22 +81,26 @@ def list_account_workspaces(
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid identity token")
 
-    # One list request per user at a time past this point. The client retries a
-    # request that is slow to answer, and two first-run requests side by side
-    # could each see no membership and each provision a workspace.
-    db.execute(select(User.id).where(User.id == user.id).with_for_update()).first()
+    # A returning, fully migrated user (the common case on every sign-in) has
+    # nothing to reconcile or provision: skip the row lock and those writes.
+    if memberships_need_backfill(db, user):
+        # One list request per user at a time past this point. The client
+        # retries a request that is slow to answer, and two first-run requests
+        # side by side could each see no membership and each provision a
+        # workspace.
+        db.execute(select(User.id).where(User.id == user.id).with_for_update()).first()
 
-    # Migration bridge: pull legacy email-keyed access into memberships.
-    reconcile_memberships(db, user)
+        # Migration bridge: pull legacy email-keyed access into memberships.
+        reconcile_memberships(db, user)
 
-    # Brand-new user (no access anywhere) → give them an empty workspace to own.
-    has_membership = db.execute(
-        select(WorkspaceMembership.workspace_id)
-        .where(WorkspaceMembership.user_id == user.id)
-        .limit(1)
-    ).first()
-    if not has_membership:
-        provision_workspace(db, user)
+        # Brand-new user (no access anywhere) → give them an empty workspace to own.
+        has_membership = db.execute(
+            select(WorkspaceMembership.workspace_id)
+            .where(WorkspaceMembership.user_id == user.id)
+            .limit(1)
+        ).first()
+        if not has_membership:
+            provision_workspace(db, user)
 
     db.commit()
 
