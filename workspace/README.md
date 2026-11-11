@@ -156,7 +156,7 @@ workspace-wide trust. Verified human identities override client-supplied authors
 | Method | Path | Action |
 |---|---|---|
 | GET / POST | `/v1/issues` | List (paginated, with `q` / `status` filters) / create |
-| GET / PATCH | `/v1/issues/{id}` | Discussion and linked work / edit or change status |
+| GET / PATCH | `/v1/issues/{id}` | Discussion and linked work / edit or change status; `{id}` may be the issue id or its workspace number (`42`) |
 | POST | `/v1/issues/{id}/comments` | Comment, or share a linked `source_event_id` |
 | POST | `/v1/issues/{id}/links` | Link an existing `channel_name` |
 | POST | `/v1/issues/{id}/threads` | Start selected `agents` with an `instruction` |

@@ -3,7 +3,7 @@
 import { IssueWork } from './issue-work';
 import { IssueAgentProgress } from './issue-agent-progress';
 import { IssueAttachments } from './issue-attachments';
-import { resourcePath } from '@/lib/resource-link';
+import { issueLinkId, resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -263,6 +263,7 @@ export function IssueDiscussion({
                 </div>
                 <h1 className="max-w-[32ch] break-words text-[24px] font-semibold leading-[1.35] tracking-[-0.025em] sm:text-[27px]">
                   {issue.title}
+                  {issue.number != null && <span className="ml-2 font-normal text-muted-foreground">#{issue.number}</span>}
                 </h1>
                 <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <IssueAvatar
@@ -330,7 +331,7 @@ export function IssueDiscussion({
                     onClick={async () => {
                       try {
                         const url = new URL(
-                          resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id),
+                          resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', issueLinkId(issue)),
                           shareOrigin(),
                         );
                         await navigator.clipboard.writeText(url.toString());

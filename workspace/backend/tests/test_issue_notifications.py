@@ -110,4 +110,4 @@ def test_issue_request_routes_completion_to_requester_through_event_pipeline(cli
         _fanout_impl(*fanout.call_args.args)
     notification = db.scalar(select(NotificationRecord).where(NotificationRecord.kind == 'issue_completed'))
     assert notification.recipient_email == 'requester@acme.test'
-    assert notification.link_url.endswith('/issues/' + issue['id'])
+    assert notification.link_url.endswith('/issues/' + str(issue['number']))

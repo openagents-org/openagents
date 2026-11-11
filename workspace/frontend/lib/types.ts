@@ -1592,6 +1592,8 @@ export interface WorkspaceIssue {
   knowledge_ids?: string[];
   file_ids?: string[];
   id: string;
+  /** Per-workspace sequence (#42) used in links; null only on rare legacy rows. */
+  number?: number | null;
   title: string;
   description: string;
   status: IssueStatus;

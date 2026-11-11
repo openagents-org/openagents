@@ -32,6 +32,7 @@ from app.models import (
     WorkspaceMember,
     WorkspaceMembership,
     User,
+    Workspace,
 )
 from app.response import success_response
 from app.routers.network import _emit_event_blocking, _resolve_workspace
@@ -146,9 +147,13 @@ def _access(network, db, token, authorization, write=False):
 
 
 def _issue(db, workspace, issue_id, lock=False):
-    query = select(Issue).where(
-        Issue.workspace_id == workspace.id, Issue.id == issue_id
+    # Links use the per-workspace number (/issues/42); the id works everywhere.
+    match = (
+        Issue.number == int(issue_id)
+        if re.fullmatch(r"[0-9]{1,9}", issue_id)
+        else Issue.id == issue_id
     )
+    query = select(Issue).where(Issue.workspace_id == workspace.id, match)
     if lock:
         query = query.with_for_update()
     issue = db.execute(query).scalar_one_or_none()
@@ -239,6 +244,7 @@ def _serialize(issue):
         key: getattr(issue, key)
         for key in (
             "id",
+            "number",
             "title",
             "description",
             "status",
@@ -541,7 +547,14 @@ def create_issue(
     assignee, assignee_name = _resolve_assignee(db, workspace, actor, body.assignee)
     viewer = _viewer(db, workspace, x_workspace_token, authorization)
     knowledge_ids, file_ids = _validate_context(db, workspace, viewer, body.knowledge_ids, body.file_ids)
+    # Lock the workspace row so concurrent creates take consecutive numbers;
+    # the unique (workspace_id, number) index backs this up.
+    db.execute(select(Workspace.id).where(Workspace.id == workspace.id).with_for_update())
+    number = (db.execute(
+        select(func.max(Issue.number)).where(Issue.workspace_id == workspace.id)
+    ).scalar() or 0) + 1
     issue = Issue(
+        number=number,
         board_id=_board_id(db, workspace, body.board_id),
         assignee=assignee, assignee_name=assignee_name,
         knowledge_ids=knowledge_ids, file_ids=file_ids,
