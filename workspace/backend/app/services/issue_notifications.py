@@ -61,6 +61,6 @@ def notify_issue_completion(db, workspace_id: str, event: dict) -> bool:
                title=f'{name} finished work on your issue',
                message=f'{issue.title}\n{content[:240]}',
                channel_name=channel.name,
-               link_url=f'/{workspace.slug or workspace.id}/issues/{issue.id}',
+               link_url=f'/{workspace.slug or workspace.id}/issues/{issue.number or issue.id}',
                recipient_email=requester, kind='issue_completed', action_ref=ref)
     return True

@@ -2,6 +2,10 @@ export type ResourceView = 'issues' | 'knowledge' | 'files';
 export function resourcePath(workspace: string, view: ResourceView, id?: string | null): string {
   return `/${encodeURIComponent(workspace)}/${view}${id ? `/${encodeURIComponent(id)}` : ''}`;
 }
+/** Issue links use the short per-workspace number; the id still resolves. */
+export function issueLinkId(issue: { id: string; number?: number | null }): string {
+  return issue.number != null ? String(issue.number) : issue.id;
+}
 /** Links identify resources; their normal access checks still apply. */
 export function requestedResource(location: string): { view: ResourceView; id: string | null } | null {
   try {

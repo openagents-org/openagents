@@ -1,7 +1,7 @@
 'use client';
 
 import { useLayout } from '@/components/layout/layout-context';
-import { requestedResource, resourcePath } from '@/lib/resource-link';
+import { issueLinkId, requestedResource, resourcePath } from '@/lib/resource-link';
 import { IssueLabel } from './issue-label';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -65,18 +65,43 @@ function IssueWorkspace() {
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
   const selectedRef = useRef(selected);
-  const selectIssue = (id: string | null, nextBoardId = boardId) => {
-    selectedRef.current = id;
+  const issuesRef = useRef(issues);
+  issuesRef.current = issues;
+  const boardIdRef = useRef(boardId);
+  boardIdRef.current = boardId;
+  const writeIssueUrl = (linkId: string | null, nextBoardId: string) => {
     const outer = new URL(window.location.href);
     const isHashRoute = outer.hash.startsWith('#/');
     const url = isHashRoute ? new URL(outer.hash.slice(1), outer.href) : outer;
-    url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', id);
+    url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', linkId);
     for (const key of ['issue', 'thread', 'knowledge', 'file']) url.searchParams.delete(key);
     url.searchParams.set('board', nextBoardId);
     if (isHashRoute) { outer.hash = url.pathname + url.search; }
     window.history.replaceState(window.history.state, '', isHashRoute ? outer : url);
-    setSelected(id);
   };
+  // `id` may be an issue id or a link number; state always keeps the id and
+  // the URL the short number.
+  const selectIssue = (id: string | null, nextBoardId = boardId) => {
+    const known = id ? issuesRef.current.find((i) => i.id === id || (i.number != null && String(i.number) === id)) : undefined;
+    const next = known?.id ?? id;
+    selectedRef.current = next;
+    writeIssueUrl(known ? issueLinkId(known) : id, nextBoardId);
+    setSelected(next);
+  };
+  // An issue outside the loaded list (a numbered deep link, a notification):
+  // look it up once to learn both its id and its number.
+  useEffect(() => {
+    if (!selected || issuesRef.current.some((i) => i.id === selected)) return;
+    let cancelled = false;
+    workspaceApi.getIssue(selected).then((issue) => {
+      if (cancelled || selectedRef.current !== selected) return;
+      if (issue.id !== selected && String(issue.number) !== selected) return;
+      selectedRef.current = issue.id;
+      writeIssueUrl(issueLinkId(issue), boardIdRef.current);
+      setSelected(issue.id);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [selected]);
   useEffect(() => {
     if (!pendingIssueId) return;
     selectIssue(pendingIssueId);
@@ -100,12 +125,12 @@ function IssueWorkspace() {
   const reload = useCallback(() => setRevision((v) => v + 1), []);
   const [deleting, setDeleting] = useState<string | null>(null);
   const [copiedIssue, setCopiedIssue] = useState<string | null>(null);
-  const copyIssueLink = async (id: string) => {
+  const copyIssueLink = async (issue: WorkspaceIssue) => {
     try {
-      const url = new URL(resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id), shareOrigin());
+      const url = new URL(resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', issueLinkId(issue)), shareOrigin());
       url.searchParams.set('board', boardId);
       await navigator.clipboard.writeText(url.toString());
-      setCopiedIssue(id);
+      setCopiedIssue(issue.id);
       toast.success(t('common.copied'));
     } catch (e) { toast.error(errorMessage(e)); }
   };
@@ -222,6 +247,7 @@ function IssueWorkspace() {
           className={cn('flex gap-4', asCard ? 'items-start' : 'items-center')}
         >
           <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
+          {issue.number != null && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{issue.number}</span>}
           <span
             className={cn(
               'min-w-0 text-[13px] font-medium leading-5 text-foreground',
@@ -298,7 +324,7 @@ function IssueWorkspace() {
         type="button"
         aria-label={t('issues.copyIssueLink', { title: issue.title })}
         title={t('issues.copyLink')}
-        onClick={() => void copyIssueLink(issue.id)}
+        onClick={() => void copyIssueLink(issue)}
         className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         {copiedIssue === issue.id ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}

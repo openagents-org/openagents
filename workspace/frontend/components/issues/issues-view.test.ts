@@ -522,6 +522,29 @@ describe('shared issues', () => {
     expect(host.textContent).toContain('Discuss the first screen.');
   });
 
+  it('opens a numbered issue link and keeps the short number in the URL', async () => {
+    const numbered = { ...issue, number: 7 };
+    mocks.api.listIssues.mockResolvedValue({ issues: [numbered], next_offset: null });
+    mocks.api.getIssue.mockResolvedValue(numbered);
+    window.history.replaceState(null, '', '/workspace-1/issues/7');
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.getIssue).toHaveBeenCalledWith('7');
+    expect(host.textContent).toContain('Discuss the first screen.');
+    expect([...host.querySelectorAll('h1')].some(h => h.textContent?.endsWith('#7'))).toBe(true);
+    expect(window.location.pathname).toBe('/workspace-1/issues/7');
+  });
+
+  it('links an issue by its number once known', async () => {
+    window.history.replaceState(null, '', '/workspace-1/issues/issue-1');
+    const numbered = { ...issue, number: 12 };
+    mocks.api.listIssues.mockResolvedValue({ issues: [numbered], next_offset: null });
+    mocks.api.getIssue.mockResolvedValue(numbered);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(window.location.pathname).toBe('/workspace-1/issues/12');
+  });
+
   it('opens a directly linked issue', async () => {
     window.history.replaceState(null, '', '/workspace-1?issue=issue-1');
     await act(async () => root.render(createElement(IssuesView)));

@@ -888,6 +888,9 @@ class Issue(Base):
 
     id = Column(Text, primary_key=True, default=_uuid)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    # Per-workspace sequence (#1, #2, …) for short links; NULL only for rows
+    # written by an older app version during a rolling deploy.
+    number = Column(Integer, nullable=True)
     title = Column(Text, nullable=False)
     description = Column(Text, nullable=False, default="", server_default="")
     status = Column(Text, nullable=False, default="open", server_default="open")
@@ -904,6 +907,7 @@ class Issue(Base):
     __table_args__ = (
         Index("idx_issues_workspace_status", "workspace_id", "status"),
         Index("idx_issues_board", "board_id"),
+        Index("uq_issues_workspace_number", "workspace_id", "number", unique=True),
     )
 
 
