@@ -9,7 +9,7 @@ import {
   Check,
   LayoutList,
   KanbanSquare,
-  Columns2,
+  Link2,
   MessageSquare,
   Plus,
   Search,
@@ -20,6 +20,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
+import { shareOrigin } from '@/lib/share-origin';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -62,13 +63,14 @@ function IssueWorkspace() {
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
   const selectedRef = useRef(selected);
-  const selectIssue = (id: string | null) => {
+  const selectIssue = (id: string | null, nextBoardId = boardId) => {
     selectedRef.current = id;
     const outer = new URL(window.location.href);
     const isHashRoute = outer.hash.startsWith('#/');
-    const url = isHashRoute ? new URL(outer.hash.slice(1), outer.origin) : outer;
+    const url = isHashRoute ? new URL(outer.hash.slice(1), outer.href) : outer;
     url.pathname = resourcePath(decodeURIComponent(url.pathname.split('/')[1]), 'issues', id);
     for (const key of ['issue', 'thread', 'knowledge', 'file']) url.searchParams.delete(key);
+    url.searchParams.set('board', nextBoardId);
     if (isHashRoute) { outer.hash = url.pathname + url.search; }
     window.history.replaceState(window.history.state, '', isHashRoute ? outer : url);
     setSelected(id);
@@ -80,9 +82,9 @@ function IssueWorkspace() {
   }, [pendingIssueId, setPendingIssueId]);
   useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
-  const [view, setView] = useState<'list' | 'board' | 'split'>('list');
+  const [view, setView] = useState<'list' | 'board'>('list');
   const board = view === 'board';
-  const split = view === 'split';
+  const split = view === 'list' && selected !== null;
   const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
@@ -95,6 +97,16 @@ function IssueWorkspace() {
   const requestVersion = useRef(0);
   const reload = useCallback(() => setRevision((v) => v + 1), []);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [copiedIssue, setCopiedIssue] = useState<string | null>(null);
+  const copyIssueLink = async (id: string) => {
+    try {
+      const url = new URL(resourcePath(workspace?.slug || workspace?.workspaceId || '', 'issues', id), shareOrigin());
+      url.searchParams.set('board', boardId);
+      await navigator.clipboard.writeText(url.toString());
+      setCopiedIssue(id);
+      toast.success(t('common.copied'));
+    } catch (e) { toast.error(errorMessage(e)); }
+  };
   const removeIssue = async (issue: WorkspaceIssue) => {
     if (deleting || !(await confirmDelete(issue.title))) return;
     setDeleting(issue.id);
@@ -181,7 +193,7 @@ function IssueWorkspace() {
         {issueTime.label(issue.updated_at)}
       </time>
     );
-    // Delete sits beside the card's button rather than inside it: buttons cannot nest.
+    // Row actions sit beside the issue button: buttons cannot nest.
     return <div key={issue.id} className="relative">
     <button
       aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
@@ -242,7 +254,7 @@ function IssueWorkspace() {
           className={cn(
             'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground',
             asCard ? 'mt-4' : 'mt-2',
-            issue.can_delete && 'pr-7',
+            'pr-14',
           )}
         >
           <IssueAvatar
@@ -276,6 +288,16 @@ function IssueWorkspace() {
         </div>
       </div>
     </button>
+    <div className={cn('absolute bottom-[13px] flex items-center gap-1', asCard ? 'right-3' : 'right-4 sm:right-7')}>
+      <button
+        type="button"
+        aria-label={t('issues.copyIssueLink', { title: issue.title })}
+        title={t('issues.copyLink')}
+        onClick={() => void copyIssueLink(issue.id)}
+        className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {copiedIssue === issue.id ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
+      </button>
     {issue.can_delete && (
       <button
         type="button"
@@ -283,14 +305,12 @@ function IssueWorkspace() {
         title={t('common.delete')}
         disabled={deleting === issue.id}
         onClick={() => removeIssue(issue)}
-        className={cn(
-          'absolute bottom-[13px] flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
-          asCard ? 'right-3' : 'right-4 sm:right-7',
-        )}
+        className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
       >
         <Trash2 className="size-3.5" />
       </button>
     )}
+    </div>
     </div>;
   };
 
@@ -309,34 +329,32 @@ function IssueWorkspace() {
     );
   return (
     <div className="@container/issues flex h-full min-h-0 min-w-0 flex-col bg-background">
-      {/* New issue sits beside the title, as the list panels' New buttons do:
-          in the header's right corner it went unnoticed on a wide screen. */}
       <DetailHeader
         titleInHeader
-        title={<div className="flex min-w-0 items-center gap-2">
-          <h1 className="truncate text-sm font-semibold">{t('views.issues')}</h1>
-          <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => setCreateOpen(true)}>
-            <Plus className="size-4" />
-            {t('issues.newIssue')}
-          </Button>
-        </div>}
-      />
+        title={<h1 className="truncate text-sm font-semibold">{t('views.issues')}</h1>}
+      >
+        <Button size="sm" className="shrink-0 gap-1.5 font-semibold" onClick={() => setCreateOpen(true)}>
+          <Plus className="size-4" />
+          {t('issues.newIssue')}
+        </Button>
+      </DetailHeader>
       <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-3 border-b border-border/70 px-5 pt-3 sm:px-8">
         <div className="w-full min-w-0">
           <IssueBoardTabs
             boards={boards}
             boardId={boardId}
+            workspaceId={workspace?.slug || workspace?.workspaceId || ''}
             onSelect={(id) => {
               if (id === boardId) return;
               setBoardId(id);
               setIssues([]);
               setNextOffset(null);
               setPages(1);
-              selectIssue(null);
+              selectIssue(null, id);
             }}
             onChanged={(selectId) => {
               void reloadBoards();
-              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null); }
+              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null, selectId); }
               reload();
             }}
           />
@@ -409,17 +427,6 @@ function IssueWorkspace() {
               onClick={() => { setView('board'); selectIssue(null); }}
             >
               <KanbanSquare />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn('size-6 rounded-sm [&_svg]:size-3.5', split && 'bg-background shadow-xs')}
-              aria-label={t('issues.split')}
-              title={t('issues.split')}
-              aria-pressed={split}
-              onClick={() => setView('split')}
-            >
-              <Columns2 />
             </Button>
           </div>
         </div>
@@ -519,7 +526,7 @@ function IssueWorkspace() {
           key={selected}
           id={selected}
           embedded
-          onBack={() => { selectIssue(null); reload(); }}
+          onBack={() => { selectIssue(null); reload(); void reloadBoards(); }}
           onChanged={reload}
         /> : <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">{t('issues.selectIssue')}</div>}
       </section>}
