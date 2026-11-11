@@ -1595,7 +1595,20 @@ export function AgentSetup({
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
           <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
-            <div className="text-sm text-muted-foreground">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</div>
+            {/* A way back at the top too: the footer's Back sits below a long
+                form, out of sight when the page opens. */}
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <button
+                type="button"
+                onClick={isEdit ? onBack : backToSelection}
+                disabled={busy}
+                className="inline-flex shrink-0 items-center gap-1 text-primary hover:underline disabled:opacity-50"
+              >
+                <ChevronLeft className="size-4" />{isEdit ? t('connect.nodeBack') : t('connect.nodeBackToAgents')}
+              </button>
+              <span aria-hidden className="mx-1 h-4 w-px shrink-0 bg-border" />
+              <span className="min-w-0 truncate">{contextLabel || t('connect.agentRunsOn', { device: node.name })}</span>
+            </div>
 
             {/* Agent hero */}
             <div className="flex items-center gap-4">
