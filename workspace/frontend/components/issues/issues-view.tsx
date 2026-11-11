@@ -187,6 +187,7 @@ function IssueWorkspace() {
   const row = (issue: WorkspaceIssue, asCard = false) => {
     const workingAgents = agents.filter(agent => agent.status === 'online' && agent.busyChannels?.some(id => issue.linked_channels?.includes(id)));
     const working = workingAgents.length > 0 || issue.linked_channels?.some(id => activeSessionIds?.has(id));
+    const isSelected = split && selected === issue.id;
     const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
     const time = (
       <time
@@ -207,9 +208,9 @@ function IssueWorkspace() {
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
-        split && selected === issue.id && 'bg-muted ring-1 ring-inset ring-border',
-        working && 'thread-wip',
-        finished && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
+        isSelected && 'relative bg-blue-50 hover:bg-blue-50 dark:bg-blue-950/40 dark:hover:bg-blue-950/40 ring-1 ring-inset ring-blue-300 dark:ring-blue-700 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-blue-500',
+        working && !isSelected && 'thread-wip',
+        finished && !isSelected && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       <StatusIcon
