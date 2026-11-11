@@ -106,11 +106,8 @@ it('adds it on a saved key', async () => {
 it('offers the key the device has for the type, and adds the agent on it', async () => {
   const api = await open({ runtime: { ready: true, typeReady: true } });
   expect(optionValues()).toContain('__device_key__');
-  // Offered, not picked for the user.
-  await submit();
-  expect(sent(api)).toEqual([]);
-
-  await choose(credentialSelect(), '__device_key__');
+  // Known to be set up, so picked for the user: no key is required.
+  expect(credentialSelect().value).toBe('__device_key__');
   expect(keyRequired()).toBeNull();
   expect(host.querySelector('[data-testid="agent-setup-device-key-hint"]')!.textContent)
     .toBe(t('connect.byokDeviceKeyHint', { label: deepseekEntry.label, device: 'LAPTOP-VON9RSJS' }));

@@ -570,7 +570,7 @@ export function AgentSetup({
     setModel('');
     setCustomModel(false);
     setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
-    setUseDeviceKey(false);
+    setUseDeviceKey(null);
     setSignInPick(null);
     setCredsTouched(false);
     setByokAccessId('');
@@ -682,11 +682,13 @@ export function AgentSetup({
   // told so (authMode), or it would run on whatever key it saved for the type.
   const signInChosen = signInType && noKeyPicked;
   // The key a key-only type has on the device (typeReady), which an agent
-  // with none of its own runs on, and so opens on when edited. An agent on a
-  // key of its own keeps that.
+  // with none of its own runs on, and so opens on when edited. A new agent
+  // opens on it too: the device is known to hold a key, so it is not refused.
+  // An agent on a key of its own keeps that. Null until picked, like
+  // signInPick, so the default follows a detection that arrives late.
   const deviceKeyOffered = keyOnly && !editOnKey && !!selectedRuntime?.typeReady;
-  const [useDeviceKey, setUseDeviceKey] = useState(!!editAgent && !editOnKey);
-  const onDeviceKey = deviceKeyOffered && useDeviceKey && noKeyPicked;
+  const [useDeviceKey, setUseDeviceKey] = useState<boolean | null>(editAgent ? !editOnKey : null);
+  const onDeviceKey = deviceKeyOffered && (useDeviceKey ?? true) && noKeyPicked;
   // OpenCode Zen's free `opencode/…` models need neither.
   const keylessModel = (detail?.check_ready?.keyless_model_prefixes || [])
     .some((prefix) => !!prefix && model.trim().startsWith(prefix));
