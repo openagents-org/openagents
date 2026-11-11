@@ -503,6 +503,16 @@ interface AgentToggle {
 /** Past this the device is treated as not answering: a heartbeat is every 10s. */
 const AGENT_TOGGLE_TIMEOUT_MS = 60_000;
 
+/**
+ * A Remove sent to a device, shown on the card until the agent leaves the
+ * roster. The device only picks the command up on a heartbeat, so removing
+ * takes seconds; the card says so and a toast reports when it is done.
+ */
+interface AgentRemoval {
+  at: number;
+  commandId?: string;
+}
+
 /** Optimistic Add-agent placeholder, optionally tied to its create command. */
 interface PendingAgent {
   name: string;
@@ -728,22 +738,81 @@ function NodeCard({
     }
   };
 
-  const queue = async (
-    action: 'remove_agent',
-    args: Record<string, unknown>,
-  ) => {
-    setBusy(true);
+  // Remove clicked on a card, until the agent is gone from the roster. One
+  // toast follows it from "Removing…" to the outcome, so the user can move on
+  // and still hear when it is done.
+  const [removing, setRemoving] = useState<Record<string, AgentRemoval>>({});
+  const removingNames = Object.keys(removing);
+  const removingRef = useRef(removing);
+  removingRef.current = removing;
+  const removalToastId = (name: string) => `remove-agent-${node.nodeId}-${name}`;
+
+  useEffect(() => {
+    // No roster at all is a failed load, not a removal.
+    if (!node.agents) return;
+    const gone = Object.keys(removing).filter((name) => !roster.some((a) => a.name === name));
+    if (gone.length === 0) return;
+    for (const name of gone) toast.success(t('connect.agentRemoved', { name }), { id: removalToastId(name) });
+    setRemoving((prev) => {
+      const next = { ...prev };
+      for (const name of gone) delete next[name];
+      return next;
+    });
+  }, [roster, removing]);
+
+  // While a removal is in flight, refresh the roster briskly and watch the
+  // command, so a failure on the device is reported instead of a spinner.
+  useEffect(() => {
+    if (removingNames.length === 0) return;
+    let cancelled = false;
+    const tick = async () => {
+      onChanged();
+      let cmds: import('@/lib/types').NodeCommand[] = [];
+      try { cmds = await workspaceApi.listNodeCommands(node.nodeId); } catch { /* next tick retries */ }
+      if (cancelled) return;
+      const ended: string[] = [];
+      for (const [name, entry] of Object.entries(removingRef.current)) {
+        const cmd = cmds.find((c) => c.commandId === entry.commandId);
+        if (cmd?.status === 'error') {
+          toast.error(t('connect.agentRemoveFailed', { name, message: cmd.result?.message || '' }), { id: removalToastId(name) });
+          ended.push(name);
+        } else if (Date.now() - entry.at > AGENT_TOGGLE_TIMEOUT_MS) {
+          // Still queued: the device applies it when it next checks in.
+          toast.info(t('connect.agentRemoveNoResponse', { name }), { id: removalToastId(name) });
+          ended.push(name);
+        }
+      }
+      if (ended.length) setRemoving((prev) => {
+        const next = { ...prev };
+        for (const name of ended) delete next[name];
+        return next;
+      });
+    };
+    const id = setInterval(tick, 1000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [removingNames.join('|'), node.nodeId]);
+
+  // Leaving the page ends the watch; don't leave a spinner toast behind.
+  useEffect(() => () => {
+    for (const name of Object.keys(removingRef.current)) toast.dismiss(removalToastId(name));
+  }, []);
+
+  const removeAgent = async (name: string) => {
+    setRemoving((prev) => ({ ...prev, [name]: { at: Date.now() } }));
+    toast.loading(t('connect.agentRemoving', { name }), { id: removalToastId(name) });
     try {
-      await workspaceApi.enqueueNodeCommand(node.nodeId, action, args);
-      toast.success(t('connect.nodeCommandQueued', { node: node.name }));
-      // Give the node a moment to pick the command up on its next heartbeat.
-      setTimeout(onChanged, 3000);
+      const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'remove_agent', { name });
+      nudge();
+      setRemoving((prev) => (prev[name] ? { ...prev, [name]: { ...prev[name], commandId: cmd.commandId } } : prev));
     } catch (err: unknown) {
+      setRemoving((prev) => {
+        const next = { ...prev };
+        delete next[name];
+        return next;
+      });
       const msg = err instanceof Error ? err.message : '';
       const key = nodeCommandErrorKey(msg);
-      toast.error(key ? t(key, { name: String(args.name ?? '') }) : t('connect.nodeCommandFailed'));
-    } finally {
-      setBusy(false);
+      toast.error(key ? t(key, { name }) : t('connect.nodeCommandFailed'), { id: removalToastId(name) });
     }
   };
 
@@ -940,14 +1009,21 @@ function NodeCard({
               })}
               {agents.map((a) => {
                 const running = a.status === 'running';
+                const isRemoving = !!removing[a.name];
                 return (
-                  <div key={a.name} className="rounded-lg border bg-background p-3 flex flex-col gap-2">
+                  <div key={a.name} className={cn('rounded-lg border bg-background p-3 flex flex-col gap-2', isRemoving && 'opacity-60')}>
                     <div className="flex items-center gap-2.5">
                       <AgentIcon name={a.type} size={32} />
                       <div className="flex-1 min-w-0">
                         <button disabled={busy} onClick={() => onEditAgent(a)} className="block max-w-full text-left text-sm font-semibold truncate hover:text-primary hover:underline">{a.displayName || `@${a.name}`}</button>
                         <div className="text-xs text-muted-foreground truncate">{a.displayName ? `@${a.name} · ${a.type}` : a.type}</div>
                       </div>
+                      {isRemoving ? (
+                        <span className="flex items-center gap-1 text-xs font-medium rounded-full px-1.5 py-0.5 shrink-0 bg-zinc-500/10 text-muted-foreground">
+                          <Loader2 className="size-2.5 animate-spin" />
+                          {t('connect.nodeAgentRemoving')}
+                        </span>
+                      ) : (
                       <span className={cn(
                         'flex items-center gap-1 text-xs font-medium rounded-full px-1.5 py-0.5 shrink-0',
                         online && running ? 'bg-green-500/10 text-green-600 dark:text-green-400'
@@ -957,6 +1033,7 @@ function NodeCard({
                         <span className={cn('size-1.5 rounded-full', online && running ? 'bg-green-500' : online && a.status === 'error' ? 'bg-red-500' : 'bg-zinc-400')} />
                         {agentStatusLabel(a.status)}
                       </span>
+                      )}
                     </div>
 
                     {/* Model line */}
@@ -982,6 +1059,12 @@ function NodeCard({
 
                     {/* Actions */}
                     <div className="flex items-center gap-1 pt-1 border-t">
+                      {isRemoving ? (
+                        <Button size="sm" variant="ghost" disabled>
+                          <Loader2 className="size-3.5 mr-1 animate-spin" />
+                          {t('connect.nodeAgentRemoving')}
+                        </Button>
+                      ) : (<>
                       {toggling[a.name] ? (
                         <Button size="sm" variant="ghost" disabled>
                           <Loader2 className="size-3.5 mr-1 animate-spin" />
@@ -1007,13 +1090,14 @@ function NodeCard({
                       <AgentSharingButton agentName={a.name} />
                       <span className="flex-1" />
                       <button
-                        onClick={() => queue('remove_agent', { name: a.name })}
+                        onClick={() => removeAgent(a.name)}
                         disabled={busy}
                         className="size-7 flex items-center justify-center rounded text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-50"
                         title={t('connect.remove')}
                       >
                         <Trash2 className="size-3.5" />
                       </button>
+                      </>)}
                     </div>
                   </div>
                 );

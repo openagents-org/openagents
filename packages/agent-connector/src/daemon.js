@@ -1187,6 +1187,9 @@ async _runNodeCommand(n, cmd) {
         const r = await this._runAgn(['remove', name]);
         ok = r.code === 0;
         message = ok ? `Agent '${name}' removed` : (r.stderr || r.stdout || 'remove failed');
+        // Report the shorter roster now rather than on the next 10s tick: the
+        // workspace card shows "Removing…" until the agent leaves it.
+        if (ok) this._nodeHeartbeat();
       } else if (action === 'configure_agent') {
         // Reconfigure an existing agent: update model/key (type-level env), then
         // restart it so the change takes effect. Working-dir changes require a
