@@ -17,15 +17,15 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
     else window.requestAnimationFrame(scroll);
   };
   return (
-    <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[#dce6f6] bg-[#f3f7ff] px-6 pb-7 pt-10 text-[#262626] sm:px-10" aria-labelledby="onboarding-connection-title">
+    <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[var(--oa-scene-border)] bg-[var(--oa-scene-bg)] px-6 pb-7 pt-10 text-[var(--oa-scene-text)] sm:px-10" aria-labelledby="onboarding-connection-title">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_55%,#2f6bff12,transparent_55%),radial-gradient(ellipse_at_15%_15%,#14b8a60d,transparent_50%)]" />
-      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-blue-100/60 hover:text-slate-900 sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
+      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-blue-100/60 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-blue-900/30 dark:hover:text-slate-100 sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
 
       <div className="relative z-10 w-full sm:w-[56%]">
-        <p className="mb-2 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[#2f6bff]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
+        <p className="mb-2 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
         <h1 id="onboarding-connection-title" className="oa-scene-title max-w-lg text-2xl font-medium leading-[1.15] tracking-[-0.035em] text-balance sm:text-[28px]">{t('onboarding.connectionTitle')}</h1>
-        <p className="oa-scene-intro mt-3 max-w-md text-xs leading-5 text-slate-600">{t('onboarding.visualIntro')}</p>
-        <button type="button" onClick={openSetup} className="group mt-3 inline-flex items-center gap-2 text-xs font-medium text-[#2f6bff] transition hover:text-[#2455cc] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#2f6bff]">
+        <p className="oa-scene-intro mt-3 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300">{t('onboarding.visualIntro')}</p>
+        <button type="button" onClick={openSetup} className="group mt-3 inline-flex items-center gap-2 text-xs font-medium text-[var(--oa-scene-accent)] transition hover:text-[var(--oa-scene-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--oa-scene-accent)]">
           {t('onboarding.visualSetupCta')}<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none" />
         </button>
       </div>
@@ -35,8 +35,8 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
           <defs>
             <radialGradient id="oa-hub-glow"><stop stopColor="#2f6bff" stopOpacity=".25" /><stop offset="1" stopColor="#2f6bff" stopOpacity="0" /></radialGradient>
             <linearGradient id="oa-connection-line" x1="200" y1="260" x2="755" y2="260" gradientUnits="userSpaceOnUse"><stop stopColor="#93b4f5" stopOpacity=".12" /><stop offset=".65" stopColor="#2f6bff" stopOpacity=".7" /><stop offset="1" stopColor="#14b8a6" stopOpacity=".2" /></linearGradient>
-            <linearGradient id="oa-screen" x1="120" y1="180" x2="420" y2="390" gradientUnits="userSpaceOnUse"><stop stopColor="#e2ebfc" /><stop offset="1" stopColor="#f8fbff" /></linearGradient>
-            <linearGradient id="oa-hub" x1="666" y1="165" x2="800" y2="320" gradientUnits="userSpaceOnUse"><stop stopColor="#e4efff" /><stop offset="1" stopColor="#bfdbfe" /></linearGradient>
+            <linearGradient id="oa-screen" x1="120" y1="180" x2="420" y2="390" gradientUnits="userSpaceOnUse"><stop stopColor="var(--oa-screen-start)" /><stop offset="1" stopColor="var(--oa-screen-end)" /></linearGradient>
+            <linearGradient id="oa-hub" x1="666" y1="165" x2="800" y2="320" gradientUnits="userSpaceOnUse"><stop stopColor="var(--oa-hub-start)" /><stop offset="1" stopColor="var(--oa-hub-end)" /></linearGradient>
             <filter id="oa-device-shadow" x="-40%" y="-40%" width="180%" height="200%"><feDropShadow dy="20" stdDeviation="20" floodColor="#2f4770" floodOpacity=".12" /></filter>
             <filter id="oa-hub-shadow" x="-80%" y="-80%" width="260%" height="260%"><feDropShadow stdDeviation="18" floodColor="#2f6bff" floodOpacity=".25" /></filter>
           </defs>
@@ -56,45 +56,80 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
           {/* An illustrated machine, rather than another UI card. */}
           <g transform="translate(96 184) rotate(-7 150 100)" filter="url(#oa-device-shadow)">
             <rect x="36" width="252" height="166" rx="13" fill="url(#oa-screen)" stroke="#526b91" strokeOpacity=".35" />
-            <rect x="45" y="9" width="234" height="147" rx="6" fill="#ffffff" stroke="#6682ac" strokeOpacity=".1" />
+            <rect x="45" y="9" width="234" height="147" rx="6" fill="var(--oa-scene-surface)" stroke="#6682ac" strokeOpacity=".1" />
             <circle cx="162" cy="5" r="1.5" fill="#526b91" opacity=".5" />
             <path d="M69 44 L82 54 L69 64 M92 65 H107" stroke="#2f6bff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-            <path d="M68 88 H181 M68 103 H226 M68 118 H146" stroke="#52698e" strokeOpacity=".24" strokeWidth="5" strokeLinecap="round" />
-            <path d="M36 167 H288 L321 188 Q325 194 311 196 H12 Q0 194 6 188 Z" fill="#dae4f5" stroke="#526b91" strokeOpacity=".3" />
+            <path d="M68 88 H181 M68 103 H226 M68 118 H146" stroke="var(--oa-screen-code)" strokeOpacity="var(--oa-screen-code-opacity)" strokeWidth="5" strokeLinecap="round" />
+            <path d="M36 167 H288 L321 188 Q325 194 311 196 H12 Q0 194 6 188 Z" fill="var(--oa-device-base)" stroke="#526b91" strokeOpacity=".3" />
             <path d="M137 168 H186 L194 178 H129 Z" fill="#8298b8" fillOpacity=".3" />
             <path d="M16 191 H312" stroke="#49648b" strokeOpacity=".15" />
           </g>
-          <text x="245" y="426" textAnchor="middle" fill="#475569" fontSize="13" fontFamily="inherit">{t('onboarding.diagramDevice')}</text>
+          <text x="245" y="426" textAnchor="middle" fill="var(--oa-scene-caption)" fontSize="13" fontFamily="inherit">{t('onboarding.diagramDevice')}</text>
 
           {/* Agent marks float freely through the scene. */}
           <g className="oa-scene-float">
-            <circle cx="166" cy="122" r="36" fill="#ffffff" />
+            <circle cx="166" cy="122" r="36" fill="var(--oa-scene-surface)" />
             <image href="/icons/agents/claude.svg" x="144" y="100" width="44" height="44" />
-            <text x="166" y="181" textAnchor="middle" fill="#475569" fontSize="12" fontFamily="inherit">Claude Code</text>
+            <text x="166" y="181" textAnchor="middle" fill="var(--oa-scene-caption)" fontSize="12" fontFamily="inherit">Claude Code</text>
           </g>
           <g className="oa-scene-float oa-scene-float-late">
-            <circle cx="413" cy="114" r="29" fill="#ffffff" />
+            <circle cx="413" cy="114" r="29" fill="var(--oa-scene-surface)" />
             <image href="/icons/agents/codex.svg" x="395" y="96" width="36" height="36" />
-            <text x="413" y="164" textAnchor="middle" fill="#475569" fontSize="12" fontFamily="inherit">Codex</text>
+            <text x="413" y="164" textAnchor="middle" fill="var(--oa-scene-caption)" fontSize="12" fontFamily="inherit">Codex</text>
           </g>
           <g className="oa-scene-float oa-scene-float-late">
-            <circle cx="386" cy="391" r="25" fill="#c9d7ed" />
+            <circle cx="386" cy="391" r="25" fill="var(--oa-agent-badge)" />
             <image href="/icons/agents/gemini.svg" x="370" y="375" width="32" height="32" />
-            <text x="386" y="437" textAnchor="middle" fill="#475569" fontSize="12" fontFamily="inherit">Gemini</text>
+            <text x="386" y="437" textAnchor="middle" fill="var(--oa-scene-caption)" fontSize="12" fontFamily="inherit">Gemini</text>
           </g>
 
           {/* A luminous workspace hub anchors the connection. */}
           <circle cx="742" cy="246" r="94" stroke="#2f6bff" strokeOpacity=".12" strokeDasharray="2 8" />
           <circle cx="742" cy="246" r="72" fill="url(#oa-hub)" filter="url(#oa-hub-shadow)" />
           <circle cx="742" cy="246" r="60" stroke="white" strokeOpacity=".4" />
-          <image href="/logo-color.png" x="708" y="212" width="68" height="68" />
+          <image href="/logo-color.png" x="708" y="212" width="68" height="68" className="dark:hidden" />
+          <image href="/logo-white.png" x="708" y="212" width="68" height="68" className="hidden dark:block" />
           <circle cx="830" cy="197" r="5" fill="#14b8a6" />
           <circle cx="657" cy="284" r="3" fill="#14b8a6" opacity=".6" />
-          <foreignObject x="612" y="350" width="260" height="64"><div className="text-center"><p className="truncate text-base font-medium text-slate-800" title={workspaceName}>{workspaceName}</p><p className="mt-1 text-[11px] text-slate-500">{t('onboarding.diagramWorkspace')}</p></div></foreignObject>
+          <foreignObject x="612" y="350" width="260" height="64"><div className="text-center"><p className="truncate text-base font-medium text-slate-800 dark:text-slate-100" title={workspaceName}>{workspaceName}</p><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{t('onboarding.diagramWorkspace')}</p></div></foreignObject>
         </svg>
       </div>
 
       <style>{`
+        .oa-connection-scene {
+          --oa-scene-bg: #f3f7ff;
+          --oa-scene-border: #dce6f6;
+          --oa-scene-text: #262626;
+          --oa-scene-accent: #2f6bff;
+          --oa-scene-accent-hover: #2455cc;
+          --oa-scene-caption: #475569;
+          --oa-scene-surface: #ffffff;
+          --oa-screen-start: #e2ebfc;
+          --oa-screen-end: #f8fbff;
+          --oa-screen-code: #52698e;
+          --oa-screen-code-opacity: .24;
+          --oa-device-base: #dae4f5;
+          --oa-agent-badge: #c9d7ed;
+          --oa-hub-start: #e4efff;
+          --oa-hub-end: #bfdbfe;
+        }
+        .dark .oa-connection-scene {
+          --oa-scene-bg: #111b2c;
+          --oa-scene-border: #293952;
+          --oa-scene-text: #f1f5f9;
+          --oa-scene-accent: #8eafff;
+          --oa-scene-accent-hover: #b5caff;
+          --oa-scene-caption: #cbd5e1;
+          --oa-scene-surface: #0f1a2c;
+          --oa-screen-start: #243752;
+          --oa-screen-end: #1c2a42;
+          --oa-screen-code: #91abc9;
+          --oa-screen-code-opacity: .6;
+          --oa-device-base: #253b58;
+          --oa-agent-badge: #253d5d;
+          --oa-hub-start: #264c78;
+          --oa-hub-end: #1d3c64;
+        }
         .oa-scene-flow { animation: oa-scene-flow 12s linear infinite; }
         .oa-scene-float { animation: oa-scene-float 7s ease-in-out infinite; }
         .oa-scene-float-late { animation-delay: -3s; }
