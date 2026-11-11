@@ -20,7 +20,7 @@ const mocks = vi.hoisted(() => ({
     tasks: [] as KanbanTask[],
     workflows: [], knowledge: [] as {id: string; title: string; description: string}[], files: [],
     createTask: vi.fn(), runTask: vi.fn(), updateTask: vi.fn(), stopTask: vi.fn(), deleteTask: vi.fn(),
-    refreshTasks: vi.fn(), refreshAgents: vi.fn(),
+    refreshTasks: vi.fn(), refreshAgents: vi.fn(), setCurrentSessionId: vi.fn(),
   },
   api: {
     getTeam: vi.fn(),
@@ -845,9 +845,8 @@ it('shows activity only for online agents working in a linked conversation and c
   ];
   await openIssue();
   expect(host.querySelector('[role="status"]')?.getAttribute('aria-label')).toBe(t('chat.agentWorkingNamed', { name: 'Research agent' }));
-  expect(host.querySelectorAll('.thread-wip')).toHaveLength(2);
-  expect(host.querySelectorAll('.typing-dot')).toHaveLength(6);
-  expect(host.textContent).toContain('Research agent is working');
+  expect(host.querySelectorAll('.thread-wip')).toHaveLength(1);
+  expect(host.querySelectorAll('.typing-dot')).toHaveLength(3);
   mocks.ws.agents = [{ agentName: 'research-agent', status: 'online', busyChannels: [] }];
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('[role="status"]')).toBeNull();
@@ -906,14 +905,16 @@ it('explains when no accessible agents are online', async () => {
   expect(button('Assign to agent').disabled).toBe(true);
 });
 
-it('puts newest active linked conversations first, followed by newest idle conversations', async () => {
-  mocks.api.getIssue.mockResolvedValue({ ...issue, threads: ['old-idle', 'old-active', 'new-active', 'new-idle'].map(name => ({ channel_name: name, title: name, agents: ['research-agent'], status: 'active' })) });
-  mocks.ws.agents = [{ agentName: 'research-agent', status: 'online', busyChannels: ['old-active', 'new-active'] }];
+it('keeps linked conversations out of the page and opens each result in its own source thread', async () => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, threads: [{channel_name: 'work-thread', title: 'Linked conversation', agents: ['research-agent']}],
+    comments: [{id: 'result-1', kind: 'result', author: 'openagents:research-agent', content: 'Findings', source_event_id: 'event-1', reply_channel_name: 'work-thread', created_at: issue.created_at}] });
   await openIssue();
-  const linked = Array.from(host.querySelectorAll('button')).map(b => b.textContent?.trim()).filter(text => text && /^(old|new)-(idle|active)/.test(text));
-  expect(linked.map(text => text!.split(/research-agent/)[0])).toEqual(['new-active', 'old-active', 'new-idle', 'old-idle']);
+  expect(host.textContent).not.toContain('Linked conversations');
+  expect(host.querySelector('select[aria-label="Move to board"]')).toBeNull();
+  await click(button('Open in thread'));
+  expect(mocks.ws.setCurrentSessionId).toHaveBeenCalledWith('work-thread');
+  expect(mocks.layout.openView).toHaveBeenCalledWith('threads');
 });
-
 
 it('shows live issue work and requester completion, with active work taking precedence', async () => {
   mocks.api.listIssues.mockResolvedValue({ issues: [{...issue, linked_channels: ['work-thread']}], next_offset: null });
