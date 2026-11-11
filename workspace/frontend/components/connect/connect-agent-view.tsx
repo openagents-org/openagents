@@ -78,14 +78,14 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView, connectSetupRequest } = useLayout();
+  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
   const isDesktop = desktopHost() !== null;
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
-  const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
+  const activeTab = selectedTab === 'local' ? 'node' : selectedTab;
   const appliedSetupRequest = useRef(connectSetupRequest);
   useEffect(() => {
     if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
@@ -93,6 +93,11 @@ export function ConnectAgentView({
       setSelectedTab('node');
     }
   }, [connectSetupRequest]);
+  useEffect(() => {
+    if (!cloudAgentsPending) return;
+    setSelectedTab('cloud');
+    consumeCloudAgents?.();
+  }, [cloudAgentsPending, consumeCloudAgents]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -359,14 +364,15 @@ export function ConnectAgentView({
         </div>
       )}
 
-      {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
+      {/* The desktop app shows both tabs too: most people arrive through it, and
+          Cloud Agents is the only place they can find hosted agents. */}
+      <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
       {activeTab === 'node' && (
-        <div className={cn('px-6 shrink-0', isDesktop && 'pt-4')}>
+        <div className="px-6 shrink-0">
           <div className="mx-auto w-full max-w-2xl">
             <CampaignConnectHint idToken={oaIdToken} />
           </div>

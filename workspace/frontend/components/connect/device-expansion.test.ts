@@ -11,17 +11,17 @@ const api = vi.hoisted(() => ({
   listMyAcentaAgents: vi.fn(() => Promise.resolve([])),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
-const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn() }));
+const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn(), cloudAgentsPending: false, consumeCloudAgents: vi.fn(), desktop: null as null | Record<string, unknown> }));
 vi.mock('@/lib/account-api', () => ({ sendSetupEmail: api.sendSetupEmail }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
 }) }));
-vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, connectSetupRequest: fixture.connectSetupRequest, isMobile: false }) }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, connectSetupRequest: fixture.connectSetupRequest, cloudAgentsPending: fixture.cloudAgentsPending, consumeCloudAgents: fixture.consumeCloudAgents, isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => React.createElement('header', null, 'Connect Agent title bar') }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
-vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => null }));
+vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => fixture.desktop }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({}) }));
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => fixture.mobile }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
@@ -59,6 +59,8 @@ beforeEach(() => {
   fixture.connectSetupRequest = null;
   fixture.mobile = false;
   fixture.idToken = null;
+  fixture.desktop = null;
+  fixture.cloudAgentsPending = false;
   api.sendSetupEmail.mockResolvedValue({ emailSent: true });
   api.createPairingCode.mockResolvedValue({ code: "TEST-CODE", expiresAt: "2099-01-01T00:00:00Z", expiresInSeconds: 1800 });
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -268,4 +270,25 @@ it('applies a new Yumi location choice without replaying the old choice when a c
   await act(async () => renderCached(true));
   expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
   expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('terminal');
+});
+
+it('lets desktop users reach Cloud Agents and its hosted agents', async () => {
+  fixture.desktop = {
+    getComputerStatus: vi.fn(() => Promise.resolve({ hostname: 'mac', deviceType: 'laptop', nodeId: null, warning: false })),
+    connectComputer: vi.fn(), openComputer: vi.fn(), signIn: vi.fn(), signOut: vi.fn(),
+  };
+  api.getCloudProviders.mockResolvedValue([{ name: 'perplexity', label: 'Perplexity', models: [], requiresBaseUrl: false }]);
+  await render([device('existing')]);
+  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  await act(async () => button('connect.tabCloud').click());
+  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  expect(container.textContent).toContain('connect.cloudMarketplaceTitle');
+  expect(api.getHostedProviders).toHaveBeenCalled();
+});
+
+it('opens on Cloud Agents when asked to', async () => {
+  fixture.cloudAgentsPending = true;
+  await render([device('existing')]);
+  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  expect(fixture.consumeCloudAgents).toHaveBeenCalled();
 });

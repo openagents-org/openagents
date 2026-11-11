@@ -29,7 +29,7 @@ export function EmptyConversation({ name, human = false, self = false }: { name?
 
 export function EmptyState() {
   const { agents, token } = useWorkspace();
-  const { setViewMode } = useLayout();
+  const { openCloudAgents } = useLayout();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const t = useT();
   const hasOnlineAgent = agents.some((a) => a.status === 'online');
@@ -297,7 +297,7 @@ export function EmptyState() {
             <div className="w-16 border-t" />
           </div>
           <button
-            onClick={() => setViewMode('connect')}
+            onClick={openCloudAgents}
             className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg border hover:bg-accent transition-colors text-sm group"
           >
             <Cloud className="size-4 text-muted-foreground" />
