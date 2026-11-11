@@ -155,6 +155,7 @@ export const messages = {
 
     workStarted: 'started agent work',
     copyLink: 'Copy issue link',
+    openInThread: 'Open in thread',
     subtitle: "A shared place for ideas, problems, and decisions.",
     newIssue: "New issue",
     editIssue: "Edit issue",

@@ -21,6 +21,8 @@ import { workspaceApi } from '@/lib/api';
 import { unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
+import { agentLabel } from '@/lib/helpers';
+import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -183,7 +185,8 @@ function IssueWorkspace() {
       .replace(/[#*_`>]/g, '')
       .trim();
   const row = (issue: WorkspaceIssue, asCard = false) => {
-    const working = issue.linked_channels?.some(id => activeSessionIds?.has(id) || agents.some(agent => agent.status === 'online' && agent.busyChannels?.includes(id)));
+    const workingAgents = agents.filter(agent => agent.status === 'online' && agent.busyChannels?.some(id => issue.linked_channels?.includes(id)));
+    const working = workingAgents.length > 0 || issue.linked_channels?.some(id => activeSessionIds?.has(id));
     const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
     const time = (
       <time
@@ -238,7 +241,8 @@ function IssueWorkspace() {
         {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
         {(working || finished) && <span role="status" className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
           {working ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span> : <Check aria-hidden="true" className="size-3 text-amber-600 dark:text-amber-400" />}
-          {t(working ? 'chat.agentWorking' : 'issueWork.finished')}
+          {workingAgents.length > 0 && <span className="inline-flex items-center -space-x-1" aria-hidden="true">{workingAgents.map(agent => <AgentAvatar key={agent.agentName} name={agent.agentName} size={16} />)}</span>}
+          {workingAgents.length ? t('issueWork.working', { agents: workingAgents.map(agentLabel).join(', ') }) : t(working ? 'chat.agentWorking' : 'issueWork.finished')}
         </span>}
         {issue.description && (
           <p

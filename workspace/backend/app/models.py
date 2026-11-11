@@ -392,8 +392,8 @@ class User(Base):
     firebase_uid = Column(Text, nullable=True)           # Google/Firebase `uid` claim
     apple_sub = Column(Text, nullable=True)              # Sign in with Apple `sub` claim
     display_name = Column(Text, nullable=True)
-    # User-set profile picture: an https:// URL or a small data:image/... URL
-    # (the frontend downscales uploads client-side before saving).
+    # Profile picture: a user-set photo or the verified provider's default.
+    # Uploaded images are downscaled client-side to a small data:image URL.
     avatar_url = Column(Text, nullable=True)
     # Has this account dismissed the first-run welcome? Per-account (not
     # per-device) so mobile onboarding shows exactly once across devices.

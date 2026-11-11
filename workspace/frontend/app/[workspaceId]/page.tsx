@@ -114,6 +114,9 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
         if (match) {
+          // The account lookup refreshes verified profile defaults. A shell
+          // restored from a cached token may already have read an older roster.
+          window.dispatchEvent(new Event('workspace-profile-updated'));
           setWorkspaceCookie(match.slug || workspaceId, match.token || '');
           rememberWorkspaceToken(workspaceId, idToken, match.token || '');
           const token = match.token || '';

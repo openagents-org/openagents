@@ -47,6 +47,7 @@ vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
+vi.mock('@/hooks/use-polling', () => ({ useMessagePolling: () => ({ messages: [] }) }));
 vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => mocks.layout,
 }));
@@ -534,16 +535,44 @@ it('adds people and agents without starting work, and omits the issue Tasks sect
   mocks.api.discover.mockResolvedValue({ agents: [{ address: 'openagents:new-agent', display_name: 'New agent', status: 'online' }, { address: 'openagents:offline-agent', status: 'offline' }] });
   await openIssue();
   expect(host.textContent).not.toContain('Break out a task');
-  await click(button('Add people or agents'));
+  const header = host.querySelector('main > header')!;
+  const participants = header.querySelector('section[aria-label="Participants"]')!;
+  expect(participants.textContent).toContain('Alice');
+  expect(participants.textContent).toContain('Research agent');
+  await click([...participants.querySelectorAll('button')].find(button => button.textContent === 'Add people or agents')!);
   const dialog = host.querySelector('[role=dialog]')!;
   await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('Bob'))!);
   await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('New agent'))!);
+  mocks.api.getIssue.mockResolvedValue({ ...issue, participants: [...issue.participants,
+    { source: 'human:bob@example.com', name: 'Bob' }, { source: 'openagents:new-agent', name: 'New agent' },
+  ] });
   await click(button('Add to issue'));
   expect(mocks.api.addIssueParticipants).toHaveBeenCalledWith('issue-1', [
     expect.objectContaining({ kind: 'human', id: 'bob@example.com' }),
     expect.objectContaining({ kind: 'agent', id: 'new-agent' }),
   ]);
+  expect(participants.textContent).toContain('Bob');
+  expect(participants.textContent).toContain('New agent');
+  expect(mocks.ws.createTask).not.toHaveBeenCalled();
+  expect(mocks.ws.runTask).not.toHaveBeenCalled();
+});
 
+it.each([
+  { assignee: 'human:bob@example.com', assignee_name: 'Bob', name: 'Bob' },
+  { assignee: 'openagents:research-agent', assignee_name: null, name: 'Research agent' },
+  { assignee: null, assignee_name: null, name: 'Unassigned' },
+])('shows $name and issue settings inline without a Details toggle', async ({ assignee, assignee_name, name }) => {
+  mocks.api.getIssue.mockResolvedValue({ ...issue, assignee, assignee_name });
+  await openIssue();
+  const header = host.querySelector('main > header')!;
+  expect(header.querySelector('[aria-labelledby="issue-assignee-issue-1"]')?.textContent).toBe(name);
+  expect(header.querySelector('select[aria-label="Status"]')).not.toBeNull();
+  expect(header.textContent).toContain('Due date');
+  expect(header.textContent).toContain('Labels');
+  expect(button('Details')).toBeUndefined();
+  expect(host.querySelector('aside')).toBeNull();
+  expect(host.textContent).not.toContain('Workspace issue');
+  expect(host.textContent).not.toContain(t('issues.commentHint'));
 });
 
 it('clears a saved comment and reports delivery failure without inviting a duplicate submission', async () => {
@@ -888,12 +917,12 @@ it('puts newest active linked conversations first, followed by newest idle conve
 
 it('shows live issue work and requester completion, with active work taking precedence', async () => {
   mocks.api.listIssues.mockResolvedValue({ issues: [{...issue, linked_channels: ['work-thread']}], next_offset: null });
-  mocks.ws.agents = [{ name: 'research-agent', status: 'online', busyChannels: ['work-thread'] }];
+  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', status: 'online', busyChannels: ['work-thread'] }];
   mocks.ws.completedSessionIds = new Set(['work-thread']);
   await act(async () => root.render(createElement(IssuesView)));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
   expect(host.querySelector('button.thread-wip')).not.toBeNull();
-  expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent is working');
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Research agent is working');
   expect(host.textContent).not.toContain('Agent work finished');
   mocks.ws.agents = [];
   await act(async () => root.render(createElement(IssuesView)));

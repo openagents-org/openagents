@@ -48,7 +48,10 @@ export function IssueProperties({ issue, busy, update }: {
   const actor = email ? `human:${email}` : '';
   const canAssign = !!actor && (actor === issue.created_by || actor === issue.assignee || owned.some(agent => `openagents:${agent.agentName}` === issue.assignee));
   const choices = team.map(person => ({ id: `human:${person.email.toLowerCase()}`, name: person.displayName || person.email }));
-  const selectedName = choices.find(choice => choice.id === issue.assignee)?.name || issue.assignee_name || issue.assignee || t('issues.unassigned');
+  const selectedName = choices.find(choice => choice.id === issue.assignee?.toLowerCase())?.name
+    || agents.find(agent => `openagents:${agent.agentName}` === issue.assignee)?.displayName
+    || issue.assignee_name || issue.participants.find(person => person.source === issue.assignee)?.name
+    || issue.assignee?.replace(/^(human:|openagents:)/, '') || t('issues.unassigned');
   const filtered = choices.filter(choice => `${choice.name} ${choice.id}`.toLowerCase().includes(search.toLowerCase()));
   const labels = issue.labels || [];
   const validLabel = !!label.trim() && !labels.some(item => item.toLowerCase() === label.trim().toLowerCase());

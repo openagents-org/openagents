@@ -11,6 +11,8 @@ const h = vi.hoisted(() => ({
   threads: {} as Record<string, unknown[]>,
   seen: [] as unknown[][],
   steps: [] as boolean[],
+  scrollKeys: [] as (number | undefined)[],
+  generation: 0,
   openView: vi.fn(),
   reply: null as null | ((message: WorkspaceMessage) => void),
   sent: [] as unknown[][],
@@ -49,14 +51,14 @@ vi.mock('@/hooks/use-polling', async () => {
       }, [sessionId]);
       h.mounted = { sessionId, setMessages };
       return {
-        messages, loading: false, forceRefresh: () => {}, generation: 0,
+        messages, loading: false, forceRefresh: () => {}, generation: h.generation,
         loadOlder: () => {}, hasOlder: false, loadingOlder: false,
       };
     },
   };
 });
 vi.mock('./chat-messages', () => ({
-  ChatMessages: ({ messages, showAllSteps, onReply }: { messages: unknown[]; showAllSteps: boolean; onReply: (message: WorkspaceMessage) => void }) => { h.steps.push(showAllSteps); h.seen.push(messages); h.reply = onReply; return null; },
+  ChatMessages: ({ messages, showAllSteps, scrollKey, onReply }: { messages: unknown[]; showAllSteps: boolean; scrollKey?: number; onReply: (message: WorkspaceMessage) => void }) => { h.steps.push(showAllSteps); h.scrollKeys.push(scrollKey); h.seen.push(messages); h.reply = onReply; return null; },
 }));
 vi.mock('./chat-input', () => ({
   ChatInput: ({ onSend }: { onSend: (text: string) => Promise<void> }) => { h.send = onSend; return null; },
@@ -117,7 +119,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   resetOptimisticStoreForTests();
-  h.steps = []; h.openView.mockClear();
+  h.steps = []; h.scrollKeys = []; h.generation = 0; h.openView.mockClear();
   h.seen = []; h.sent = []; h.reply = null;
   h.threads = {
     'thread-a': [msg('a1', 'thread-a'), step('a2', 'thread-a')],
@@ -145,6 +147,18 @@ afterEach(() => {
   act(() => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
+});
+
+it('does not force a bottom jump for background history refreshes, but still does after sending', async () => {
+  await open('thread-a');
+  const initial = h.scrollKeys.at(-1)!;
+  for (const generation of [1, 2, 3]) {
+    h.generation = generation;
+    await open('thread-a');
+    expect(h.scrollKeys.at(-1)).toBe(initial);
+  }
+  await act(async () => { await h.send!('A new request'); });
+  expect(h.scrollKeys.at(-1)).toBeGreaterThan(initial);
 });
 
 it('still shows the waiting bubble after the user looks at another thread and comes back', async () => {

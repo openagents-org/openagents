@@ -54,7 +54,7 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
   }
 
   return <>
-    <Button variant="outline" size="sm" className="mt-4 w-full justify-start text-xs" onClick={() => { setPicks([]); setOpen(true); }}>
+    <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 px-2 text-[11px]" onClick={() => { setPicks([]); setOpen(true); }}>
       <UserPlus className="size-3.5" />{t('threadAccess.addParticipants')}
     </Button>
     <Dialog open={open} onOpenChange={(value) => { if (!saving) setOpen(value); }}>

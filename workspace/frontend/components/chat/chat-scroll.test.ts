@@ -62,8 +62,24 @@ it('does not pull readers down after a deliberate scroll, but resumes at the bot
   await render(); await flush();
   await act(async () => { viewport().dispatchEvent(new WheelEvent('wheel', { deltaY: -200 })); viewport().scrollTop = 200; viewport().dispatchEvent(new Event('scroll')); });
   height = 2400; await resize(); expect(viewport().scrollTop).toBe(200);
-  await act(async () => { viewport().scrollTop = 2000; viewport().dispatchEvent(new Event('scroll')); });
+  await act(async () => { viewport().dispatchEvent(new WheelEvent('wheel', { deltaY: 200 })); viewport().scrollTop = 2000; viewport().dispatchEvent(new Event('scroll')); });
   height = 2600; await resize(); expect(viewport().scrollTop).toBe(2200);
+});
+it('keeps a small upward scroll and ignores resize-driven scroll events near the bottom', async () => {
+  await render(); await flush();
+  await act(async () => {
+    viewport().dispatchEvent(new WheelEvent('wheel', { deltaY: -40 }));
+    viewport().scrollTop = 560;
+    viewport().dispatchEvent(new Event('scroll'));
+  });
+  height = 2400; await resize();
+  expect(viewport().scrollTop).toBe(560);
+  // A virtual row remeasurement can temporarily put the reader near the
+  // estimated bottom. That is not a request to follow incoming messages.
+  height = 900;
+  await act(async () => { viewport().scrollTop = 500; viewport().dispatchEvent(new Event('scroll')); });
+  height = 2400; await resize();
+  expect(viewport().scrollTop).toBe(500);
 });
 it('resets user scroll intent when switching threads and cleans up pending work', async () => {
   await render(); await flush();

@@ -339,7 +339,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   }, [scrollToBottom]);
 
   // Derive the current session + first/last message identity from messages.
-  const currentSessionId = messages.length > 0 ? messages[0].sessionId : null;
+  const currentSessionId = targetSessionId ?? (messages.length > 0 ? messages[0].sessionId : prevSessionRef.current);
   const firstId = messages.length > 0 ? messages[0].messageId : null;
   const lastId = messages.length > 0 ? messages[messages.length - 1].messageId : null;
 
@@ -386,7 +386,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   }, [messages.length, currentSessionId, firstId, lastId, totalCount, scrollToBottom]);
 
   // Force scroll when scrollKey *actually* changes (user sent a message, clicked
-  // "New messages", or a backfill bumped it). Guard on the real value so a mere
+  // "New messages"). Guard on the real value so a mere
   // scrollToBottom identity change (from a message-count change such as history
   // prepend) does not re-trigger a scroll-to-bottom.
   useEffect(() => {
@@ -403,13 +403,22 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    let resumeOnScroll = false;
+    let scrollbarDragging = false;
+    let lastScrollTop = el.scrollTop;
+    let lastTouchY: number | null = null;
 
     const onScroll = async () => {
       const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+      const movingDown = el.scrollTop > lastScrollTop;
+      lastScrollTop = el.scrollTop;
       setShowScrollBtn(!isNearBottom);
       // A reflow/programmatic scroll is not evidence of user intent. Only
       // resume following here after an actual gesture has scrolled back down.
-      if (userScrolledUpRef.current) userScrolledUpRef.current = !isNearBottom;
+      if (userScrolledUpRef.current && isNearBottom && (resumeOnScroll || (scrollbarDragging && movingDown))) {
+        userScrolledUpRef.current = false;
+      }
+      resumeOnScroll = false;
 
       // Infinite scroll: load older messages when near the top
       if (
@@ -423,12 +432,15 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
       ) {
         loadingOlderInternalRef.current = true;
         const prevScrollHeight = el.scrollHeight;
+        const prevScrollTop = el.scrollTop;
+        const loadingSession = prevSessionRef.current;
         scrollDebug('load-older-start', el, { prevScrollHeight });
         await loadOlder();
         // Maintain scroll position after prepending older messages
         requestAnimationFrame(() => {
+          if (containerRef.current !== el || prevSessionRef.current !== loadingSession) { loadingOlderInternalRef.current = false; return; }
           const newScrollHeight = el.scrollHeight;
-          el.scrollTop = newScrollHeight - prevScrollHeight;
+          el.scrollTop = prevScrollTop + newScrollHeight - prevScrollHeight;
           loadingOlderInternalRef.current = false;
           scrollDebug('load-older-compensate', el, { prevScrollHeight, newScrollHeight, delta: newScrollHeight - prevScrollHeight });
         });
@@ -438,33 +450,45 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
     // A real user scroll gesture cancels any in-flight settle-to-bottom so we
     // never yank them back while they're reading. Measurement-driven reflows
     // (which are what the settle loop exists to absorb) don't fire these.
-    const cancelSettle = () => {
+    const cancelSettle = (allowResume = false) => {
       settlingRef.current = false;
       userScrolledUpRef.current = true;
+      resumeOnScroll = allowResume;
       if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
     };
     const onWheel = (event: WheelEvent) => {
       const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 1;
-      if (event.deltaY < 0 || !atBottom) cancelSettle();
+      if (event.deltaY < 0 || !atBottom) cancelSettle(event.deltaY > 0);
     };
     const onMouseDown = (event: MouseEvent) => {
-      if (event.target === el) cancelSettle(); // dragging the scrollbar
+      if (event.target === el) { scrollbarDragging = true; cancelSettle(); }
+    };
+    const onMouseUp = () => { scrollbarDragging = false; };
+    const onTouchStart = (event: TouchEvent) => { lastTouchY = event.touches[0]?.clientY ?? null; };
+    const onTouchMove = (event: TouchEvent) => {
+      const y = event.touches[0]?.clientY ?? null;
+      cancelSettle(y !== null && lastTouchY !== null && y < lastTouchY);
+      lastTouchY = y;
     };
     const onKeyDown = (event: KeyboardEvent) => {
       if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
-        && event.target === el) cancelSettle();
+        && event.target === el) cancelSettle(['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey));
     };
 
     el.addEventListener('scroll', onScroll);
     el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchmove', cancelSettle, { passive: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true });
+    el.addEventListener('touchmove', onTouchMove, { passive: true });
     el.addEventListener('mousedown', onMouseDown);
+    window.addEventListener('mouseup', onMouseUp);
     el.addEventListener('keydown', onKeyDown);
     return () => {
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchmove', cancelSettle);
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
       el.removeEventListener('mousedown', onMouseDown);
+      window.removeEventListener('mouseup', onMouseUp);
       el.removeEventListener('keydown', onKeyDown);
     };
   }, [hasOlder, loadingOlder, loadOlder]);
