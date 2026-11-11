@@ -78,7 +78,7 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView, connectSetupRequest } = useLayout();
+  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
@@ -93,6 +93,11 @@ export function ConnectAgentView({
       setSelectedTab('node');
     }
   }, [connectSetupRequest]);
+  useEffect(() => {
+    if (!cloudAgentsPending) return;
+    setSelectedTab('cloud');
+    consumeCloudAgents?.();
+  }, [cloudAgentsPending, consumeCloudAgents]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.

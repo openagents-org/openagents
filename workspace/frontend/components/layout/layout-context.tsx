@@ -138,6 +138,12 @@ interface LayoutState {
   openView: (mode: ViewMode) => void;
   openConnectSetup: (method: ConnectSetupRequest['method']) => void;
   connectSetupRequest: ConnectSetupRequest | null;
+  /** Open Connect Agents on its Cloud Agents tab. */
+  openCloudAgents: () => void;
+  /** Set by `openCloudAgents` until the connect view acts on it. */
+  cloudAgentsPending: boolean;
+  /** The connect view calls this once it has switched to Cloud Agents. */
+  consumeCloudAgents: () => void;
   /** Open Connect Agents straight on the add-agent gallery of a device. */
   openAddAgent: () => void;
   /** Set by `openAddAgent` until the connect view acts on it. */
@@ -318,6 +324,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
     openView('connect');
   };
 
+  const [cloudAgentsPending, setCloudAgentsPending] = useState(false);
+  const openCloudAgents = () => {
+    setCloudAgentsPending(true);
+    openView('connect');
+  };
+  const consumeCloudAgents = useCallback(() => setCloudAgentsPending(false), []);
+
   const [addAgentPending, setAddAgentPending] = useState(false);
   const openAddAgent = () => {
     setAddAgentPending(true);
@@ -368,6 +381,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       openView,
       openConnectSetup,
       connectSetupRequest,
+      openCloudAgents,
+      cloudAgentsPending,
+      consumeCloudAgents,
       openAddAgent,
       addAgentPending,
       consumeAddAgent,
