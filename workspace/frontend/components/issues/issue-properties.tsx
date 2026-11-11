@@ -1,11 +1,11 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown, KanbanSquare, Plus, Search, Tag, UserRound } from 'lucide-react';
+import { Check, ChevronDown, Plus, Search, Tag, UserRound } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { useMe } from '@/hooks/use-me';
 import { useT } from '@/lib/i18n';
-import type { IssueBoard, IssueDetail, TeamMember } from '@/lib/types';
+import type { IssueDetail, TeamMember } from '@/lib/types';
 import { IssueLabel } from './issue-label';
 import { IssueDueDate } from './issue-due-date';
 import { Input } from '@/components/ui/input';
@@ -14,20 +14,18 @@ import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 
 function AssigneeAvatar({ id }: { id: string }) {
-  if (!id) return <span className="flex size-7 shrink-0 items-center justify-center rounded-full border border-dashed text-muted-foreground"><UserRound className="size-3.5" /></span>;
-  return id.startsWith('openagents:') ? <AgentAvatar name={id.slice(11)} size={28} /> : <HumanAvatar email={id.slice(6)} />;
+  if (!id) return <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-muted-foreground"><UserRound className="size-3.5" /></span>;
+  return id.startsWith('openagents:') ? <AgentAvatar name={id.slice(11)} size={20} /> : <HumanAvatar email={id.slice(6)} className="size-5" />;
 }
 
 export function IssueProperties({ issue, busy, update }: {
   issue: IssueDetail; busy: boolean;
-  update: (values: { due_date?: string | null; assignee?: string | null; labels?: string[]; board_id?: string }) => void;
+  update: (values: { due_date?: string | null; assignee?: string | null; labels?: string[] }) => void;
 }) {
   const { workspace, agents } = useWorkspace();
   const me = useMe(workspace?.workspaceId);
   const t = useT();
   const [team, setTeam] = useState<TeamMember[]>([]);
-  const [boards, setBoards] = useState<IssueBoard[]>([]);
-  useEffect(() => { let active = true; void workspaceApi.listIssueBoards().then(value => { if (active) setBoards(value); }).catch(() => {}); return () => { active = false; }; }, [workspace?.workspaceId]);
   const [label, setLabel] = useState('');
   const [addingLabel, setAddingLabel] = useState(false);
   const [knownLabels, setKnownLabels] = useState<string[]>([]);
@@ -64,11 +62,11 @@ export function IssueProperties({ issue, busy, update }: {
   };
   const assign = (id: string | null) => { update({ assignee: id }); setAssignOpen(false); };
   return <>
-    <section className="space-y-2">
-      <h3 id={`issue-assignee-${issue.id}`} className="text-[11px] font-medium text-muted-foreground">{t('issues.assignee')}</h3>
+    <section className="flex min-w-0 items-center gap-2">
+      <h3 id={`issue-assignee-${issue.id}`} className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('issues.assignee')}</h3>
       <Popover open={assignOpen} onOpenChange={open => { setAssignOpen(open); setSearch(''); }}>
         <PopoverTrigger asChild>
-          <button type="button" disabled={busy || !canAssign} aria-labelledby={`issue-assignee-${issue.id}`} className="group flex min-h-10 w-full items-center gap-2.5 rounded-lg border border-transparent px-1.5 py-1.5 text-left transition-colors enabled:hover:border-border enabled:hover:bg-muted/40 disabled:cursor-default">
+          <button type="button" disabled={busy || !canAssign} aria-labelledby={`issue-assignee-${issue.id}`} className="group flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-transparent px-1.5 py-1 text-left transition-colors enabled:hover:border-border enabled:hover:bg-muted/40 disabled:cursor-default">
             <AssigneeAvatar id={issue.assignee || ''} />
             <span className={`min-w-0 flex-1 truncate text-xs font-medium ${issue.assignee ? '' : 'text-muted-foreground'}`}>{selectedName}</span>
             {canAssign && <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground" />}
@@ -92,26 +90,14 @@ export function IssueProperties({ issue, busy, update }: {
       </Popover>
     </section>
     <IssueDueDate issue={issue} busy={busy} canEdit={!!actor && actor === issue.created_by.toLowerCase()} update={update} />
-    {boards.length > 1 && <section className="space-y-2">
-      <h3 className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground"><KanbanSquare className="size-3" />{t('issues.boardLabel')}</h3>
-      <select
-        aria-label={t('issues.moveToBoard')}
-        disabled={busy}
-        value={issue.board_id || 'team'}
-        onChange={event => update({ board_id: event.target.value })}
-        className="h-8 w-full rounded-md border bg-background px-2 text-xs disabled:opacity-50"
-      >
-        {boards.map(board => <option key={board.id} value={board.id}>{board.default ? t('issues.teamBoard') : board.name}</option>)}
-      </select>
-    </section>}
-    <section className="space-y-2.5">
-      <div className="flex items-center justify-between">
-        <h3 className="text-[11px] font-medium text-muted-foreground">{t('issues.labels')}</h3>
+    <section className="flex min-w-0 flex-wrap items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1">
+        <h3 className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('issues.labels')}</h3>
         <button type="button" disabled={busy || labels.length >= 20} onClick={() => setAddingLabel(!addingLabel)} aria-label={t('issues.addLabel')} aria-expanded={addingLabel} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"><Plus className="size-3.5" /></button>
       </div>
-      {labels.length ? <div className="flex flex-wrap gap-1.5">{labels.map(value => <IssueLabel key={value} label={value} disabled={busy} onRemove={() => update({ labels: labels.filter(item => item !== value) })} />)}</div>
+      {labels.length ? <div className="flex min-w-0 flex-wrap gap-1.5">{labels.map(value => <IssueLabel key={value} label={value} disabled={busy} onRemove={() => update({ labels: labels.filter(item => item !== value) })} />)}</div>
         : !addingLabel && <button type="button" disabled={busy} onClick={() => setAddingLabel(true)} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"><Tag className="size-3.5" />{t('issues.addLabel')}</button>}
-      {addingLabel && <form className="relative" onSubmit={event => { event.preventDefault(); addLabel(label); }}>
+      {addingLabel && <form className="relative min-w-0 flex-1" onSubmit={event => { event.preventDefault(); addLabel(label); }}>
         <Input autoFocus id={`issue-label-${issue.id}`} aria-label={t('issues.addLabel')} className="h-9 min-w-0 pr-9 text-xs" maxLength={40} disabled={busy || labels.length >= 20} placeholder={t('issues.labelName')} value={label} role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`issue-label-options-${issue.id}`} aria-activedescendant={activeLabel >= 0 && suggestions[activeLabel] ? `issue-label-option-${issue.id}-${activeLabel}` : undefined}
           onChange={event => { setLabel(event.target.value); setActiveLabel(-1); }}
           onKeyDown={event => {
