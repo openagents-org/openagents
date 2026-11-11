@@ -292,7 +292,7 @@ export function ChatView() {
     initialMessagesSessionRef.current = currentSessionId;
   }
 
-  const { messages, loading, forceRefresh, generation, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
+  const { messages, loading, forceRefresh, loadOlder, hasOlder, loadingOlder } = useMessagePolling({
     sessionId: currentSessionId,
     initialMessages: initialMessagesRef.current,
   });
@@ -335,7 +335,8 @@ export function ChatView() {
   // prepended — which never scrolls.
   // Starts at null so a remount takes the same one-render delay as a switch.
   const [optimisticSessionId, setOptimisticSessionId] = useState<string | null>(null);
-  // scrollKey triggers scroll-to-bottom: incremented on user send + backfill completion
+  // Only sending a message explicitly forces a scroll. History refreshes
+  // follow the message list's existing scroll intent.
   const [scrollKey, setScrollKey] = useState(0);
   const [focusKey, setFocusKey] = useState(0);
   const [replyTargets, setReplyTargets] = useState<Record<string, WorkspaceMessage | undefined>>({});
@@ -352,10 +353,6 @@ export function ChatView() {
     setFocusKey((k) => k + 1);
   }), []);
 
-  // Scroll to bottom when backfill replaces messages (generation changes)
-  useEffect(() => {
-    if (generation > 0) setScrollKey((k) => k + 1);
-  }, [generation]);
 
   const sessionMessages = useMemo(
     () => currentSessionId ? messagesForSession(currentSessionId, messages) : [],

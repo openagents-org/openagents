@@ -1,7 +1,7 @@
 'use client';
 
 import { IssueWork } from './issue-work';
-import { WorkingBubble } from '@/components/chat/working-bubble';
+import { IssueAgentProgress } from './issue-agent-progress';
 import { IssueAttachments } from './issue-attachments';
 import { resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
@@ -195,7 +195,6 @@ export function IssueDiscussion({
   // The API returns links oldest first. Reverse before stable activity sorting
   // so the newest active conversation leads, followed by the newest idle ones.
   const linkedThreads = [...(issue?.threads || [])].reverse().sort((a, b) => Number(workingIn(b.channel_name).length > 0) - Number(workingIn(a.channel_name).length > 0));
-  const workingAgents = agents.filter(agent => agent.status === 'online' && issue?.threads.some(thread => agent.busyChannels?.includes(thread.channel_name)));
   const workingLabel = (names: typeof agents) => t('issueWork.working', { agents: names.map(agent => agent.displayName || agent.agentName).join(', ') });
   const activityIndicator = (names: typeof agents) => <span className="inline-flex min-w-0 items-center gap-2 text-[11px] text-muted-foreground"><span aria-hidden="true" className="inline-flex shrink-0 items-center gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.16}s` }} />)}</span><span className="truncate">{workingLabel(names)}</span></span>;
   const people = new Map((issue?.participants || []).map((p) => [p.source, p.name]));
@@ -598,7 +597,10 @@ export function IssueDiscussion({
                     );
                   })}
                 </div>
-                {workingAgents.length > 0 && <div className="thread-wip mt-6 space-y-2 rounded-xl border border-border/60 px-4 py-3">{workingAgents.map(agent => <WorkingBubble key={agent.agentName} agentName={agent.agentName} agents={workingAgents} status={t('chat.agentWorking')} />)}</div>}
+                {issue.threads.map(thread => {
+                  const working = workingIn(thread.channel_name);
+                  return working.length ? <IssueAgentProgress key={thread.channel_name} thread={thread} agents={working} /> : null;
+                })}
                 <form
                   className="relative mt-8 flex gap-3"
                   onKeyDownCapture={(e) => {

@@ -37,6 +37,23 @@ def test_claims_use_one_sdk_verification_even_outside_http(sdk):
     sdk.assert_called_once_with("token", check_revoked=False)
 
 
+def test_provider_photo_reaches_the_workspace_roster_without_replacing_custom_photos(client, workspace, db, sdk):
+    photo = "https://lh3.googleusercontent.com/provider-photo"
+    sdk.return_value = {**sdk.return_value, "picture": photo}
+    profile = client.get("/v1/account/profile", headers={"Authorization": "Bearer token"})
+    assert profile.json()["data"]["avatarUrl"] == photo
+    user = db.query(User).filter_by(email="a@example.com").one()
+    db.add(WorkspaceMembership(workspace_id=workspace["id"], user_id=user.id, role="member"))
+    db.commit()
+    roster = client.get(f"/v1/workspaces/{workspace['id']}/team", headers={"Authorization": "Bearer token"})
+    assert next(person for person in roster.json()["data"] if person["email"] == user.email)["avatarUrl"] == photo
+
+    user.avatar_url = "data:image/png;base64,custom-photo"
+    db.commit()
+    profile = client.get("/v1/account/profile", headers={"Authorization": "Bearer token"})
+    assert profile.json()["data"]["avatarUrl"] == "data:image/png;base64,custom-photo"
+
+
 def test_email_and_claims_reuse_verification_in_sync_worker(sdk):
     def check():
         assert fa.verify_identity_token("token") == "a@example.com"

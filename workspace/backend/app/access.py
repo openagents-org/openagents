@@ -135,6 +135,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
             firebase_uid=claims.get("firebase_uid"),
             apple_sub=claims.get("apple_sub"),
             display_name=claims.get("display_name"),
+            avatar_url=claims.get("avatar_url"),
             last_login_at=_now(),
             email_verified_at=_now() if verified else None,
         )
@@ -151,6 +152,10 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         user.apple_sub = claims["apple_sub"]
     if claims.get("display_name") and not user.display_name:
         user.display_name = claims["display_name"]
+    # Share the verified provider photo as the default across workspaces.
+    # A photo explicitly saved in Profile always takes precedence.
+    if claims.get("avatar_url") and not user.avatar_url:
+        user.avatar_url = claims["avatar_url"]
     # Verification only ever ratchets on: a later unverified token (e.g. the
     # China session path) must not un-verify an address.
     if verified and not user.email_verified_at:

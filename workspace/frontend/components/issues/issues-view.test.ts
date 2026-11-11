@@ -47,6 +47,7 @@ vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
 vi.mock('@/lib/api', () => ({ workspaceApi: mocks.api }));
+vi.mock('@/hooks/use-polling', () => ({ useMessagePolling: () => ({ messages: [] }) }));
 vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => mocks.layout,
 }));
@@ -916,12 +917,12 @@ it('puts newest active linked conversations first, followed by newest idle conve
 
 it('shows live issue work and requester completion, with active work taking precedence', async () => {
   mocks.api.listIssues.mockResolvedValue({ issues: [{...issue, linked_channels: ['work-thread']}], next_offset: null });
-  mocks.ws.agents = [{ name: 'research-agent', status: 'online', busyChannels: ['work-thread'] }];
+  mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', status: 'online', busyChannels: ['work-thread'] }];
   mocks.ws.completedSessionIds = new Set(['work-thread']);
   await act(async () => root.render(createElement(IssuesView)));
   await act(async () => { await vi.advanceTimersByTimeAsync(250); });
   expect(host.querySelector('button.thread-wip')).not.toBeNull();
-  expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent is working');
+  expect(host.querySelector('[role="status"]')?.textContent).toBe('Research agent is working');
   expect(host.textContent).not.toContain('Agent work finished');
   mocks.ws.agents = [];
   await act(async () => root.render(createElement(IssuesView)));

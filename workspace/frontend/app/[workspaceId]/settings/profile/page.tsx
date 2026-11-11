@@ -186,7 +186,7 @@ export default function ProfileSettingsPage() {
             <p className="text-xs text-muted-foreground">{t('profile.displayNameHint')}</p>
           </div>
           <p className="text-xs text-muted-foreground">{profile.email}</p>
-          {(profile.avatarUrl || avatarDraft) && (
+          {((profile.avatarUrl && profile.avatarUrl !== user?.photoURL) || avatarDraft) && (
             <Button variant="ghost" size="sm" onClick={() => setAvatarDraft('')}>
               <X className="size-3.5" />
               {t('profile.removePhoto')}

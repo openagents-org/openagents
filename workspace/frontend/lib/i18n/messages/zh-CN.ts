@@ -148,6 +148,7 @@ export const messages: Messages = {
 
     workStarted: '已启动智能体工作',
     copyLink: '复制议题链接',
+    openInThread: '在会话中打开',
     subtitle: "共同讨论想法、问题和决策。",
     newIssue: "新建议题",
     editIssue: "编辑议题",

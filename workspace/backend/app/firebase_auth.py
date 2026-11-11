@@ -398,13 +398,17 @@ def verify_firebase_claims(token: str) -> Optional[dict]:
     decoded = _verified_firebase_token(token)
     if decoded is None:
         return None
-    return {
+    claims = {
         "provider": "firebase",
         "email": decoded["email"],
         "firebase_uid": decoded.get("uid"),
         "display_name": decoded.get("name") or decoded.get("displayName"),
         "email_verified": _firebase_email_verified(decoded),
     }
+    picture = decoded.get("picture")
+    if isinstance(picture, str) and picture.startswith("https://") and len(picture) <= 5000:
+        claims["avatar_url"] = picture
+    return claims
 
 
 def _firebase_email_verified(decoded: dict) -> bool:
