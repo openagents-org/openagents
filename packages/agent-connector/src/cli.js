@@ -616,19 +616,7 @@ function connectKnownWorkspace(connector, name, ref, connectionId) {
   }
 }
 
-/**
- * Browser URL of a workspace, matching the TUI's convention: a localhost/dev
- * endpoint serves its own web app; everything else lives on the hosted
- * dashboard. This is what a freshly paired user actually needs next — NOT
- * another CLI command.
- */
-function workspaceWebUrl(slug, endpoint) {
-  const ep = String(endpoint || '');
-  const isLocal = ep.includes('localhost') || ep.includes('127.0.0.1');
-  return isLocal
-    ? `${ep.replace(/\/+$/, '')}/${slug}`
-    : `https://workspace.openagents.org/${slug}`;
-}
+const { workspaceWebUrl, pairDevice } = require('./join');
 
 /**
  * `agn device <connect|status>` — pair this device (formerly "node") to a
@@ -674,40 +662,7 @@ async function cmdNode(connector, flags, positional) {
 
     print('Connecting this device to your workspace...');
     try {
-      const res = await connector.redeemNodePairingCode(code, info);
-      // A code always redeems against ONE workspace; if that workspace is one
-      // this device already belongs to, this is a re-pair, not a new pairing.
-      // recordPairing below still runs — it refreshes the (possibly rotated)
-      // credential in place — but the user should hear "already paired", not
-      // a duplicate "connected".
-      const alreadyPaired = priorPairings.some(
-        (p) => p.node_id === res.nodeId,
-      );
-      // recordPairing, not saveNode: this device can be a node in several
-      // workspaces at once, and a bare save would drop the others' pairings.
-      // Freeze legacy bindings before another owner adds a connection here.
-      const prior = priorPairings.filter((p) => p.workspace_id === res.workspaceId);
-      if (prior.length === 1) for (const agent of connector.config.getAgents()) {
-        if (!agent.node_id && (agent.network === prior[0].workspace_slug || agent.network === prior[0].workspace_id))
-          connector.config.updateAgent(agent.name, { node_id: prior[0].node_id });
-      }
-      nodeCfg.recordPairing(info.nodeKey, {
-        node_id: res.nodeId,
-        owner_email: res.ownerEmail,
-        workspace_id: res.workspaceId,
-        workspace_slug: res.workspaceSlug,
-        workspace_name: res.workspaceName,
-        endpoint: connector.workspace.endpoint,
-        token: res.token,
-      });
-      // Register the workspace locally so agents created on this node can use it.
-      connector.config.addNetwork({
-        id: res.workspaceId,
-        slug: res.workspaceSlug,
-        name: res.workspaceName,
-        endpoint: connector.workspace.endpoint,
-        token: res.token,
-      });
+      const { res, alreadyPaired } = await pairDevice(connector, code, info, priorPairings);
       if (alreadyPaired) {
         print(`Already paired with '${res.workspaceName}' (${res.workspaceSlug}) — refreshed this device's credential.`);
       } else {
@@ -757,6 +712,20 @@ async function cmdNode(connector, flags, positional) {
 
   print('Usage: agn device <connect|status> [pairing-code]   (alias: agn node)');
   process.exitCode = 1;
+}
+
+/**
+ * `agn join <pairing-code>` — run from inside an agent (Claude Code, Codex,
+ * ...): connect that agent to the workspace. See join.js.
+ */
+async function cmdJoin(connector, flags, positional) {
+  const { join } = require('./join');
+  process.exitCode = await join({
+    code: positional[0] || flags.code,
+    flags: { ...flags, autostart: flags['no-autostart'] ? false : flags.autostart },
+    connector,
+    print,
+  });
 }
 
 async function cmdDisconnect(connector, _flags, positional) {
@@ -1304,6 +1273,8 @@ Commands:
   runtimes                    List installed runtimes
   device connect <code>       Pair this device (formerly "node") to a workspace with a pairing code
   device status               Show the workspaces this device is paired with (alias: node)
+  join <code>                 Run from inside Claude Code, Codex, ...: connect that agent to a workspace
+                              [--name <agent-name>] [--type <type>] [--path <dir>] [--no-autostart]
   connect <agent> <token>     Connect agent to workspace (or --workspace <slug> for a paired one)
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
@@ -1349,6 +1320,8 @@ async function main() {
     (cmd === 'up' && flags.foreground) ||
     cmd === 'tui' ||
     cmd === 'update' ||
+    // npx …@latest join: already the newest, and its output is read by an agent
+    cmd === 'join' ||
     flags['no-update-check'] ||
     process.env.OPENAGENTS_SKIP_UPDATE_CHECK === '1' ||
     (cmd === 'status' && process.argv.length <= 2 && process.stdin.isTTY);
@@ -1393,6 +1366,7 @@ async function main() {
     search: () => cmdSearch(connector, flags, positional),
     runtimes: () => cmdRuntimes(connector, flags),
     connect: () => cmdConnect(connector, flags, positional),
+    join: () => cmdJoin(connector, flags, positional),
     device: () => cmdNode(connector, flags, positional),
     devices: () => cmdNode(connector, flags, positional),
     node: () => cmdNode(connector, flags, positional),     // legacy spelling

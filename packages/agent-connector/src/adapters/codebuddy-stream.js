@@ -444,6 +444,22 @@ function classifyCodeBuddyRun({ result = null, code = null, signal = null, stder
     const detail = result.errors[0]
       || result.errorsInfo.map((e) => e.details).find(Boolean)
       || '';
+    // `400 model [default-model] service info not found … Currently supported
+    // models: …` — the account has nothing behind that model id or alias, and
+    // every run fails until the agent names one it does have. Seen in the
+    // field on the bare `default-model` alias; the CLI's list of models is
+    // kept (it is the answer), the request ids are not.
+    const missing = /model \[([^\]]+)\] service info not found/i.exec(String(detail));
+    if (missing) {
+      const supported = /currently supported models?[^:：]*[:：]\s*([\s\S]*)/i.exec(String(detail));
+      return {
+        kind: 'model_unavailable',
+        ok: false,
+        userMessage: `This CodeBuddy account has no model behind "${missing[1]}". ` +
+          'Set CODEBUDDY_MODEL in this agent\'s configuration to a model the account offers' +
+          (supported ? `: ${truncate(redactSecrets(supported[1].trim()), 300)}` : ', then retry.'),
+      };
+    }
     return {
       kind: 'run_error',
       ok: false,

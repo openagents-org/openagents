@@ -1,11 +1,10 @@
 'use client';
 
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
-import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Download, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
+import { X, Copy, Check, ExternalLink, Loader2, Terminal, Cloud, Trash2, MessageSquare, Image as ImageIcon, Volume2, Key, ChevronRight, Server, Laptop, Monitor, RefreshCw, RotateCcw, Plus, HardDrive, Pencil, Folder, CornerLeftUp, Sparkles, Search, ArrowRight, CheckCircle2, Zap, AlertTriangle } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useRetryingLoad } from '@/hooks/use-retrying-load';
 import { useT, useFormatters } from '@/lib/i18n';
@@ -45,7 +44,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ExpandableError } from './expandable-error';
-import { desktopDownloads } from '@/lib/desktop-downloads';
 
 // The welcome film is ~2k lines of scene choreography only first-run users
 // ever see — load it on demand so the connect view's bundle stays lean.
@@ -80,14 +78,14 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView, connectSetupRequest } = useLayout();
+  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
   const isDesktop = desktopHost() !== null;
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
-  const activeTab = isDesktop || selectedTab === 'local' ? 'node' : selectedTab;
+  const activeTab = selectedTab === 'local' ? 'node' : selectedTab;
   const appliedSetupRequest = useRef(connectSetupRequest);
   useEffect(() => {
     if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
@@ -95,6 +93,11 @@ export function ConnectAgentView({
       setSelectedTab('node');
     }
   }, [connectSetupRequest]);
+  useEffect(() => {
+    if (!cloudAgentsPending) return;
+    setSelectedTab('cloud');
+    consumeCloudAgents?.();
+  }, [cloudAgentsPending, consumeCloudAgents]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -200,39 +203,6 @@ export function ConnectAgentView({
     ? `${token.slice(0, 8)}${'•'.repeat(8)}${token.slice(-4)}`
     : token;
 
-  // The built-in Yumi assistant uses the server-held key for the `openagents`
-  // provider, so it is present when a roster agent is flagged builtin/named yumi
-  // or a cloud agent named yumi exists. The dedicated card is hidden then.
-  const yumiPresent = useMemo(
-    () =>
-      agents.some((a) => a.builtin || a.agentName === 'yumi') ||
-      cloudAgents.some((a) => a.agentName === 'yumi'),
-    [agents, cloudAgents],
-  );
-
-  const handleAddBuiltinYumi = async () => {
-    setSaving(true);
-    try {
-      await workspaceApi.addCloudAgent({
-        agentName: 'yumi',
-        provider: 'openagents',
-        // Ignored by the backend: the built-in's model is fixed by server
-        // config, and POST /cloud-agents overrides whatever is sent for
-        // provider "openagents".
-        model: '',
-        apiKey: '',
-      });
-      toast.success(t('connect.yumiAdded'));
-      capture('cloud_agent_created', { provider: 'openagents', agent: 'yumi', builtin: true });
-      refreshWorkspace();
-      loadCloudAgents();
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : t('connect.cloudAgentAddFailed'));
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleAddCloudAgent = async () => {
     // The `openagents` provider injects the server-held key, so it is exempt
     // from the API-key requirement the generic provider forms enforce.
@@ -317,14 +287,32 @@ export function ConnectAgentView({
 
   // When a node appears that wasn't there when the code was generated, the pair
   // succeeded → dismiss the panel; the new node is already in the list.
+  const [pairedNodeId, setPairedNodeId] = useState<string | null>(null);
+  const finishPairing = useCallback((nodeId: string | null) => {
+    setPairing(null);
+    setPairedNodeId(nodeId);
+    toast.success(t('connect.nodeConnectedToast'));
+    capture('node_connected', { source: 'workspace_ui' });
+  }, [t]);
   useEffect(() => {
     if (!pairing) return;
-    if (nodes.some((n) => !pairingBaselineRef.current.has(n.nodeId))) {
-      setPairing(null);
-      toast.success(t('connect.nodeConnectedToast'));
-      capture('node_connected', { source: 'workspace_ui' });
-    }
-  }, [nodes, pairing, t]);
+    const fresh = nodes.find((n) => !pairingBaselineRef.current.has(n.nodeId));
+    if (fresh) finishPairing(fresh.nodeId);
+  }, [nodes, pairing, finishPairing]);
+  // A device that was already paired keeps its node id, so also ask whether
+  // the code itself was used (an agent joining from a machine already
+  // connected here, the common case for `agn join`).
+  useEffect(() => {
+    if (!pairing || activeTab !== 'node') return;
+    let cancelled = false;
+    const id = setInterval(async () => {
+      try {
+        const status = await workspaceApi.getPairingCodeStatus(pairing.code);
+        if (!cancelled && status.redeemed) { finishPairing(status.nodeId); loadNodes(false); }
+      } catch { /* the node list keeps watching */ }
+    }, 3000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [pairing, activeTab, finishPairing, loadNodes]);
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
@@ -376,14 +364,15 @@ export function ConnectAgentView({
         </div>
       )}
 
-      {/* The desktop app focuses on agents running on connected devices. */}
-      {!isDesktop && <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />}
+      {/* The desktop app shows both tabs too: most people arrive through it, and
+          Cloud Agents is the only place they can find hosted agents. */}
+      <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />
 
       {/* Credits-campaign incentive — Local Agents tab only: the milestone is
           about launcher/CLI agents, so it would only confuse on the Cloud
           Agents and Manual Connection tabs. */}
       {activeTab === 'node' && (
-        <div className={cn('px-6 shrink-0', isDesktop && 'pt-4')}>
+        <div className="px-6 shrink-0">
           <div className="mx-auto w-full max-w-2xl">
             <CampaignConnectHint idToken={oaIdToken} />
           </div>
@@ -427,11 +416,14 @@ export function ConnectAgentView({
             autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
             onFirstAgentCreated={requestFirstThread}
+            pairedNodeId={pairedNodeId}
+            onAgentJoined={(name) => { requestFirstThread(name); openView('threads'); }}
             loading={nodesLoading}
             loaded={nodesLoaded}
             loadFailed={nodesError}
             pairing={pairing}
             pairingLoading={pairingLoading}
+            pairingError={pairingError}
             onGenerate={handleGeneratePairingCode}
             onDismissPairing={handleDismissPairing}
             onRefresh={() => loadNodes(true)}
@@ -460,8 +452,6 @@ export function ConnectAgentView({
             saving={saving}
             onAdd={handleAddCloudAgent}
             onRemove={handleRemoveCloudAgent}
-            showBuiltinCard={!yumiPresent}
-            onAddBuiltin={handleAddBuiltinYumi}
             onHostedChanged={refreshWorkspace}
           />
         )}
@@ -474,8 +464,6 @@ export function ConnectAgentView({
 // Nodes Tab — devices running the launcher daemon (connect-a-node)
 // ---------------------------------------------------------------------------
 
-const INSTALL_COMMAND = 'curl -fsSL https://openagents.org/install.sh | bash';
-const INSTALL_COMMAND_WIN = 'irm https://openagents.org/install.ps1 | iex';
 
 function deviceIcon(deviceType: string, className?: string) {
   switch (deviceType) {
@@ -496,212 +484,6 @@ function deviceLabel(t: ReturnType<typeof useT>, deviceType: string) {
 }
 
 /** A monospace command line with a copy button. */
-function CommandRow({ command }: { command: string }) {
-  const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    navigator.clipboard.writeText(command);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-  return (
-    <div className="flex items-center gap-2 rounded-md border bg-zinc-950 dark:bg-black px-3 py-2">
-      <code className="flex-1 min-w-0 text-xs font-mono text-zinc-100 overflow-x-auto whitespace-nowrap">
-        {command}
-      </code>
-      <button
-        onClick={copy}
-        className="shrink-0 size-6 flex items-center justify-center rounded text-zinc-400 hover:text-zinc-100 hover:bg-white/10 transition-colors"
-        title={t('connect.nodeCopyCommand')}
-      >
-        {copied ? <Check className="size-3.5 text-green-400" /> : <Copy className="size-3.5" />}
-      </button>
-    </div>
-  );
-}
-
-/** One numbered step in the pairing walkthrough, with a connector rail. */
-function PairingStep({
-  n,
-  title,
-  last = false,
-  children,
-}: {
-  n: number;
-  title: string;
-  last?: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex gap-3.5">
-      <div className="flex flex-col items-center">
-        <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-          {n}
-        </span>
-        {!last && <span className="mt-1.5 w-px flex-1 bg-border" />}
-      </div>
-      <div className={cn('min-w-0 flex-1', !last && 'pb-6')}>
-        <div className="text-sm font-semibold leading-6">{title}</div>
-        <div className="mt-2.5 space-y-2.5">{children}</div>
-      </div>
-    </div>
-  );
-}
-
-function PairingPanel({
-  pairing,
-  onDismiss,
-}: {
-  pairing: PairingCode;
-  onDismiss: () => void;
-}) {
-  const t = useT();
-  const isMobile = useIsMobile();
-  const [codeCopied, setCodeCopied] = useState(false);
-  const [os, setOs] = useState<'unix' | 'windows'>(() =>
-    typeof navigator !== 'undefined' && /Windows/i.test(navigator.userAgent) ? 'windows' : 'unix',
-  );
-  const [remaining, setRemaining] = useState(() =>
-    Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)),
-  );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      setRemaining(Math.max(0, Math.round((new Date(pairing.expiresAt).getTime() - Date.now()) / 1000)));
-    }, 1000);
-    return () => clearInterval(id);
-  }, [pairing.expiresAt]);
-
-  const expired = remaining <= 0;
-  const minutes = Math.max(1, Math.ceil(remaining / 60));
-
-  const copyCode = () => {
-    navigator.clipboard.writeText(pairing.code);
-    setCodeCopied(true);
-    setTimeout(() => setCodeCopied(false), 2000);
-  };
-
-  return (
-    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-      <div className="px-5 py-3.5 border-b flex items-center justify-between">
-        <span className="text-sm font-semibold">{t('connect.nodePairingTitle')}</span>
-        <span className={cn(
-          'text-xs font-medium rounded-full px-2.5 py-1',
-          expired ? 'bg-red-500/10 text-red-500' : 'bg-amber-500/10 text-amber-600 dark:text-amber-500',
-        )}>
-          {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes })}
-        </span>
-      </div>
-
-      <div className="p-5">
-        {/* Step 1 — get the launcher (desktop app or CLI). On a phone the
-            download links are dead ends (the launcher runs on a computer),
-            so point at the laptop instead and keep the CLI path for servers. */}
-        <PairingStep n={1} title={isMobile ? t('connect.nodeMobileStep1Title') : t('connect.nodeStep1Title')}>
-          {isMobile && (
-            <div className="rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3.5 space-y-1.5">
-              <div className="flex items-center gap-2 text-sm font-semibold">
-                <Laptop className="size-4 shrink-0 text-primary" />
-                <span>
-                  {t('connect.nodeMobileGoTo1')}{' '}
-                  <span className="font-mono font-bold text-primary">openagents.org</span>{' '}
-                  {t('connect.nodeMobileGoTo2')}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground">{t('connect.nodeMobileTime')}</p>
-            </div>
-          )}
-          <div className={cn('text-xs font-medium text-muted-foreground', isMobile && 'hidden')}>{t('connect.nodeInstallDesktop')}</div>
-          <div className={cn('grid grid-cols-3 gap-2', isMobile && 'hidden')}>
-            {desktopDownloads(t).map((d) => (
-              <a
-                key={d.os}
-                href={d.href}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border hover:border-primary/40 hover:bg-primary/[0.03] transition-colors"
-              >
-                <Download className="size-3.5" />{d.os}
-              </a>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3 py-0.5">
-            <span className="h-px flex-1 bg-border" />
-            <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-              {t('connect.nodeStepOr')}
-            </span>
-            <span className="h-px flex-1 bg-border" />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-medium text-muted-foreground">{t('connect.nodeInstallCli')}</div>
-            <div className="flex items-center gap-1 p-0.5 rounded-lg bg-muted">
-              {([
-                { id: 'unix', label: t('connect.nodeOsUnix') },
-                { id: 'windows', label: t('connect.nodeOsWindows') },
-              ] as const).map((o) => (
-                <button
-                  key={o.id}
-                  onClick={() => setOs(o.id)}
-                  className={cn(
-                    'px-2.5 py-1 text-xs font-medium rounded-md transition-colors',
-                    os === o.id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {o.label}
-                </button>
-              ))}
-            </div>
-          </div>
-          <CommandRow command={os === 'windows' ? INSTALL_COMMAND_WIN : INSTALL_COMMAND} />
-        </PairingStep>
-
-        {/* Step 2 — enter the pairing code */}
-        <PairingStep n={2} title={t('connect.nodeStep2Title')}>
-          <button
-            onClick={copyCode}
-            disabled={expired}
-            className={cn(
-              'group w-full flex items-center justify-center gap-3 rounded-2xl border-2 border-dashed py-6 transition-colors',
-              expired
-                ? 'opacity-50 cursor-not-allowed border-zinc-200 dark:border-zinc-800'
-                : 'border-border bg-muted/30 hover:bg-muted/60',
-            )}
-            title={t('connect.nodeCopyCode')}
-          >
-            <span className="text-4xl leading-none font-mono font-bold tracking-[0.25em] tabular-nums">{pairing.code}</span>
-            {codeCopied
-              ? <Check className="size-6 text-green-500" />
-              : <Copy className="size-6 text-muted-foreground group-hover:text-foreground transition-colors" />}
-          </button>
-          <p className="text-xs text-muted-foreground">{t('connect.nodeStep2Hint')}</p>
-          <p className="text-xs text-muted-foreground">{t('connect.nodeCliPairingHint')}</p>
-          <CommandRow command={`agn device connect ${pairing.code}`} />
-          {isMobile && (
-            <p className="text-xs text-muted-foreground">{t('connect.nodeMobileCodeHint')}</p>
-          )}
-        </PairingStep>
-
-        {/* Step 3 — live "waiting for the device" indicator; auto-closes when a
-            node connects (the parent watches the node list and dismisses this). */}
-        <PairingStep n={3} title={t('connect.nodeStep3Title')} last>
-          <div className="flex items-center justify-between gap-3 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <span className="relative flex size-5 shrink-0 items-center justify-center">
-                <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary/40" />
-                <Loader2 className="size-5 animate-spin text-primary" />
-              </span>
-              <span className="text-xs font-medium truncate">{t('connect.nodeWaiting')}</span>
-            </div>
-            <Button size="sm" variant="ghost" onClick={onDismiss}>{t('connect.nodeCancel')}</Button>
-          </div>
-        </PairingStep>
-      </div>
-    </div>
-  );
-}
-
 /**
  * A Start/Stop sent to a device, shown on the card until its state moves off
  * `from`. A restart is a stop and then a start: the start waits until the
@@ -1257,11 +1039,14 @@ function NodesTab({
   autoAddAgent = false,
   preferredNodeId,
   onFirstAgentCreated,
+  pairedNodeId,
+  onAgentJoined,
   loading,
   loaded,
   loadFailed = false,
   pairing,
   pairingLoading,
+  pairingError,
   onGenerate,
   onDismissPairing,
   onRefresh,
@@ -1273,12 +1058,17 @@ function NodesTab({
   autoAddAgent?: boolean;
   preferredNodeId?: string;
   onFirstAgentCreated?: (agentName: string) => void;
+  /** The device a pairing code from this view was just redeemed by. */
+  pairedNodeId?: string | null;
+  /** That device brought an agent along (`agn join`): go talk to it. */
+  onAgentJoined?: (agentName: string) => void;
   loading: boolean;
   /** A node load has finished at least once. */
   loaded: boolean;
   loadFailed?: boolean;
   pairing: PairingCode | null;
   pairingLoading: boolean;
+  pairingError: boolean;
   onGenerate: () => void;
   onDismissPairing: () => void;
   onRefresh: () => void;
@@ -1291,6 +1081,12 @@ function NodesTab({
   // going straight to a pairing code meant for a different machine.
   const canConnectHere = !!host?.getComputerStatus && !!workspace;
   const [choosing, setChoosing] = useState(false);
+  const [showDeviceSetup, setShowDeviceSetup] = useState(false);
+  const previousPairing = useRef(pairing);
+  useEffect(() => {
+    if (previousPairing.current && !pairing) setShowDeviceSetup(false);
+    previousPairing.current = pairing;
+  }, [pairing]);
   const [joinedNodeId, setJoinedNodeId] = useState<string | null>(null);
   const localNodeId = useLocalNodeId(workspace?.workspaceId, joinedNodeId ?? nodes.length);
   const [expandedNodeId, setExpandedNodeId] = useState<string | null>(null);
@@ -1390,11 +1186,24 @@ function NodesTab({
   const autoAddedRef = useRef(false);
   useEffect(() => {
     if (!autoAddAgent || autoAddedRef.current) return;
+    if (pairedNodeId) {
+      // The device just paired here. Wait for its first heartbeat, which lists
+      // the agents it runs: one connected by `agn join` from inside Claude
+      // Code or Codex brings its agent along, so open a thread with that
+      // agent instead of the gallery.
+      const paired = nodes.find((n) => n.nodeId === pairedNodeId && n.status === 'online');
+      if (!paired) return;
+      autoAddedRef.current = true;
+      const joined = (paired.agents || [])[0];
+      if (joined) (onAgentJoined ?? onFirstAgentCreated)?.(joined.name);
+      else setAddingNodeId(paired.nodeId);
+      return;
+    }
     const target = preferredNodeId
       ? nodes.find((n) => n.nodeId === preferredNodeId && n.status === 'online')
       : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
-  }, [autoAddAgent, nodes, preferredNodeId]);
+  }, [autoAddAgent, nodes, preferredNodeId, pairedNodeId, onFirstAgentCreated, onAgentJoined]);
 
   // The sidebar's "+" beside Agents: open a device's gallery, this computer
   // first. Waits for the node list; with no device yet the list itself (and
@@ -1496,6 +1305,41 @@ function NodesTab({
     );
   }
 
+  // Connecting another device is its own screen. Keep the existing device
+  // roster out of the way while the pairing code is waiting to be redeemed.
+  if (showDeviceSetup || pairing) {
+    return (
+      <div className="mx-auto w-full max-w-2xl space-y-5 p-6">
+        <button
+          type="button"
+          disabled={pairingLoading}
+          onClick={() => { setShowDeviceSetup(false); onDismissPairing(); }}
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground disabled:opacity-50"
+        >
+          <ChevronRight className="size-4 rotate-180" />{t('connect.nodeBack')}
+        </button>
+        {pairing ? (
+          <OnboardingPairingPanel
+            pairing={pairing}
+            onDismiss={() => { setShowDeviceSetup(false); onDismissPairing(); }}
+            onRegenerate={onGenerate}
+            regenerating={pairingLoading}
+            stepLabel={t('connect.connectAnotherDevice')}
+          />
+        ) : pairingError ? (
+          <div role="alert" className="rounded-lg border border-dashed p-8 text-center">
+            <p className="text-sm text-muted-foreground">{t('connect.nodePairingFailed')}</p>
+            <Button variant="outline" className="mt-4" onClick={onGenerate}>{t('common.retry')}</Button>
+          </div>
+        ) : (
+          <div role="status" className="flex items-center justify-center py-14 text-muted-foreground">
+            <Loader2 className="mr-2 size-5 animate-spin" />{t('connect.nodeGenerating')}
+          </div>
+        )}
+      </div>
+    );
+  }
+
   const listReady = !(loading && nodes.length === 0) && !(loadFailed && nodes.length === 0);
   if (canConnectHere && listReady && !pairing && (nodes.length === 0 || choosing)) {
     return (
@@ -1528,13 +1372,20 @@ function NodesTab({
           <h3 className="text-lg font-semibold tracking-tight">{t('connect.nodeHeading')}</h3>
           <p className="text-xs text-muted-foreground mt-0.5">{t('connect.nodeSubtitle')}</p>
         </div>
-        <button
-          onClick={onRefresh}
-          className="shrink-0 size-9 flex items-center justify-center rounded-lg border text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
-          title={t('connect.nodeRefresh')}
-        >
-          <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
-        </button>
+        <div className="flex shrink-0 items-center gap-2">
+          {nodes.length > 0 && (
+            <Button variant="outline" onClick={canConnectHere ? () => setChoosing(true) : () => { setShowDeviceSetup(true); onGenerate(); }}>
+              <Plus className="mr-1.5 size-4" />{t('connect.nodeConnectAnother')}
+            </Button>
+          )}
+          <button
+            onClick={onRefresh}
+            className="size-9 flex items-center justify-center rounded-lg border text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+            title={t('connect.nodeRefresh')}
+          >
+            <RefreshCw className={cn('size-4', loading && 'animate-spin')} />
+          </button>
+        </div>
       </div>
 
       {/* Node list / empty state */}
@@ -1578,10 +1429,8 @@ function NodesTab({
         </div>
       )}
 
-      {/* Pairing code panel, or the connect button */}
-      {pairing ? (
-        <PairingPanel pairing={pairing} onDismiss={onDismissPairing} />
-      ) : loadFailed && nodes.length === 0 ? null : nodes.length === 0 ? (
+      {/* A new workspace can start pairing without a device roster. */}
+      {loadFailed && nodes.length === 0 ? null : nodes.length === 0 ? (
         <Button onClick={onGenerate} disabled={pairingLoading} className="w-full h-12 text-sm" variant="primary" size="lg">
           {pairingLoading ? (
             <><Loader2 className="size-4 animate-spin mr-2" />{t('connect.nodeGenerating')}</>
@@ -1589,16 +1438,7 @@ function NodesTab({
             <><Plus className="size-4 mr-2" />{t('connect.nodeConnect')}</>
           )}
         </Button>
-      ) : (
-        <button
-          onClick={canConnectHere ? () => setChoosing(true) : onGenerate}
-          disabled={pairingLoading}
-          className="w-full flex items-center justify-center gap-2 rounded-xl border border-dashed py-3.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/[0.03] transition-colors disabled:opacity-50"
-        >
-          {pairingLoading ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          {pairingLoading ? t('connect.nodeGenerating') : t(canConnectHere ? 'connect.nodeConnect' : 'connect.nodeConnectAnother')}
-        </button>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -1920,8 +1760,6 @@ function CloudAgentsTab({
   saving,
   onAdd,
   onRemove,
-  showBuiltinCard,
-  onAddBuiltin,
   onHostedChanged,
 }: {
   providers: CloudAgentProvider[];
@@ -1946,8 +1784,6 @@ function CloudAgentsTab({
   saving: boolean;
   onAdd: () => void;
   onRemove: (name: string) => void;
-  showBuiltinCard: boolean;
-  onAddBuiltin: () => void;
   onHostedChanged: () => void;
 }) {
   const t = useT();
@@ -1961,13 +1797,8 @@ function CloudAgentsTab({
     if (first) setCfgName(first.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
   }, [isTokenPay, tokenPay.models, setCfgModel, setCfgName]);
 
-  const providerGroups = [
-    { label: t('connect.groupChat'), names: ['openai', 'anthropic', 'google', 'xai', 'deepseek', 'mistral', 'sensenova'] },
-    { label: t('connect.groupSearch'), names: ['perplexity', 'manus'] },
-    { label: t('connect.groupFast'), names: ['groq', 'together', 'fireworks', 'openrouter', 'tokenpay', 'sambanova', 'cerebras'] },
-    { label: t('connect.groupMedia'), names: ['stability', 'replicate', 'fal', 'elevenlabs'] },
-    { label: t('connect.groupCustom'), names: ['custom'] },
-  ];
+  const marketplaceProviders = providers.filter((p) => ['perplexity', 'manus', 'tokenpay', 'sensenova'].includes(p.name));
+  const connectedAgents = cloudAgents.filter((agent) => !agent.managed && agent.provider !== 'openagents');
 
   // When a provider is selected, show config view instead of grid
   if (selectedProviderInfo) {
@@ -2181,75 +2012,35 @@ function CloudAgentsTab({
   // Grid view — no provider selected
   return (
     <div className="p-4 space-y-3">
-      {/* Built-in Yumi — re-add the OpenAgents onboarding assistant (no API key) */}
-      {showBuiltinCard && (
-        <div className="flex items-center gap-3 px-3.5 py-3 rounded-lg border border-primary/30 bg-primary/5">
-          <img
-            src="/yumi-avatar.png"
-            alt="Yumi"
-            className="size-9 shrink-0 rounded-md object-cover"
-            draggable={false}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold leading-tight">{t('connect.yumiTitle')}</div>
-            <div className="text-xs text-muted-foreground mt-0.5">{t('connect.yumiSubtitle')}</div>
-          </div>
-          <Button
-            onClick={onAddBuiltin}
-            disabled={saving}
-            size="sm"
-            className="shrink-0"
-          >
-            {saving && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
-            {t('connect.yumiAdd')}
-          </Button>
-        </div>
-      )}
-
+      <div className="mb-5">
+        <h2 className="text-lg font-semibold">{t('connect.cloudMarketplaceTitle')}</h2>
+        <p className="mt-1 text-sm text-muted-foreground">{t('connect.cloudMarketplaceHint')}</p>
+      </div>
       <HostedAgentsSection onChanged={onHostedChanged} />
-
-      {providerGroups.map((group) => {
-        const groupProviders = group.names
-          .map((n) => providers.find((p) => p.name === n))
-          .filter(Boolean) as typeof providers;
-        if (groupProviders.length === 0) return null;
-        return (
-          <div key={group.label}>
-            <div className="flex items-center gap-2 mb-1.5 px-0.5">
-              <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{group.label}</span>
-              <div className="flex-1 border-t" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {marketplaceProviders.map((p) => (
+          <button key={p.name} onClick={() => onSelectProvider(p.name)}
+            className="group flex items-start gap-3 rounded-xl border bg-background p-4 text-left hover:bg-accent/50 hover:border-foreground/20 transition-colors">
+            <div className="size-10 shrink-0 flex items-center justify-center rounded-lg bg-muted/50">
+              <ProviderIcon name={p.name} size={28} />
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
-              {groupProviders.map((p) => {
-                return (
-                  <button
-                    key={p.name}
-                    onClick={() => onSelectProvider(p.name)}
-                    className="flex items-center gap-2 px-2.5 py-2 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30 text-left transition-all"
-                  >
-                    <div className="size-6 shrink-0 flex items-center justify-center">
-                      <ProviderIcon name={p.name} size={22} />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium leading-tight truncate">{p.label}</div>
-                      <div className="text-xs text-muted-foreground">{p.name === 'tokenpay' ? t('connect.tokenpayModelsHint') : t('connect.providerModelCount', { count: p.models.length })}</div>
-                    </div>
-                  </button>
-                );
-              })}
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold">{p.label}</div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(p.name === 'perplexity' ? 'connect.perplexityDescription' : p.name === 'manus' ? 'connect.manusDescription' : p.name === 'sensenova' ? 'connect.senseNovaDescription' : 'connect.tokenDanceDescription')}</p>
             </div>
-          </div>
-        );
-      })}
+            <ChevronRight className="size-4 shrink-0 mt-1 text-muted-foreground" />
+          </button>
+        ))}
+      </div>
 
       {/* Connected cloud agents */}
-      {cloudAgents.length > 0 && (
+      {connectedAgents.length > 0 && (
         <div className="space-y-2">
           <div className="flex items-center gap-2 px-1">
             <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('connect.connected')}</span>
             <div className="flex-1 border-t" />
           </div>
-          {cloudAgents.map((agent) => (
+          {connectedAgents.map((agent) => (
             <div
               key={agent.agentName}
               className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background"

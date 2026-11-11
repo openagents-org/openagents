@@ -12,6 +12,8 @@ import { ARTIFACT_PIN_EVENT, openArtifactPreview, isDocumentFile, sameArtifact, 
 import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
 import { ProjectUpload } from './project-upload';
 import { ArtifactContent } from './artifact-content';
+import { ArtifactFileActions } from './artifact-file-actions';
+import { basename } from '@/components/files/file-utils';
 
 type Entry = { ref: ArtifactReference; title: string; kind: 'document' | 'html' | 'browser' | 'project'; here: boolean; detail?: string };
 export function ArtifactPanel() {
@@ -29,7 +31,7 @@ export function ArtifactPanel() {
     return () => { active = false; };
   }, [currentSessionId]);
   const entries = useMemo<Entry[]>(() => [
-    ...files.filter(isDocumentFile).map(file => ({ ref: {kind:'file' as const,id:file.id}, title:projectDisplayName(file.filename,file.contentType), kind: (file.contentType === WEB_PROJECT_TYPE ? 'project' : /html/.test(file.contentType) || /\.html?$/i.test(file.filename) ? 'html' : 'document') as Entry['kind'], here:file.channelName === currentSessionId })),
+    ...files.filter(isDocumentFile).map(file => ({ ref: {kind:'file' as const,id:file.id}, title:projectDisplayName(basename(file.filename),file.contentType), detail:file.filename.includes('/') ? file.filename.slice(0,file.filename.lastIndexOf('/')) : undefined, kind: (file.contentType === WEB_PROJECT_TYPE ? 'project' : /html/.test(file.contentType) || /\.html?$/i.test(file.filename) ? 'html' : 'document') as Entry['kind'], here:file.channelName === currentSessionId })),
     ...knowledge.map(entry => ({ref:{kind:'knowledge' as const,id:entry.id},title:entry.title,kind:'document' as const,here:false,detail:entry.path})),
     ...browserTabs.map(tab => ({ref:{kind:'browser' as const,id:tab.id},title:tab.title || tab.url,kind:'browser' as const,here:!!tab.artifactChannels?.includes(currentSessionId || ''),detail:tab.activity ? `${tab.activity.actor.replace(/^(openagents:|human:)/,'')} · ${tab.url}` : tab.url})),
   ], [files, knowledge, browserTabs, currentSessionId]);
@@ -52,6 +54,7 @@ export function ArtifactPanel() {
       {selectedArtifact ? <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.browse')} onClick={()=>setSelectedArtifact(null)}><ArrowLeft className="size-4" /></Button> : <PanelRight className="size-4 text-muted-foreground" />}
       <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={selected?.title}>{selected?.title || t('artifactPanel.title')}</span>
       {setting?.can_pin && (selectedArtifact || setting.unavailable) && <Button variant={pinned?'outline':'ghost'} mode="icon" size="sm" disabled={busy} title={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button>}
+      {selectedArtifact && <ArtifactFileActions artifact={selectedArtifact} />}
       <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.refresh')} onClick={()=>void refresh()}><RefreshCw className="size-3.5" /></Button>
       <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.close')} onClick={()=>setShowBrowserPreview(false)}><X className="size-4" /></Button>
     </header>

@@ -9,7 +9,6 @@ import {
   SidebarMenu,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
@@ -22,12 +21,12 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
   const { agents } = useWorkspace();
   const t = useT();
-  const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
+  const hasConnectedAgents = agents.some((a) => !a.builtin);
   const onboarding = useOnboardingSurface();
   const isActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showSetupHint = !!setupStep && !isActive;
-  const connectLabel = onboarding || setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectFirstAgent');
 
   return (
     <SidebarGroup className="py-1">

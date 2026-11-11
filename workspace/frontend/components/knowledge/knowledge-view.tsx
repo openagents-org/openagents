@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, Copy, Loader2, Pencil, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
@@ -47,16 +47,22 @@ export function KnowledgeView() {
   // itself threw away the rendered article and flashed a spinner on every list
   // refresh, tab switch, and delete.
   const entryVersion = entry?.updatedAt || entry?.createdAt || null;
+  // <Activity> re-runs this when Knowledge is shown again; the same entry at
+  // the same version is still rendered, so don't fetch it again.
+  const loadedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!selectedKnowledgeId) {
+      loadedFor.current = null;
       setContent('');
       return;
     }
+    const loadKey = `${selectedKnowledgeId}:${entryVersion}`;
+    if (loadedFor.current === loadKey) return;
     let cancelled = false;
     setLoading(true);
     workspaceApi
       .getKnowledgeEntry(selectedKnowledgeId)
-      .then((full) => { if (!cancelled) setContent(full.content); })
+      .then((full) => { if (!cancelled) { setContent(full.content); loadedFor.current = loadKey; } })
       .catch(() => { if (!cancelled) setContent(t('knowledge.loadFailed')); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };

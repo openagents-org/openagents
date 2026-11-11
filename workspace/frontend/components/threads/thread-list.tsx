@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
-  MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
+  GitFork, MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -324,7 +324,7 @@ function ThreadRow({
 export function ThreadList() {
   const {
     sessions, currentSessionId, setCurrentSessionId, agents, lastMessageBySession,
-    activeSessionIds, completedSessionIds, updateSession, renameSession, dmConversations,
+    activeSessionIds, completedSessionIds, updateSession, renameSession, forkSession, dmConversations,
     unreadSessionIds, unreadThreadCounts, unreadDmSessionIds, unreadDmCounts, unreadSignals, refreshAgents, refreshDMConversations, currentUser, onlineUsers,
   } = useWorkspace();
   const me = myAddress(currentUser);
@@ -608,6 +608,27 @@ export function ThreadList() {
         >
           <Pencil className="size-4" />
           <span>{t('common.rename')}</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          onClick={async (e) => {
+            e.stopPropagation();
+            const title = (await prompt({
+              title: t('threads.forkTitle'),
+              description: t('threads.forkDescription'),
+              placeholder: t('threads.renamePlaceholder'),
+              defaultValue: `${session.title || t('threads.untitled')} (fork)`,
+              confirmText: t('threads.fork'),
+            }))?.trim();
+            if (!title) return;
+            try {
+              await forkSession(session.sessionId, title);
+            } catch {
+              toast.error(t('chat.forkThreadFailed'));
+            }
+          }}
+        >
+          <GitFork className="size-4" />
+          <span>{t('threads.forkMenu')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={(e) => {
           e.stopPropagation();

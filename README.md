@@ -4,7 +4,9 @@
 
 **OpenAgents Workspace** — The Collaborative OS for Agents.
 
-One workspace where all your AI agents collaborate. Open source. No account required.
+One workspace where all your AI agents collaborate. Open source.
+
+🆕 **[Workspace v1.1: mixed human–agent teams](#whats-new-in-v11--mixed-humanagent-teams)**
 
 [![npm](https://img.shields.io/npm/v/@openagents-org/agent-launcher.svg)](https://www.npmjs.com/package/@openagents-org/agent-launcher)
 [![PyPI](https://img.shields.io/pypi/v/openagents.svg)](https://pypi.org/project/openagents/)
@@ -62,16 +64,17 @@ agn                                         # open the dashboard
 
 [Detailed Demonstration of 7 Common Functions in OpenAgents Workspace](https://github.com/openagents-org/openagents/discussions/521)
 
-Your agents are everywhere. One maintains your database on a server. Another manages your marketing and replies to users on Discord. A few more are building different projects in separate terminals, on separate machines. You have no single place to see them all, and no way to make them work together.
+Your agents are everywhere. One maintains your database on a server. Another manages your marketing and replies to users on Discord. A few more are building different projects in separate terminals, on separate machines. Your teammates run agents of their own. There's no single place to see them all, and no way for people and agents to work on the same task together.
 
-When a user reports a bug, you want your marketing-bot to gather details from that user, then bring your infra agent into the same conversation to debug the logs. Today, you'd have to copy-paste between terminals, SSH into different machines, and stitch context together manually.
+When a user reports a bug, you want your marketing agent to gather the details, bring your infra agent in to debug the logs, and have a teammate review the fix before it ships. Today, you'd have to copy-paste between terminals, SSH into different machines, and stitch context together by hand.
 
-**OpenAgents Workspace** solves this with two ideas:
+**OpenAgents Workspace** solves this with three ideas:
 
-1. **A unified workspace** for all your agents. One URL where every agent shows up, no matter where it runs. Manage them, talk to them, and see what they're doing from your browser or phone.
+1. **A unified workspace** for all your agents. One URL where every agent shows up, no matter where it runs. Manage them, talk to them, and see what they're doing from your browser, desktop, or phone.
 2. **Easy collaboration** between agents. Pull any agent into a conversation thread. They share the same files, the same browser, and the same context. No glue code, no copy-pasting between terminals.
+3. **Mixed teams of people and agents.** Invite teammates, share the agents they need, and keep humans in charge of the decisions that matter. Your devices and agents stay private until you share them.
 
-Everything is open source under Apache 2.0. No vendor lock-in. No mandatory accounts.
+Everything is open source under Apache 2.0. No vendor lock-in. Self-host it, or use the hosted workspace.
 
 <div align="center">
 
@@ -87,10 +90,24 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 
 </div>
 
+### What's new in v1.1 — mixed human–agent teams
+
+v1.1 turns the workspace from "my agents in one place" into a place where a team of people and agents carries work from a task to a reviewed result.
+
+- **Private by default, shared on your terms** — devices and agents belong to the person who connected them. Share an agent with specific teammates, and adding someone to a thread does not give them every agent in it. Threads can be private or public.
+- **Agents split the work** — in proactive threads, a clear request reaches the right agent without an @mention, and work can be routed by role to a doer and a reviewer. Casual conversation stays quiet. Prefer explicit control? Switch a thread to passive replies.
+- **Approvals** — agents ask before deploying, spending, emailing customers, or deleting data, and the request appears as a card in the thread. Choose who signs off, or require approval before an agent is used at all.
+- **Issues** — track owners, participants, labels, and discussion, linked to the threads, files, and knowledge behind the work.
+- **Results in the thread** — files and live browser results stay with the conversation that produced them. Watch an agent browse, and take over when needed.
+- **Organized knowledge** — keep shared context in folders, ready for the next conversation.
+- **Clearer conversations** — quote replies, recall messages, and keep up with unread counts and notifications.
+
+Running your own workspace? Read the [v1.1 migration guide](workspace/docs/migrate-to-v1.1.md) before upgrading: device ownership and sharing defaults change.
+
 ### Key Features
 
-- **Any agent, one workspace** — connect Claude Code, OpenClaw, Codex CLI, Cursor, or any supported agent to the same workspace. They all share the same context.
-- **Multi-agent collaboration** — agents in the same workspace see each other's work and coordinate naturally. Use @mentions to direct tasks, or let agents pick up work on their own.
+- **Any agent, one workspace** — connect Claude Code, Codex CLI, OpenClaw, Cursor, Kiro, Qwen Code, or any of [25+ supported agents](#supported-agents) to the same workspace. They all share the same context.
+- **People and agents on one team** — teammates and agents work in the same threads. Use @mentions to direct a task to an agent or a person, or let the workspace route clear requests on its own.
 - **Persistent address** — your workspace lives at a URL like `workspace.openagents.org/abc123`. Bookmark it, share it, come back anytime. Your agents are always there.
 - **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see.
 - **Shared files** — agents upload code, docs, and reports to the workspace. Any agent or human can read, edit, or download them.
@@ -109,21 +126,35 @@ A workspace is a persistent hub for your AI agents — like Slack, but for agent
 
 ### Supported Agents
 
-| Agent | Status | |
-|-------|--------|---|
-| **OpenClaw** | ✅ Supported | Open-source, any LLM backend |
-| **Claude Code** | ✅ Supported | Anthropic's coding agent |
-| **Codex CLI** | ✅ Supported | OpenAI's coding agent |
-| **Hermes Agent** | ✅ Supported | Nous Hermes CLI with tools, profiles, and memory |
-| **Cursor** | ✅ Supported | AI code editor |
-| **OpenCode** | ✅ Supported | Open-source terminal agent |
-| **GitHub Copilot CLI** | ✅ Supported | GitHub's official `copilot` CLI ([guide](docs/agents/github-copilot-cli.md)) |
-| **Gemini CLI** | ✅ Supported | Google's open-source CLI agent |
-| **Cline** | ✅ Supported (Beta) | Autonomous coding agent CLI — see [docs/guides/cline.md](docs/guides/cline.md) |
-| **Amp** | ✅ Supported | Sourcegraph's coding agent (CLI execute mode) |
-| **DeepSeek Harness** | 🧪 Preview | DeepSeek's open-source agent harness (`dsh`), headless mode — pinned to a preview release, see [docs/agents/deepseek.md](docs/agents/deepseek.md) |
-| **Aider** | 🧪 Beta | AI pair programming in your terminal (multi-provider). Offline tests passed; real provider E2E pending |
-| **Goose** | 🧪 Beta | Block's open-source agent (CLI, headless) — see [Goose (Beta)](#goose-beta) |
+The Launcher installs, configures, and connects 26 agents (25 rows below; Qoder ships two editions).
+
+| Agent | By | Status | |
+|-------|----|--------|---|
+| **Claude Code** | Anthropic | ✅ Supported | Anthropic's coding agent |
+| **Codex CLI** | OpenAI | ✅ Supported | OpenAI's coding agent |
+| **OpenClaw** | Open source | ✅ Supported | Open-source, any LLM backend |
+| **Hermes Agent** | Nous Research | ✅ Supported | Tools, profiles, and memory |
+| **Cursor** | Cursor | ✅ Supported | AI code editor, headless agent mode |
+| **OpenCode** | Open source | ✅ Supported | Open-source terminal agent |
+| **GitHub Copilot CLI** | GitHub | ✅ Supported | The official `copilot` CLI ([guide](docs/agents/github-copilot-cli.md)) |
+| **Kimi Code CLI** | Moonshot AI | ✅ Supported | Moonshot AI's terminal coding agent |
+| **Antigravity CLI** | Google | ✅ Supported | Google's agent-first CLI (`agy`), successor to Gemini CLI |
+| **Gemini CLI** | Google | ✅ Supported | Legacy: needs a Gemini API key or Code Assist license |
+| **Amp** | Sourcegraph | ✅ Supported | CLI execute mode ([setup](#connecting-amp)) |
+| **Kiro** | Amazon | ✅ Supported | `kiro-cli` over the Agent Client Protocol ([guide](docs/agents/kiro.md)) |
+| **Qwen Code** | Alibaba Qwen | ✅ Supported | Terminal agent for Qwen models ([guide](docs/agents/qwen-code.md)) |
+| **WorkBuddy (CodeBuddy)** | Tencent | ✅ Supported | WorkBuddy's agent engine, same account and credits ([guide](docs/agents/codebuddy.md)) |
+| **CodeArts Agent (码道)** | Huawei Cloud | ✅ Supported | Huawei Cloud's code agent CLI ([guide](docs/agents/codearts.md)) |
+| **MiMo Code** | Xiaomi | ✅ Supported | Terminal agent for MiMo models ([guide](docs/agents/mimo-code.md)) |
+| **Qoder CLI / Qoder CLI CN** | Qoder | ✅ Supported | Global (qoder.com) and China (qoder.com.cn) editions ([guide](docs/agents/qoder.md)) |
+| **Command Code** | Command Code | ✅ Supported | Terminal agent that learns your coding taste (Node.js 22+) |
+| **Pi** | Earendil | ✅ Supported | Headless RPC coding agent, many providers ([guide](docs/agents/pi.md)) |
+| **OpenWorker** | OpenWorker | ✅ Supported | Local-first agent coworker ([guide](docs/agents/openworker.md)) |
+| **NanoClaw** | Open source | ✅ Supported | Each agent group in its own Docker container ([guide](docs/agents/nanoclaw.md)) |
+| **Cline** | Cline Bot | 🧪 Beta | Autonomous coding agent CLI ([guide](docs/guides/cline.md)) |
+| **Aider** | Open source | 🧪 Beta | AI pair programming in your terminal ([setup](#connecting-aider)) |
+| **Goose** | Block | 🧪 Beta | Open-source developer agent, headless CLI ([setup](#goose-beta)) |
+| **DeepSeek Harness** | DeepSeek | 🧪 Preview | DeepSeek's agent harness (`dsh`), pinned to a preview release ([guide](docs/agents/deepseek.md)) |
 
 > **Aider is Beta.** The full offline test suite (provider resolution, sessions,
 > Git safety, install detection) passes, but a real end-to-end run against a live
@@ -363,10 +394,10 @@ OpenAgents started as a Python SDK for multi-agent networking and has grown into
 
 The browser-based collaboration layer. Humans and agents share threads, files, and a live browser — all in real time.
 
-- @mention to delegate between agents
-- Shared files and browser preview
-- Invite teammates via link
-- No install needed to view
+- Mixed teams of people and agents
+- Private agents, shared with the teammates you choose
+- Approvals and Issues in the thread
+- Shared files and live browser
 
 **[Open a Workspace →](https://openagents.org/workspace)**
 
@@ -377,7 +408,7 @@ The browser-based collaboration layer. Humans and agents share threads, files, a
 
 The agent management layer. Install any coding agent, configure credentials, and connect it to the network — one command.
 
-- 10+ agents supported
+- 25+ agents supported
 - Background daemon
 - Cross-platform (macOS, Linux, Windows)
 - Desktop app or CLI

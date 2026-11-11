@@ -4,7 +4,7 @@ import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
 import { DocxStage } from './docx-stage';
 import { ProjectPreview } from '@/components/artifacts/project-preview';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ChevronRight,
@@ -358,7 +358,18 @@ export function FilePreview() {
 
   // Load whatever this kind needs — text into state, PDFs into a blob URL,
   // media straight off the download route.
+  //
+  // <Activity> re-runs this when Files is shown again. What it loaded is
+  // still in state (and an unsaved draft with it), so a reveal of the same
+  // file is a no-op: re-fetching blanked the preview to a spinner on every
+  // switch back, and threw the draft away. The PDF URL is therefore revoked
+  // when it's replaced, not on cleanup, which also runs on hide.
+  const loadedRef = useRef<string | null>(null);
+  const blobRef = useRef<string | null>(null);
   useEffect(() => {
+    const loadKey = file ? `${file.id}:${strategy}` : null;
+    if (loadKey && loadedRef.current === loadKey) return;
+    loadedRef.current = null;
     setContent(null);
     setContentHash(undefined);
     setDraft(null);
@@ -377,7 +388,6 @@ export function FilePreview() {
     }
 
     let cancelled = false;
-    let objectUrl: string | null = null;
     setLoading(true);
 
     workspaceApi.fetchFile(file.id)
@@ -390,13 +400,18 @@ export function FilePreview() {
           if (!cancelled) {
             setContent(text);
             setContentHash(hash);
+            loadedRef.current = loadKey;
           }
         } else {
           const data = await res.blob();
+          if (cancelled) return;
           // Force the type: the browser only opens its PDF viewer when the
           // blob says application/pdf, and uploads often arrive octet-stream.
-          objectUrl = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-          if (!cancelled) setBlobUrl(objectUrl);
+          const objectUrl = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
+          if (blobRef.current) URL.revokeObjectURL(blobRef.current);
+          blobRef.current = objectUrl;
+          setBlobUrl(objectUrl);
+          loadedRef.current = loadKey;
         }
       })
       .catch(() => {
@@ -408,9 +423,18 @@ export function FilePreview() {
 
     return () => {
       cancelled = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
   }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Release the PDF when the preview goes away. <Activity> runs this on hide
+  // as well, so a PDF (unlike text, which costs nothing to keep) is fetched
+  // again when Files is shown next.
+  useEffect(() => () => {
+    if (!blobRef.current) return;
+    URL.revokeObjectURL(blobRef.current);
+    blobRef.current = null;
+    loadedRef.current = null;
+  }, []);
 
   const dirty = draft !== null && draft !== content;
 
@@ -709,6 +733,7 @@ export function FilePreview() {
           effectiveVisibility={file.effectiveVisibility}
           canManage={file.canManage}
           canInherit={!!file.channelName}
+          contentType={contentType}
           onVisibilityChange={async (v) => {
             await workspaceApi.updateFileVisibility(file.id, v);
             await refreshFiles();

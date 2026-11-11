@@ -277,6 +277,7 @@ class TestGenerateMemberDescription:
     @patch("app.mods.workspace_mod._get_router_model", return_value="claude-haiku-4-5-20251001")
     def test_generate_returns_suggestion(self, _m, _k, mock_get_client, client, workspace):
         content = MagicMock()
+        content.type = "text"
         content.text = '"Backend engineer that builds APIs and fixes bugs."'
         resp = MagicMock()
         resp.content = [content]

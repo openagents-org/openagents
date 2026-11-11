@@ -71,6 +71,8 @@ const FAILURE_MESSAGES = {
   provider_not_configured: 'CodeArts Agent has no usable model provider. Check CODEARTS_MODEL, then retry.',
   model_not_found: "This account can't use the configured model. Pick one from the model list in this agent's configuration (or run `codearts models`), set CODEARTS_MODEL, then retry.",
   rate_limited: 'The model service is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: 'The model service account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.',
+  request_too_large: 'The model service refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'CodeArts Agent could not reach Huawei Cloud (network or service error). Retry shortly.',
   provider_server_error: 'The model service returned a server error. Retry shortly.',
   timeout: 'CodeArts Agent timed out before producing a reply. Retry; if it persists, check the model configuration.',
@@ -79,6 +81,7 @@ const FAILURE_MESSAGES = {
   incomplete_run: 'CodeArts Agent stopped mid-task right after a tool call and never produced a final reply — its progress notes are shown above. Send "continue" to pick up where it left off.',
   process_crashed: 'CodeArts Agent exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "CodeArts Agent's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  config_invalid: 'CodeArts Agent would not start because one of its config files is invalid — the file and what is wrong with it are below. Correct or remove that entry, then retry.',
   unknown_error: 'CodeArts Agent failed for an undetermined reason. Open diagnostics or retry.',
 };
 

@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useId, useState } from 'react';
-import { CircleDot, Link2, ChevronRight } from 'lucide-react';
+import { CircleDot } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -19,37 +19,37 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/responsive-dialog';
-import { cn } from '@/lib/utils';
-import { ErrorNotice, errorMessage, selectClass } from './issue-ui';
+import { ErrorNotice, errorMessage } from './issue-ui';
 
 export function IssueEditor({
   open,
   onOpenChange,
   issue,
   onSaved,
+  boardId,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   issue?: WorkspaceIssue;
+  /** Board a new issue is filed on (default: Team issues). */
+  boardId?: string;
   onSaved: (issue: WorkspaceIssue) => void;
 }) {
   const t = useT();
   const descriptionId = useId();
-  const { currentUser, sessions } = useWorkspace();
+  const { currentUser } = useWorkspace();
   const mentions = useIssueMentions(issue);
   const [title, setTitle] = useState(issue?.title ?? '');
   const [description, setDescription] = useState(issue?.description ?? '');
   const [assignee, setAssignee] = useState('');
   const [fileIds, setFileIds] = useState<string[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [channel, setChannel] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   useEffect(() => {
     if (open) {
       setTitle(issue?.title ?? '');
       setDescription(issue?.description ?? '');
-      setChannel('');
       setAssignee(issue?.assignee ?? '');
       setFileIds(issue?.file_ids ?? []);
       setUploading(false);
@@ -74,7 +74,7 @@ export function IssueEditor({
         : await workspaceApi.createIssue({
             ...input,
             assignee: assignee || null,
-            ...(channel ? { channel_name: channel } : {}),
+            ...(boardId ? { board_id: boardId } : {}),
           });
       onSaved(result);
     } catch (e) {
@@ -141,36 +141,6 @@ export function IssueEditor({
             )}
             <AttachmentPicker value={fileIds} onChange={setFileIds} disabled={busy} onUploadingChange={setUploading} />
             <p className="text-[11px] text-muted-foreground">{t('issues.attachmentAudience')}</p>
-            {!issue && sessions.length > 0 && (
-              <details className="group/link border-t border-border/60 pt-4">
-                <summary className="flex cursor-pointer list-none items-center gap-2 text-xs text-muted-foreground [&::-webkit-details-marker]:hidden">
-                  <Link2 className="size-3.5" />
-                  {t('issues.sourceThread')}
-                  <ChevronRight className="ml-auto size-3 transition-transform group-open/link:rotate-90" />
-                </summary>
-                <select
-                  disabled={busy}
-                  aria-label={t('issues.sourceThread')}
-                  className={cn(selectClass, 'mt-3 w-full text-xs')}
-                  value={channel}
-                  onChange={(e) => setChannel(e.target.value)}
-                >
-                  <option value="">{t('issues.noThread')}</option>
-                  {sessions
-                    .filter(
-                      (s) =>
-                        s.status !== 'deleted' &&
-                        !s.sessionId.startsWith('task:') &&
-                        !s.sessionId.startsWith('routine:'),
-                    )
-                    .map((s) => (
-                      <option key={s.sessionId} value={s.sessionId}>
-                        {s.title || s.sessionId}
-                      </option>
-                    ))}
-                </select>
-              </details>
-            )}
             {error && <ErrorNotice message={error} />}
           </DialogBody>
           <DialogFooter className="items-center border-t border-border/60 bg-muted/15 py-4 sm:justify-between">

@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
     workspace: { workspaceId: 'workspace-1' },
     currentUser: { id: 'alice-id', name: 'Alice' },
     agents: [] as unknown[],
-    sessions: [],
+    sessions: [] as { sessionId: string; title: string; status: string }[],
     activeSessionIds: new Set<string>(),
     completedSessionIds: new Set<string>(),
     tasks: [] as KanbanTask[],
@@ -27,6 +27,10 @@ const mocks = vi.hoisted(() => ({
     uploadFile: vi.fn(),
     listIssues: vi.fn(),
     listIssueLabels: vi.fn(),
+    listIssueBoards: vi.fn(() => Promise.resolve([{ id: 'team', name: 'Team issues', default: true, active_count: 0, can_manage: false }])),
+    createIssueBoard: vi.fn(),
+    renameIssueBoard: vi.fn(),
+    deleteIssueBoard: vi.fn(),
     getIssue: vi.fn(),
     createIssue: vi.fn(),
     updateIssue: vi.fn(),
@@ -38,7 +42,7 @@ const mocks = vi.hoisted(() => ({
     discover: vi.fn(),
   },
 }));
-vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm }));
+vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => mocks.confirm, usePrompt: () => vi.fn() }));
 vi.mock('sonner', () => ({ toast: mocks.toast }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.ws }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'alice-id' }) }));
@@ -145,8 +149,14 @@ async function openIssue() {
 }
 
 beforeEach(() => {
+  const stored = new Map<string, string>();
+  Object.defineProperty(window, 'localStorage', { configurable: true, value: {
+    getItem: (key: string) => stored.get(key) ?? null,
+    setItem: (key: string, value: string) => stored.set(key, value),
+  } });
   mocks.layout.pendingIssueId = null;
   mocks.ws.tasks = [];
+  mocks.ws.sessions = [];
   mocks.ws.activeSessionIds = new Set();
   mocks.ws.completedSessionIds = new Set();
   mocks.ws.knowledge = [];
@@ -157,6 +167,7 @@ beforeEach(() => {
   window.history.replaceState(null, '', '/workspace-1?token=private-token');
   mocks.ws.agents = [];
   mocks.api.getTeam.mockResolvedValue([]);
+  mocks.api.listIssueBoards.mockResolvedValue([{ id: 'team', name: 'Team issues', default: true, active_count: 0, can_manage: false }]);
   mocks.api.listIssueLabels.mockResolvedValue([]);
   mocks.api.discover.mockResolvedValue({ agents: [] });
   mocks.api.addIssueParticipants.mockResolvedValue(undefined);
@@ -181,12 +192,88 @@ afterEach(async () => {
 });
 
 describe('shared issues', () => {
-  it('announces task retirement on the tasks board and links to Team issues', async () => {
-    await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-    expect(host.querySelector('[role="note"]')?.textContent).toContain('My agent tasks will be retired');
-    await click(button('Go to Team issues'));
-    expect(host.querySelector('[role="note"]')).toBeNull();
-    expect(button('Team issues').getAttribute('aria-pressed')).toBe('true');
+  it('shows issue boards, Team issues first, with no My agent tasks tab', async () => {
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(host.textContent).not.toContain('My agent tasks');
+    const tabs = [...host.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+    expect(tabs[0]).toContain('Team issues');
+    expect(host.textContent).toContain('New board');
+    expect(button('Active issues')).toBeTruthy();
+    expect(mocks.api.listIssues).toHaveBeenCalledWith(expect.objectContaining({ board: 'team' }));
+  });
+
+  it('loads the selected board when switching boards', async () => {
+    mocks.api.listIssueBoards.mockResolvedValue([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: true },
+    ]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const dev = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.textContent?.includes('Development')) as HTMLButtonElement;
+    expect(dev).toBeTruthy();
+    await act(async () => { dev.click(); await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
+    expect(dev.getAttribute('aria-selected')).toBe('true');
+    expect(new URL(window.location.href).searchParams.get('board')).toBe('b-dev');
+    await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+    expect(new URL(window.location.href).searchParams.get('board')).toBe('b-dev');
+    await click(button('Issues'));
+    expect(new URL(window.location.href).searchParams.get('board')).toBe('b-dev');
+  });
+
+  it('opens a linked board even when a different board was remembered', async () => {
+    window.localStorage.setItem('oa:issue-board:workspace-1', 'team');
+    window.history.replaceState(null, '', '/workspace-1/issues?board=b-dev');
+    mocks.api.listIssueBoards.mockResolvedValueOnce([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: false },
+    ]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Development');
+  });
+
+  it('falls back to Team issues for a deleted board link and fixes the URL', async () => {
+    window.history.replaceState(null, '', '/workspace-1/issues?board=deleted');
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'team' }));
+    expect(new URL(window.location.href).searchParams.get('board')).toBe('team');
+  });
+
+  it.each(['team', 'b-dev'])('lets readers copy a clean link to board %s', async (id) => {
+    window.history.replaceState(null, '', `/workspace-1/issues/issue-1?token=private-token&board=${id}`);
+    mocks.api.listIssueBoards.mockResolvedValueOnce([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: false },
+    ]);
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await act(async () => root.render(createElement(IssuesView)));
+    const menu = host.querySelector<HTMLButtonElement>('button[aria-label^="Actions for"]')!;
+    await act(async () => menu.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+    const copy = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(item => item.textContent === 'Copy board link')!;
+    expect(copy).toBeTruthy();
+    await click(copy);
+    const copied = new URL(writeText.mock.calls[0][0]);
+    expect(copied.pathname).toBe('/workspace-1/issues');
+    expect([...copied.searchParams]).toEqual([['board', id]]);
+    expect(mocks.toast.success).toHaveBeenCalledWith('Board link copied');
+  });
+
+  it('copies an issue link from its row without opening it or copying authentication tokens', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    await click(host.querySelector('button[aria-label="Copy link to issue “Improve onboarding”"]')!);
+    const copied = new URL(writeText.mock.calls[0][0]);
+    expect(copied.pathname).toBe('/workspace-1/issues/issue-1');
+    expect([...copied.searchParams]).toEqual([['board', 'team']]);
+    expect(host.querySelector('section[aria-label="Discussion"]')).toBeNull();
+    expect(mocks.api.getIssue).not.toHaveBeenCalled();
   });
 
   it.each(['Active issues', 'Assigned to me', 'Open', 'In progress', 'Paused', 'Closed'].flatMap(label => [1, 2].map(pages => ({ label, pages }))))(
@@ -235,7 +322,7 @@ describe('shared issues', () => {
 
   it('does not offer Delete to people who may not delete the issue', async () => {
     await openIssue();
-    expect(host.querySelector('h1')?.textContent).toBe('Improve onboarding');
+    expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe('Improve onboarding');
     expect(button('Delete')).toBeUndefined();
   });
 
@@ -245,7 +332,7 @@ describe('shared issues', () => {
     await openIssue();
     await click(button('Delete'));
     expect(host.textContent).toContain('Only the person who opened this issue or a workspace admin can delete it');
-    expect(host.querySelector('h1')?.textContent).toBe('Improve onboarding');
+    expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe('Improve onboarding');
     expect(button('Delete').disabled).toBe(false);
   });
 
@@ -306,12 +393,14 @@ describe('shared issues', () => {
   });
 
   it('creates an issue without agents or an execution request', async () => {
+    mocks.ws.sessions = [{ sessionId: 'existing-thread', title: 'Existing thread', status: 'active' }];
     mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
     await act(async () => root.render(createElement(IssuesView)));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(250);
     });
     await click(button('New issue'));
+    expect(host.textContent).not.toContain('Related thread (optional)');
     await fill(host.querySelector('input[required]')!, 'Improve onboarding');
     await click(button('Create issue'));
     expect(mocks.api.createIssue).toHaveBeenCalledWith(
@@ -321,6 +410,7 @@ describe('shared issues', () => {
         source_name: 'Alice',
       }),
     );
+    expect(mocks.api.createIssue.mock.lastCall![0]).not.toHaveProperty('channel_name');
 
     expect(host.textContent).toContain('Add to the discussion');
     expect(window.location.pathname).toBe('/workspace-1/issues/issue-1');
@@ -572,15 +662,6 @@ it('searches the assignee picker and saves a selected person', async () => {
 });
 
 
-it('keeps existing standalone work reachable inside Issues', async () => {
-  mocks.ws.tasks = [{ id: 'old-task', issueId: null, title: 'Existing task', description: '', status: 'need_input', assignee: 'research-agent', knowledgeIds: [], fileIds: [], channelName: 'task:old-task' } as unknown as KanbanTask];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
-  expect(host.textContent).toContain('Existing task');
-  expect(host.textContent).toContain('New issue');
-  expect(host.textContent).not.toContain('New task');
-});
-
-
 it('creates a human-assigned issue and waits for attachments to upload', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'offline' },
     { agentName: 'other-agent', displayName: 'Other agent', ownerEmail: 'someone-else', status: 'online' }];
@@ -626,9 +707,9 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
-it('offers only human assignees even when creating from My agent tasks', async () => {
+it('offers only human assignees even when an agent is online', async () => {
   mocks.ws.agents = [{ agentName: 'research-agent', displayName: 'Research agent', ownerEmail: 'alice-id', status: 'online' }];
-  await act(async () => root.render(createElement(IssuesView, { initialWork: true })));
+  await act(async () => root.render(createElement(IssuesView)));
   await click(button('New issue'));
   await fill(host.querySelector('input[required]')!, 'Investigation');
   expect(button('Create issue').disabled).toBe(false);
@@ -873,4 +954,58 @@ it('keeps selected knowledge on failure and prevents empty searches from submitt
   expect(mocks.api.commentOnIssue).toHaveBeenLastCalledWith(issue.id, expect.objectContaining({ knowledge_ids: ['guide'] }));
   await click(button('Assign to an agent'));
   expect(host.querySelector('[aria-label="Remove Support guide"]')).toBeNull();
+});
+
+it('opens list issues side by side by default and preserves the filtered list while switching and closing', async () => {
+  const second = { ...issue, id: 'issue-2', title: 'Review onboarding' };
+  mocks.api.listIssues.mockResolvedValue({ issues: [issue, second], next_offset: null });
+  mocks.api.getIssue.mockImplementation(async (id: string) => id === second.id ? second : issue);
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(host.querySelector('button[aria-label="Split view"]')).toBeNull();
+  expect(host.querySelector('section[aria-label="Discussion"]')).toBeNull();
+  const list = host.querySelector('div[aria-label="List view"]')!;
+  const search = host.querySelector('input[aria-label="Search issues"]') as HTMLInputElement;
+  await fill(search, 'onboarding');
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  list.scrollTop = 120;
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(issue.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-1');
+  await click(host.querySelector('button[aria-label="Review onboarding · Open"]')!);
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(second.title);
+  expect(host.querySelector('[aria-current="true"]')?.textContent).toContain(second.title);
+  expect(window.location.pathname).toBe('/workspace-1/issues/issue-2');
+  expect(search.value).toBe('onboarding');
+  expect(list.scrollTop).toBe(120);
+  await click(button('Issues'));
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('div[aria-label="List view"]')).toBe(list);
+  expect(host.querySelector('[aria-current="true"]')).toBeNull();
+});
+
+it('returns to list or board view without leaving an invisible selected issue', async () => {
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Board view"]')!);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"]')).toBeNull();
+  expect(host.querySelector('button[aria-label="Board view"]')?.getAttribute('aria-pressed')).toBe('true');
+  await click(host.querySelector('button[aria-label="List view"]')!);
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  expect(host.querySelector('input[aria-label="Search issues"]')).not.toBeNull();
+  expect(host.querySelector('section[aria-label="Discussion"] h1')?.textContent).toBe(issue.title);
+});
+
+it('clears the split detail when its issue is deleted from the list', async () => {
+  mocks.api.listIssues.mockResolvedValue({ issues: [{ ...issue, can_delete: true }], next_offset: null });
+  await act(async () => root.render(createElement(IssuesView)));
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  await click(host.querySelector('button[aria-label="Improve onboarding · Open"]')!);
+  await click(host.querySelector('button[aria-label="Delete issue “Improve onboarding”"]')!);
+  expect(mocks.api.deleteIssue).toHaveBeenCalledWith(issue.id);
+  expect(window.location.pathname).toBe('/workspace-1/issues');
+  expect(host.querySelector('section[aria-label="Discussion"] h1')).toBeNull();
 });

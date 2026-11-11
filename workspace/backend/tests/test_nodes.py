@@ -349,3 +349,63 @@ class TestDeletedWorkspaceRefusesNodes:
 
         r = client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True}, headers=_tok(ws["token"]))
         assert r.status_code == 404
+
+
+class TestAgentNameCheck:
+    def _check(self, client, ws, node_id, name, headers=None):
+        return client.get(
+            f"/v1/nodes/{node_id}/agent-name",
+            params={"name": name},
+            headers=headers if headers is not None else _tok(ws["device_token"]),
+        )
+
+    def test_free_name_is_available(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = self._check(client, ws, node_id, "fresh-bot")
+        assert r.status_code == 200
+        assert r.json()["data"] == {"name": "fresh-bot", "available": True, "reason": None}
+
+    def test_blank_name_is_rejected(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = self._check(client, ws, node_id, "   ")
+        assert r.status_code == 400
+
+    def test_name_on_this_device_is_taken(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        roster = [{"name": "coder", "type": "claude", "status": "running"}]
+        client.post("/v1/nodes/heartbeat", json={"node_id": node_id, "agents": roster}, headers=_tok(ws["device_token"]))
+        data = self._check(client, ws, node_id, "coder").json()["data"]
+        assert data["available"] is False and data["reason"] == "on_device"
+
+    def test_name_held_by_another_connection_is_taken(self, client, db):
+        from app.models import WorkspaceMember
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        # A member the device does not know about — e.g. another person's
+        # personal agent, which discovery hides from this viewer.
+        db.add(WorkspaceMember(workspace_id=ws["workspaceId"], agent_name="private-bot", agent_type="claude", status="online"))
+        db.commit()
+        data = self._check(client, ws, node_id, "private-bot").json()["data"]
+        assert data["available"] is False and data["reason"] == "workspace"
+        # And create_agent refuses it for the same reason.
+        r = client.post(
+            f"/v1/nodes/{node_id}/commands",
+            json={"action": "create_agent", "args": {"name": "private-bot", "type": "claude"}},
+            headers=_tok(ws["device_token"]),
+        )
+        assert r.status_code == 403
+
+    def test_requires_connection_access(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        assert self._check(client, ws, node_id, "x", headers={}).status_code in (401, 403)
+
+    def test_devices_alias(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.get(f"/v1/devices/{node_id}/agent-name", params={"name": "x"}, headers=_tok(ws["device_token"]))
+        assert r.status_code == 200
+

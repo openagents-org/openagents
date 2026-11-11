@@ -7,10 +7,11 @@ Tests the _route_with_llm function with mocked LLM responses.
 
 import asyncio
 import pytest
+from types import SimpleNamespace
 from unittest.mock import patch, MagicMock, AsyncMock
 
 from app.models import Channel, ChannelMember, EventRecord, WorkspaceMember, Workspace
-from app.mods.workspace_mod import _route_with_llm, _handle_message_posted
+from app.mods.workspace_mod import _anthropic_text, _route_with_llm, _handle_message_posted
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import PipelineContext
 
@@ -27,6 +28,7 @@ def _make_event(source: str, target: str, content: str, message_type: str = "cha
 
 def _mock_anthropic_response(text: str):
     mock_content = MagicMock()
+    mock_content.type = "text"
     mock_content.text = text
     mock_response = MagicMock()
     mock_response.content = [mock_content]
@@ -74,8 +76,35 @@ def _run(coro):
         loop.close()
 
 
+def _thinking_then_text(text: str):
+    """Claude 5 models think by default, so a thinking block can come first."""
+    return SimpleNamespace(content=[
+        SimpleNamespace(type="thinking", thinking="", signature=""),
+        SimpleNamespace(type="text", text=text),
+    ])
+
+
+def test_anthropic_text_skips_thinking_blocks():
+    assert _anthropic_text(_thinking_then_text("next:agent-worker")) == "next:agent-worker"
+    assert _anthropic_text(SimpleNamespace(content=[SimpleNamespace(type="thinking", thinking="")])) == ""
+
+
 class TestRouteWithLLM:
     """Tests for _route_with_llm with Anthropic provider."""
+
+    @patch("app.mods.workspace_mod._get_llm_client")
+    @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")
+    @patch("app.mods.workspace_mod._get_router_model", return_value="claude-sonnet-5-5")
+    def test_router_skips_leading_thinking_block(self, _mock_model, _mock_key, mock_get_client, db, multi_agent_workspace):
+        mock_client = MagicMock()
+        mock_client.messages.create.return_value = _thinking_then_text("next:agent-worker")
+        mock_get_client.return_value = (mock_client, "anthropic")
+
+        ws = multi_agent_workspace["workspace"]
+        ch = multi_agent_workspace["channel"]
+        event = _make_event("openagents:agent-master", "channel/session-test", "@agent-worker please do this")
+
+        assert _run(_route_with_llm(ch, event, db, ws)) == ["agent-worker"]
 
     @patch("app.mods.workspace_mod._get_llm_client")
     @patch("app.mods.workspace_mod._get_router_api_key", return_value="test-key")

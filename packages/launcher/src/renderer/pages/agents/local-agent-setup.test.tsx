@@ -1,11 +1,20 @@
 import React from "react"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { render, screen, waitFor } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 
 import type { CatalogEntry, EnvField } from "@renderer/types"
-import type { LocalConfiguration } from "./local-setup-api"
+import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { LocalConfigurationFields } from "./local-agent-setup"
+
+// Radix Select uses browser pointer/scroll APIs that jsdom does not implement.
+const domMethods = ["hasPointerCapture", "setPointerCapture", "releasePointerCapture", "scrollIntoView"] as const
+const domDescriptors = domMethods.map(name => Object.getOwnPropertyDescriptor(HTMLElement.prototype, name))
+beforeAll(() => domMethods.forEach(name => Object.defineProperty(HTMLElement.prototype, name, { configurable: true, value: vi.fn(() => false) })))
+afterAll(() => domMethods.forEach((name, i) => {
+  if (domDescriptors[i]) Object.defineProperty(HTMLElement.prototype, name, domDescriptors[i]!)
+  else Reflect.deleteProperty(HTMLElement.prototype, name)
+}))
 
 type Api = Record<string, ReturnType<typeof vi.fn>>
 
@@ -179,4 +188,74 @@ describe("LocalConfigurationFields — signing in instead of a key", () => {
     await waitFor(() => expect(last(onChange)?.authTab).toBe("cli"))
     expect(last(onChange)?.values.CODEX_MODEL).toBe("gpt-5.5")
   })
+  it("offers both custom-endpoint modes without changing an untouched legacy config", async () => {
+    const onChange = open("codex", TYPE_ENV)
+    const select = await screen.findByRole("combobox", { name: "API mode" })
+    expect(select).toHaveTextContent("Chat only · Chat Completions API")
+    expect(last(onChange)?.values.CODEX_WIRE_API).toBeUndefined()
+    const user = userEvent.setup()
+    await user.click(select)
+    await user.click(screen.getByRole("option", { name: "Coding agent · Responses API" }))
+    expect(last(onChange)?.values.CODEX_WIRE_API).toBe("responses")
+    api.testLLM.mockResolvedValue({ success: true })
+    await user.click(screen.getByRole("button", { name: "Test connection" }))
+    expect(api.testLLM).toHaveBeenCalledWith(expect.objectContaining({ CODEX_WIRE_API: "responses" }), "codex")
+    await user.click(select)
+    await user.click(screen.getByRole("option", { name: "Chat only · Chat Completions API" }))
+    expect(last(onChange)?.values.CODEX_WIRE_API).toBe("chat")
+  })
+
+  it.each(["responses", "chat"])("creates an instance with the selected %s mode", async (mode) => {
+    const onChange = open(undefined, TYPE_ENV)
+    const user = userEvent.setup()
+    const select = await screen.findByRole("combobox", { name: "API mode" })
+    if (mode === "chat") {
+      await user.click(select)
+      await user.click(screen.getByRole("option", { name: "Coding agent · Responses API" }))
+    }
+    await user.click(select)
+    await user.click(screen.getByRole("option", { name: mode === "responses" ? "Coding agent · Responses API" : "Chat only · Chat Completions API" }))
+    Object.assign(api, {
+      getCatalog: vi.fn().mockResolvedValue([{ name: "codex", installed: true }]),
+      getSupportedAgentTypes: vi.fn().mockResolvedValue(["codex"]),
+      listAgents: vi.fn().mockResolvedValue([]),
+      listPaths: vi.fn().mockResolvedValue({ home: "/home/test" }),
+      addAgent: vi.fn().mockResolvedValue({ success: true }),
+    })
+    const backend = createLocalSetupApi(api as unknown as Window["api"], () => last(onChange) || null)
+    await backend.enqueueNodeCommand("this-computer", "create_agent", { type: "codex", name: "new-codex" })
+    expect(api.addAgent).toHaveBeenCalledWith(expect.objectContaining({ env: expect.objectContaining({ CODEX_WIRE_API: mode }) }))
+  })
+
+  it.each(["responses", "chat"])("reads the instance %s mode over the type default and saves a change", async (mode) => {
+    const other = mode === "responses" ? "chat" : "responses"
+    const onChange = open("codex", { ...TYPE_ENV, CODEX_WIRE_API: other }, { CODEX_WIRE_API: mode })
+    const select = await screen.findByRole("combobox", { name: "API mode" })
+    expect(select).toHaveTextContent(mode === "responses" ? "Coding agent · Responses API" : "Chat only · Chat Completions API")
+    const user = userEvent.setup()
+    await user.click(select)
+    await user.click(screen.getByRole("option", { name: other === "responses" ? "Coding agent · Responses API" : "Chat only · Chat Completions API" }))
+    Object.assign(api, { listAgents: vi.fn().mockResolvedValue([{ name: "codex", type: "codex" }]), saveAgentInstanceEnv: vi.fn().mockResolvedValue({ success: true }) })
+    const backend = createLocalSetupApi(api as unknown as Window["api"], () => last(onChange) || null)
+    await backend.enqueueNodeCommand("this-computer", "configure_agent", { type: "codex", name: "codex" })
+    expect(api.saveAgentInstanceEnv).toHaveBeenCalledWith("codex", { CODEX_WIRE_API: other })
+  })
+
+  it("hides the custom API choice on CLI sign-in without discarding its saved value", async () => {
+    const onChange = open("codex", { ...TYPE_ENV, CODEX_WIRE_API: "responses" })
+    await screen.findByRole("combobox", { name: "API mode" })
+    const user = userEvent.setup()
+    await user.click(screen.getByTestId("auth-tab-cli"))
+    expect(screen.queryByRole("combobox", { name: "API mode" })).not.toBeInTheDocument()
+    expect(last(onChange)?.values.CODEX_WIRE_API).toBe("responses")
+    await user.click(screen.getByTestId("auth-tab-key"))
+    expect(screen.getByRole("combobox", { name: "API mode" })).toHaveTextContent("Responses API")
+  })
+
+  it("does not offer the custom-endpoint mode for OpenAI's native endpoint", async () => {
+    open("codex", { ...TYPE_ENV, OPENAI_BASE_URL: "https://api.openai.com/v1" })
+    await screen.findByTestId("auth-tab-key")
+    expect(screen.queryByRole("combobox", { name: "API mode" })).not.toBeInTheDocument()
+  })
+
 })

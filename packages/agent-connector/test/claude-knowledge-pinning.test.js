@@ -371,7 +371,8 @@ describe('context-limit and stale-session visibility', () => {
     await adapter._handleMessage({ content: 'go on', sessionId: 'general' });
 
     assert.ok(adapter.statuses.some((s) => /context reached its limit/i.test(s)));
-    assert.equal(adapter._channelSessions.general, undefined);
+    // Cleared, and kept as a known channel (null) so a seed conversation is not forked into it again.
+    assert.equal(adapter._channelSessions.general, null);
     // The raw overflow error never reaches the user as a chat reply.
     assert.deepEqual(adapter.responses, ['recovered']);
     // Fresh session had no id left → recap prepended.

@@ -83,6 +83,8 @@ const FAILURE_MESSAGES = {
   provider_not_configured: "MiMo Code has no usable model provider. Check this agent's base URL and model, then retry.",
   model_not_found: 'The configured model was not found or this key cannot use it. Pick one from the model list in this agent\'s configuration, then retry.',
   rate_limited: 'The model service is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: 'The model service account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.',
+  request_too_large: 'The model service refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'MiMo Code could not reach the model service (network or service error). Retry shortly.',
   provider_server_error: 'The model service returned a server error. Retry shortly.',
   timeout: 'MiMo Code went quiet for too long and was stopped. If the model service keeps failing, MiMo retries without saying so — check the base URL and model, then retry.',
@@ -92,6 +94,7 @@ const FAILURE_MESSAGES = {
   process_crashed: 'MiMo Code exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "MiMo Code's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   session_missing: 'MiMo Code no longer has this conversation\'s session. Send the message again to start a new one.',
+  config_invalid: 'MiMo Code would not start because one of its config files is invalid — the file and what is wrong with it are below. Correct or remove that entry, then retry.',
   unknown_error: 'MiMo Code failed for an undetermined reason. Open diagnostics or retry.',
 };
 

@@ -550,7 +550,35 @@ class GeminiProvider(BaseModelProvider):
 
         api_key = api_key or os.getenv("GOOGLE_API_KEY")
         genai.configure(api_key=api_key)
+        self._genai = genai
         self.client = genai.GenerativeModel(model_name)
+
+    def _client_for(self, system_instruction: str):
+        """Return a model bound to ``system_instruction`` (or the default one)."""
+        if not system_instruction:
+            return self.client
+        # system_instruction is fixed at model construction time; building a
+        # GenerativeModel is local and cheap (no network call).
+        return self._genai.GenerativeModel(
+            self.model_name, system_instruction=system_instruction
+        )
+
+    @staticmethod
+    def _text_content(content: Any) -> str:
+        """Flatten OpenAI-style content (str, None, or list of parts) to text."""
+        if content is None:
+            return ""
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            texts = []
+            for part in content:
+                if isinstance(part, str):
+                    texts.append(part)
+                elif isinstance(part, dict) and part.get("type") == "text":
+                    texts.append(part.get("text") or "")
+            return "\n".join(t for t in texts if t)
+        return str(content)
 
     async def chat_completion(
         self,
@@ -558,25 +586,30 @@ class GeminiProvider(BaseModelProvider):
         tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Generate chat completion using Gemini API."""
-        # Convert messages to Gemini format
+        # Convert messages to Gemini format. System prompts go to Gemini's
+        # native system_instruction; user/assistant map to user/model turns.
+        # Empty turns are skipped (Gemini rejects empty text parts), and
+        # tool-result messages are dropped since tool calling is not wired up.
+        system_parts: List[str] = []
         gemini_messages = []
 
         for msg in messages:
-            if msg["role"] == "system":
-                # Gemini handles system messages differently
-                gemini_messages.append({"role": "user", "parts": [msg["content"]]})
-                gemini_messages.append({"role": "model", "parts": ["I understand."]})
-            elif msg["role"] == "user":
-                gemini_messages.append({"role": "user", "parts": [msg["content"]]})
-            elif msg["role"] == "assistant":
-                gemini_messages.append(
-                    {"role": "model", "parts": [msg["content"] or ""]}
-                )
+            role = msg.get("role")
+            text = self._text_content(msg.get("content"))
+            if not text.strip():
+                continue
+            if role == "system":
+                system_parts.append(text)
+            elif role == "user":
+                gemini_messages.append({"role": "user", "parts": [text]})
+            elif role == "assistant":
+                gemini_messages.append({"role": "model", "parts": [text]})
 
         # For now, simple text completion (tool calling requires more complex setup)
         if gemini_messages:
-            last_message = gemini_messages[-1]["parts"][0] if gemini_messages else ""
-            response = await self.client.generate_content_async(last_message)
+            client = self._client_for("\n\n".join(system_parts))
+            # Send the whole conversation, not just the last turn.
+            response = await client.generate_content_async(gemini_messages)
 
             result = {"content": response.text, "tool_calls": []}
 

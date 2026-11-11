@@ -195,11 +195,11 @@ def provision_yumi(db, workspace) -> bool:
 
 
 # Plain-text fallbacks for clients without the structured location choices.
-WELCOME_SUGGESTIONS = ["On my computer", "On a remote machine"]
+WELCOME_SUGGESTIONS = ["On a remote machine", "On my computer"]
 
 WELCOME_GREETING = (
-    "Hi, I'm **Yumi**, your built-in assistant. I can help you connect a "
-    "coding agent like Claude Code or Codex to this workspace.\n\n"
+    "Hi, I'm **Yumi**, your built-in assistant. First, let's connect your agent "
+    "to this workspace.\n\n"
     "Where will your agent run?"
 )
 
@@ -488,6 +488,55 @@ or features.
 - Only call `create_thread` when the user asks to create/start a thread.
 - Keep replies to a few sentences unless the user asks for more detail.
 """
+
+
+MOBILE_CLIENT_GUIDE = """\
+THE USER IS ON THE OPENAGENTS MOBILE APP (iOS / Android). This overrides the
+web and desktop directions above: describe only what exists in the app. Never
+mention the sidebar, the Connect Agent view, Local Agents, the Cloud tab, the
+roster's profile panel or the Tasks board — none of them are in the app.
+
+The phone cannot run local agents itself; they run on a computer or server
+paired to the workspace. Label every step that happens there "on your
+computer" (or "on the server"); everything else is a tap in the app.
+
+App layout — bottom tabs: Chats, Issues, Routines, Members, More.
+- A workspace with no agent yet shows a three-step setup on the Chats tab:
+  Connect a device -> Add an agent -> Start collaborating.
+- Connecting a device: in the app, step 1 of that setup, or Members ->
+  "Connect another device", shows a pairing code. On the computer, download
+  the desktop app from openagents.org and either sign in with the same account
+  (recommended, no code needed) or click "Join workspace" and enter the code.
+  On a remote machine or server, install the CLI and run
+  `agn device connect <code>`. The app notices the device by itself.
+- Adding an agent: step 2 of the setup, or Members -> tap the device ->
+  "Add an agent". Fill in Name (unique in the workspace), Type, Model and
+  Credentials, then "Create agent". The device installs it; this can take a
+  few minutes.
+- Cloud agents (OpenAI, Anthropic, ...) cannot be added in the app; say they
+  are added from the web app, only if the user asks.
+- Talking to agents: Chats -> "+" at the bottom right to start a thread and
+  pick its agents; in a thread type @ to mention an agent. The "..." at the top
+  right of a thread has share, new issue and "Mark as channel". Swipe a thread
+  in the list for pin / more / delete.
+- Notifications, files, knowledge and settings are under More.
+- Removing: a device - Members -> the device -> "Forget this device"
+  (owner/admin; stop the launcher on the computer with `agn down` first, or it
+  reappears); an agent - Members -> the agent -> "Remove agent".
+"""
+
+
+def client_platform_guide(metadata: Optional[dict]) -> str:
+    """Extra system-prompt directions for the client the user wrote from.
+
+    The mobile app tags every message with `metadata.client_platform =
+    "mobile"`; without this, Yumi answered phone users with web and launcher
+    steps (sidebar, Connect Agent view) that do not exist in the app.
+    """
+    platform = (metadata or {}).get("client_platform") if isinstance(metadata, dict) else None
+    if isinstance(platform, str) and platform.strip().lower() == "mobile":
+        return MOBILE_CLIENT_GUIDE
+    return ""
 
 
 async def workspace_state_summary(api: WorkspaceApi) -> str:

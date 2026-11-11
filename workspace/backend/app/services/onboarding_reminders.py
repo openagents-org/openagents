@@ -63,7 +63,7 @@ def _owner_email(db: Session, workspace_id: str) -> str | None:
 
 def run_onboarding_reminders(db: Session) -> int:
     """Send due 24h/72h reminders; returns the number of emails sent."""
-    if not email_configured():
+    if not config.ONBOARDING_REMINDERS_ENABLED or not email_configured():
         return 0
 
     now = datetime.now(timezone.utc)

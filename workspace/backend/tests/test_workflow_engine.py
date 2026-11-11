@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from app.models import KanbanTask, WorkflowRun
+from app.services.workflow import _judge as real_judge
 from app.services.workflow import run_advance
 
 
@@ -299,3 +300,131 @@ class TestWorkflowCompletionGuards:
         message["source"] = "human:user"
         message["payload"]["sender_id"] = "alice@example.test"
         assert run_advance(db, workspace["id"], message) is True
+
+
+class TestJudgeRequest:
+    """Exercise the imported judge and state machine with only the SDK mocked."""
+
+    @pytest.fixture
+    def judge_client(self, monkeypatch):
+        client = Mock()
+        monkeypatch.setattr("app.services.workflow._judge", real_judge)
+        monkeypatch.setattr("app.mods.workspace_mod._get_router_api_key", lambda: "test-key")
+        monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (client, "openai"))
+        monkeypatch.setattr("app.mods.workspace_mod._get_router_model", lambda: "deepseek-chat")
+        return client
+
+    @staticmethod
+    def response(answer):
+        return Mock(choices=[Mock(message=Mock(content=answer))])
+
+    @pytest.mark.parametrize("purpose", ["completion", "gate"])
+    @pytest.mark.parametrize(
+        "provider,model",
+        [
+            ("openai", "deepseek-chat"),
+            ("openai", "DeepSeek-V3.2"),
+            ("openai", "gpt-4o-mini"),
+            ("anthropic", "claude-haiku-4-5-20251001"),
+        ],
+    )
+    def test_request_policy(self, monkeypatch, judge_client, provider, model, purpose):
+        monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
+        monkeypatch.setattr("app.mods.workspace_mod._get_router_model", lambda: model)
+        from app.services.workflow import _gate_met, _step_complete
+
+        answer = " Done " if purpose == "completion" else " Yes "
+        judge_client.chat.completions.create.return_value = self.response(answer)
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
+        if purpose == "completion":
+            assert _step_complete(_agent_step("Draft"), "finished") is True
+        else:
+            assert _gate_met({"gate": {"condition": "needs revision"}}, "finished") is True
+        create = judge_client.chat.completions.create if provider == "openai" else judge_client.messages.create
+        kwargs = create.call_args.kwargs
+        assert kwargs["model"] == model
+        assert len(kwargs["messages"]) == 1
+        assert kwargs["messages"][0]["role"] == "user"
+        assert "finished" in kwargs["messages"][0]["content"]
+        assert ("done | working" if purpose == "completion" else "yes | no") in kwargs["messages"][0]["content"]
+        assert kwargs["max_tokens"] == 64
+        if provider == "openai" and model.lower().startswith("deepseek"):
+            assert kwargs["extra_body"] == {"thinking": {"type": "disabled"}}
+        else:
+            assert "extra_body" not in kwargs
+
+    @pytest.mark.parametrize("provider", ["openai", "anthropic"])
+    @pytest.mark.parametrize("answer", [None, "", "  "])
+    def test_empty_verdict_is_logged_failure(self, monkeypatch, judge_client, caplog, provider, answer):
+        monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
+        judge_client.chat.completions.create.return_value = self.response(answer)
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
+        assert real_judge("judge this") is None
+        assert "empty verdict" in caplog.text
+
+    def test_api_failure(self, judge_client, caplog):
+        judge_client.chat.completions.create.side_effect = RuntimeError("offline")
+        assert real_judge("judge this") is None
+        assert "workflow judge failed" in caplog.text
+
+    def test_missing_key(self, monkeypatch, judge_client):
+        monkeypatch.setattr("app.mods.workspace_mod._get_router_api_key", lambda: "")
+        assert real_judge("judge this") is None
+        judge_client.chat.completions.create.assert_not_called()
+
+    @pytest.mark.parametrize("answer", [None, "", "  ", "working", "done or working", "done"])
+    def test_real_judge_controls_advancement(self, client, workspace, db, judge_client, answer):
+        wf = _make_workflow(client, workspace, [_agent_step("Draft"), _human_step("Review")])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+
+        def respond(**kwargs):
+            # Reproduce #908: reasoning consumes the short request's budget.
+            if kwargs["max_tokens"] < 64 or kwargs.get("extra_body") != {"thinking": {"type": "disabled"}}:
+                return self.response("")
+            return self.response(answer)
+
+        judge_client.chat.completions.create.side_effect = respond
+        assert run_advance(db, workspace["id"], _agent_msg(channel)) is (answer == "done")
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.current_step == wf["steps"][1 if answer == "done" else 0]["id"]
+        assert run.status == "running"
+
+    @pytest.mark.parametrize("answer,expected", [("yes", True), ("no", False), ("", False), (None, False)])
+    def test_gate_uses_real_judge(self, judge_client, answer, expected):
+        from app.services.workflow import _gate_met
+
+        judge_client.chat.completions.create.return_value = self.response(answer)
+        assert _gate_met({"gate": {"condition": "needs revision", "target": "draft"}}, "output") is expected
+        assert judge_client.chat.completions.create.call_args.kwargs["extra_body"] == {
+            "thinking": {"type": "disabled"},
+        }
+
+    @pytest.mark.parametrize("provider", ["openai", "anthropic"])
+    def test_missing_response_blocks(self, monkeypatch, judge_client, caplog, provider):
+        monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
+        judge_client.chat.completions.create.return_value = Mock(choices=[])
+        judge_client.messages.create.return_value = Mock(content=[])
+        assert real_judge("judge this") is None
+        assert "empty verdict" in caplog.text
+
+    @pytest.mark.parametrize("purpose", ["completion", "gate"])
+    @pytest.mark.parametrize(
+        "provider,model",
+        [
+            ("openai", "deepseek-chat"),
+            ("openai", "gpt-4o-mini"),
+            ("anthropic", "claude-haiku-4-5-20251001"),
+        ],
+    )
+    @pytest.mark.parametrize("answer", [None, "", "  "])
+    def test_empty_verdict_cannot_authorize(self, monkeypatch, judge_client, provider, model, purpose, answer):
+        from app.services.workflow import _gate_met, _step_complete
+
+        monkeypatch.setattr("app.mods.workspace_mod._get_llm_client", lambda: (judge_client, provider))
+        monkeypatch.setattr("app.mods.workspace_mod._get_router_model", lambda: model)
+        judge_client.chat.completions.create.return_value = self.response(answer)
+        judge_client.messages.create.return_value = Mock(content=[Mock(type="text", text=answer)])
+        if purpose == "completion":
+            assert _step_complete(_agent_step("Draft"), "finished") is False
+        else:
+            assert _gate_met({"gate": {"condition": "needs revision"}}, "finished") is False

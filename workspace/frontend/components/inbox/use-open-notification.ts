@@ -24,7 +24,7 @@ export function useOpenNotification() {
   const t = useT();
   const router = useRouter();
   const { workspace, sessions, setCurrentSessionId, markNotificationRead, refreshAgents } = useWorkspace();
-  const { openView, openMobileDetail, setPendingTaskChannel, setPendingIssueId, threadFilter, setThreadFilter } = useLayout();
+  const { openView, openMobileDetail, setPendingIssueId, threadFilter, setThreadFilter } = useLayout();
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
 
   const showThread = useCallback((sessionId: string, filter: typeof threadFilter) => {
@@ -70,10 +70,9 @@ export function useOpenNotification() {
         if (workspace?.slug) router.push(`/${workspace.slug}/settings/api-credits${currentRouteSearch()}`);
         return;
       case 'task':
-        // Task threads are hidden from the Threads list — landing there would
-        // strand the user with no list context. Open the Tasks board on it.
-        setPendingTaskChannel(dest.channel);
-        openView('tasks');
+        // Task threads are hidden from the Threads list, so open the chat
+        // directly instead of looking the thread up there.
+        showThread(dest.channel, threadFilter);
         return;
       case 'dm':
         showThread(dest.channel, 'dms');
@@ -88,5 +87,5 @@ export function useOpenNotification() {
         void refreshAgents();
       }
     }
-  }, [markNotificationRead, workspace?.slug, router, setPendingTaskChannel, setPendingIssueId, openView, openMobileDetail, showThread, sessions, openSession, refreshAgents]);
+  }, [markNotificationRead, workspace?.slug, router, setPendingIssueId, openView, openMobileDetail, showThread, sessions, openSession, refreshAgents]);
 }

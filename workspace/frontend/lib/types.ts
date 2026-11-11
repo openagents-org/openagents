@@ -903,12 +903,37 @@ export interface HostedAgentProvider {
   url: string;
 }
 
+/** One of the signed-in user's Acenta agents, as seen from this workspace. */
+export interface AcentaAgent {
+  id: string;
+  name: string;
+  agentName: string;
+  state: string;
+  tier: string | null;
+  url: string;
+  /** Acenta's launch page while the agent waits for sign-in or payment. */
+  launchUrl: string | null;
+  inThisWorkspace: boolean;
+  workspaces: number;
+  workspaceLimit: number;
+}
+
+export interface AcentaAccount {
+  /** False until the user has an Acenta account (same OpenAgents sign-in or email). */
+  hasAccount: boolean;
+  agents: AcentaAgent[];
+  agentLimit: number;
+}
+
 /** An agent whose runtime a provider hosts; it joins like any other agent. */
 export interface HostedAgent {
   agentName: string;
   displayName: string;
   provider: string;
-  status: 'launching' | 'setup' | 'active' | 'terminating';
+  status: 'launching' | 'setup' | 'active' | 'terminating' | 'linked';
+  /** Added here from the owner's Acenta account; removing only disconnects it. */
+  linked?: boolean;
+  externalId?: string | null;
   /** Acenta launch page (sign-in and payment) while status is "setup". */
   setupUrl: string | null;
   /** From the agent's own heartbeats. */
@@ -1141,6 +1166,7 @@ export function networkChannelToSession(ch: NetworkChannel, workspaceId: string)
     unreadCount: ch.unread_count,
     readAt: ch.read_at,
     completionAt: ch.completion_at,
+    forkedFrom: ch.forked_from ?? null,
     ...collabChannelFields(ch),  // v1.1 M1: thread visibility / director
     ...accessChannelFields(ch),  // v1.1 permission model: owner / participants-can-invite
   };
@@ -1386,6 +1412,22 @@ export interface GroupDeleteImpact {
 export type ResourceKind = 'service' | 'channel' | 'agent' | 'file' | 'knowledge' | 'browser_context';
 export type GrantRight = 'read' | 'act' | 'share';
 
+/** GET/POST/DELETE /v1/files/{id}/public-link — an "anyone with the link"
+ *  view link. `token` is only returned to people who can manage the file. */
+export interface FilePublicLinkState {
+  link: { active: true; created_at: string | null; token?: string; created_by?: string } | null;
+  can_manage: boolean;
+}
+
+/** GET /v1/public/files/{token} — no auth. */
+export interface PublicFileInfo {
+  filename: string;
+  content_type: string;
+  size: number;
+  /** When the link was created. */
+  shared_at: string | null;
+}
+
 /** GET /v1/grants */
 export interface ResourceGrant {
   id: string;
@@ -1543,6 +1585,8 @@ export interface AgentUsableBy {
 // Shared team issues. Wire fields match the issue API's persisted records.
 export type IssueStatus = 'open' | 'in_progress' | 'paused' | 'closed';
 export interface WorkspaceIssue {
+  /** The board this issue is on; "team" is the default Team issues board. */
+  board_id?: string;
   linked_channels?: string[];
   due_date?: string | null;
   knowledge_ids?: string[];
@@ -1603,3 +1647,24 @@ export interface AgentService {
 export type AgentServiceInput = Pick<AgentService, 'agent_name' | 'name' | 'description' | 'example_requests' | 'required_inputs' | 'request_approver_email'> & { instructions: string };
 
 export type MessageReaction = { emoji: string; count: number; mine: boolean };
+
+// ── Thread fork lineage ──
+export interface NetworkChannel {
+  /** Name of the thread this one was forked from. */
+  forked_from?: string | null;
+}
+
+export interface WorkspaceSession {
+  /** Name of the thread this one was forked from. */
+  forkedFrom?: string | null;
+}
+
+/** An issue board. "team" is the default Team issues board, which cannot be removed. */
+export interface IssueBoard {
+  id: string;
+  name: string;
+  default: boolean;
+  active_count: number;
+  created_by?: string;
+  can_manage: boolean;
+}

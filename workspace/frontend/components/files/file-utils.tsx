@@ -424,6 +424,7 @@ function FileThumbnail({
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <AuthenticatedImage
         fileId={file.id}
+        deferUntilVisible
         // Decorative: the filename sits right beside it in every caller.
         alt=""
         loading="lazy"

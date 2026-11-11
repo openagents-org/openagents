@@ -6,6 +6,8 @@ import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@renderer/components/ui/select"
+import { Field, FieldDescription, FieldLabel } from "@renderer/components/ui/field"
 import { AuthStatusBanner, CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
@@ -235,6 +237,13 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   if (loading) return <Spinner />
   const keyForm = !loginCmd || authTab === "key"
   const loginModels = keyForm ? [] : fields.filter((field) => hasModelPicker(type, field.name))
+  // The adapter uses the CLI for native OpenAI and sign-in. Only a custom
+  // key endpoint chooses between its Responses CLI provider and direct chat.
+  const codexBaseUrl = values.OPENAI_BASE_URL || ""
+  const customCodex = type === "codex" && keyForm && !!codexBaseUrl && !codexBaseUrl.includes("api.openai.com")
+  // Match the adapter's legacy custom-endpoint default without writing a new
+  // override just because an existing agent's settings were opened.
+  const codexWireApi = (values.CODEX_WIRE_API || "").toLowerCase() === "responses" ? "responses" : "chat"
   const unprobeable = isUnprobeable(type)
   const unprobeableReason = agentCredentials(type).reason
   // A new agent does not get a key another agent of the type holds. Its message then is that
@@ -266,6 +275,17 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
     </p>}
+    {customCodex && <Field>
+      <FieldLabel htmlFor="local-codex-wire-api">{t("agents.codexApiMode.label")}</FieldLabel>
+      <Select value={codexWireApi} onValueChange={(value) => change("CODEX_WIRE_API", value)}>
+        <SelectTrigger id="local-codex-wire-api" aria-label={t("agents.codexApiMode.label")} className="w-full"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="responses">{t("agents.codexApiMode.responses")}</SelectItem>
+          <SelectItem value="chat">{t("agents.codexApiMode.chat")}</SelectItem>
+        </SelectContent>
+      </Select>
+      <FieldDescription>{t(codexWireApi === "responses" ? "agents.codexApiMode.responsesHint" : "agents.codexApiMode.chatHint")}</FieldDescription>
+    </Field>}
     {/* A test that can only fail is replaced by how this agent's credential IS verified. */}
     {keyForm && fields.length > 0 && (unprobeable
       ? <div role="note" className="flex items-start gap-2 rounded-lg border bg-muted/40 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">

@@ -230,9 +230,18 @@ def _linked_task(db, workspace_id: str, channel_name: str) -> Optional[KanbanTas
 # Fast-model judges (reuse the router client)
 # ---------------------------------------------------------------------------
 
+# Leave headroom for a short verdict; ten tokens can produce no answer.
+_JUDGE_MAX_TOKENS = 64
+
+
 def _judge(prompt: str) -> Optional[str]:
-    """Run a one-token judgment on the router model; None if no LLM/available."""
-    from app.mods.workspace_mod import _get_llm_client, _get_router_api_key, _get_router_model
+    """Run a one-word judgment; None if unavailable, failed, or empty."""
+    from app.mods.workspace_mod import (
+        _anthropic_text,
+        _get_llm_client,
+        _get_router_api_key,
+        _get_router_model,
+    )
 
     if not _get_router_api_key():
         return None
@@ -241,13 +250,26 @@ def _judge(prompt: str) -> Optional[str]:
         model = _get_router_model()
         if provider == "openai":
             resp = client.chat.completions.create(
-                model=model, max_tokens=10, messages=[{"role": "user", "content": prompt}],
+                model=model,
+                max_tokens=_JUDGE_MAX_TOKENS,
+                # Match the router's short-answer policy: DeepSeek must not
+                # spend the output budget on reasoning. Other models omit it.
+                **({"extra_body": {"thinking": {"type": "disabled"}}} if model.lower().startswith("deepseek") else {}),
+                messages=[{"role": "user", "content": prompt}],
             )
-            return resp.choices[0].message.content.strip().lower()
-        resp = client.messages.create(
-            model=model, max_tokens=10, messages=[{"role": "user", "content": prompt}],
-        )
-        return resp.content[0].text.strip().lower()
+            verdict = resp.choices[0].message.content if resp.choices else None
+        else:
+            resp = client.messages.create(
+                model=model,
+                max_tokens=_JUDGE_MAX_TOKENS,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            verdict = _anthropic_text(resp)
+        verdict = (verdict or "").strip().lower()
+        if not verdict:
+            logger.warning("workflow judge returned an empty verdict (model %s)", model)
+            return None
+        return verdict
     except Exception as exc:
         logger.warning("workflow judge failed: %s", exc)
         return None

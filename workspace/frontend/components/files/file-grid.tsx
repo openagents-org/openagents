@@ -43,6 +43,7 @@ import { workspaceApi } from '@/lib/api';
 import type { ArtifactVisibility, WorkspaceFile } from '@/lib/types';
 import { ArtifactShareDialog } from '@/components/sharing/artifact-share';
 import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
+import { LoadMoreSentinel, useIncrementalList } from '@/hooks/use-incremental-list';
 
 const SORT_LABEL_KEYS: Record<SortKey, MessageKey> = {
   name: 'files.sortName',
@@ -162,6 +163,11 @@ export function FileGrid() {
       return a.displayName.localeCompare(b.displayName);
     });
   }, [scopedFiles, sort, typeFilter, currentPath]);
+
+  /** A page of tiles at a time — mounting thousands at once froze the window. */
+  const { shown: shownEntries, more: moreEntries, showMore } = useIncrementalList(
+    entries, [currentPath, search, typeFilter, sort].join('\u0000'),
+  );
 
   /** Folders and files sort independently, then folders lead the combined
    *  listing. A size/recent sort uses aggregate subtree metadata for folders. */
@@ -620,7 +626,7 @@ export function FileGrid() {
             </div>
           ))}
 
-          {entries.map((entry) => {
+          {shownEntries.map((entry) => {
             const { file, displayName } = entry;
             const isSelected = selectedFileId === file.id;
 
@@ -686,6 +692,7 @@ export function FileGrid() {
               </div>
             );
           })}
+          {moreEntries && <LoadMoreSentinel onVisible={showMore} count={shownEntries.length} />}
         </div>
       ) : (
         <div className="flex-1 overflow-y-auto p-4">
@@ -723,7 +730,7 @@ export function FileGrid() {
               </div>
             ))}
 
-            {entries.map((entry) => {
+            {shownEntries.map((entry) => {
               const { file, displayName } = entry;
               const isSelected = selectedFileId === file.id;
 
@@ -796,6 +803,7 @@ export function FileGrid() {
                 </div>
               );
             })}
+            {moreEntries && <LoadMoreSentinel onVisible={showMore} count={shownEntries.length} />}
           </div>
         </div>
       )}
@@ -812,6 +820,7 @@ export function FileGrid() {
           canManage={shareFile.canManage}
           canInherit={!!shareFile.channelName}
           onVisibilityChange={(v) => setFileVisibility(shareFile, v)}
+          contentType={shareFile.contentType}
         />
       )}
     </div>

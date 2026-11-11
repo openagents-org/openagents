@@ -1,0 +1,83 @@
+{
+  "version": "1.1.13",
+  "date": "2026-11-09",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Fork threads and queue messages",
+        "zh": "会话支持分叉与消息排队"
+      },
+      "description": {
+        "en": "Fork a thread into a new private thread. Messages sent while an agent is busy wait in a Queue tab above the thread and join the conversation once processed.",
+        "zh": "可将会话分叉为新的私密会话；智能体忙碌时发出的消息会显示在会话上方的「队列」中，处理后再进入对话。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Multiple issue boards and a split view",
+        "zh": "Issue 支持多个看板与分栏查看"
+      },
+      "description": {
+        "en": "Add your own issue boards alongside the default team board, and view issues side by side.",
+        "zh": "除默认的团队看板外，可按需新建看板，并支持左右分栏查看 Issue。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "More ways to connect agents",
+        "zh": "智能体接入方式更多"
+      },
+      "description": {
+        "en": "Add Acenta agents to a workspace from Cloud agents, and choose the API mode when Codex uses a custom endpoint.",
+        "zh": "可在「云端智能体」中将 Acenta 智能体添加到当前工作区；Codex 使用自定义接口时可选择 API 模式。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Smoother threads",
+        "zh": "会话显示更流畅"
+      },
+      "description": {
+        "en": "Threads no longer flicker when switching or sending to a busy agent, long threads open at the latest message, and live updates resume after a dropped connection.",
+        "zh": "切换会话或向忙碌的智能体发送消息时不再闪烁，长会话打开后直接定位到最新消息，连接中断后可自动恢复实时更新。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "More reliable agents",
+        "zh": "智能体运行更稳定"
+      },
+      "description": {
+        "en": "Fixed Hermes failing to start on Windows, missing content in OpenClaw replies and Kimi stopping during long tasks. Copilot and Antigravity sign-in is now detected correctly on macOS.",
+        "zh": "修复 Windows 上 Hermes 无法启动、OpenClaw 回复内容缺失、Kimi 长时间任务中断等问题，并可正确识别 Copilot、Antigravity 在 macOS 上的登录状态。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A cleaner conversation view",
+        "zh": "对话界面更简洁"
+      },
+      "description": {
+        "en": "Agent steps are collapsed by default and can be expanded at any time. The \"Working now\" line above the composer is gone, and the inbox dot appears only for unread notifications.",
+        "zh": "智能体的执行步骤默认收起，可随时展开；输入框上方不再显示「正在工作」提示，收件箱红点仅在有未读通知时出现。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Easier agent setup",
+        "zh": "添加与配置智能体更顺手"
+      },
+      "description": {
+        "en": "Onboarding asks where your agents will run and opens the matching setup, and an expired pairing code can be renewed in place. Each Pi and Hermes agent keeps its own credentials and provider.",
+        "zh": "新手引导会先询问智能体的运行位置并进入对应设置，配对码过期后可原地刷新；Pi、Hermes 的每个智能体可独立设置凭据与服务商。"
+      }
+    }
+  ]
+}

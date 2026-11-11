@@ -12,8 +12,8 @@ export function YumiAgentLocation() {
       <h3 className="text-sm font-medium">{t('yumiOnboarding.question')}</h3>
       <div role="group" aria-label={t('yumiOnboarding.question')} className="mt-2 grid gap-2 sm:grid-cols-2">
         {([
-          { method: 'desktop', icon: Laptop, title: 'yumiOnboarding.computer', hint: 'yumiOnboarding.computerHint' },
           { method: 'terminal', icon: Server, title: 'yumiOnboarding.remote', hint: 'yumiOnboarding.remoteHint' },
+          { method: 'desktop', icon: Laptop, title: 'yumiOnboarding.computer', hint: 'yumiOnboarding.computerHint' },
         ] as const).map(({ method, icon: Icon, title, hint }) => (
           <button key={method} type="button" onClick={() => openConnectSetup(method)}
             className="group flex items-start gap-2.5 rounded-lg border bg-background p-3 text-left transition-colors hover:border-brand/35 hover:bg-brand/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">

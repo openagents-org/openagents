@@ -1334,7 +1334,7 @@ export class AgentManager extends EventEmitter {
     // "No API key provided". testLLMConnection covers every provider and works
     // even before the core is installed. A blank base URL is the agent's own
     // default endpoint, as when it runs — not OpenAI's.
-    return testLLMConnection(agentType ? withDefaultBase(agentType, env) : env)
+    return testLLMConnection(agentType ? withDefaultBase(agentType, env) : env, agentType)
   }
 
   /** Keys on this machine this agent's form can take — see credential-import. */

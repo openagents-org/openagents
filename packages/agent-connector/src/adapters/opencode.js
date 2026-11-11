@@ -14,14 +14,15 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
 const { spawn } = require('../wsl');
+const { opencodeTranscript } = require('../host-agent');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, redactSecrets } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
@@ -43,6 +44,11 @@ const OPENCODE_PINNED_VERSION = '1.17.11';
 // Supported floor — below this we block the run with `unsupported_version`.
 // The 1.17.x line is the stream-json shape this adapter targets.
 const OPENCODE_MIN_VERSION = '1.17.0';
+// First major this adapter cannot drive. OpenCode 2 (`@opencode/cli`, its
+// Homebrew formula and curl installer) is a new command line: `run` has no
+// `--dir`, so every message died with "Unrecognized flag: --dir" while the
+// preflight, seeing only "newer than tested", let it through.
+const OPENCODE_UNSUPPORTED_MAJOR = 2;
 // Highest version whose JSON behavior is treated as verified. Newer is allowed
 // but flagged 'degraded' (the run still proceeds; any failure is classified).
 const OPENCODE_TESTED_MAX_VERSION = '1.17.11';
@@ -70,13 +76,15 @@ const FAILURE_MESSAGES = {
   cli_not_found: `OpenCode CLI not found. Install it (\`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}\`) and try again.`,
   cli_not_executable: 'OpenCode CLI was found but could not be started. Reinstall it, then retry.',
   install_incomplete: `OpenCode is installed, but its setup never finished: the opencode-ai package's postinstall script did not run (npm \`ignore-scripts\`, or a pnpm/bun install), so the \`opencode\` command is only a placeholder. Reinstall OpenCode from the launcher — or, for a copy you installed yourself, run \`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION} --ignore-scripts=false\` — then retry.`,
-  unsupported_version: `This OpenCode CLI version is not supported (requires >= ${OPENCODE_MIN_VERSION}). Reinstall \`opencode-ai@${OPENCODE_PINNED_VERSION}\` and retry.`,
+  unsupported_version: `This OpenCode CLI version is not supported: OpenAgents runs the opencode-ai 1.x CLI (${OPENCODE_MIN_VERSION} or newer), and OpenCode 2.x changed its command line. Reinstall OpenCode from the launcher, or run \`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}\`, and retry.`,
   model_missing: "No model is configured for OpenCode. Set a model (LLM_MODEL, e.g. `gpt-4o`) in this agent's configuration, then retry.",
   credential_missing: 'OpenCode has no API key or sign-in configured. Add an API key (LLM_API_KEY) or run `opencode auth login`, then retry.',
   auth_failed: "OpenCode's provider rejected the credentials (authentication failed). Check the API key or sign-in and retry.",
   provider_not_configured: 'OpenCode has no usable provider configured. Configure a provider and model, then retry.',
   model_not_found: 'The configured model was not found or is not accessible. Check the model name and your access, then retry.',
   rate_limited: 'The provider is rate-limiting requests. Wait a moment and retry.',
+  quota_exhausted: "The provider account has run out of balance or credit. Top it up, or give this agent a key with credit, then retry.",
+  request_too_large: 'The provider refused the request as too large — the conversation or its attachments exceed what it accepts. Start a new thread or send less, then retry.',
   network_error: 'OpenCode could not reach the provider (network or service error). Retry shortly.',
   provider_server_error: 'The provider returned a server error. Retry shortly.',
   timeout: 'OpenCode timed out before producing a reply. Retry; if it persists, check the model and provider configuration.',
@@ -86,6 +94,7 @@ const FAILURE_MESSAGES = {
   permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
 
@@ -94,10 +103,14 @@ class OpenCodeAdapter extends BaseAdapter {
    * @param {object} opts - BaseAdapter opts plus:
    * @param {Set} [opts.disabledModules]
    * @param {string} [opts.workingDir]
+   * @param {{session_id: string}} [opts.seedSession] - The OpenCode chat this
+   *   agent was created from (`agn join`). Each channel's first turn carries a
+   *   transcript of it, so the agent starts with what was said there.
    */
   constructor(opts) {
     super(opts);
     this.disabledModules = opts.disabledModules || new Set();
+    this._seedSession = opts.seedSession && opts.seedSession.session_id ? opts.seedSession : null;
     // Pin the channel's glossary into the system prompt.
     this._usesPinnedContext = true;
 
@@ -175,7 +188,39 @@ class OpenCodeAdapter extends BaseAdapter {
     if (sessionId) return content;
     this._ensureWorkspaceSkill(msgChannel);
     const context = this._buildSystemContext(msgChannel);
-    return `${context}\n\n---\n\n${content}`;
+    const seed = this._seedTranscript(msgChannel);
+    return seed
+      ? `${context}\n\n---\n\n${seed}\n\n---\n\n${content}`
+      : `${context}\n\n---\n\n${content}`;
+  }
+
+  /**
+   * For a channel's first turn: the conversation this agent was created from,
+   * read with `opencode export` (never written to), or ''. Not a fork: OpenCode
+   * forks of a session that ran tools are refused by Anthropic models, whose
+   * thinking blocks are bound to the original conversation. A seed that can
+   * no longer be read turns seeding off.
+   */
+  _seedTranscript(msgChannel) {
+    const seed = this._seedSession;
+    if (!seed || Object.prototype.hasOwnProperty.call(this._channelSessions, msgChannel)) return '';
+    try {
+      const r = spawnSync(this._opencodeBinary, ['export', seed.session_id], {
+        env: this._spawnEnv(msgChannel), encoding: 'utf-8', timeout: 30000,
+        maxBuffer: 64 * 1024 * 1024, windowsHide: true,
+        shell: IS_WINDOWS && /\.cmd$/i.test(this._opencodeBinary || ''),
+      });
+      if (r.status !== 0 || !r.stdout) throw new Error((r.stderr || r.error || `exit ${r.status}`).toString().slice(0, 200));
+      const text = opencodeTranscript(JSON.parse(r.stdout.slice(r.stdout.indexOf('{'))));
+      if (!text) return '';
+      return 'Before you joined this workspace, you were in this OpenCode conversation with the user. '
+        + 'It is your own memory, quoted for reference; continue from it.\n\n<previous_conversation>\n'
+        + `${text}\n</previous_conversation>`;
+    } catch (e) {
+      this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
+      this._seedSession = null;
+      return '';
+    }
   }
 
   /** Environment the CLI is spawned with. */
@@ -1086,8 +1131,21 @@ class OpenCodeAdapter extends BaseAdapter {
    * unusable cwd) and lets anything ambiguous through to a real run.
    */
   _preflight() {
-    const binary = this._opencodeBinary || this._findOpencodeBinary();
-    if (binary) this._opencodeBinary = binary;
+    // The path found at start-up is kept, but not past the file it names: a
+    // reinstall or an antivirus quarantine took it away, and every message
+    // after that failed "CLI not found" until the agent restarted, even with
+    // a working copy installed by then.
+    let binary = this._opencodeBinary;
+    if (binary && !fs.existsSync(binary)) {
+      const found = this._findOpencodeBinary();
+      if (found !== binary) {
+        this._log(`${binary} is gone; ${found ? `using ${found}` : 'no other copy found'}`);
+        this._versionProbe = null;
+      }
+      binary = found;
+    }
+    binary = binary || this._findOpencodeBinary();
+    this._opencodeBinary = binary || null;
     if (!binary) return { ok: false, category: 'cli_not_found' };
 
     // Before every other check: the placeholder a skipped postinstall leaves
@@ -1111,7 +1169,7 @@ class OpenCodeAdapter extends BaseAdapter {
         ok: false,
         category: 'unsupported_version',
         detail: `detected ${probe.version || 'unknown'}`,
-        diagnostic: `detected ${probe.version}, requires >= ${OPENCODE_MIN_VERSION}`,
+        diagnostic: `detected ${probe.version}, requires >= ${OPENCODE_MIN_VERSION} and < ${OPENCODE_UNSUPPORTED_MAJOR}.0.0`,
       };
     }
     // 'unknown' (unparseable) and 'degraded' (newer than tested) still run.
@@ -1355,6 +1413,9 @@ class OpenCodeAdapter extends BaseAdapter {
    * { category, diagnostic, detail }.
    */
   static _classifyFailure({ code, signal, stdout, stderr, stdoutErr } = {}) {
+    // OpenCode colours its errors even into a pipe; quoted as they came, the
+    // channel showed "\x1b[91m\x1b[1mError: \x1b[0m…".
+    stderr = stripAnsi(stderr);
     const err = stdoutErr || OpenCodeAdapter._extractErrorFromStdout(stdout || '');
     const status = err && err.status ? String(err.status) : '';
     const msg = (err && err.message) || '';
@@ -1365,9 +1426,15 @@ class OpenCodeAdapter extends BaseAdapter {
     const hay = `${name} ${status} ${msg} ${stderr || ''}`.toLowerCase();
     const has = (re) => re.test(hay);
 
+    const configError = OpenCodeAdapter._configError(stderr);
     let category;
     if (isPostinstallStubOutput(hay)) {
       category = 'install_incomplete';
+    } else if (configError) {
+      // Checked before the provider patterns: what is wrong with the file is
+      // free text ("Unrecognized key: model", "got {…401…}") that would read
+      // as a bad model or a rejected key.
+      category = 'config_invalid';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets
@@ -1375,17 +1442,23 @@ class OpenCodeAdapter extends BaseAdapter {
       // as "produced output this version could not parse", which said nothing
       // about reinstalling.
       category = 'unsupported_version';
-    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
+    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
       category = 'auth_failed';
+    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)) {
+      // A spent account, not a busy one: waiting does not fix it. Seen in the
+      // field as "Insufficient balance" under "undetermined reason".
+      category = 'quota_exhausted';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';
+    } else if (has(/\b413\b|request entity too large|payload too large|failed to buffer the request body|length limit exceeded|context(?:_| )length(?:_| )exceeded|maximum context length/)) {
+      category = 'request_too_large';
     } else if (has(/model.*(not found|does not exist|unknown|invalid|unsupported)|no such model|unknown model|invalid model|model_not_found|\b404\b/)) {
       category = 'model_not_found';
     } else if (has(/no provider|provider not configured|not configured|no model configured|no providers|missing provider/)) {
       category = 'provider_not_configured';
     } else if (has(/econnrefused|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|getaddrinfo|\bdns\b/)) {
       category = 'network_error';
-    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout/)) {
+    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
       category = 'provider_server_error';
     } else if (has(/timeout|timed out/)) {
       category = 'timeout';
@@ -1401,8 +1474,51 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'unknown_error';
     }
 
-    const detail = OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
+    const detail = configError
+      ? OpenCodeAdapter._redact(configError).slice(0, 500)
+      : OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
     return { category, diagnostic, detail };
+  }
+
+  /**
+   * OpenCode's refusal of a config file, as one line: which file, and what is
+   * wrong with it — or null. Its two shapes (opencode-ai 1.17.11):
+   *
+   *   Error: Configuration is invalid at <file>
+   *   ↳ Expected { readonly "type": "local", ... } | …, got {"url":"…"} mcp.upsy
+   *   ↳ Missing key mcp.upsy.enabled
+   *
+   *   Error: Config file at <file> is not valid JSON(C):
+   *   --- JSONC Input --- … --- Errors ---
+   *   ValueExpected at line 1, column 15
+   *      Line 1: {"provider": {,}
+   *                           ^
+   *
+   * The first 200 characters of stderr usually ended inside the file's path,
+   * before the reason.
+   */
+  static _configError(text) {
+    const lines = stripAnsi(text).split(/\r?\n/);
+    // OpenCode's own error line, not the phrase quoted somewhere else.
+    const at = lines.findIndex((l) => /^\s*(?:error:\s*)?(?:configuration is invalid at |config file at .+ is not valid json)/i.test(l));
+    if (at < 0) return null;
+    const head = lines[at].trim().replace(/^error:\s*/i, '').replace(/:\s*$/, '');
+    const reasons = [];
+    for (const l of lines.slice(at + 1)) {
+      const m = l.trim().match(/^↳\s*(.+)$/);
+      if (m) reasons.push(m[1]);
+    }
+    if (!reasons.length) {
+      const start = lines.findIndex((l) => l.trim() === '--- Errors ---');
+      for (const l of start < 0 ? [] : lines.slice(start + 1)) {
+        const t = l.trim();
+        if (/^---/.test(t)) break;
+        // The echoed source line and its caret, not reasons.
+        if (!t || /^line \d+:/i.test(t) || /^\^+$/.test(t)) continue;
+        reasons.push(t);
+      }
+    }
+    return reasons.length ? `${head}: ${reasons.join('; ')}` : head;
   }
 
   /** Category for an exit-0 run that produced no final assistant text. */
@@ -1412,11 +1528,12 @@ class OpenCodeAdapter extends BaseAdapter {
     return 'empty_response';
   }
 
-  /** 'ok' | 'degraded' (newer than tested) | 'unsupported' (too old) | 'unknown'. */
+  /** 'ok' | 'degraded' (newer than tested) | 'unsupported' (too old, or 2.x) | 'unknown'. */
   static _classifyVersion(version) {
     // Non-semver (or unreadable) → 'unknown': allow the run, never block on it.
     if (!version || !/^\d+\.\d+/.test(String(version))) return 'unknown';
     if (OpenCodeAdapter._cmpVer(version, OPENCODE_MIN_VERSION) < 0) return 'unsupported';
+    if (Number(String(version).split('.')[0]) >= OPENCODE_UNSUPPORTED_MAJOR) return 'unsupported';
     if (OPENCODE_TESTED_MAX_VERSION && OpenCodeAdapter._cmpVer(version, OPENCODE_TESTED_MAX_VERSION) > 0) return 'degraded';
     return 'ok';
   }

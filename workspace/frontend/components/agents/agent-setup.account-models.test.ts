@@ -15,6 +15,7 @@ import type { AgentCatalogDetail, AgentCatalogEntry, NodeAgent, NodeRuntime, Wor
 import { AgentSetup, type AgentSetupApi } from './agent-setup';
 import codexEntry from '../../../backend/registry/codex.json';
 import claudeEntry from '../../../backend/registry/claude.json';
+import piEntry from '../../../backend/registry/pi.json';
 
 const t = (key: string, params?: Record<string, string | number>) => translate(messages, messages, 'en-US', key, params);
 vi.mock('@/lib/i18n', () => ({ useT: () => t }));
@@ -40,9 +41,10 @@ const ACCOUNT_CODEX = [{ id: 'gpt-6.1-sol', label: 'GPT-6.1-Sol' }, { id: 'gpt-6
 const detailOf = (entry: object, models: { id: string; label: string }[]) => ({ ...entry, models });
 const DETAILS: Record<string, unknown> = {
   codex: detailOf(codexEntry, CATALOG_CODEX),
+  pi: detailOf(piEntry, piEntry.models),
   claude: detailOf(claudeEntry, [{ id: 'claude-opus-5', label: 'Opus 5' }]),
 };
-const LABELS: Record<string, string> = { codex: codexEntry.label, claude: claudeEntry.label };
+const LABELS: Record<string, string> = { codex: codexEntry.label, claude: claudeEntry.label, pi: piEntry.label };
 
 async function open({ type = 'codex', runtime, editAgent, accesses = [] }: { type?: string; runtime: Partial<NodeRuntime>; editAgent?: NodeAgent; accesses?: unknown[] }) {
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
@@ -155,4 +157,47 @@ it('edits an agent on a key without the sign-in list', async () => {
   // Kept on its key: the picker is the free model field for that key.
   expect(modelSelect()).toBeNull();
   expect(accountHint()).toBeNull();
+});
+
+const PI_DEVICE_MODELS = [{ id: 'openai/gpt-6.1-sol', label: 'gpt-6.1-sol (openai)' }];
+
+it('offers a Pi device model and submits its provider-qualified id', async () => {
+  const api = await open({ type: 'pi', runtime: { cliModels: PI_DEVICE_MODELS } });
+  expect(offered()).toContain('openai/gpt-6.1-sol');
+  expect(offered()).not.toContain('gpt-5.6-sol');
+  await choose(modelSelect()!, 'openai/gpt-6.1-sol');
+  await act(async () => button(messages.connect.agentAddTitle).click());
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'create_agent', expect.objectContaining({
+    type: 'pi', model: 'openai/gpt-6.1-sol', authMode: 'cli_login',
+  }));
+});
+
+it('lets a Pi agent enter an unlisted model when the device reports no models', async () => {
+  const api = await open({ type: 'pi', runtime: {}, editAgent: {
+    name: 'pi-wk', type: 'pi', status: 'running', authMode: 'cli_login',
+  } as NodeAgent });
+  expect(offered()).toContain('__custom__');
+  await choose(modelSelect()!, '__custom__');
+  const field = host.querySelector<HTMLInputElement>('[data-testid="agent-setup-custom-model"]')!;
+  expect(field).not.toBeNull();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, 'openai/gpt-6.1-sol');
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button(messages.connect.nodeSaveChanges).click());
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', expect.objectContaining({
+    name: 'pi-wk', model: 'openai/gpt-6.1-sol', authMode: 'cli_login',
+  }));
+});
+
+it('can return a saved Pi custom model to the automatic model choice', async () => {
+  const api = await open({ type: 'pi', runtime: {}, editAgent: {
+    name: 'pi-wk', type: 'pi', status: 'running', authMode: 'cli_login', model: 'openai/gpt-6.1-sol',
+  } as NodeAgent });
+  await choose(modelSelect()!, '__custom__');
+  expect(host.querySelector<HTMLInputElement>('[data-testid="agent-setup-custom-model"]')!.value).toBe('openai/gpt-6.1-sol');
+  await choose(modelSelect()!, '__auto__');
+  expect(host.querySelector('[data-testid="agent-setup-custom-model"]')).toBeNull();
+  await act(async () => button(messages.connect.nodeSaveChanges).click());
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', expect.objectContaining({ model: '' }));
 });

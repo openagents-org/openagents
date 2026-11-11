@@ -12,6 +12,7 @@ import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
 import { DmAvatars } from "@/components/chat/dm-avatars"
 import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
+import { ForkTag } from "@/components/chat/fork-thread"
 import { useLayout, type ViewMode } from "./layout-context"
 import { ListToggleButton } from "./list-collapse-button"
 
@@ -124,7 +125,6 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   knowledge: "views.knowledge",
   browser: "views.browser",
   issues: "views.issues",
-  tasks: "views.issues",
   workflows: "views.workflows",
   routines: "views.routines",
   inbox: "views.inbox",
@@ -213,6 +213,7 @@ function ThreadTitle() {
       >
         {session?.title || t("header.untitledThread")}
       </h3>
+      {session?.forkedFrom && <ForkTag forkedFrom={session.forkedFrom} />}
       {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
     </div>
   )

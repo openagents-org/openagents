@@ -206,7 +206,7 @@ function RailResizeHandle() {
  */
 export function NavRail() {
   const {
-    viewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
+    viewMode, railViewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
     workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
@@ -222,7 +222,7 @@ export function NavRail() {
   const recentAgents = sidebarAgents(agents, currentUser.id);
   // Yumi (built-in) still appears in the roster, but does not satisfy the
   // "connect your first agent" call to action.
-  const hasAgents = recentAgents.filter((a) => !a.builtin).length > 0;
+  const hasConnectedAgents = agents.some((a) => !a.builtin);
   const onlineAgents = recentAgents.filter((a) => a.status === 'online');
   const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
@@ -270,7 +270,7 @@ export function NavRail() {
   const isConnectActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
-  const connectLabel = onboarding || setupStep === 'device' || hasAgents ? t('nav.connectAgent') : t('nav.connectFirstAgent');
+  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectFirstAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
   // Mid-drag the rail previews the state it would snap to, so labels appear
@@ -355,7 +355,7 @@ export function NavRail() {
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}
                     tooltip={{ children: item.label, hidden: showLabels }}
-                    isActive={!onboarding && (viewMode === item.mode || (viewMode === 'tasks' && item.mode === 'issues'))}
+                    isActive={!onboarding && railViewMode === item.mode}
                     onClick={() => { if (item.mode === 'threads') { if (onboarding) dismissOnboarding?.(); setThreadFilter('all'); } openView(item.mode); }}
                   >
                     {item.icon}
@@ -429,7 +429,7 @@ export function NavRail() {
                           setSelectedAgentName(null);
                           setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
                           openView('threads');
-                          setThreadFilter('dms');
+                          setThreadFilter('all');
                           openMobileDetail();
                         }}
                       >

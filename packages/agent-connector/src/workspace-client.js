@@ -883,6 +883,17 @@ class WorkspaceClient {
    * Get screenshot via GET /v1/browser/tabs/{tabId}/screenshot.
    * @returns {Buffer}
    */
+  /**
+   * Attach files to a file input via POST /v1/browser/tabs/{tabId}/upload.
+   * @param {Array<{file_id?: string, name?: string, mime_type?: string, data_base64?: string}>} files
+   */
+  async browserUpload(workspaceId, token, tabId, files, { selector = 'input[type=file]', frame_selector, source, channel } = {}) {
+    const body = { selector, files, source, channel };
+    if (frame_selector) body.frame_selector = frame_selector;
+    const data = await this._post(`/v1/browser/tabs/${tabId}/upload`, body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
   async browserScreenshot(workspaceId, token, tabId, { source, channel } = {}) {
     const query = new URLSearchParams();
     if (source) query.set('source', source);
