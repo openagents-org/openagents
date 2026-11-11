@@ -182,6 +182,9 @@ describe('Paths', () => {
       assert.equal(resolveAgentWorkdir('~/code', home), path.join(home, 'code'));
       const abs = path.join(os.tmpdir(), 'abs-dir');
       assert.equal(resolveAgentWorkdir(abs, home), abs);
+      // Untouched, separators included — normalize() turned this into
+      // \home\ubuntu\proj on Windows.
+      assert.equal(resolveAgentWorkdir('/home/ubuntu/proj', home), '/home/ubuntu/proj');
     });
 
     it('returns null for nothing, so callers keep their default', () => {

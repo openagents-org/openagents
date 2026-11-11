@@ -1111,11 +1111,13 @@ function defaultAgentWorkdir(agentName) {
 function resolveAgentWorkdir(input, home = os.homedir()) {
   const raw = String(input == null ? '' : input).trim();
   if (!raw) return null;
-  let p = raw;
-  if (p === '~') p = home;
-  else if (/^~[\\/]/.test(p)) p = path.join(home, p.slice(2));
-  if (!path.isAbsolute(p)) p = path.join(home, p);
-  return path.normalize(p);
+  // An absolute path is returned as typed: normalizing it would rewrite the
+  // separators of a path saved on another OS (`/home/me/proj` reads back as
+  // `\home\me\proj` on Windows) and show the user a folder they never set.
+  if (path.isAbsolute(raw)) return raw;
+  if (raw === '~') return home;
+  if (/^~[\\/]/.test(raw)) return path.join(home, raw.slice(2));
+  return path.join(home, raw);
 }
 
 /**
