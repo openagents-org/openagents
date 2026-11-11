@@ -98,7 +98,20 @@ export interface NodeProbe {
 export interface NodeRuntime {
   type: string;
   installed: boolean;
+  /** Ready on the device's own setup or, failing that, on one of its agents'
+   * own keys: says the type works here, not that a new agent will. */
   ready: boolean;
+  /** Ready without any agent's own key: the device's key for the type, its
+   * environment or the CLI's sign-in, i.e. what a new agent, or one with no
+   * key of its own, runs on. Absent from devices too old to report it. */
+  typeReady?: boolean;
+  /** The CLI is signed in on the device, keys aside: what an agent on "the
+   * account signed in on the device" runs on. Null for a type with no
+   * sign-in; absent from devices too old to report it. */
+  signedIn?: boolean | null;
+  /** How the type authenticates on the device: `subscription` is the CLI's
+   * sign-in, but a type with a key as well reads `api_key`. */
+  auth?: { mode: 'subscription' | 'api_key' | 'none'; keyMasked: string | null } | null;
   version: string | null;
   reason: string | null;
   message: string | null;
@@ -823,7 +836,11 @@ export interface AgentCatalogDetail extends AgentCatalogEntry {
    */
   provider_locked?: boolean | null;
   /** Readiness metadata; login_command is the CLI sign-in to run on the device. */
-  check_ready?: { login_command?: string } | null;
+  check_ready?: {
+    login_command?: string;
+    /** Models that need no key or sign-in at all (OpenCode Zen's `opencode/…`). */
+    keyless_model_prefixes?: string[];
+  } | null;
 }
 
 // ---------------------------------------------------------------------------

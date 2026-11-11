@@ -25,6 +25,9 @@ export interface HealthCheck {
   // "no credentials at all" (no_credentials).
   auth_status?: string | null
   execution_mode?: string
+  // false when `ready` rests on a key one of the type's agents holds, which a
+  // new agent does not get. Absent when the type is judged on its own.
+  typeReady?: boolean
 }
 
 /**
