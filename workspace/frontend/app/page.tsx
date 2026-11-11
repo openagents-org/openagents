@@ -20,6 +20,7 @@ import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useCreateWorkspace } from '@/hooks/use-create-workspace';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { DesktopWorkspaceHome } from '@/components/workspaces-home/desktop-workspace-home';
+import { autoEnterTarget, markAutoEntered, rememberWorkspaceTokens } from '@/lib/first-workspace';
 
 /** A catalogue key, translated at render time, or a raw message from an Error. */
 type ErrorMessage = { key: MessageKey } | { text: string };
@@ -768,6 +769,7 @@ function MembershipHome({
         // stays up with no error and no retry.
         const list = await listAccountWorkspaces(idToken, AbortSignal.timeout(LIST_TIMEOUT_MS));
         if (seq !== loadSeqRef.current) return;
+        rememberWorkspaceTokens(list, idToken);
         setWorkspaces(list);
         // Funnel checkpoint: the signed-in user reached their workspace list
         // (which includes the auto-provisioned first workspace). Once per
@@ -829,12 +831,8 @@ function MembershipHome({
 
   // Single-workspace users go STRAIGHT IN — no picker, no "this is your first
   // workspace" card. A list with one option is pure friction (especially on a
-  // phone). Once per browser session, so deliberately navigating back to the
-  // home page still shows the list (rename/delete/create live here).
-  const willAutoEnter =
-    !!firstWorkspace &&
-    typeof window !== 'undefined' &&
-    sessionStorage.getItem('oa_auto_entered_first_ws') !== '1';
+  // phone). See lib/first-workspace for the once-per-session rule.
+  const willAutoEnter = !loading && autoEnterTarget(workspaces) !== null;
   const autoEnteredRef = useRef(false);
   // Re-renders once the redirect is out, so willAutoEnter (now false) stops
   // holding the skeleton. In the desktop app the push opens the workspace in
@@ -844,7 +842,7 @@ function MembershipHome({
   useEffect(() => {
     if (!willAutoEnter || !firstWorkspace || autoEnteredRef.current) return;
     autoEnteredRef.current = true;
-    sessionStorage.setItem('oa_auto_entered_first_ws', '1');
+    markAutoEntered();
     capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug });
     router.push(`/${firstWorkspace.slug}`);
     if (desktopHost()) {

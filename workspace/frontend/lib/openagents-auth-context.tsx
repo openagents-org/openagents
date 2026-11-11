@@ -4,7 +4,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { capture, identify } from './analytics';
 import { desktopHost } from './desktop-host';
 import { workspaceApi } from './api';
-import { clearWorkspaceSession, loadWorkspaceSession } from './workspace-session';
+import { clearWorkspaceSession, loadWorkspaceSession, type WorkspaceSession } from './workspace-session';
 
 interface OpenAgentsUser {
   email: string;
@@ -19,6 +19,8 @@ interface OpenAgentsAuthContextValue {
   isOpenAgentsDomain: boolean;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  /** Sign in on a workspace session just issued by the sign-in callback. */
+  adoptWorkspaceSession: (session: WorkspaceSession) => void;
 }
 
 // `workspace` is the desktop build: the launcher serves the bundle from
@@ -113,6 +115,14 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       // stale after an hour, which v1.1 turned into "rejected by guard" on
       // every send.
       unsubscribe = onIdTokenChange(async (firebaseUser) => {
+        // The sign-in callback may have just signed this page in on a
+        // workspace session (adoptWorkspaceSession). As on a fresh load, that
+        // session is authoritative: neither Firebase reporting nobody nor an
+        // older Firebase user left in this browser may replace it.
+        if (loadWorkspaceSession()) {
+          settle();
+          return;
+        }
         if (firebaseUser) {
           const tokenResult = await firebaseUser.getIdTokenResult();
           const token = tokenResult.token;
@@ -190,6 +200,17 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     // which this popup sign-in also triggers.
   }, []);
 
+  const adoptWorkspaceSession = useCallback((session: WorkspaceSession) => {
+    setUser({
+      email: session.email,
+      displayName: session.displayName || session.email,
+      photoURL: null,
+    });
+    setIdToken(session.token);
+    identify(session.email, { email: session.email, display_name: session.displayName || session.email });
+    setLoading(false);
+  }, []);
+
   const signOut = useCallback(async () => {
     // Drop the workspace session first so a Firebase failure (Google
     // unreachable) can't leave the user signed in.
@@ -203,7 +224,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   }, []);
 
   return (
-    <OpenAgentsAuthContext.Provider value={{ user, idToken, loading, isOpenAgentsDomain, signIn, signOut }}>
+    <OpenAgentsAuthContext.Provider value={{ user, idToken, loading, isOpenAgentsDomain, signIn, signOut, adoptWorkspaceSession }}>
       {children}
     </OpenAgentsAuthContext.Provider>
   );
