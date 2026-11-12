@@ -565,6 +565,34 @@ describe('shared issues', () => {
     expect(window.location.pathname).toBe('/workspace-1/issues/12');
   });
 
+  it('opening an issue from outside moves to its board and status tab', async () => {
+    mocks.api.listIssueBoards.mockResolvedValue([
+      { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },
+      { id: 'b-dev', name: 'Development', default: false, active_count: 0, can_manage: false },
+    ]);
+    mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+    mocks.api.getIssue.mockResolvedValue({ ...issue, id: 'issue-9', number: 9, board_id: 'b-dev', status: 'closed' });
+    mocks.layout.pendingIssueId = 'issue-9';
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev', status: 'closed' }));
+    expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toContain('Development');
+    expect(button('Closed').getAttribute('aria-pressed')).toBe('true');
+    expect(window.location.pathname).toBe('/workspace-1/issues/9');
+    expect(new URL(window.location.href).searchParams.get('board')).toBe('b-dev');
+    expect(host.querySelector('section[aria-label="Discussion"]')).toBeTruthy();
+  });
+
+  it('opening an active issue keeps "Active issues" and the current board', async () => {
+    mocks.api.listIssues.mockResolvedValue({ issues: [], next_offset: null });
+    mocks.api.getIssue.mockResolvedValue({ ...issue, board_id: 'team', status: 'in_progress' });
+    mocks.layout.pendingIssueId = 'issue-1';
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'team', status: undefined, activeOnly: true }));
+    expect(button('Active issues').getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('opens a directly linked issue', async () => {
     window.history.replaceState(null, '', '/workspace-1?issue=issue-1');
     await act(async () => root.render(createElement(IssuesView)));
