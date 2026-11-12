@@ -23,6 +23,7 @@ from app.routers.sharing import _load
 from app.routers.network import _emit_event_blocking
 from openagents.core.onm_events import Event
 from app.routers.files import _owner_for, _viewer_for
+from app.routers.browser import _browser_conversation
 from app.services.access_model import Principal, allowed, can_read_file, can_view_channel, resource_for_file, workspace_human_roles
 from app.storage import get_file_store
 
@@ -120,9 +121,18 @@ def publish(body, project_id, db, token, authorization):
             raise HTTPException(403, 'You cannot update this project.')
         if body.expected_revision != revision(row):
             raise HTTPException(409, 'The project changed. Refresh it before uploading an update.')
+    elif body.channel_name and body.channel_name.startswith('dm:'):
+        # A DM has no Channel row. Accept it when the caller is one of its two
+        # participants and the conversation exists, as the shared browser does.
+        conversation = _browser_conversation(db, ctx.wid, ctx.viewer.label, body.channel_name)
+        if not conversation:
+            raise HTTPException(404, 'Thread not available.')
+        body.channel_name = conversation[0]
     elif body.channel_name:
-        channel = db.execute(select(Channel).where(Channel.workspace_id == ctx.wid, Channel.name == body.channel_name, Channel.status != 'deleted')).scalar_one_or_none()
-        if not channel or not can_view_channel(db, ctx.wid, ctx.viewer, channel):
+        # Like file uploads: a thread is checked, a channel without a thread row
+        # (the default "general") has nothing to protect.
+        channel = db.execute(select(Channel).where(Channel.workspace_id == ctx.wid, Channel.name == body.channel_name)).scalar_one_or_none()
+        if channel and (channel.status == 'deleted' or not can_view_channel(db, ctx.wid, ctx.viewer, channel)):
             raise HTTPException(404, 'Thread not available.')
     if not row and body.visibility == 'inherit' and not body.channel_name:
         raise HTTPException(400, 'Select a thread to inherit its sharing.')
