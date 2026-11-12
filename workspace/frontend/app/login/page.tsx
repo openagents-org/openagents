@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
+import { QrLoginOption } from '@/components/auth/qr-login';
 
 function Login() {
   const t = useT();
@@ -24,6 +25,7 @@ function Login() {
       finally { setBusy(false); }
     }}>{t('workspaceGate.logIn')}</Button>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+    <QrLoginOption />
   </main>;
 }
 export default function LoginPage() { return <Suspense><Login /></Suspense>; }

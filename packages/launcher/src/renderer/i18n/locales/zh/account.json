@@ -70,5 +70,15 @@
     "hasAccount": "已有账号？",
     "browser": "使用 Google、GitHub 或 Apple 继续",
     "terms": "继续即表示你同意我们的服务条款和隐私政策。"
+  },
+  "qrSignIn": {
+    "open": "扫码登录",
+    "instructions": "使用手机上的 OpenAgents 应用扫码登录。",
+    "scanned": "已扫码",
+    "confirmOnPhone": "请在手机上确认登录。",
+    "expired": "二维码已过期，点击刷新。",
+    "cancelled": "已在手机上取消登录，点击获取新的二维码。",
+    "unavailable": "扫码登录暂不可用。",
+    "retry": "重试"
   }
 }

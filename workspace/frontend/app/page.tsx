@@ -1,6 +1,8 @@
 'use client';
 
 import { desktopHost } from '@/lib/desktop-host';
+import { QrLoginOption } from '@/components/auth/qr-login';
+import { applyQrLoginParam, qrLoginEnabled } from '@/lib/qr-login';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -1044,7 +1046,9 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    if (isLocal) {
+    // With QR login turned on (testing), stay here so the code can be offered.
+    applyQrLoginParam(window.location.search);
+    if (isLocal || qrLoginEnabled()) {
       setShowInline(true);
       return;
     }
@@ -1078,6 +1082,7 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
       <BrutalBtn onClick={signIn} color="blue">
         {desktopHost() ? t('auth.signInTitle') : t('workspaceGate.signInWithGoogle')}
       </BrutalBtn>
+      <QrLoginOption />
     </div>
   );
 }

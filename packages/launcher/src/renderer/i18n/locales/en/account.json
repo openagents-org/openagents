@@ -70,5 +70,15 @@
     "hasAccount": "Already have an account?",
     "browser": "Continue with Google, GitHub or Apple",
     "terms": "By continuing, you agree to our Terms and Privacy Policy."
+  },
+  "qrSignIn": {
+    "open": "Sign in with QR code",
+    "instructions": "Scan with the OpenAgents app on your phone to sign in.",
+    "scanned": "Scanned",
+    "confirmOnPhone": "Confirm the sign-in on your phone.",
+    "expired": "QR code expired. Click to refresh.",
+    "cancelled": "Sign-in cancelled on the phone. Click for a new code.",
+    "unavailable": "QR sign-in is not available right now.",
+    "retry": "Try again"
   }
 }

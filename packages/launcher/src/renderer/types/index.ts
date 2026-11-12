@@ -940,6 +940,12 @@ declare global {
       /** Create an email account and open its Workspace session. */
       signUpWithPassword(email: string, password: string, displayName?: string, captcha?: CaptchaPass): Promise<AccountInfo>
       cancelSignIn(): Promise<void>
+      /** Whether the QR-code login is turned on (OPENAGENTS_QR_LOGIN=1); hidden otherwise. */
+      qrSignInEnabled(): Promise<boolean>
+      /** Start a QR-code login; the code encodes `qrUrl`. */
+      startQrSignIn(): Promise<{ id: string; qrUrl: string; expiresAt: number; pollIntervalMs: number }>
+      /** "approved" means the account is now signed in (onAccountChanged also fires). */
+      pollQrSignIn(id: string): Promise<"pending" | "scanned" | "approved" | "cancelled" | "expired">
       /**
        * Has All Workspaces confirm the sign-out in its own dialog. False when
        * that page is not on screen and ready to ask.

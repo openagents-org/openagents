@@ -1,6 +1,7 @@
 'use client';
 
 import { getApiBaseUrl } from '@/lib/api-base';
+import { QrLoginOption } from '@/components/auth/qr-login';
 
 import { use, Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
@@ -265,6 +266,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
           <LogIn className="size-5" />
           {t('workspaceGate.logIn')}
         </button>
+        <QrLoginOption />
       </div>
     );
   }

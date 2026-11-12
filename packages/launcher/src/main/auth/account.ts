@@ -51,6 +51,26 @@ export interface AccountDeps {
   onChange: (account: AccountInfo | null) => void
 }
 
+/** A QR login just started — what the sign-in form needs to draw the code. */
+export interface QrSignInStart {
+  id: string
+  qrUrl: string
+  /** Epoch milliseconds. */
+  expiresAt: number
+  pollIntervalMs: number
+}
+
+export type QrSignInStatus = "pending" | "scanned" | "approved" | "cancelled" | "expired"
+
+/**
+ * Who is asking, as the approving phone is shown it ("OpenAgents desktop app
+ * on macOS"). Main's own requests carry no browser user agent.
+ */
+function desktopUserAgent(): string {
+  const os = process.platform === "darwin" ? "Macintosh" : process.platform === "win32" ? "Windows" : "Linux"
+  return `OpenAgentsLauncher (${os})`
+}
+
 /** A completed Tencent Captcha run, as its widget callback returns it. */
 export interface CaptchaPass {
   ticket: string
@@ -108,6 +128,8 @@ export class AccountManager {
   private _pending: Handoff | null = null
   private _sessionTimer: ReturnType<typeof setTimeout> | null = null
   private _renewal: { session: AccountSession; promise: Promise<string> } | null = null
+  /** The QR login on screen; its poll secret never leaves this process. */
+  private _qr: { id: string; secret: string } | null = null
 
   constructor(private _deps: AccountDeps) {}
 
@@ -438,6 +460,76 @@ export class AccountManager {
   cancelSignIn(): void {
     this._pending?.close()
     this._pending = null
+    this._qr = null
+  }
+
+  /**
+   * Start a QR-code login: the workspace backend opens a two-minute request
+   * and the sign-in form shows its URL as a code for the OpenAgents app on a
+   * signed-in phone to scan and approve (backend: app/routers/qr_login.py).
+   *
+   * Only the id and URL go to the renderer. Collecting the session takes the
+   * poll secret, which stays here — as every other credential does.
+   */
+  async startQrSignIn(): Promise<QrSignInStart> {
+    this.cancelSignIn()
+    const res = await authFetch(`${apiBase(this._deps.endpoint())}/v1/auth/qr`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": desktopUserAgent() },
+      body: JSON.stringify({ client: "desktop" }),
+    })
+    const json = (await res.json().catch(() => null)) as {
+      data?: { id?: string; poll_secret?: string; qr_url?: string; expires_at?: string; poll_interval_ms?: number }
+      message?: string
+    } | null
+    const d = json?.data
+    if (!res.ok || !d?.id || !d.poll_secret || !d.qr_url) throw new Error(json?.message || "SIGN_IN_QR_UNAVAILABLE")
+    this._qr = { id: d.id, secret: d.poll_secret }
+    return {
+      id: d.id,
+      qrUrl: d.qr_url,
+      expiresAt: Date.parse(d.expires_at || "") || Date.now() + 120_000,
+      pollIntervalMs: d.poll_interval_ms || 1500,
+    }
+  }
+
+  /**
+   * Ask how the QR login `id` is going. When the phone has approved it, the
+   * session is kept — exactly as after any other sign-in — and "approved" is
+   * returned. A request this process did not start reads as expired.
+   */
+  async pollQrSignIn(id: string): Promise<QrSignInStatus> {
+    const qr = this._qr
+    if (!qr || qr.id !== id) return "expired"
+    const res = await authFetch(`${apiBase(this._deps.endpoint())}/v1/auth/qr/${encodeURIComponent(id)}/poll`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ poll_secret: qr.secret }),
+    })
+    const json = (await res.json().catch(() => null)) as {
+      data?: {
+        status?: QrSignInStatus
+        session?: { session_token?: string; email?: string; display_name?: string | null; expires_at?: string }
+      }
+      message?: string
+    } | null
+    if (!res.ok) throw new Error(json?.message || "SIGN_IN_QR_UNAVAILABLE")
+    const status = json?.data?.status || "expired"
+    const s = json?.data?.session
+    if (status === "approved" && s?.session_token && s.email) {
+      if (this._qr?.id !== id) return "expired"
+      this._qr = null
+      this._set({
+        kind: "workspace",
+        token: s.session_token,
+        email: s.email,
+        displayName: s.display_name ?? null,
+        expiresAt: Math.floor(Date.parse(s.expires_at || "") / 1000),
+      })
+      return "approved"
+    }
+    if (status !== "pending" && status !== "scanned" && this._qr?.id === id) this._qr = null
+    return status
   }
 
   signOut(): void {
