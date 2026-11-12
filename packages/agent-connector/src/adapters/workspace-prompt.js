@@ -978,15 +978,24 @@ function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channel
  * `glossary` opts in to knowledge pinning exactly as in
  * buildOpenclawSystemPrompt.
  */
-function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, glossary = null, isWindows = process.platform === 'win32', model = null }) {
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, 'skills', model);
+function buildOpenCodeSystemPrompt({ agentName, workspaceId, channelName, endpoint, token, mode = 'execute', disabledModules, browserEnabled = false, glossary = null, isWindows = process.platform === 'win32', model = null, workspaceMcp = false }) {
+  // With the workspace MCP server wired in (see OpenCodeAdapter._spawnEnv) the
+  // agent gets real workspace_* tools, as Claude does; the curl skill stays on
+  // disk as a fallback. Without it, curl through OpenCode's shell tool, `bash`.
+  const toolMode = workspaceMcp ? 'mcp' : 'skills';
+  const skillName = workspaceSkillName(agentName);
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, mode, toolMode, model);
   const directive = buildBrowserDirective(browserEnabled);
-  const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
+  const collab = buildCollaborationPrompt(toolMode, skillName);
   const modePrompt = buildModePrompt(mode) + buildWindowsShellHint(isWindows);
-  const pinned = buildPinnedSections({ toolMode: 'skills', mode, glossary })
+  const pinned = buildPinnedSections({ toolMode, mode, glossary })
     .map((s) => '\n' + s).join('');
-  const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
-  return identity + directive + '\n' + collab + '\n' + modePrompt + pinned + '\n' + api + '\n' + buildGuardrails();
+  const tools = workspaceMcp
+    ? buildClaudeMcpToolBlock() +
+      'Use workspace_publish_project to share HTML pages or reports, workspace_write_file for other files, and the workspace_browser_* tools for the shared browser.\n' +
+      `If a workspace tool is missing or fails, the ${skillName} skill documents the same operations as bash + curl.\n`
+    : buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode, execTool: 'bash' });
+  return identity + directive + '\n' + collab + '\n' + modePrompt + pinned + '\n' + tools + '\n' + buildGuardrails();
 }
 
 /**
@@ -1005,7 +1014,7 @@ function buildPiSystemPrompt({ agentName, workspaceId, channelName, endpoint, to
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
   const modePrompt = buildModePrompt(mode);
-  const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode });
+  const api = buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channelName, disabledModules, mode, execTool: 'bash' });
   return identity + directive + '\n' + collab + '\n' + modePrompt + '\n' + api + '\n' + buildGuardrails();
 }
 
@@ -1149,6 +1158,7 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
     channelName: channelName || 'general',
     disabledModules,
     mode: 'execute',
+    execTool: 'bash',
   });
 
   const frontmatter =

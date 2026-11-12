@@ -27,6 +27,9 @@ const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = 
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
 
+// The launcher's own CLI, whose `mcp-server` command serves the workspace tools.
+const WORKSPACE_MCP_BIN = path.resolve(__dirname, '..', '..', 'bin', 'agent-connector.js');
+
 const IS_WINDOWS = process.platform === 'win32';
 
 // Max time an `opencode run` may stay completely silent. This is deliberately
@@ -252,8 +255,40 @@ class OpenCodeAdapter extends BaseAdapter {
     touch();
     return { touch, cancel, timeoutMs };
   }
-  _spawnEnv() {
-    return { ...(this.agentEnv || process.env) };
+  _spawnEnv(channel) {
+    const env = { ...(this.agentEnv || process.env) };
+    if (!this._wiresWorkspaceMcp()) return env;
+    // Give OpenCode the workspace tools (publish, todos, browser, ...) through
+    // our MCP server, as the Claude adapter does. Merged into any inline config
+    // the host already passes; the token travels in the child's environment only.
+    let cfg = {};
+    try { cfg = JSON.parse(env.OPENCODE_CONFIG_CONTENT || '{}') || {}; } catch { return env; }
+    if (typeof cfg !== 'object' || Array.isArray(cfg)) return env;
+    const args = [WORKSPACE_MCP_BIN, 'mcp-server',
+      '--workspace-id', this.workspaceId, '--channel-name', channel || this.channelName || 'general',
+      '--agent-name', this.agentName, '--endpoint', this.endpoint];
+    const disabled = this.disabledModules || new Set();
+    if (disabled.has('files')) args.push('--disable-files');
+    if (disabled.has('browser')) args.push('--disable-browser');
+    if (disabled.has('knowledge')) args.push('--disable-knowledge');
+    const requester = channel && this.requesterEmailFor ? this.requesterEmailFor(channel) : null;
+    cfg.mcp = { ...(cfg.mcp || {}), openagents: { type: 'local', enabled: true,
+      command: [process.execPath, ...args],
+      environment: { OA_WORKSPACE_TOKEN: this.token, ...(requester ? { OPENAGENTS_REQUESTER_EMAIL: requester } : {}) } } };
+    env.OPENCODE_CONFIG_CONTENT = JSON.stringify(cfg);
+    return env;
+  }
+
+  /**
+   * Only plain OpenCode reads OPENCODE_CONFIG_CONTENT; the forks built on this
+   * adapter (CodeArts, MiMo Code) replace _spawnEnv and keep the curl skill.
+   */
+  _wiresWorkspaceMcp() {
+    // An OpenCode across the Windows/WSL boundary could not start our node.
+    const bin = String(this._opencodeBinary || '');
+    if (bin.startsWith('wsl:') || (!IS_WINDOWS && /\.(exe|cmd|bat)$/i.test(bin))) return false;
+    return this._spawnEnv === OpenCodeAdapter.prototype._spawnEnv
+      && Boolean(this.token && this.workspaceId) && fs.existsSync(WORKSPACE_MCP_BIN);
   }
 
   /**
@@ -366,6 +401,7 @@ class OpenCodeAdapter extends BaseAdapter {
       mode: this._mode,
       model: this.modelLabel(),
       disabledModules: this.disabledModules,
+      workspaceMcp: this._wiresWorkspaceMcp(),
       ...this.pinnedPromptOpts(channelName),
     });
   }
