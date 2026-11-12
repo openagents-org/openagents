@@ -7,6 +7,7 @@
  */
 
 import type { BrowserPersistentContext, BrowserTab } from '@/lib/types';
+import { tabHasFreshAgentActivity } from './agent-activity';
 
 export interface PermanentEntry {
   kind: 'permanent';
@@ -105,4 +106,16 @@ export function idleMinutesLeft(tab: BrowserTab, idleMinutes: number, now = Date
 /** Strip the `human:` / `openagents:` prefix for display. */
 export function whoLabel(source: string | null | undefined): string {
   return (source || 'unknown').replace(/^(openagents:|human:)/, '');
+}
+
+/**
+ * Why closing this tab deserves a confirm, or null when one click is fine.
+ * A permanent tab only goes to sleep (its login state stays, and a click wakes
+ * it), so it closes at once, unless an agent is working in it right now.
+ * A temporary tab is gone for good.
+ */
+export function closeRisk(tab: BrowserTab, agentActive = tabHasFreshAgentActivity(tab)): 'agent' | 'temporary' | null {
+  if (agentActive) return 'agent';
+  if (!tab.contextId) return 'temporary';
+  return null;
 }

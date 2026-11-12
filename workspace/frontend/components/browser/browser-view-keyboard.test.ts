@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ controlling: false, input: vi.fn(), revision: 0 }));
 vi.mock('./use-browser-control', () => ({ useBrowserControl: () => ({ controlling: state.controlling, busy: false, toggle: vi.fn(), input: state.input, frameRevision: state.revision }) }));
-vi.mock('./agent-activity', () => ({ actorName: () => null, useAgentActivity: () => ({ active: false }) }));
+vi.mock('./agent-activity', () => ({ actorName: () => null, useAgentActivity: () => ({ active: false }), tabHasFreshAgentActivity: () => false }));
 vi.mock('./new-browser-tab-dialog', () => ({ NewBrowserTabDialog: () => null }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ isMobile: false }) }));

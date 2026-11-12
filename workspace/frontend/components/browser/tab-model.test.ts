@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BrowserPersistentContext, BrowserTab } from '@/lib/types';
-import { buildTabEntries, displayUrl, hostOf, idleMinutesLeft, normalizeUrl } from './tab-model';
+import { buildTabEntries, closeRisk, displayUrl, hostOf, idleMinutesLeft, normalizeUrl } from './tab-model';
 import { knownAction, tabHasFreshAgentActivity } from './agent-activity';
 
 const tab = (over: Partial<BrowserTab>): BrowserTab => ({
@@ -67,5 +67,23 @@ describe('idle + activity', () => {
     expect(knownAction('click')).toBe('click');
     expect(knownAction('solve_captcha')).toBe('other');
     expect(knownAction(null)).toBe('other');
+  });
+});
+
+describe('closeRisk', () => {
+  const base = {
+    id: 't', url: 'https://example.com', title: 'Example', status: 'active', createdBy: 'human:user', sharedWith: [],
+    liveUrl: null, sessionId: null, contextName: null, kind: 'temporary' as const, activity: null, createdAt: null, lastActiveAt: null,
+  };
+  it('lets an idle permanent tab sleep in one click', () => {
+    expect(closeRisk({ ...base, contextId: 'c1', kind: 'permanent' }, false)).toBeNull();
+  });
+  it('asks before closing a temporary tab, which is gone for good', () => {
+    expect(closeRisk({ ...base, contextId: null }, false)).toBe('temporary');
+  });
+  it('asks before closing any tab an agent is working in', () => {
+    expect(closeRisk({ ...base, contextId: 'c1', kind: 'permanent' }, true)).toBe('agent');
+    const fresh = { ...base, contextId: 'c1', kind: 'permanent' as const, activity: { action: 'click', actor: 'openagents:scout', at: new Date().toISOString() } };
+    expect(closeRisk(fresh)).toBe('agent');
   });
 });
