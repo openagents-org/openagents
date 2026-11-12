@@ -1962,11 +1962,12 @@ class WorkspaceApi {
     return `/v1/issues${suffix}?${new URLSearchParams({ network: this.workspaceId, ...params })}`;
   }
 
-  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; status?: IssueStatus; offset?: number; query?: string; board?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
+  async listIssues(input: { activeOnly?: boolean; assignedToMe?: boolean; assignee?: string; status?: IssueStatus; offset?: number; query?: string; board?: string } = {}): Promise<{ issues: WorkspaceIssue[]; next_offset: number | null }> {
     return this.request(this.issuePath('', {
       ...(input.board ? { board: input.board } : {}),
       ...(input.status ? { status: input.status } : {}),
       ...(input.assignedToMe ? { assigned_to_me: 'true' } : {}),
+      ...(input.assignee ? { assignee: input.assignee } : {}),
       ...(input.activeOnly ? { active_only: 'true' } : {}),
       ...(input.query ? { q: input.query } : {}),
       offset: String(input.offset ?? 0),

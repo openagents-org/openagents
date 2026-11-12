@@ -204,6 +204,26 @@ describe('shared issues', () => {
     expect(mocks.api.listIssues).toHaveBeenCalledWith(expect.objectContaining({ board: 'team' }));
   });
 
+  it('filters the list by a person, an agent, or nobody', async () => {
+    mocks.ws.agents = [{ agentName: 'scout', displayName: 'Scout', builtin: false }];
+    mocks.api.getTeam.mockResolvedValue([{ email: 'Ben@acme.test', displayName: 'Ben' }]);
+    await act(async () => root.render(createElement(IssuesView)));
+    await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+    const choose = async (name: string) => {
+      const trigger = [...host.querySelectorAll('button')].find((b) => /assignee/i.test(b.getAttribute('aria-label') || ''))!;
+      await click(trigger);
+      const option = [...document.querySelectorAll('[cmdk-item]')].find((el) => el.textContent?.trim() === name) as HTMLElement;
+      await click(option);
+      await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+      return mocks.api.listIssues.mock.calls.at(-1)![0];
+    };
+    expect(mocks.api.listIssues.mock.calls.at(-1)![0].assignee).toBeUndefined();
+    expect((await choose('Scout')).assignee).toBe('openagents:scout');
+    expect((await choose('Ben')).assignee).toBe('human:ben@acme.test');
+    expect((await choose('Unassigned')).assignee).toBe('none');
+    expect((await choose('Anyone')).assignee).toBeUndefined();
+  });
+
   it('loads the selected board when switching boards', async () => {
     mocks.api.listIssueBoards.mockResolvedValue([
       { id: 'team', name: 'Team issues', default: true, active_count: 1, can_manage: false },

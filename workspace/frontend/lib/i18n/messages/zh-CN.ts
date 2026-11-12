@@ -124,6 +124,7 @@ export const messages: Messages = {
   issues: {
     activeIssues: '进行中的议题',
     assignedToMe: '分配给我',
+    anyAssignee: '所有人', filterByAssignee: '按负责人筛选', agents: '智能体',
     dueDate: '截止日期', noDueDate: '未设置截止日期', setDueDate: '设置截止日期', clearDueDate: '移除截止日期', dueDateOwnerOnly: '只有创建此议题的人可以更改截止日期。', dueDateSet: '将截止日期设为 {date}', dueDateRemoved: '移除了截止日期',
     chooseAgent: '选择智能体',
     searchAgents: '搜索可用智能体…',
@@ -135,7 +136,7 @@ export const messages: Messages = {
     paused: '已暂停', assignee: '负责人', unassigned: '未分配', labels: '标签', addLabel: '添加标签', removeLabel: '移除 {label}',
     editHint: "更改将与议题的所有参与者共享。",
     allIssues: "全部议题",
-    noMatchesHint: "试试其他关键词或更改状态筛选。",
+    noMatchesHint: "试试其他关键词，或更改状态、负责人筛选。",
     emptyColumn: "暂无议题",
     latestReply: "最新回复",
     details: "详情",

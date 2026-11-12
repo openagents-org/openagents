@@ -29,6 +29,7 @@ import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { DetailHeader } from '@/components/layout/app-header';
 import { IssueEditor } from './issue-editor';
+import { IssueAssigneeFilter } from './issue-assignee-filter';
 import { IssueDiscussion } from './issue-discussion';
 import { IssueBoardTabs, useIssueBoards } from './issue-boards';
 import {
@@ -116,6 +117,7 @@ function IssueWorkspace() {
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
   const [query, setQuery] = useState('');
+  const [assignee, setAssignee] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [nextOffset, setNextOffset] = useState<number | null>(null);
@@ -156,7 +158,7 @@ function IssueWorkspace() {
   const loadedFor = useRef<string | null>(null);
   useEffect(() => {
     let active = true;
-    const loadKey = JSON.stringify([status, activeOnly, query, revision, pages, boardId]);
+    const loadKey = JSON.stringify([status, activeOnly, query, assignee, revision, pages, boardId]);
     if (loadedFor.current !== loadKey) setLoading(true);
     const load = async () => {
       const version = ++requestVersion.current;
@@ -166,6 +168,7 @@ function IssueWorkspace() {
             workspaceApi.listIssues({
               status: status === 'all' || status === 'mine' ? undefined : status,
               assignedToMe: status === 'mine',
+              assignee: assignee || undefined,
               activeOnly,
               query,
               board: boardId,
@@ -202,7 +205,7 @@ function IssueWorkspace() {
       clearTimeout(debounce);
       clearInterval(interval);
     };
-  }, [status, activeOnly, query, revision, pages, boardId]);
+  }, [status, activeOnly, query, assignee, revision, pages, boardId]);
 
   const preview = (description: string) =>
     description
@@ -418,6 +421,16 @@ function IssueWorkspace() {
           ))}
         </div>
         <div className="mb-3 ml-auto flex min-w-0 flex-1 items-center justify-end gap-3 sm:flex-none">
+          <IssueAssigneeFilter
+            value={assignee}
+            onChange={(next) => {
+              if (next === assignee) return;
+              setAssignee(next);
+              setIssues([]);
+              setNextOffset(null);
+              setPages(1);
+            }}
+          />
           <div className="relative w-full sm:w-48">
             <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
             <Input
@@ -484,19 +497,19 @@ function IssueWorkspace() {
             </div>
             <h2 className="text-sm font-medium">
               {t(
-                query || status !== 'all'
+                query || assignee || status !== 'all'
                   ? 'issues.noMatches'
                   : 'issues.emptyTitle',
               )}
             </h2>
             <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
               {t(
-                query || status !== 'all'
+                query || assignee || status !== 'all'
                   ? 'issues.noMatchesHint'
                   : 'issues.emptyDescription',
               )}
             </p>
-            {!query && status === 'all' && (
+            {!query && !assignee && status === 'all' && (
               <Button
                 className="mt-6"
                 variant="outline"

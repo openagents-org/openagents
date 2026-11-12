@@ -462,6 +462,8 @@ def list_issues(
     q: str = Query("", max_length=240),
     status: Optional[IssueStatus] = None,
     assigned_to_me: bool = False,
+    # One assignee ("human:<email>" or "openagents:<agent>"), or "none" for unassigned.
+    assignee: Optional[str] = Query(None, max_length=320),
     active_only: bool = False,
     board: Optional[str] = Query(None, max_length=64),
     offset: int = Query(0, ge=0),
@@ -480,6 +482,11 @@ def list_issues(
         if not user:
             raise HTTPException(401, "Sign in to view issues assigned to you")
         query = query.where(func.lower(Issue.assignee) == f"human:{user.email.lower()}")
+    if assignee:
+        if assignee == "none":
+            query = query.where(or_(Issue.assignee.is_(None), Issue.assignee == ""))
+        else:
+            query = query.where(func.lower(Issue.assignee) == assignee.strip().lower())
     if status:
         query = query.where(Issue.status == status)
     elif active_only:

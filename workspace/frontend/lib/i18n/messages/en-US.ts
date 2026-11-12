@@ -131,6 +131,7 @@ export const messages = {
   issues: {
     activeIssues: 'Active issues',
     assignedToMe: 'Assigned to me',
+    anyAssignee: 'Anyone', filterByAssignee: 'Filter by assignee', agents: 'Agents',
     dueDate: 'Due date', noDueDate: 'No due date', setDueDate: 'Set due date', clearDueDate: 'Remove due date', dueDateOwnerOnly: 'Only the person who opened this issue can change the due date.', dueDateSet: 'set the due date to {date}', dueDateRemoved: 'removed the due date',
     chooseAgent: 'Choose an agent',
     searchAgents: 'Search available agents…',
@@ -142,7 +143,7 @@ export const messages = {
     paused: 'Paused', assignee: 'Assignee', unassigned: 'Unassigned', labels: 'Labels', addLabel: 'Add a label', removeLabel: 'Remove {label}',
     editHint: "Changes are shared with everyone on this issue.",
     allIssues: "All issues",
-    noMatchesHint: "Try another search or change the status filter.",
+    noMatchesHint: "Try another search or change the status or assignee filter.",
     emptyColumn: "No issues yet",
     latestReply: "Latest reply",
     details: "Details",
