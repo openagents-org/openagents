@@ -15,6 +15,7 @@ import type {
   HostedAgent,
   HostedAgentProvider,
   AcentaAccount,
+  AcentaUsage,
   DMConversation,
   EventPollResponse,
   KanbanTask,
@@ -1704,6 +1705,11 @@ class WorkspaceApi {
   /** The signed-in user's Acenta agents, marked with whether each is already here. */
   async listMyAcentaAgents(): Promise<AcentaAccount> {
     return this.request<AcentaAccount>(`/v1/hosted-agents/acenta/agents?network=${this.requireWorkspace()}`);
+  }
+
+  /** The signed-in user's Acenta balance, this month's spend and each agent's plan. */
+  async getMyAcentaUsage(): Promise<AcentaUsage> {
+    return this.request<AcentaUsage>(`/v1/hosted-agents/acenta/usage?network=${this.requireWorkspace()}`);
   }
 
   /** Add one of the user's existing Acenta agents to this workspace. */

@@ -6,13 +6,16 @@ import { HostedAgentsSection } from './hosted-agents-section';
 
 const api = vi.hoisted(() => ({
   getHostedProviders: vi.fn(), listHostedAgents: vi.fn(), launchHostedAgent: vi.fn(), removeHostedAgent: vi.fn(),
-  listMyAcentaAgents: vi.fn(), connectAcentaAgent: vi.fn(),
+  listMyAcentaAgents: vi.fn(), connectAcentaAgent: vi.fn(), getMyAcentaUsage: vi.fn(),
 }));
 const confirm = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => confirm }));
-vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
+vi.mock('@/lib/i18n', () => ({
+  useT: () => (key: string) => key,
+  useFormatters: () => ({ formatDate: () => 'Dec 3' }),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const onChanged = vi.fn();
@@ -33,6 +36,7 @@ beforeEach(() => {
   api.listHostedAgents.mockResolvedValue([]);
   api.listMyAcentaAgents.mockReset().mockResolvedValue({ hasAccount: false, agents: [], agentLimit: 3 });
   api.connectAcentaAgent.mockReset().mockResolvedValue({});
+  api.getMyAcentaUsage.mockReset().mockRejectedValue(new Error('unavailable'));
   api.launchHostedAgent.mockReset().mockResolvedValue({ setupUrl: null });
   api.removeHostedAgent.mockReset().mockResolvedValue(undefined);
   confirm.mockReset();
@@ -161,4 +165,57 @@ it('treats removing a launched agent that works elsewhere as a disconnect', asyn
   await act(async () => button('connect.remove').click());
   expect(confirm.mock.calls[0][0].description).toBe('connect.acentaDisconnectConfirm');
   expect(confirm.mock.calls[0][0].destructive).toBe(false);
+});
+
+const agent = (id: string, name: string) => ({
+  id, name, agentName: `acenta-${id}`, state: 'ready', tier: 'standard', url: `https://acenta.test/agents/${id}`,
+  launchUrl: null, inThisWorkspace: false, workspaces: 1, workspaceLimit: 3,
+});
+const usage = (over: Record<string, unknown> = {}) => ({
+  hasAccount: true, billingEnabled: true, balanceEnabled: true, balanceCents: 1234, spentThisMonthCents: 150,
+  autoTopup: false, manageUrl: 'https://acenta.test/dashboard',
+  agents: [
+    { id: 'a1', mode: 'usage', tier: 'standard', status: 'active', spentThisMonthCents: 150, renewalAt: null },
+    { id: 'a2', mode: 'pass', tier: 'standard', status: 'active', spentThisMonthCents: 0, renewalAt: '2026-12-03T00:00:00Z' },
+  ],
+  ...over,
+});
+
+it('shows the Acenta balance, this month\'s spend and each agent\'s plan, with a top-up link', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [agent('a1', 'helper'), agent('a2', 'writer')], agentLimit: 3 });
+  api.getMyAcentaUsage.mockResolvedValue(usage());
+  await render();
+  const text = container.textContent!;
+  expect(text).toContain('connect.acentaBalance $12.34');
+  expect(text).toContain('connect.acentaSpentThisMonth $1.50');
+  expect(text).toContain('helper');
+  expect(text).toContain('connect.acentaPlanUsage');
+  expect(text).toContain('connect.acentaPlanPassUntil');
+  const link = [...container.querySelectorAll('a')].find((a) => a.textContent?.includes('connect.acentaTopUp'))!;
+  expect(link.getAttribute('href')).toBe('https://acenta.test/dashboard');
+  expect(text).not.toContain('connect.acentaLowBalance');
+});
+
+it('warns about a low balance when a pay-by-usage agent depends on it', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [agent('a1', 'helper')], agentLimit: 3 });
+  api.getMyAcentaUsage.mockResolvedValue(usage({ balanceCents: 120 }));
+  await render();
+  expect(container.textContent).toContain('connect.acentaLowBalance');
+  api.getMyAcentaUsage.mockResolvedValue(usage({ balanceCents: 120, autoTopup: true }));
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await render();
+  expect(container.textContent).not.toContain('connect.acentaLowBalance');
+});
+
+it('leaves the page as it was when Acenta has no usage to show', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [agent('a1', 'helper')], agentLimit: 3 });
+  await render();  // usage request fails
+  expect(container.textContent).not.toContain('connect.acentaBalance');
+  expect(container.textContent).not.toContain('connect.acentaPlan');
+  api.getMyAcentaUsage.mockResolvedValue(usage({ billingEnabled: false }));
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  await render();
+  expect(container.textContent).not.toContain('connect.acentaBalance');
 });

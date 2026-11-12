@@ -211,6 +211,48 @@ def list_my_acenta_agents(
                              "agentLimit": result.get("agent_limit") or 0})
 
 
+@router.get("/hosted-agents/acenta/usage")
+def my_acenta_usage(
+    network: str = Query(..., description="Workspace ID or slug"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """The signed-in user's Acenta balance, this month's spend and each agent's plan."""
+    workspace = _resolve_workspace(db, network)
+    if not workspace:
+        return json_response(ResponseCode.NOT_FOUND, "Network not found")
+    if not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid workspace credentials")
+    user, denied = _member_user(db, workspace, authorization)
+    if denied is not None:
+        return denied
+    if not hosting.enabled():
+        return success_response({"hasAccount": False, "billingEnabled": False, "balanceEnabled": False,
+                                 "balanceCents": 0, "spentThisMonthCents": 0, "autoTopup": False,
+                                 "agents": [], "manageUrl": None})
+    email = user.email.strip().lower()
+    try:
+        result = hosting.usage_for_user(subject=user.firebase_uid or email,
+                                        email=email if user.email_verified_at else "")
+    except hosting.ProviderError as error:
+        return json_response(ResponseCode.BAD_REQUEST, str(error))
+    agents = [{
+        "id": a.get("agent_id"), "mode": a.get("mode"), "tier": a.get("tier"), "status": a.get("status"),
+        "spentThisMonthCents": a.get("spent_this_month_cents") or 0, "renewalAt": a.get("renewal_at"),
+    } for a in result.get("agents", [])]
+    return success_response({
+        "hasAccount": bool(result.get("has_account")),
+        "billingEnabled": bool(result.get("billing_enabled")),
+        "balanceEnabled": bool(result.get("balance_enabled")),
+        "balanceCents": result.get("balance_cents") or 0,
+        "spentThisMonthCents": result.get("spent_this_month_cents") or 0,
+        "autoTopup": bool(result.get("auto_topup")),
+        "agents": agents,
+        "manageUrl": result.get("manage_url"),
+    })
+
+
 class ConnectAcentaAgentRequest(BaseModel):
     network: str
 

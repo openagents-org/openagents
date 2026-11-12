@@ -26,6 +26,12 @@ class FakeAcenta:
         self.calls.append((method, path, kwargs))
         if self.fail:
             raise hosting.ProviderError(self.fail, 409)
+        if kwargs.get("base") == hosting._USAGE_PATH:
+            self.usage_params = kwargs["params"]
+            return {"has_account": True, "billing_enabled": True, "balance_enabled": True, "balance_cents": 1234,
+                    "spent_this_month_cents": 150, "auto_topup": False, "manage_url": "https://acenta.test/dashboard",
+                    "agents": [{"agent_id": "box-9", "mode": "usage", "tier": "standard", "status": "active",
+                                "spent_this_month_cents": 150, "renewal_at": None}]}
         if method == "POST" and path == "":
             body = kwargs["json"]
             self.launched = body
@@ -286,3 +292,29 @@ def test_launching_with_a_taken_name_is_refused(client, db, workspace, people, a
     r = _launch(client, workspace, name="Research-Helper")
     assert r.status_code == 409 and "already has an agent or member named" in r.json()["message"]
     assert acenta.calls == []
+
+
+def test_usage_passes_through_for_members_and_sends_email_only_once_verified(client, db, workspace, people, acenta):
+    from app.models import User
+    url = f"/v1/hosted-agents/acenta/usage?network={workspace['id']}"
+    assert client.get(url, headers={"X-Workspace-Token": workspace["token"]}).status_code == 401
+    r = client.get(url, headers=_bearer("mia", workspace))
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["balanceCents"] == 1234 and data["spentThisMonthCents"] == 150
+    assert data["agents"] == [{"id": "box-9", "mode": "usage", "tier": "standard", "status": "active",
+                               "spentThisMonthCents": 150, "renewalAt": None}]
+    assert data["manageUrl"] == "https://acenta.test/dashboard"
+    # Not verified yet: Acenta must not match an account by the typed address.
+    assert acenta.usage_params == {"subject": "mia@acme.test", "email": ""}
+    from datetime import datetime, timezone
+    db.query(User).filter(User.email == "mia@acme.test").one().email_verified_at = datetime.now(timezone.utc)
+    db.commit()
+    client.get(url, headers=_bearer("mia", workspace))
+    assert acenta.usage_params == {"subject": "mia@acme.test", "email": "mia@acme.test"}
+
+
+def test_usage_is_empty_when_acenta_is_not_configured(client, workspace, people, monkeypatch):
+    monkeypatch.setattr(config, "ACENTA_API_URL", "")
+    data = client.get(f"/v1/hosted-agents/acenta/usage?network={workspace['id']}", headers=_bearer("mia", workspace)).json()["data"]
+    assert data["hasAccount"] is False and data["agents"] == []

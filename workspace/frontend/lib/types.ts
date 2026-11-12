@@ -925,6 +925,31 @@ export interface AcentaAccount {
   agentLimit: number;
 }
 
+/** How one Acenta agent is paid for. */
+export interface AcentaAgentUsage {
+  id: string;
+  /** included: no charge for this account; usage: from the balance; pass: monthly pass; subscription: monthly card plan. */
+  mode: 'included' | 'usage' | 'pass' | 'subscription';
+  tier: string | null;
+  status: string | null;
+  spentThisMonthCents: number;
+  /** When a monthly pass ends. */
+  renewalAt: string | null;
+}
+
+/** The signed-in user's Acenta balance and this month's spend. */
+export interface AcentaUsage {
+  hasAccount: boolean;
+  billingEnabled: boolean;
+  balanceEnabled: boolean;
+  balanceCents: number;
+  spentThisMonthCents: number;
+  autoTopup: boolean;
+  agents: AcentaAgentUsage[];
+  /** Acenta's dashboard, where the balance is topped up and plans are changed. */
+  manageUrl: string | null;
+}
+
 /** An agent whose runtime a provider hosts; it joins like any other agent. */
 export interface HostedAgent {
   agentName: string;
