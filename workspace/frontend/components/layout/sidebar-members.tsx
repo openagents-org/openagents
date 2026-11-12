@@ -31,7 +31,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   // With labels, a row repeats its name in a tooltip only when it is cut off.
   const [truncatedMember, setTruncatedMember] = useState<string | null>(null);
   const me = myAddress(currentUser);
-  const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name);
+  const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name, email => unreadDmCounts[dmSessionId(me, `human:${email}`)] || 0);
   const online = onlineMemberNames(team, onlineUsers);
   const shownEmails = new Set(members.map(person => person.email));
   // Online/total, the same reading as the agent group's heading.
@@ -68,7 +68,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
           <SidebarMenuButton className={cn(!showLabels && 'justify-center!')} aria-label={memberLabel(person.email, person.name)} tooltip={{ children: memberLabel(person.email, person.name), hidden: showLabels && truncatedMember !== person.email }} onPointerEnter={(e) => setTruncatedMember(hasTruncatedLabel(e.currentTarget) ? person.email : null)} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
             <span className="relative shrink-0"><HumanAvatar email={person.email} />{person.online && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />}</span>
             {showLabels && <span className="flex min-w-0 items-center gap-1"><span className="truncate" data-truncatable>{person.name}</span>{person.email === currentUser.id.toLowerCase() && <span className="shrink-0 text-xs text-muted-foreground">({t('threads.you')})</span>}</span>}
-            <DmUnreadBadge count={unreadDmCounts[dmSessionId(me, `human:${person.email}`)]} compact={!showLabels} />
+            <DmUnreadBadge count={person.unread} compact={!showLabels} />
           </SidebarMenuButton>
           {/* Your own row carries a settings button, as an agent's does: it
               opens the profile page where the name and avatar are edited. */}

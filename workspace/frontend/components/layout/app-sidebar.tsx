@@ -78,7 +78,8 @@ export function AppSidebar() {
       <Sidebar
         collapsible="none"
         className={cn(
-          'h-svh shrink-0 overflow-hidden border-e',
+          // Fills the shell, which is already the viewport minus any banner.
+          'h-full shrink-0 overflow-hidden border-e',
           // Dragging the rail's edge drives this width too — easing it would
           // make the shell lag a frame behind the pointer.
           railDragWidth === null && 'transition-[width] duration-200 ease-linear',

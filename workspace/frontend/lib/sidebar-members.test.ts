@@ -17,6 +17,16 @@ it('fills the rest with offline contacts by recency once the online people run o
   expect(rows.map(row => row.name)).toEqual(['me', 'a', 'priya', 'jonas', 'sam']);
   expect(rows[2]).toMatchObject({ online: false, hasHistory: true });
 });
+it('never cuts a row with unread DMs and lists it first', () => {
+  // Three online colleagues would fill the list; an offline one has written to you.
+  const unread = (email: string) => (email === 'jonas@example.com' ? 2 : 0);
+  const rows = sidebarMembers(team, online(['me', 'sam', 'a', 'b', 'c']), [dm('jonas', 5)], me, undefined, unread);
+  expect(rows.map(row => row.name)).toEqual(['me', 'jonas', 'a', 'b', 'c']);
+  expect(rows[1]).toMatchObject({ online: false, unread: 2 });
+  // More unread rows than the limit: all of them stay.
+  const all = sidebarMembers(team, online(['me', 'a', 'b']), ['sam', 'priya', 'jonas', 'c', 'd'].map((name, i) => dm(name, i + 1)), me, undefined, email => (/^(sam|priya|jonas|c|d)@/.test(email) ? 1 : 0));
+  expect(all.map(row => row.name)).toEqual(['me', 'd', 'c', 'jonas', 'priya', 'sam']);
+});
 it('deduplicates history and ignores agent DMs, other people’s DMs and empty conversations', () => {
   const rows = sidebarMembers(team, [], [dm('sam', 10), dm('sam', 50), { ...dm('priya', 60), messageCount: 0 }, { ...dm('priya', 70), agents: ['human:jonas@example.com', 'human:priya@example.com'] }, { ...dm('sam', 99), agents: [me, 'openagents:scout'] }], me);
   expect(rows).toHaveLength(2);

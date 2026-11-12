@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
 import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobileDevice } from '@/hooks/use-mobile-device';
 import { desktopDownloads } from '@/lib/desktop-downloads';
 import { useT } from '@/lib/i18n';
 import type { PairingCode } from '@/lib/types';
@@ -36,7 +36,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   stepLabel?: string;
 }) {
   const t = useT();
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileDevice();
   const [method, setMethod] = useState<'desktop' | 'terminal' | 'agent'>(methodRequest?.method ?? 'terminal');
   const appliedMethodRequest = useRef(methodRequest);
   useEffect(() => {
