@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import mimetypes
+import re
 import secrets
 import uuid
 import zipfile
@@ -48,6 +49,20 @@ class PublishProject(BaseModel):
     source: Optional[str] = None
     visibility: Literal['private', 'public', 'inherit'] = 'private'
     expected_revision: Optional[str] = None
+
+
+# The sandbox gives a page an opaque origin, where reading localStorage or
+# sessionStorage throws and stops the page's script; generated pages use them
+# for scores and progress. Give such pages an in-memory stand-in for the view.
+STORAGE_SHIM = b'<script>(function(){function M(){var d=Object.create(null);return Object.create(Storage.prototype,{length:{get:function(){return Object.keys(d).length}},key:{value:function(i){var k=Object.keys(d);return i<k.length?k[i]:null}},getItem:{value:function(k){k=String(k);return k in d?d[k]:null}},setItem:{value:function(k,v){d[String(k)]=String(v)}},removeItem:{value:function(k){delete d[String(k)]}},clear:{value:function(){d=Object.create(null)}}})}["localStorage","sessionStorage"].forEach(function(n){try{window[n]}catch(e){try{Object.defineProperty(window,n,{value:M(),configurable:true})}catch(_){}}})})();</script>'
+
+
+def with_storage_shim(html):
+    """Insert STORAGE_SHIM before the page's own scripts, keeping any doctype first."""
+    for pattern in (rb'<head\b[^>]*>', rb'<html\b[^>]*>', rb'<!doctype[^>]*>'):
+        match = re.search(pattern, html, re.I)
+        if match: return html[:match.end()] + STORAGE_SHIM + html[match.end():]
+    return STORAGE_SHIM + html
 
 
 def valid_path(path):
@@ -223,6 +238,7 @@ def project_asset(ticket: str, asset_path: str, request: Request, db: Session = 
         except KeyError: raise denied
     mime = mimetypes.guess_type(asset_path)[0] or 'application/octet-stream'
     if asset_path.endswith(('.js', '.mjs')): mime = 'text/javascript'
+    if mime == 'text/html': content = with_storage_shim(content)
     # A host source inherits the page protocol, including behind TLS proxies.
     asset_base = request.url.netloc + f'/v1/project-preview/{ticket}/'
     # Also sandbox direct navigation: project scripts never gain the app origin.
