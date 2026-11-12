@@ -134,3 +134,17 @@ def test_agent_publishes_into_default_channel(client, workspace, db):
         channel_name='general', visibility='inherit'))
     assert ok.status_code == 200, ok.text
     assert db.get(FileRecord, ok.json()['data']['id']).channel_name == 'general'
+
+
+def test_preview_pages_get_in_memory_storage(client, workspace, people, db):
+    # Sandboxed pages cannot reach localStorage; the served page brings a stand-in first.
+    page = '<!doctype html><html><head><title>Game</title></head><body><script>localStorage.getItem("best")</script></body></html>'
+    data = body(workspace, channel_name=None, visibility='private')
+    data['files'] = [{'path': 'index.html', 'content_base64': base64.b64encode(page.encode()).decode()},
+                     {'path': 'app.js', 'content_base64': base64.b64encode(b'localStorage.x').decode()}]
+    pid = client.post('/v1/web-projects', headers=_bearer('mia', workspace), json=data).json()['data']['id']
+    url = preview(client, workspace, pid).json()['data']['preview_path']
+    html = client.get(url).text
+    assert html.startswith('<!doctype html><html><head><script>(function(){function M()')
+    assert html.index('<script>(function') < html.index('localStorage.getItem("best")')
+    assert client.get(url.rsplit('/', 1)[0] + '/app.js').text == 'localStorage.x'
