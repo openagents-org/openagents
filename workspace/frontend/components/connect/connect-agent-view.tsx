@@ -1797,7 +1797,6 @@ function CloudAgentsTab({
     if (first) setCfgName(first.id.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 64));
   }, [isTokenPay, tokenPay.models, setCfgModel, setCfgName]);
 
-  const marketplaceProviders = providers.filter((p) => ['perplexity', 'manus', 'tokenpay', 'sensenova'].includes(p.name));
   const connectedAgents = cloudAgents.filter((agent) => !agent.managed && agent.provider !== 'openagents');
 
   // When a provider is selected, show config view instead of grid
@@ -2017,21 +2016,6 @@ function CloudAgentsTab({
         <p className="mt-1 text-sm text-muted-foreground">{t('connect.cloudMarketplaceHint')}</p>
       </div>
       <HostedAgentsSection onChanged={onHostedChanged} />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        {marketplaceProviders.map((p) => (
-          <button key={p.name} onClick={() => onSelectProvider(p.name)}
-            className="group flex items-start gap-3 rounded-xl border bg-background p-4 text-left hover:bg-accent/50 hover:border-foreground/20 transition-colors">
-            <div className="size-10 shrink-0 flex items-center justify-center rounded-lg bg-muted/50">
-              <ProviderIcon name={p.name} size={28} />
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="text-sm font-semibold">{p.label}</div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t(p.name === 'perplexity' ? 'connect.perplexityDescription' : p.name === 'manus' ? 'connect.manusDescription' : p.name === 'sensenova' ? 'connect.senseNovaDescription' : 'connect.tokenDanceDescription')}</p>
-            </div>
-            <ChevronRight className="size-4 shrink-0 mt-1 text-muted-foreground" />
-          </button>
-        ))}
-      </div>
 
       {/* Connected cloud agents */}
       {connectedAgents.length > 0 && (
