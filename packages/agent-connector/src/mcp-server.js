@@ -12,6 +12,7 @@
  * The workspace token is read from the OA_WORKSPACE_TOKEN env var.
  */
 
+const fs = require('fs');
 const readline = require('readline');
 const { execSync, spawn: spawnChild } = require('child_process');
 const net = require('net');
@@ -645,16 +646,33 @@ function isTextMime(mime) {
 // ── MCP Server ──────────────────────────────────────────────────────────────
 
 class McpServer {
-  constructor({ wsClient, workspaceId, channelName, agentName, token, disabledModules, requesterEmail = process.env.OPENAGENTS_REQUESTER_EMAIL || null }) {
+  constructor({ wsClient, workspaceId, channelName, agentName, token, disabledModules, requesterEmail = process.env.OPENAGENTS_REQUESTER_EMAIL || null, contextFile = null }) {
     this.ws = wsClient;
     this.workspaceId = workspaceId;
-    this.channelName = channelName;
+    this._channelName = channelName;
     this.agentName = agentName;
     this.token = token;
-    this.requesterEmail = requesterEmail;
+    this._requesterEmail = requesterEmail;
+    // A long-lived agent (OpenCode's warm server) serves many channels with one
+    // tools server: the channel and requester of the current turn are read from
+    // this file, which the adapter writes before each turn.
+    this.contextFile = contextFile;
     this.disabledModules = disabledModules || new Set();
     this.tools = buildToolDefs(this.disabledModules);
   }
+
+  _turnContext() {
+    if (!this.contextFile) return {};
+    try { return JSON.parse(fs.readFileSync(this.contextFile, 'utf-8')) || {}; } catch { return {}; }
+  }
+
+  get channelName() { return this._turnContext().channel || this._channelName; }
+  set channelName(v) { this._channelName = v; }
+  get requesterEmail() {
+    const ctx = this._turnContext();
+    return Object.prototype.hasOwnProperty.call(ctx, 'requesterEmail') ? ctx.requesterEmail : this._requesterEmail;
+  }
+  set requesterEmail(v) { this._requesterEmail = v; }
 
   start() {
     const rl = readline.createInterface({ input: process.stdin, terminal: false });
@@ -1341,6 +1359,7 @@ function runMcpServer(opts) {
     agentName: opts.agentName,
     token: opts.token,
     disabledModules: opts.disabledModules,
+    contextFile: opts.contextFile || null,
   });
   server.start();
 }

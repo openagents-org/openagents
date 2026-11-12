@@ -26,6 +26,8 @@ const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./util
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
+const EventEmitter = require('events');
+const { OpenCodeServer } = require('./opencode-server');
 
 // The launcher's own CLI, whose `mcp-server` command serves the workspace tools.
 const WORKSPACE_MCP_BIN = path.resolve(__dirname, '..', '..', 'bin', 'agent-connector.js');
@@ -37,6 +39,9 @@ const IS_WINDOWS = process.platform === 'win32';
 // five minutes while continuing to emit text/tool events. A fixed spawn
 // timeout killed those healthy runs midway through their answer.
 const TIMEOUT_MS = 300000; // 5 minutes
+
+// _runViaServer's answer for "the server can't take this message": run it the ordinary way.
+const NO_SERVER = Symbol('no-server');
 
 // Pinned OpenCode CLI version. Do NOT use @latest anywhere (registry.json /
 // opencode.yaml install commands, install hints below). This adapter parses
@@ -146,6 +151,7 @@ class OpenCodeAdapter extends BaseAdapter {
     // Process tracking for stop control
     this._channelProcesses = {}; // channel → child process
     this._stoppingChannels = new Set();
+    this._server = null;  // warm `opencode serve` (opencode-server.js), when enabled
 
     this._opencodeBinary = this._findOpencodeBinary();
     if (this._opencodeBinary) {
@@ -269,7 +275,7 @@ class OpenCodeAdapter extends BaseAdapter {
     touch();
     return { touch, cancel, timeoutMs };
   }
-  _spawnEnv(channel) {
+  _spawnEnv(channel, { contextFile = null } = {}) {
     const env = { ...(this.agentEnv || process.env) };
     if (!env.OPENCODE_DB && fs.existsSync(ownDbPath())) env.OPENCODE_DB = ownDbPath();
     if (!this._wiresWorkspaceMcp()) return env;
@@ -282,11 +288,14 @@ class OpenCodeAdapter extends BaseAdapter {
     const args = [WORKSPACE_MCP_BIN, 'mcp-server',
       '--workspace-id', this.workspaceId, '--channel-name', channel || this.channelName || 'general',
       '--agent-name', this.agentName, '--endpoint', this.endpoint];
+    // On the warm server one tools server serves every channel: it reads the
+    // turn's channel and requester from this file (written per turn).
+    if (contextFile) args.push('--context-file', contextFile);
     const disabled = this.disabledModules || new Set();
     if (disabled.has('files')) args.push('--disable-files');
     if (disabled.has('browser')) args.push('--disable-browser');
     if (disabled.has('knowledge')) args.push('--disable-knowledge');
-    const requester = channel && this.requesterEmailFor ? this.requesterEmailFor(channel) : null;
+    const requester = !contextFile && channel && this.requesterEmailFor ? this.requesterEmailFor(channel) : null;
     cfg.mcp = { ...(cfg.mcp || {}), openagents: { type: 'local', enabled: true,
       command: [process.execPath, ...args],
       environment: { OA_WORKSPACE_TOKEN: this.token, ...(requester ? { OPENAGENTS_REQUESTER_EMAIL: requester } : {}) } } };
@@ -826,10 +835,34 @@ class OpenCodeAdapter extends BaseAdapter {
     this._stopAllProcesses(
       'Task interrupted — daemon restarting. Send another message to continue.'
     ).catch(() => {});
+    if (this._server) this._server.stop();
     super.stop();
   }
 
+  /**
+   * Whether messages may go to a warm `opencode serve` instead of a new
+   * `opencode run`. Opt-in (OPENAGENTS_OPENCODE_SERVER=1), plain OpenCode
+   * only, and not on Windows or across the WSL boundary for now.
+   */
+  _serverEnabled() {
+    if ((this.agentEnv || process.env).OPENAGENTS_OPENCODE_SERVER !== '1') return false;
+    const bin = String(this._opencodeBinary || '');
+    return !IS_WINDOWS && !bin.startsWith('wsl:') && this._cliLabel() === 'OpenCode';
+  }
+
+  /** Where the warm server's tools read the current turn's channel and requester. */
+  _turnContextFile() {
+    return path.join(this.agentHome || os.tmpdir(), 'opencode-turn-context.json');
+  }
+
+  _getServer() {
+    if (!this._server) this._server = new OpenCodeServer({ binary: this._opencodeBinary, log: (m, l) => this._log(m, l) });
+    return this._server;
+  }
+
   async _stopProcess(proc) {
+    // A turn on the warm server keeps going until the server is told to stop it.
+    if (proc && proc.__abortAttached) { try { await proc.__abortAttached(); } catch {} }
     if (!proc || proc.exitCode !== null) return;
     try {
       if (IS_WINDOWS) {
@@ -985,7 +1018,7 @@ class OpenCodeAdapter extends BaseAdapter {
     }
   }
 
-  _runOpencode(content, msgChannel) {
+  _runOpencode(content, msgChannel, { noServer = false } = {}) {
     // Preflight BEFORE spawning: bail out with a structured, actionable error
     // instead of launching a child that will hang for 5 minutes or exit 1 with
     // an opaque message. Stubbing _runOpencode in tests bypasses this, exactly
@@ -1022,6 +1055,14 @@ class OpenCodeAdapter extends BaseAdapter {
 
     // Stopped while this turn was being prepared: start nothing (no tokens).
     if (this._stoppedBeforeStart(msgChannel)) return Promise.resolve('');
+
+    if (!noServer && this._serverEnabled()) {
+      // The server's setup must not depend on the channel, so it can serve them all.
+      const contextFile = this._turnContextFile();
+      const serverEnv = this._spawnEnv(this.channelName || 'general', { contextFile });
+      return this._runViaServer({ msgChannel, runCwd, model, sessionId, fullPrompt, spawnEnv: serverEnv, contextFile })
+        .then((r) => (r === NO_SERVER ? this._runOpencode(content, msgChannel, { noServer: true }) : r));
+    }
 
     return new Promise((resolve, reject) => {
       const proc = spawn(spawnBinary, spawnArgs, {
@@ -1102,44 +1143,215 @@ class OpenCodeAdapter extends BaseAdapter {
           return finish(resolve, '');
         }
 
-        stdout = stdout.trim();
-        stderr = stderr.trim();
-
-        // A structured error event may ride on stdout regardless of exit code
-        // (opencode emits {"type":"error", ...} as a JSONL event). Look there
-        // first so the real auth/provider/model failure is never discarded just
-        // because stderr happened to be empty.
-        const stdoutErr = OpenCodeAdapter._extractErrorFromStdout(stdout);
-
-        if (timedOut) {
-          this._log(`opencode timed out after ${watchdog.timeoutMs / 1000}s idle (output: ${!!stdout})`);
-          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
-            ? 'timeout' : cls.category;
-          return finish(reject, this._failure(category, cls.diagnostic || `idle=${watchdog.timeoutMs}ms`, cls.detail));
-        }
-
-        if (signal) {
-          this._log(`opencode killed by signal ${signal} (output: ${!!stdout})`);
-          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          return finish(reject, this._failure(cls.category, cls.diagnostic || `signal=${signal}`, cls.detail));
-        }
-
-        if (code !== 0) {
-          const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-          this._log(`opencode exited code ${code} → [${cls.category}]: ${this._redact(cls.diagnostic).slice(0, 300)}`);
-          return finish(reject, this._failure(cls.category, cls.diagnostic, cls.detail));
-        }
-
-        // Exit 0.
-        if (stdout) this._persistSessionId(msgChannel, stdout);
-        const outcome = this.constructor._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
-        if (outcome.text) return finish(resolve, outcome.text);
-        const f = outcome.failure;
-        this._log(`opencode exit 0 → [${f.category}]: ${this._redact(f.diagnostic).slice(0, 300)}`);
-        return finish(reject, this._failure(f.category, f.diagnostic, f.detail));
+        const outcome = this._settleOutcome({ code, signal, stdout, stderr, timedOut, timeoutMs: watchdog.timeoutMs, responseState, msgChannel });
+        return outcome.error ? finish(reject, outcome.error) : finish(resolve, outcome.text);
       });
     });
+  }
+
+  /**
+   * What a finished run means, from its exit and its JSON output: `{ text }`
+   * for a reply or `{ error }` (a classified failure). Shared by `opencode run`
+   * and runs on the warm server, so both fail the same way.
+   */
+  _settleOutcome({ code, signal, stdout, stderr, timedOut, timeoutMs, responseState, msgChannel }) {
+    stdout = String(stdout || '').trim();
+    stderr = String(stderr || '').trim();
+
+    // A structured error event may ride on stdout regardless of exit code
+    // (opencode emits {"type":"error", ...} as a JSONL event). Look there
+    // first so the real auth/provider/model failure is never discarded just
+    // because stderr happened to be empty.
+    const stdoutErr = OpenCodeAdapter._extractErrorFromStdout(stdout);
+
+    if (timedOut) {
+      this._log(`opencode timed out after ${timeoutMs / 1000}s idle (output: ${!!stdout})`);
+      const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+      const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
+        ? 'timeout' : cls.category;
+      return { error: this._failure(category, cls.diagnostic || `idle=${timeoutMs}ms`, cls.detail) };
+    }
+
+    if (signal) {
+      this._log(`opencode killed by signal ${signal} (output: ${!!stdout})`);
+      const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+      return { error: this._failure(cls.category, cls.diagnostic || `signal=${signal}`, cls.detail) };
+    }
+
+    if (code !== 0) {
+      const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
+      this._log(`opencode exited code ${code} → [${cls.category}]: ${this._redact(cls.diagnostic).slice(0, 300)}`);
+      return { error: this._failure(cls.category, cls.diagnostic, cls.detail) };
+    }
+
+    // Exit 0.
+    if (stdout) this._persistSessionId(msgChannel, stdout);
+    const outcome = this.constructor._outcomeForCleanExit({ stdout, stderr, stdoutErr, responseState });
+    if (outcome.text) return { text: outcome.text };
+    const f = outcome.failure;
+    this._log(`opencode exit 0 → [${f.category}]: ${this._redact(f.diagnostic).slice(0, 300)}`);
+    return { error: this._failure(f.category, f.diagnostic, f.detail) };
+  }
+
+  /**
+   * One turn on the warm server (opencode-server.js): the message goes to the
+   * session over HTTP and the server's live events become the same JSON
+   * events `opencode run --format json` prints, so thinking, tool steps and
+   * the reply show exactly as they do today. The finished message the request
+   * returns is the source of truth: parts the live stream missed are replayed
+   * from it. Permission requests are answered `once`, like
+   * --dangerously-skip-permissions (rules that deny still deny). Returns
+   * NO_SERVER when the message should run the ordinary way instead.
+   */
+  async _runViaServer({ msgChannel, runCwd, model, sessionId, fullPrompt, spawnEnv, contextFile = null }) {
+    const slash = String(model || '').indexOf('/');
+    if (slash <= 0) return NO_SERVER;
+    const server = this._getServer();
+    if (!(await server.acquire({ env: spawnEnv, cwd: runCwd }))) return NO_SERVER;
+    if (contextFile) {
+      // The server runs one turn at a time, so this is the only turn reading it.
+      try {
+        fs.mkdirSync(path.dirname(contextFile), { recursive: true });
+        const requesterEmail = this.requesterEmailFor ? this.requesterEmailFor(msgChannel) : null;
+        fs.writeFileSync(contextFile, JSON.stringify({ channel: msgChannel, requesterEmail }), { mode: 0o600 });
+      } catch (e) {
+        this._log(`Could not write the turn context (${e.message}); running this message without the server`, 'error');
+        server.release();
+        return NO_SERVER;
+      }
+    }
+
+    let sid = sessionId || null;
+    // Stand-in for a child process, so stop and interrupt reach this turn.
+    const proc = new EventEmitter();
+    proc.pid = null;
+    proc.exitCode = null;
+    proc.kill = () => { if (proc.exitCode === null) { proc.exitCode = 0; proc.emit('exit', 0); } };
+    proc.__abortAttached = () => server.abort(sid);
+    this._channelProcesses[msgChannel] = proc;
+
+    const responseState = { finalText: '', allText: '', seenText: false };
+    const lines = [];
+    const emitted = new Set();
+    const roles = {};
+    const early = [];  // parts seen before their message's role
+    let pending = Promise.resolve();
+    let timedOut = false;
+    const watchdog = this._createIdleWatchdog(() => {
+      timedOut = true;
+      this._log(`opencode idle for ${this._runTimeoutMs() / 1000}s; stopping the turn on the server`);
+      server.abort(sid).catch(() => {});
+    });
+    const emit = (part, final = false) => {
+      const event = OpenCodeAdapter._eventForPart(part, final);
+      if (!event) return;
+      const key = `${part.id}:${event.type}`;
+      if (emitted.has(key)) return;
+      emitted.add(key);
+      lines.push(JSON.stringify(event));
+      pending = pending
+        .then(() => this._handleStreamEvent(event, msgChannel, responseState))
+        .catch((e) => this._log(`opencode stream event handling failed: ${e.message}`));
+    };
+    const unsubscribe = server.subscribe((ev) => {
+      const props = (ev && ev.properties) || {};
+      if (!sid) return;
+      if (ev.type === 'message.updated' && props.info && props.info.sessionID === sid) {
+        roles[props.info.id] = props.info.role;
+        for (let k = early.length - 1; k >= 0; k--) {
+          if (roles[early[k].messageID]) { const [part] = early.splice(k, 1); if (roles[part.messageID] === 'assistant') emit(part); }
+        }
+      } else if (ev.type === 'permission.asked' && props.sessionID === sid) {
+        watchdog.touch();
+        server.replyPermission(sid, props.id, 'once').catch(() => {});
+      } else if (ev.type === 'message.part.updated' && props.part && props.part.sessionID === sid) {
+        watchdog.touch();
+        const part = props.part;
+        if (!roles[part.messageID]) early.push(part);
+        else if (roles[part.messageID] === 'assistant') emit(part);
+      } else if (ev.type === 'message.part.delta' && props.sessionID === sid) {
+        watchdog.touch();
+      }
+    });
+    const stopping = () => this._stoppingChannels.has(msgChannel);
+    const done = () => {
+      watchdog.cancel();
+      unsubscribe();
+      server.release();
+      if (this._channelProcesses[msgChannel] === proc) delete this._channelProcesses[msgChannel];
+      proc.kill();
+    };
+
+    try {
+      try {
+        if (!sid) {
+          sid = (await server.request('POST', '/session', {})).id;
+          this._channelSessions[msgChannel] = sid;
+          this._saveSessions();
+        }
+      } catch (e) {
+        this._log(`OpenCode server could not open a session (${e.message}); running this message without it`, 'error');
+        done();
+        return NO_SERVER;
+      }
+      this._log(`CLI (warm server): message to session ${sid}`);
+      let res;
+      try {
+        res = await server.request('POST', `/session/${encodeURIComponent(sid)}/message`, {
+          model: { providerID: model.slice(0, slash), modelID: model.slice(slash + 1) },
+          parts: [{ type: 'text', text: fullPrompt }],
+        });
+      } catch (e) {
+        if (!emitted.size && !stopping() && !timedOut) {
+          // Nothing happened yet: an unknown session, or a server in trouble.
+          this._log(`OpenCode server turn failed before any output (${e.message}); running this message without it`, 'error');
+          if (e.status !== 404) server.stop();
+          done();
+          return NO_SERVER;
+        }
+        res = null;
+      }
+      for (const part of (res && res.parts) || []) emit(part, true);
+      const info = (res && res.info) || {};
+      if (info.error) lines.push(JSON.stringify({ type: 'error', sessionID: sid, error: info.error }));
+      try { await pending; } catch {}
+      if (stopping()) {
+        this._stoppingChannels.delete(msgChannel);
+        done();
+        return '';
+      }
+      done();
+      const outcome = this._settleOutcome({
+        code: info.error || !res ? 1 : 0, signal: null, stdout: lines.join('\n'), stderr: '',
+        timedOut, timeoutMs: watchdog.timeoutMs, responseState, msgChannel,
+      });
+      if (outcome.error) throw outcome.error;
+      return outcome.text;
+    } catch (e) {
+      if (this._channelProcesses[msgChannel] === proc) done();
+      throw e;
+    }
+  }
+
+  /**
+   * The `opencode run --format json` event for a finished message part, or
+   * null while it's still being written (live parts) / for other part types.
+   */
+  static _eventForPart(part, final = false) {
+    if (!part || typeof part !== 'object') return null;
+    const ended = final || Boolean(part.time && part.time.end);
+    const base = { sessionID: part.sessionID, part };
+    switch (part.type) {
+      case 'step-start': return { type: 'step_start', ...base };
+      case 'step-finish': return { type: 'step_finish', ...base };
+      case 'reasoning': return ended ? { type: 'reasoning', ...base } : null;
+      case 'text': return ended && !part.synthetic && !part.ignored ? { type: 'text', ...base } : null;
+      case 'tool': {
+        const status = part.state && part.state.status;
+        return (status === 'completed' || status === 'error') ? { type: 'tool_use', ...base } : null;
+      }
+      default: return null;
+    }
   }
 
   /**

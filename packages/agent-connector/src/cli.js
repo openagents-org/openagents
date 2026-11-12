@@ -1405,7 +1405,7 @@ async function main() {
       // execute mode --dangerously-skip-permissions makes the allowlist a
       // suggestion, not a boundary.
       if (flags['disable-knowledge']) disabledModules.add('knowledge');
-      runMcpServer({ workspaceId, channelName, agentName, endpoint, token, disabledModules });
+      runMcpServer({ workspaceId, channelName, agentName, endpoint, token, disabledModules, contextFile: flags['context-file'] || null });
     },
   };
 
