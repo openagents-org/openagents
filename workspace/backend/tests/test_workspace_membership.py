@@ -146,13 +146,40 @@ class TestReconciliation:
 
 class TestAccountWorkspacesEndpoint:
     def test_new_user_auto_provisioned(self, client, monkeypatch):
-        _stub_identity(monkeypatch, {"carol": _claims("carol@x.com")})
+        _stub_identity(monkeypatch, {"carol": _claims("carol@x.com", name="Carol Smith")})
         r = client.get("/v1/account/workspaces", headers={"Authorization": "Bearer carol"})
         assert r.status_code == 200
         data = r.json()["data"]
         assert len(data) == 1
         assert data[0]["role"] == "owner"
-        assert data[0]["name"] == "My Workspace"
+        assert data[0]["name"] == "Carol's workspace"
+        assert data[0]["autoProvisioned"] is True and data[0]["justCreated"] is True
+        again = client.get("/v1/account/workspaces", headers={"Authorization": "Bearer carol"}).json()["data"]
+        assert again[0]["justCreated"] is False
+
+    def test_first_workspace_name_follows_the_browser_language(self, client, monkeypatch):
+        _stub_identity(monkeypatch, {"li": _claims("li@x.com", name="李雷")})
+        data = client.get("/v1/account/workspaces",
+                          headers={"Authorization": "Bearer li", "Accept-Language": "zh-CN,zh;q=0.9"}).json()["data"]
+        assert data[0]["name"] == "李雷 的工作区"
+
+    def test_untouched_first_workspace_is_flagged_next_to_an_invited_one(self, client, db, monkeypatch):
+        from app.models import EventRecord
+        _stub_identity(monkeypatch, {"hal": _claims("hal@x.com")})
+        own = client.get("/v1/account/workspaces", headers=_auth("hal")).json()["data"][0]
+        assert own["untouched"] is None  # nothing to compare with yet, so not asked
+        team = Workspace(name="Team", slug="acc5", password_hash="t", creator_email="boss@x.com")
+        db.add(team); db.flush()
+        db.add(WorkspaceCollaborator(workspace_id=team.id, email="hal@x.com", role="editor"))
+        db.commit()
+        rows = {w["slug"]: w for w in client.get("/v1/account/workspaces", headers=_auth("hal")).json()["data"]}
+        assert rows[own["slug"]]["untouched"] is True
+        assert rows["acc5"]["role"] == "member" and rows["acc5"]["autoProvisioned"] is False
+        db.add(EventRecord(id="e1", network_id=own["workspaceId"], type="workspace.message.posted",
+                           source="human:hal@x.com", target="channel/general", payload={}, timestamp=1))
+        db.commit()
+        rows = {w["slug"]: w for w in client.get("/v1/account/workspaces", headers=_auth("hal")).json()["data"]}
+        assert rows[own["slug"]]["untouched"] is False
 
     def test_existing_creator_reconciled_not_provisioned(self, client, db, monkeypatch):
         _stub_identity(monkeypatch, {"dave": _claims("dave@x.com")})
@@ -179,7 +206,7 @@ class TestAccountWorkspacesEndpoint:
         monkeypatch.setattr(account_router, "reconcile_memberships", fail)
         monkeypatch.setattr(account_router, "provision_workspace", fail)
         again = client.get("/v1/account/workspaces", headers=_auth("erin")).json()["data"]
-        assert again == first
+        assert [{**w, "justCreated": False} for w in first] == again
 
     def test_legacy_access_added_later_is_still_reconciled(self, client, db, monkeypatch):
         _stub_identity(monkeypatch, {"fay": _claims("fay@x.com")})

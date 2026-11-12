@@ -290,6 +290,17 @@ def memberships_need_backfill(db: Session, user: User) -> bool:
     return collab_missing is not None
 
 
+def default_workspace_name(user: User, accept_language: Optional[str] = None) -> str:
+    """'Mia's workspace' (or 'Mia 的工作区'): a first workspace named for its owner,
+    so it reads as theirs next to workspaces they are invited to."""
+    name = (user.display_name or "").strip() or (user.email or "").split("@")[0]
+    name = name.split()[0] if name and " " in name and name.isascii() else name
+    name = name[:40] or "My"
+    if (accept_language or "").lower().startswith("zh"):
+        return f"{name} 的工作区"
+    return f"{name}'s workspace"
+
+
 def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> Workspace:
     """Create a fresh empty workspace owned by `user` (Overleaf-style first-run).
 
@@ -305,7 +316,9 @@ def provision_workspace(db: Session, user: User, name: str = "My Workspace") -> 
         # Identity-created workspace → enforced login by default (v1.0). The
         # kept token still lets agents/legacy clients attach.
         require_login=True,
-        settings={},
+        # Marks the first-run workspace nobody asked for, so the app can say so
+        # and prefer a workspace the user was invited to while this one is empty.
+        settings={"auto_provisioned": True},
         status="active",
     )
     db.add(ws)

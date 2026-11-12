@@ -1530,6 +1530,17 @@ export const messages = {
     resume: 'Resume Thread',
   },
 
+  workspaceLanding: {
+    createdTitle: 'We created {name} for you',
+    createdBody: "You're its owner. Rename it any time, or see all your workspaces.",
+    onlyTitle: 'Opened {name}, your only workspace',
+    invitedTitle: 'Opened {name}, the workspace you were invited to',
+    invitedBody: 'Your own workspace is still there under All workspaces.',
+    allWorkspaces: 'All workspaces',
+    rename: 'Rename',
+    renameTitle: 'Rename workspace',
+    renamed: 'Workspace renamed',
+  },
   landing: {
     docs: 'Docs',
     signIn: 'Sign In',

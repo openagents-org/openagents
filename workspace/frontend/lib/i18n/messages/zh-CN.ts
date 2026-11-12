@@ -1505,6 +1505,17 @@ export const messages: Messages = {
     resume: '继续会话',
   },
 
+  workspaceLanding: {
+    createdTitle: '已为你创建「{name}」',
+    createdBody: '你是它的所有者。可以随时重命名，或查看你的全部工作区。',
+    onlyTitle: '已打开「{name}」，这是你唯一的工作区',
+    invitedTitle: '已打开「{name}」，这是你受邀加入的工作区',
+    invitedBody: '你自己的工作区仍在“全部工作区”中。',
+    allWorkspaces: '全部工作区',
+    rename: '重命名',
+    renameTitle: '重命名工作区',
+    renamed: '工作区已重命名',
+  },
   landing: {
     docs: '文档',
     signIn: '登录',

@@ -72,7 +72,8 @@ it('skips Firebase when openagents.org says Google is unreachable, and enters th
   // The workspace page opens on this token instead of fetching the list again.
   expect(recallWorkspaceToken('abc123', 'session-jwt')).toBe('ws-token');
   expect(sessionStorage.getItem('oa_auto_entered_first_ws')).toBe('1');
-  expect(state.capture).toHaveBeenCalledWith('first_workspace_auto_entered', { workspace_id: 'abc123' });
+  expect(state.capture).toHaveBeenCalledWith('first_workspace_auto_entered', { workspace_id: 'abc123', reason: 'only' });
+  expect(JSON.parse(sessionStorage.getItem('oa_landing_note')!)).toMatchObject({ slug: 'abc123', reason: 'only' });
 });
 
 it('moves on in place once the auth context publishes the Firebase sign-in', async () => {
