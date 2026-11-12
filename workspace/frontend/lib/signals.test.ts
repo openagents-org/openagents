@@ -11,6 +11,7 @@ import {
   issueIdFromSignalChannel,
   issueSignalChannel,
   unreadIssueCounts,
+  latestUnreadIssueId,
 } from './signals';
 import type { NotificationItem } from './types';
 
@@ -53,6 +54,23 @@ describe('issue signals', () => {
     expect(unread[issueSignalChannel('iss-2')].dms).toBe(0);
     expect(unreadIssueCounts(undefined)).toEqual({});
     expect(issueIdFromSignalChannel('release-2.4')).toBeNull();
+  });
+});
+
+describe('latestUnreadIssueId', () => {
+  it('picks the issue whose newest unread signal is most recent', () => {
+    const unread = groupSignals([
+      sig({ kind: 'issue', channelName: issueSignalChannel('iss-1'), createdAt: '2026-10-10T10:00:00Z' }),
+      sig({ kind: 'mention', channelName: issueSignalChannel('iss-2'), createdAt: '2026-10-10T11:00:00Z' }),
+      sig({ kind: 'issue', channelName: issueSignalChannel('iss-1'), createdAt: '2026-10-10T09:00:00Z' }),
+      sig({ kind: 'dm', channelName: 'dm:x', createdAt: '2026-10-10T12:00:00Z' }),
+    ]);
+    expect(latestUnreadIssueId(unread)).toBe('iss-2');
+  });
+
+  it('is null when no issue is unread', () => {
+    expect(latestUnreadIssueId(groupSignals([sig({ kind: 'dm' })]))).toBeNull();
+    expect(latestUnreadIssueId(undefined)).toBeNull();
   });
 });
 
