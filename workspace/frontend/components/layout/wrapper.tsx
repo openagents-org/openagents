@@ -9,6 +9,7 @@ import { desktopHost } from '@/lib/desktop-host';
 import { Activity, useEffect, useRef, useState } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 import { useSignalNotifications } from './use-signal-notifications';
+import { useLandingNote } from './use-landing-note';
 import { useDesktopThreadLinks } from './use-desktop-thread-links';
 
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
@@ -83,6 +84,7 @@ export function Wrapper() {
   useDesktopWorkspaceState();
   useSignalNotifications();
   useDesktopThreadLinks();
+  useLandingNote();
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,

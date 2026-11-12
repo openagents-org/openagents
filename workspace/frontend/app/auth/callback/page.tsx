@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 
 import { capture } from '@/lib/analytics';
 import { isDesktopSignIn } from '@/lib/desktop-handoff';
-import { autoEnterTarget, markAutoEntered, rememberWorkspaceTokens } from '@/lib/first-workspace';
+import { landingTarget, markAutoEntered, rememberWorkspaceTokens } from '@/lib/first-workspace';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 
@@ -165,13 +165,13 @@ function AuthCallback() {
         const { listAccountWorkspaces } = await import('@/lib/account-api');
         const list = await listAccountWorkspaces(handoff.idToken, AbortSignal.timeout(LIST_TIMEOUT_MS));
         rememberWorkspaceTokens(list, handoff.idToken);
-        const first = autoEnterTarget(list);
-        if (first) {
+        const target = landingTarget(list);
+        if (target) {
           // The home page's checkpoints, since this skips the home page.
           capture('membership_home_viewed', { workspace_count: list.length, via: 'auth_callback' });
-          markAutoEntered();
-          capture('first_workspace_auto_entered', { workspace_id: first.slug });
-          router.replace(`/${first.slug}`);
+          markAutoEntered(target);
+          capture('first_workspace_auto_entered', { workspace_id: target.workspace.slug, reason: target.reason });
+          router.replace(`/${target.workspace.slug}`);
           return;
         }
       } catch {

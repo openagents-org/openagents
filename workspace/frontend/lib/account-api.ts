@@ -14,6 +14,13 @@ export interface AccountWorkspace {
   token: string | null;
   role: 'owner' | 'admin' | 'member' | 'viewer';
   lastActivityAt: string | null;
+  /** The first-run workspace created for the user without being asked for. */
+  autoProvisioned?: boolean;
+  /** Created by the request that listed it: the user has only just been given it. */
+  justCreated?: boolean;
+  /** For an auto-provisioned workspace next to one the user was invited to:
+   *  true while nobody has written in it. null when not asked. */
+  untouched?: boolean | null;
 }
 
 async function bearerFetch<T>(path: string, idToken: string, options: RequestInit = {}): Promise<T> {
