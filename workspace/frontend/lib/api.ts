@@ -119,6 +119,20 @@ function mapCustomSkill(raw: Record<string, unknown>): WorkspaceCustomSkill {
   };
 }
 
+/**
+ * The name in a Content-Disposition header: the UTF-8 `filename*` the files
+ * endpoint sends, else the plain `filename`. Null when the header is absent or
+ * — cross-origin, unexposed — unreadable.
+ */
+export function dispositionFilename(header: string | null): string | null {
+  if (!header) return null;
+  const encoded = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(header)?.[1];
+  if (encoded) {
+    try { return decodeURIComponent(encoded.trim()); } catch { /* fall back to the plain name */ }
+  }
+  return /filename\s*=\s*"([^"]*)"/i.exec(header)?.[1] || /filename\s*=\s*([^;]+)/i.exec(header)?.[1]?.trim() || null;
+}
+
 /** Map snake_case file response from backend to camelCase WorkspaceFile. */
 function mapFileResponse(raw: Record<string, unknown>): WorkspaceFile {
   return {
@@ -1085,12 +1099,14 @@ class WorkspaceApi {
   }
 
   /** Downloads must carry the viewer's bearer credentials, never a bare navigation. */
-  async downloadFile(fileId: string, filename: string): Promise<void> {
+  /** Save a file. Without a known name, the server's Content-Disposition names it. */
+  async downloadFile(fileId: string, filename?: string): Promise<void> {
     const response = await this.fetchFile(fileId);
+    const name = filename || dispositionFilename(response.headers.get('content-disposition'));
     const url = URL.createObjectURL(await response.blob());
     const anchor = document.createElement('a');
     anchor.href = url;
-    anchor.download = filename.split('/').pop() || 'download';
+    anchor.download = name?.split('/').pop() || 'download';
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();

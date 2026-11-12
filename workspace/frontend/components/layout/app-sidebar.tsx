@@ -27,9 +27,11 @@ function SidebarRailToggle() {
       aria-label={label}
       onClick={toggleSidebar}
       // The shell already shrinks to the rail when the list closes, so the
-      // handle always rides its trailing edge.
+      // handle always rides its trailing edge. Positioned against the shell
+      // (not the viewport) so it stays on that edge when a narrow window
+      // scrolls the shell sideways.
       style={{ left: 'var(--sidebar-width)' }}
-      className="group/rail fixed top-1/2 z-30 hidden h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring lg:flex"
+      className="group/rail absolute top-1/2 z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex flex-col items-center">
         <span
@@ -68,7 +70,7 @@ function SidebarRailToggle() {
  * list — still mounted — is squeezed to zero width behind `overflow-hidden`.
  */
 export function AppSidebar() {
-  const { hasListPanel, isMobile, isSidebarOpen, railDragWidth } = useLayout();
+  const { hasListPanel, isSidebarOpen, railDragWidth } = useLayout();
   const onboarding = useOnboardingSurface();
 
   return (
@@ -94,7 +96,7 @@ export function AppSidebar() {
       {/* Only while the list is open. Collapsed, this handle would land on the
           exact seam the rail's own toggle owns — and the app header already
           grows a "Show list" button for that case. */}
-      {!onboarding && !isMobile && hasListPanel && isSidebarOpen && (
+      {!onboarding && hasListPanel && isSidebarOpen && (
         <SidebarRailToggle />
       )}
     </>

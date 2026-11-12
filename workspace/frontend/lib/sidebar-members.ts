@@ -3,6 +3,9 @@ import type { DMConversation, OnlineUser, TeamMember } from './types';
 
 export type SidebarMember = { email: string; name: string; online: boolean; hasHistory: boolean; lastMessageAt: number };
 
+/** Rows the sidebar's member group shows, yourself included; the rest sit behind "N more". */
+export const SIDEBAR_MEMBER_LIMIT = 5;
+
 /** Resolve presence once, consistently for member and DM lists. */
 export function onlineMemberNames(team: TeamMember[], onlineUsers: OnlineUser[]): Map<string, string> {
   const online = new Map<string, string>();
@@ -35,9 +38,11 @@ export function sidebarMembers(team: TeamMember[], onlineUsers: OnlineUser[], co
   // The roster carries the profile name, so it wins over a sign-in name that may
   // be no more than the email the session started with.
   const self: SidebarMember[] = ownEmail.includes('@') ? [{ email: ownEmail, name: roster.get(ownEmail)?.displayName || ownName || ownEmail, online: true, hasHistory: true, lastMessageAt: 0 }] : [];
-  return [
-    ...self,
-    ...Array.from(history.keys(), row).sort((a, b) => b.lastMessageAt - a.lastMessageAt || a.name.localeCompare(b.name)),
-    ...Array.from(online.keys()).filter(email => !history.has(email) && email !== ownEmail).map(row).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 3),
-  ];
+  // People you have talked to, plus whoever is online now. Online comes first,
+  // then the most recent conversation, then the name; the list stops at the
+  // limit, yourself counted.
+  const others = Array.from(new Set([...history.keys(), ...online.keys()]), row)
+    .filter(person => person.email !== ownEmail)
+    .sort((a, b) => Number(b.online) - Number(a.online) || b.lastMessageAt - a.lastMessageAt || a.name.localeCompare(b.name));
+  return [...self, ...others].slice(0, SIDEBAR_MEMBER_LIMIT);
 }

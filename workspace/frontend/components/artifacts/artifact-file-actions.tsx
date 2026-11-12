@@ -29,14 +29,16 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
     if (missing) void refreshFiles();
   }, [missing, artifact.id, refreshFiles]);
   if (artifact.kind === 'knowledge') return <CopyResourceLink view="knowledge" id={artifact.id} />;
-  if (!file) return null;
+  if (artifact.kind !== 'file') return null;
   const download = () => {
-    void workspaceApi.downloadFile(file.id, file.filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
+    void workspaceApi.downloadFile(artifact.id, file?.filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
+  // Download and the link need only the id, so they show from the first
+  // frame; sharing settings need the file's record and wait for the list.
   return <>
     <Button variant="ghost" mode="icon" size="sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
-    <CopyResourceLink view="files" id={file.id} />
-    <ArtifactSharePopover
+    <CopyResourceLink view="files" id={artifact.id} />
+    {file && <ArtifactSharePopover
       kind="file"
       id={file.id}
       name={projectDisplayName(basename(file.filename), file.contentType)}
@@ -50,6 +52,6 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
         await refreshFiles();
       }}
       trigger={<Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactAccess.share')} title={t('artifactAccess.share')}><Share2 className="size-4" /></Button>}
-    />
+    />}
   </>;
 }

@@ -1,18 +1,10 @@
-import { useEffect, useState } from 'react';
-
+/**
+ * The workspace no longer has a phone layout: phones are served by the mobile
+ * app, and a narrow desktop window keeps the desktop shell at its minimum width
+ * (see `WORKSPACE_MIN_WIDTH` in the layout wrapper) instead of switching to a
+ * single-pane layout. Callers that still branch on this always get the desktop
+ * path.
+ */
 export function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const checkIsMobile = () => {
-      setIsMobile(window.innerWidth < 1024);
-    };
-
-    checkIsMobile();
-    window.addEventListener('resize', checkIsMobile);
-
-    return () => window.removeEventListener('resize', checkIsMobile);
-  }, []);
-
-  return isMobile;
+  return false;
 }
