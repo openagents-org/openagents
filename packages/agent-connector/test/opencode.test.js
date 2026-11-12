@@ -284,6 +284,14 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.match(messages.request_too_large, /too large/);
   });
 
+  // Field report (core 0.2.226): the shared opencode.db had been migrated by
+  // OpenCode 2.x, and the 1.x CLI died on it before every message.
+  it('names a shared database a newer OpenCode converted', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Unexpected error\n\nDatabase is not empty and has no session table' });
+    assert.equal(cls.category, 'shared_db_migrated');
+    assert.match(OpenCodeAdapter.prototype._failureMessages().shared_db_migrated, /OPENCODE_DB/);
+  });
+
   it('code=1 + 429 → rate_limited', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '{"type":"error","error":{"message":"rate limit exceeded","status":429}}', stderr: '' });
     assert.equal(cls.category, 'rate_limited');
@@ -500,6 +508,70 @@ describe('OpenCode — message routing (8.5)', () => {
     assert.equal(responses.length, 0);
     assert.equal(sent.length, 1);
     assert.equal(sent[0].category, 'auth_failed');
+  });
+
+  describe('a shared database converted by OpenCode 2.x', () => {
+    const migrated = (adapter) => adapter._failure('shared_db_migrated', 'Database is not empty and has no session table', '');
+    function withHome(fn) {
+      return async () => {
+        const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oc-db-'));
+        const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+        process.env.HOME = home; process.env.USERPROFILE = home;
+        try { await fn(home); } finally {
+          for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+          fs.rmSync(home, { recursive: true, force: true });
+        }
+      };
+    }
+    function routed(adapter, outcomes) {
+      const seen = { envs: [], statuses: [], errors: [], responses: [] };
+      adapter._autoTitleChannel = async () => {};
+      adapter._saveSessions = () => {};
+      adapter.sendStatus = async (_c, m) => seen.statuses.push(m);
+      adapter.sendResponse = async (_c, m) => seen.responses.push(m);
+      adapter._sendClassifiedError = async (_c, category) => seen.errors.push(category);
+      adapter._runOpencode = async () => {
+        seen.envs.push(adapter._spawnEnv('thread').OPENCODE_DB);
+        const next = outcomes.shift();
+        if (next === 'migrated') throw migrated(adapter);
+        return next;
+      };
+      return seen;
+    }
+
+    it('moves to a database of its own, drops the old sessions and retries once', withHome(async (home) => {
+      const adapter = makeAdapter({ agentEnv: {} });
+      adapter._channelSessions = { thread: 'ses_old' };
+      const seen = routed(adapter, ['migrated', 'answer']);
+      await adapter._handleMessage({ content: 'hi', sessionId: 'thread', senderName: 'human:user' });
+      const own = path.join(home, '.openagents', 'opencode', 'opencode.db');
+      assert.deepEqual(seen.envs, [undefined, own]);
+      assert.ok(fs.existsSync(own));
+      assert.deepEqual(adapter._channelSessions, {});
+      assert.deepEqual(seen.responses, ['answer']);
+      assert.equal(seen.errors.length, 0);
+      assert.match(seen.statuses.join('\n'), /uses one of its own/);
+    }));
+
+    it('reports it when the run already had a database of its own', withHome(async (home) => {
+      const own = path.join(home, '.openagents', 'opencode', 'opencode.db');
+      fs.mkdirSync(path.dirname(own), { recursive: true });
+      fs.writeFileSync(own, '');
+      const adapter = makeAdapter({ agentEnv: {} });
+      const seen = routed(adapter, ['migrated', 'answer']);
+      await adapter._handleMessage({ content: 'hi', sessionId: 'thread', senderName: 'human:user' });
+      assert.deepEqual(seen.envs, [own]);
+      assert.deepEqual(seen.errors, ['shared_db_migrated']);
+    }));
+
+    it('leaves an OPENCODE_DB the user set alone', withHome(async (home) => {
+      const adapter = makeAdapter({ agentEnv: { OPENCODE_DB: '/x/mine.db' } });
+      const seen = routed(adapter, ['migrated', 'answer']);
+      await adapter._handleMessage({ content: 'hi', sessionId: 'thread', senderName: 'human:user' });
+      assert.deepEqual(seen.envs, ['/x/mine.db']);
+      assert.deepEqual(seen.errors, ['shared_db_migrated']);
+      assert.ok(!fs.existsSync(path.join(home, '.openagents', 'opencode', 'opencode.db')));
+    }));
   });
 
   it('classifies a raw spawn ENOENT as cli_not_found', () => {

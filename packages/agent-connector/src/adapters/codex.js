@@ -518,6 +518,18 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
+        } else if (threadId && attempt === 0 && CodexAdapter._threadTooLarge(result)) {
+          // The thread holds an item the API will no longer take, and codex
+          // sends the whole thread with every turn, so every later message in
+          // this channel failed the same way. Only a new thread runs again.
+          this._log(`Thread ${threadId} for ${msgChannel} exceeds an API limit; starting a new one`);
+          delete this._channelThreads[msgChannel];
+          this._saveSessions();
+          try {
+            await this.sendStatus(msgChannel, 'This Codex conversation grew past what the model API accepts, '
+              + 'so it continues in a new one. Earlier context in this thread is not carried over.');
+          } catch {}
+          continue;
         } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
           // started: a thread codex cannot resume fails at once with nothing
@@ -812,6 +824,19 @@ class CodexAdapter extends BaseAdapter {
    */
   static _endedEarly({ exitCode, turnFailed } = {}) {
     return Boolean(turnFailed) || (exitCode !== 0 && exitCode !== undefined);
+  }
+
+  /**
+   * True when the API refused the thread itself as too big. Seen as
+   * `[ArrayParam] [input[77].content] [array_above_max_length] Invalid
+   * 'input[77].content': array too long` on every message of one channel: an
+   * item in the history has more content parts than the API allows, and codex
+   * resends it each turn. The run's error, else what its stderr gives as the
+   * reason (_stderrReason), never a line of its log further up.
+   */
+  static _threadTooLarge({ errorMessage, stderr } = {}) {
+    const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
+    return /array_above_max_length|context_length_exceeded/i.test(reason);
   }
 
   /**
