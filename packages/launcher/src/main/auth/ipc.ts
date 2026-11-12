@@ -119,6 +119,10 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       account.signInWithPassword(String(email || ""), String(password || ""), captchaArg(captcha)),
   )
   ipcMain.handle("account:cancel-sign-in", () => account.cancelSignIn())
+  ipcMain.handle("account:qr-sign-in-start", () => account.startQrSignIn())
+  ipcMain.handle("account:qr-sign-in-poll", (_e, id: unknown) =>
+    typeof id === "string" ? account.pollQrSignIn(id) : "expired")
+  ipcMain.handle("account:qr-sign-in-enabled", () => process.env.OPENAGENTS_QR_LOGIN === "1")
   ipcMain.handle(
     "account:sign-up-password",
     (_e, email: string, password: string, displayName?: string, captcha?: unknown) =>

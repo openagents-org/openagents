@@ -14,6 +14,7 @@ import { accountError } from "@renderer/lib/account-errors"
 import { capture } from "@renderer/lib/analytics"
 import { CaptchaCancelled, useTencentCaptcha } from "@renderer/lib/tencent-captcha"
 import { registrationPasswordError } from "../../../shared/account-registration"
+import { QrSignInOption } from "./qr-sign-in"
 
 /** Email accounts use the account service in-app; OAuth uses the browser. */
 export function WorkspaceSignIn(): React.JSX.Element {
@@ -202,6 +203,7 @@ export function WorkspaceSignIn(): React.JSX.Element {
           <p className="mt-2 text-center text-2xs text-muted-foreground">
             {signingIn ? t("account.signingInHint") : t("account.signInPage.browserHint")}
           </p>
+          {!creatingAccount && <QrSignInOption />}
           {creatingAccount && <p className="mt-4 text-center text-3xs text-muted-foreground">{t("account.signUpPage.terms")}</p>}
 
           <div className="mt-8 flex items-center justify-between text-sm">

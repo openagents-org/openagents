@@ -287,6 +287,9 @@ contextBridge.exposeInMainWorld('api', {
   signUpWithPassword: (email: string, password: string, displayName?: string, captcha?: { ticket: string; randstr: string }) =>
     ipcRenderer.invoke('account:sign-up-password', email, password, displayName, captcha),
   cancelSignIn: () => ipcRenderer.invoke('account:cancel-sign-in'),
+  qrSignInEnabled: () => ipcRenderer.invoke('account:qr-sign-in-enabled'),
+  startQrSignIn: () => ipcRenderer.invoke('account:qr-sign-in-start'),
+  pollQrSignIn: (id: string) => ipcRenderer.invoke('account:qr-sign-in-poll', id),
   requestSignOut: () => ipcRenderer.invoke('account:request-sign-out'),
   signOut: () => ipcRenderer.invoke('account:sign-out'),
   listAccountWorkspaces: () => ipcRenderer.invoke('account:workspaces'),
