@@ -30,8 +30,14 @@ const STAGE_H = 800;
  * it may sit behind the control bar; only the rows above must clear it.
  */
 const CONTENT_H = 736;
-/** Height kept clear above the container's bottom edge for the control bar (skip · dots · prev/next). */
+/**
+ * Least height kept clear above the container's bottom edge for the control
+ * bar (skip · dots · prev/next). The bar itself is measured as well: on an
+ * iPhone its home-indicator padding makes it taller than this.
+ */
 const CONTROLS_H = 72;
+/** Breathing room between the slide content and the measured control bar. */
+const CONTROLS_GAP = 8;
 
 // — official site brand —
 const BLUE = '#2F6BFF';
@@ -2293,6 +2299,7 @@ export default function WelcomeFilm({
   const [slideMs, setSlideMs] = useState(0);
   const [stage, setStage] = useState({ scale: 1, top: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
 
   // Fit the stage to the container (the viewport, when not embedded): as large
   // as width and height allow, while the slide content (rows above CONTENT_H)
@@ -2304,13 +2311,16 @@ export default function WelcomeFilm({
     const fit = () => {
       const { width, height } = el.getBoundingClientRect();
       if (width === 0 || height === 0) return;
-      const scale = Math.min(width / STAGE_W, height / STAGE_H, (height - CONTROLS_H) / CONTENT_H);
-      setStage({ scale, top: Math.max(0, (height - CONTROLS_H - CONTENT_H * scale) / 2) });
+      const controls = Math.max(CONTROLS_H, (controlsRef.current?.getBoundingClientRect().height ?? 0) + CONTROLS_GAP);
+      const scale = Math.max(0, Math.min(width / STAGE_W, height / STAGE_H, (height - controls) / CONTENT_H));
+      setStage({ scale, top: Math.max(0, (height - controls - CONTENT_H * scale) / 2) });
     };
     fit();
     if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(fit);
       ro.observe(el);
+      // The bar changes height on its own too (the last slide's wider button, safe-area changes).
+      if (controlsRef.current) ro.observe(controlsRef.current);
       return () => ro.disconnect();
     }
     window.addEventListener('resize', fit);
@@ -2391,7 +2401,7 @@ export default function WelcomeFilm({
 
       {/* Control bar: skip · dots · prev/next — sized for touch. The bottom
           padding respects the iPhone home-indicator (viewportFit: cover). */}
-      <div className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-5">
+      <div ref={controlsRef} className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-5">
         {onSkip ? (
           <button
             onClick={onSkip}
