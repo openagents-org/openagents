@@ -1,7 +1,7 @@
 import { addressName, dmCounterpart } from './dm';
 import type { DMConversation, OnlineUser, TeamMember } from './types';
 
-export type SidebarMember = { email: string; name: string; online: boolean; hasHistory: boolean; lastMessageAt: number; unread: number };
+export type SidebarMember = { email: string; name: string; online: boolean; lastMessageAt: number; unread: number };
 
 /**
  * Rows the sidebar's member group shows, yourself included; the rest sit behind
@@ -36,11 +36,11 @@ export function sidebarMembers(team: TeamMember[], onlineUsers: OnlineUser[], co
   }
   const row = (email: string): SidebarMember => ({
     email, name: roster.get(email)?.displayName || online.get(email) || email,
-    online: online.has(email), hasHistory: history.has(email), lastMessageAt: history.get(email) || 0, unread: unreadOf(email),
+    online: online.has(email), lastMessageAt: history.get(email) || 0, unread: unreadOf(email),
   });
   // The roster carries the profile name, so it wins over a sign-in name that may
   // be no more than the email the session started with.
-  const self: SidebarMember[] = ownEmail.includes('@') ? [{ email: ownEmail, name: roster.get(ownEmail)?.displayName || ownName || ownEmail, online: true, hasHistory: true, lastMessageAt: 0, unread: unreadOf(ownEmail) }] : [];
+  const self: SidebarMember[] = ownEmail.includes('@') ? [{ email: ownEmail, name: roster.get(ownEmail)?.displayName || ownName || ownEmail, online: true, lastMessageAt: 0, unread: unreadOf(ownEmail) }] : [];
   // People you have talked to, plus whoever is online now. Unread DMs come
   // first, then online people, then the most recent conversation, then the
   // name. The list stops at the limit, yourself counted, but a row with unread

@@ -32,6 +32,7 @@ export function NewThreadDialogHost() {
       onCreateThread={async ({ title, participants, humanParticipants, resumeFrom, visibility, asChannel }) => {
         const session = await createSession({
           title,
+          titleManuallySet: Boolean(title),
           participants,
           resumeFrom,
           visibility,

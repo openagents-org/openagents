@@ -504,6 +504,9 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         workspace_id=workspace.id,
         name=payload.get("name", f"channel-{event.id[:8]}"),
         title=payload.get("title"),
+        # A title the person typed in the New Thread dialog is kept, even when
+        # it happens to read like a default ("New Thread", "Session 1").
+        title_manually_set=bool(payload.get("title")) and payload.get("title_manually_set") is True,
         created_by=event.source,
         master_agent=payload.get("master"),
         resume_from=payload.get("resume_from"),
@@ -2082,8 +2085,9 @@ def _join_channel_as_human(channel, payload: dict, db, metadata: dict | None = N
 
 
 def _auto_title_channel(channel, content: str, db) -> None:
-    """Set channel title from message content if still using a default title."""
-    if channel.title not in _DEFAULT_TITLES:
+    """Set channel title from message content if still using a default title
+    that nobody chose: a title set by hand stays, whatever it reads."""
+    if channel.title_manually_set or channel.title not in _DEFAULT_TITLES:
         return
     if not content or not content.strip():
         return

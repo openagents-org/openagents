@@ -794,6 +794,8 @@ class WorkspaceApi {
   /** Create a new channel (thread) by emitting a network.channel.create event. */
   async createChannel(opts: {
     title?: string;
+    /** The title was typed by the person, so first-message auto-titling must not replace it. */
+    titleManuallySet?: boolean;
     creatorId?: string;
     master?: string;
     participants?: string[];
@@ -813,6 +815,7 @@ class WorkspaceApi {
       payload: {
         ...(opts.creatorId && { sender_id: opts.creatorId }),
         ...(opts.title && { title: opts.title }),
+        ...(opts.title && opts.titleManuallySet && { title_manually_set: true }),
         ...(opts.master && { master: opts.master }),
         ...(opts.participants && { participants: opts.participants }),
         ...(opts.humanParticipants?.length && { human_participants: opts.humanParticipants }),
@@ -1098,8 +1101,11 @@ class WorkspaceApi {
     return response;
   }
 
-  /** Downloads must carry the viewer's bearer credentials, never a bare navigation. */
-  /** Save a file. Without a known name, the server's Content-Disposition names it. */
+  /**
+   * Save a file. Downloads must carry the viewer's bearer credentials, never a
+   * bare navigation. Without a known name, the server's Content-Disposition
+   * names it.
+   */
   async downloadFile(fileId: string, filename?: string): Promise<void> {
     const response = await this.fetchFile(fileId);
     const name = filename || dispositionFilename(response.headers.get('content-disposition'));

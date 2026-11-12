@@ -9,13 +9,13 @@ it('puts online people first, then recent DMs, and stops at five rows including 
   const rows = sidebarMembers(team, online(['me', 'sam', 'a', 'b', 'c', 'd']), [dm('sam', 10), dm('priya', 30), dm('jonas', 20)], me);
   expect(rows.map(row => row.name)).toEqual(['me', 'sam', 'a', 'b', 'c']);
   expect(rows).toHaveLength(SIDEBAR_MEMBER_LIMIT);
-  expect(rows[1]).toMatchObject({ online: true, hasHistory: true });
-  expect(rows[2]).toMatchObject({ online: true, hasHistory: false });
+  expect(rows[1]).toMatchObject({ online: true, lastMessageAt: 10 });
+  expect(rows[2]).toMatchObject({ online: true, lastMessageAt: 0 });
 });
 it('fills the rest with offline contacts by recency once the online people run out', () => {
   const rows = sidebarMembers(team, online(['me', 'a']), [dm('sam', 10), dm('priya', 30), dm('jonas', 20), dm('b', 5)], me);
   expect(rows.map(row => row.name)).toEqual(['me', 'a', 'priya', 'jonas', 'sam']);
-  expect(rows[2]).toMatchObject({ online: false, hasHistory: true });
+  expect(rows[2]).toMatchObject({ online: false, lastMessageAt: 30 });
 });
 it('never cuts a row with unread DMs and lists it first', () => {
   // Three online colleagues would fill the list; an offline one has written to you.
