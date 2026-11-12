@@ -77,7 +77,9 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const lowBalance = showUsage && usage!.balanceEnabled && !usage!.autoTopup
     && usage!.balanceCents < LOW_BALANCE_CENTS && usage!.agents.some((u) => u.mode === 'usage');
 
-  const planLabel = (u: AcentaAgentUsage) => {
+  // null: no plan running yet (created but never paid for); the row already says Finish setup.
+  const planLabel = (u: AcentaAgentUsage): string | null => {
+    if (u.status === 'awaiting_payment') return null;
     if (u.status === 'balance_empty') return t('connect.acentaPlanBalanceEmpty');
     if (u.mode === 'included') return t('connect.acentaPlanIncluded');
     if (u.mode === 'usage') return t('connect.acentaPlanUsage', { amount: formatUsd(u.spentThisMonthCents) });
@@ -259,7 +261,10 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
               <div className="text-xs font-medium truncate">{agent.name}</div>
               <div className="text-xs text-muted-foreground truncate">
                 {agent.inThisWorkspace ? t('connect.acentaInThisWorkspace') : t('connect.acentaWorkspaceCount', { count: agent.workspaces, limit: agent.workspaceLimit })}
-                {showUsage && usageById.has(agent.id) && <>{' · '}{planLabel(usageById.get(agent.id)!)}</>}
+                {(() => {
+                  const plan = showUsage && usageById.has(agent.id) ? planLabel(usageById.get(agent.id)!) : null;
+                  return plan && <>{' · '}{plan}</>;
+                })()}
                 {' · '}<a href={agent.url} target="_blank" rel="noreferrer" className="hover:underline">{t('connect.acentaManage')}</a>
               </div>
             </div>
