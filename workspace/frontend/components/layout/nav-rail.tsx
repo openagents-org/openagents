@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button';
  // v1.1 M1
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
-import { unreadIssueCounts } from '@/lib/signals';
+import { latestUnreadIssueId, unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
 import {
 useLayout,type ViewMode
@@ -56,12 +56,20 @@ interface RailItem {
 export function NavRail() {
   const {
     viewMode, railViewMode, openView, setSelectedAgentName, isRailExpanded, setThreadFilter, openMobileDetail,
+    setPendingIssueId,
   } = useLayout();
   const {
     workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
     onlineUsers, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations, unreadSignals,
   } = useWorkspace();
   const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
+  // The issues badge opens the newest unread issue; the row itself still opens the list.
+  const openLatestUnreadIssue = (event: React.MouseEvent) => {
+    event.stopPropagation();
+    const issueId = latestUnreadIssueId(unreadSignals);
+    openView('issues');
+    if (issueId) setPendingIssueId(issueId);
+  };
   const t = useT();
 
   // Yumi (built-in) still appears in the roster, but does not satisfy the
@@ -239,7 +247,7 @@ export function NavRail() {
                     {/* Collapsed, the badge sits inside the button's corner: the button
                         (and the scrolling rail) clip overflow, so a negative
                         offset cut it in half. */}
-                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-xs font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-xs font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground', item.mode === 'issues' && 'cursor-pointer hover:ring-2 hover:ring-destructive/30')} aria-label={t('nav.unreadCount', { count: item.count })} {...(item.mode === 'issues' ? { title: t('nav.openLatestUnreadIssue'), onClick: openLatestUnreadIssue } : {})}>{item.count > 99 ? '99+' : item.count}</span>}
 
                   </SidebarMenuButton>
                 </SidebarMenuItem>
