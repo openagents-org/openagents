@@ -8,7 +8,7 @@ import type { WorkspaceNode } from '@/lib/types';
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
   getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
-  listMyAcentaAgents: vi.fn(() => Promise.resolve([])),
+  listMyAcentaAgents: vi.fn(() => Promise.resolve([])), getMyAcentaUsage: vi.fn(() => Promise.resolve(null)),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
 }));
 const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn(), cloudAgentsPending: false, consumeCloudAgents: vi.fn(), desktop: null as null | Record<string, unknown> }));

@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 
 PROVIDER = "acenta"
 _AGENTS_PATH = "/api/integrations/openagents/agents"
+_USAGE_PATH = "/api/integrations/openagents/usage"
 
 
 class ProviderError(Exception):
@@ -43,11 +44,11 @@ def provider_info() -> dict:
     }
 
 
-def _request(method: str, path: str, **kwargs) -> dict:
+def _request(method: str, path: str, *, base: str = _AGENTS_PATH, **kwargs) -> dict:
     try:
         response = httpx.request(
             method,
-            config.ACENTA_API_URL.rstrip("/") + _AGENTS_PATH + path,
+            config.ACENTA_API_URL.rstrip("/") + base + path,
             headers={"Authorization": f"Bearer {config.ACENTA_INTEGRATION_SECRET}"},
             timeout=20,
             **kwargs,
@@ -87,6 +88,13 @@ def launch(*, request_key: str, name: str, subject: str, email: str, display_nam
 def list_for_user(*, subject: str, email: str, workspace_id: str) -> dict:
     """The user's Acenta agents (same OpenAgents identity, else same email)."""
     return _request("GET", "", params={"subject": subject, "email": email, "workspace_id": workspace_id})
+
+
+def usage_for_user(*, subject: str, email: str) -> dict:
+    """The user's Acenta balance and this month's spend. Pass an email only once it is
+    verified: Acenta also matches accounts by email, and a balance is not for anyone
+    who merely typed that address."""
+    return _request("GET", "", base=_USAGE_PATH, params={"subject": subject, "email": email})
 
 
 def connect(*, external_id: str, subject: str, email: str, workspace, token: str, channel: str = "general") -> dict:

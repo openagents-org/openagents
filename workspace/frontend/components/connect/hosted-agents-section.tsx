@@ -1,10 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Loader2, Plus, Trash2 } from 'lucide-react';
+import { ArrowUpRight, Loader2, Plus, Trash2, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
-import { useT } from '@/lib/i18n';
+import { useFormatters, useT } from '@/lib/i18n';
 import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -12,9 +12,16 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import type { AcentaAccount, AcentaAgent, HostedAgent, HostedAgentProvider } from '@/lib/types';
+import type { AcentaAccount, AcentaAgent, AcentaAgentUsage, AcentaUsage, HostedAgent, HostedAgentProvider } from '@/lib/types';
 
 const STARTUP_WINDOW_MS = 30 * 60 * 1000;
+
+/** Acenta's own low-balance line (it emails the owner below this). */
+const LOW_BALANCE_CENTS = 200;
+
+export function formatUsd(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
 
 /**
  * Acenta cloud agents. A signed-in member sees their own Acenta agents — any
@@ -24,11 +31,14 @@ const STARTUP_WINDOW_MS = 30 * 60 * 1000;
  */
 export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const t = useT();
+  const { formatDate } = useFormatters();
   const confirm = useConfirm();
   const [provider, setProvider] = useState<HostedAgentProvider | null>(null);
   const [hosted, setHosted] = useState<HostedAgent[]>([]);
   // null: unknown (not signed in, or Acenta unreachable) — fall back to the workspace list.
   const [account, setAccount] = useState<AcentaAccount | null>(null);
+  // null until loaded, or when Acenta can't say; the page works without it.
+  const [usage, setUsage] = useState<AcentaUsage | null>(null);
   const [setupOpen, setSetupOpen] = useState(false);
   const [name, setName] = useState('');
   const [launching, setLaunching] = useState(false);
@@ -37,6 +47,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const load = useCallback(() => {
     workspaceApi.listHostedAgents().then(setHosted).catch(() => {});
     workspaceApi.listMyAcentaAgents().then(setAccount).catch(() => setAccount(null));
+    workspaceApi.getMyAcentaUsage().then(setUsage).catch(() => setUsage(null));
   }, []);
 
   useEffect(() => {
@@ -60,6 +71,25 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const myNames = new Set(mine.map((a) => a.agentName));
   const others = hosted.filter((h) => !myNames.has(h.agentName));
   const atLimit = !!account?.hasAccount && account.agentLimit > 0 && mine.length >= account.agentLimit;
+
+  const showUsage = !!usage?.hasAccount && usage.billingEnabled;
+  const usageById = new Map((usage?.agents ?? []).map((u) => [u.id, u]));
+  const lowBalance = showUsage && usage!.balanceEnabled && !usage!.autoTopup
+    && usage!.balanceCents < LOW_BALANCE_CENTS && usage!.agents.some((u) => u.mode === 'usage');
+
+  const planLabel = (u: AcentaAgentUsage) => {
+    if (u.status === 'balance_empty') return t('connect.acentaPlanBalanceEmpty');
+    if (u.mode === 'included') return t('connect.acentaPlanIncluded');
+    if (u.mode === 'usage') return t('connect.acentaPlanUsage', { amount: formatUsd(u.spentThisMonthCents) });
+    if (u.mode === 'pass') {
+      return u.renewalAt
+        ? t('connect.acentaPlanPassUntil', { date: formatDate(u.renewalAt, { month: 'short', day: 'numeric' }) })
+        : t('connect.acentaPlanPass');
+    }
+    if (u.status === 'trialing') return t('connect.acentaPlanTrial');
+    if (u.status === 'canceled' || u.status === 'ended') return t('connect.acentaPlanEnded');
+    return t('connect.acentaPlanMonthly');
+  };
 
   const handleLaunch = async () => {
     const label = name.trim();
@@ -199,6 +229,25 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
         </DialogContent>
       </Dialog>
 
+      {showUsage && (
+        <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2.5 text-xs',
+          lowBalance ? 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30' : 'bg-background')}>
+          <Wallet className="size-3.5 shrink-0 text-muted-foreground" />
+          {usage!.balanceEnabled && (
+            <span>{t('connect.acentaBalance')} <span className="font-semibold tabular-nums">{formatUsd(usage!.balanceCents)}</span></span>
+          )}
+          <span>{t('connect.acentaSpentThisMonth')} <span className="font-semibold tabular-nums">{formatUsd(usage!.spentThisMonthCents)}</span></span>
+          {usage!.autoTopup && <span className="text-muted-foreground">{t('connect.acentaAutoTopupOn')}</span>}
+          {lowBalance && <span className="font-medium text-amber-700 dark:text-amber-300">{t('connect.acentaLowBalance')}</span>}
+          {usage!.manageUrl && (
+            <a href={usage!.manageUrl} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 font-medium text-primary hover:underline">
+              {usage!.balanceEnabled ? t('connect.acentaTopUp') : t('connect.acentaBilling')}
+              <ArrowUpRight className="size-3" />
+            </a>
+          )}
+        </div>
+      )}
+
       {mine.length > 0 && <div className="pt-2 text-xs font-medium text-muted-foreground">{t('connect.acentaYourAgents')}</div>}
       {mine.map((agent) => {
         const here = hosted.find((h) => h.agentName === agent.agentName);
@@ -210,6 +259,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
               <div className="text-xs font-medium truncate">{agent.name}</div>
               <div className="text-xs text-muted-foreground truncate">
                 {agent.inThisWorkspace ? t('connect.acentaInThisWorkspace') : t('connect.acentaWorkspaceCount', { count: agent.workspaces, limit: agent.workspaceLimit })}
+                {showUsage && usageById.has(agent.id) && <>{' · '}{planLabel(usageById.get(agent.id)!)}</>}
                 {' · '}<a href={agent.url} target="_blank" rel="noreferrer" className="hover:underline">{t('connect.acentaManage')}</a>
               </div>
             </div>
