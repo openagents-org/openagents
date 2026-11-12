@@ -45,7 +45,7 @@ fs.chmodSync(broken, 0o755);
 const abortLog = path.join(dir, 'aborts.log');
 const env = (extra = {}) => ({ ...process.env, ABORT_LOG: abortLog, ...extra });
 
-describe('OpenCode server', () => {
+describe('OpenCode server', { skip: process.platform === 'win32' && 'the warm server is not used on Windows' }, () => {
   it('starts on demand behind a password, and is reused for the same setup', async () => {
     const server = new OpenCodeServer({ binary: fake });
     try {

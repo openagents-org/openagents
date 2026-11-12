@@ -85,7 +85,7 @@ const userMsg = { type: 'message.updated', properties: { info: { id: 'msg_u', ro
 const asstMsg = { type: 'message.updated', properties: { info: { id: 'msg_a', role: 'assistant', sessionID: 'ses_1' } } };
 const updated = (p) => ({ type: 'message.part.updated', properties: { part: p } });
 
-describe('OpenCode — warm server', () => {
+describe('OpenCode — warm server', { skip: process.platform === 'win32' && 'the warm server is not used on Windows' }, () => {
   it('shows thinking, tool steps and the reply live, never the user prompt', async () => {
     const thinking = part('p1', 'reasoning', { text: 'Thinking it over', ...ended });
     const tool = part('p2', 'tool', { tool: 'bash', state: { status: 'completed', input: { command: 'ls' } } });
