@@ -219,3 +219,13 @@ it('leaves the page as it was when Acenta has no usage to show', async () => {
   await render();
   expect(container.textContent).not.toContain('connect.acentaBalance');
 });
+
+it('shows no plan for an agent that was never paid for', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agents: [agent('a1', 'helper')], agentLimit: 3 });
+  api.getMyAcentaUsage.mockResolvedValue(usage({
+    agents: [{ id: 'a1', mode: 'subscription', tier: 'standard', status: 'awaiting_payment', spentThisMonthCents: 0, renewalAt: null }],
+  }));
+  await render();
+  expect(container.textContent).toContain('connect.acentaBalance');
+  expect(container.textContent).not.toContain('connect.acentaPlan');
+});
