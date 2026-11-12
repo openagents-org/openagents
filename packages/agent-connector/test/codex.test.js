@@ -734,11 +734,46 @@ describe('Codex — what counts as a stale thread', () => {
       _codexBin: 'codex', _channelThreads: { general: 'old-thread' }, workingDir: '',
       _buildSystemContext: () => 'system context', _log: () => {}, _saveSessions: () => {},
       _spawnCodex: async (cmd) => { calls.push(cmd); return results[calls.length - 1]; },
+      sendStatus: async (ch, m) => { sent.push({ kind: 'status', m }); },
       sendResponse: async (ch, m) => { sent.push({ kind: 'response', m }); },
       sendError: async (ch, m) => { sent.push({ kind: 'error', m }); },
     });
     return { fake, calls, sent };
   }
+
+  // Field report (core 0.2.226): one channel failed every message with this,
+  // because codex resends the whole thread and one item in it is over the limit.
+  it('a thread the API refuses as too large is dropped, said so, and the turn run fresh', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+        errorMessage: "[ArrayParam] [input[77].content] [array_above_max_length] Invalid 'input[77].content': array too long. Expected an array with maximum length 128" },
+      { exitCode: 0, responseText: 'fresh answer', turnStarted: true },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes('resume'));
+    assert.ok(!calls[1].includes('resume'));
+    assert.deepEqual(sent.map((s) => s.kind), ['status', 'response'], JSON.stringify(sent));
+    assert.match(sent[0].m, /continues in a new one/);
+    assert.equal(sent[1].m, 'fresh answer');
+  });
+
+  it('a new thread that is still too large is reported, not run a third time', async () => {
+    const tooLarge = { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+      errorMessage: "Invalid 'input[3].content': array too long [array_above_max_length]" };
+    const { fake, calls, sent } = fakeAdapter([tooLarge, tooLarge]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.equal(sent[sent.length - 1].kind, 'error');
+    assert.match(sent[sent.length - 1].m, /array_above_max_length/);
+  });
+
+  it('only the run error or the stderr reason counts as a too-large thread', () => {
+    assert.equal(CodexAdapter._threadTooLarge({ errorMessage: 'context_length_exceeded: input too long' }), true);
+    assert.equal(CodexAdapter._threadTooLarge({ stderr: 'Error: array_above_max_length' }), true);
+    assert.equal(CodexAdapter._threadTooLarge({ errorMessage: 'usage limit', stderr: 'Error: array_above_max_length' }), false);
+    assert.equal(CodexAdapter._threadTooLarge({}), false);
+  });
 
   it('a thread codex cannot find is dropped and the turn run fresh', async () => {
     const { fake, calls, sent } = fakeAdapter([

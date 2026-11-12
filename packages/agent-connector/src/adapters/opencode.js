@@ -71,6 +71,19 @@ const VERSION_PROBE_TTL_MS = 60000;
 // provider keeps requests on `/chat/completions` and skips catalog validation.
 const CUSTOM_PROVIDER_ID = 'openagents-gateway';
 
+// The database OpenCode is pointed at (OPENCODE_DB) once the shared one cannot
+// be opened. OpenCode 1.x and 2.x both default to <data>/opencode/opencode.db;
+// 2.x renames the `session` table to `session_v2` when it migrates it, and from
+// then on the 1.x CLI this adapter runs dies at startup with "Database is not
+// empty and has no session table" on every message (opencode-ai 1.17.11,
+// packages/core/src/database/migration.ts). OPENCODE_DB takes an absolute path
+// in that version (packages/core/src/database/database.ts). Once this file
+// exists it is used from then on; auth.json stays shared, so sign-ins keep
+// working, and the user's own database is never written.
+// Resolved per call, so it follows HOME.
+const ownDbPath = () => path.join(os.homedir(), '.openagents', 'opencode', 'opencode.db');
+const SHARED_DB_MIGRATED_RE = /database is not empty and has no session table/i;
+
 // Short, de-identified, actionable user messages per failure category. These
 // must NEVER default to "run auth login": only credential_missing / auth_failed
 // mention authentication. Diagnostics (exit code, signal, redacted stdout/
@@ -97,6 +110,7 @@ const FAILURE_MESSAGES = {
   permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  shared_db_migrated: "OpenCode could not open its session database: a newer OpenCode (2.x, or the OpenCode desktop app) on this device has converted it to a format the OpenCode CLI that OpenAgents runs cannot read, and running it on a database of its own did not help either. Reinstall OpenCode from the launcher, or set OPENCODE_DB in this agent's configuration to the full path of a new file, then retry.",
   config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
@@ -257,6 +271,7 @@ class OpenCodeAdapter extends BaseAdapter {
   }
   _spawnEnv(channel) {
     const env = { ...(this.agentEnv || process.env) };
+    if (!env.OPENCODE_DB && fs.existsSync(ownDbPath())) env.OPENCODE_DB = ownDbPath();
     if (!this._wiresWorkspaceMcp()) return env;
     // Give OpenCode the workspace tools (publish, todos, browser, ...) through
     // our MCP server, as the Claude adapter does. Merged into any inline config
@@ -277,6 +292,33 @@ class OpenCodeAdapter extends BaseAdapter {
       environment: { OA_WORKSPACE_TOKEN: this.token, ...(requester ? { OPENAGENTS_REQUESTER_EMAIL: requester } : {}) } } };
     env.OPENCODE_CONFIG_CONTENT = JSON.stringify(cfg);
     return env;
+  }
+
+  /**
+   * Whether a run that failed on the shared database can be retried on
+   * ownDbPath(), creating that file if need be. False when the failed run was
+   * not on the shared database to begin with: OPENCODE_DB set by the user, the
+   * file already there before the run (`ownBefore`), or a fork that builds its
+   * own environment. The sessions saved so far are ids in the old database
+   * and are dropped when the file is created here.
+   */
+  _moveToOwnDatabase(ownBefore) {
+    if (ownBefore || this._spawnEnv !== OpenCodeAdapter.prototype._spawnEnv) return false;
+    if ((this.agentEnv || process.env).OPENCODE_DB) return false;
+    const file = ownDbPath();
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, '', { flag: 'wx' });
+    } catch (e) {
+      // Another channel's run got here first: the file is the one to use.
+      if (e && e.code === 'EEXIST') return true;
+      this._log(`Could not create ${file}: ${e && e.message}`, 'error');
+      return false;
+    }
+    this._log(`Shared OpenCode database was migrated by a newer OpenCode; using ${file}`);
+    this._channelSessions = {};
+    this._saveSessions();
+    return true;
   }
 
   /**
@@ -497,7 +539,16 @@ class OpenCodeAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     try {
-      const responseText = await this._runOpencode(content, msgChannel);
+      let responseText;
+      const ownBefore = fs.existsSync(ownDbPath());
+      try {
+        responseText = await this._runOpencode(content, msgChannel);
+      } catch (e) {
+        if (!(e && e.category === 'shared_db_migrated') || !this._moveToOwnDatabase(ownBefore)) throw e;
+        await this.sendStatus(msgChannel, "OpenCode's shared database was converted by a newer OpenCode on this "
+          + 'device, so this agent now uses one of its own. Earlier context in this thread is not carried over.');
+        responseText = await this._runOpencode(content, msgChannel);
+      }
 
       if (this._stoppingChannels.has(msgChannel)) {
         this._stoppingChannels.delete(msgChannel);
@@ -1466,6 +1517,8 @@ class OpenCodeAdapter extends BaseAdapter {
     let category;
     if (isPostinstallStubOutput(hay)) {
       category = 'install_incomplete';
+    } else if (SHARED_DB_MIGRATED_RE.test(hay)) {
+      category = 'shared_db_migrated';
     } else if (configError) {
       // Checked before the provider patterns: what is wrong with the file is
       // free text ("Unrecognized key: model", "got {…401…}") that would read
