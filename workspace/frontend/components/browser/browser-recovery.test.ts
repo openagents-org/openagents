@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
   tab: {id:'saved', sessionId:'old-session', contextId:'context', url:'https://example.com', title:'Example', liveUrl:'https://browserfabric.com/live/old', sharedWith:[], createdBy:'human:user', asleep:false},
 }));
 vi.mock('./use-browser-control', () => ({useBrowserControl: () => ({controlling:false,busy:false,toggle:vi.fn(),input:vi.fn(),frameRevision:0})}));
-vi.mock('./agent-activity', () => ({ actorName: () => null, useAgentActivity: () => ({active:false}) }));
+vi.mock('./agent-activity', () => ({ actorName: () => null, useAgentActivity: () => ({active:false}), tabHasFreshAgentActivity: () => false }));
 vi.mock('./new-browser-tab-dialog', () => ({NewBrowserTabDialog: () => null}));
 vi.mock('@/components/ui/dialogs-provider', () => ({useConfirm: () => state.confirm}));
 vi.mock('@/components/layout/layout-context', () => ({useLayout: () => ({isMobile:false})}));

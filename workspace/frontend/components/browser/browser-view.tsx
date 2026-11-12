@@ -2,9 +2,13 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
-  Bot, Eye, Globe, Hand, Maximize2, Minimize2, Moon, MousePointer2,
+  Bot, ChevronDown, Eye, Globe, Hand, Maximize2, Minimize2, Moon, MousePointer2,
   Play, Plus, RefreshCw, Users, X,
 } from 'lucide-react';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel,
+  DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -17,8 +21,8 @@ import { useFormatters, useT } from '@/lib/i18n';
 import type { MessageKey } from '@/lib/i18n';
 import type { BrowserTab } from '@/lib/types';
 import { NewBrowserTabDialog } from './new-browser-tab-dialog';
-import { actorName, useAgentActivity } from './agent-activity';
-import { buildTabEntries, displayUrl, normalizeUrl, whoLabel, type PermanentEntry } from './tab-model';
+import { actorName, tabHasFreshAgentActivity, useAgentActivity } from './agent-activity';
+import { buildTabEntries, closeRisk, displayUrl, normalizeUrl, whoLabel, type PermanentEntry, type TabEntry } from './tab-model';
 
 import { useBrowserControl } from './use-browser-control';
 
@@ -93,6 +97,18 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     : null;
   const idleMinutes = browserTabLimits?.idleMinutes ?? 15;
   const activity = useAgentActivity(tab);
+
+  // Bring the open tab into view in the strip, which hides its scrollbar:
+  // past a handful of tabs the selected one could sit out of sight.
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const activeTabKey = tab
+    ? (tab.contextId ? `ctx:${tab.contextId}` : `tab:${tab.id}`)
+    : selectedBrowserContextId ? `ctx:${selectedBrowserContextId}` : null;
+  useEffect(() => {
+    if (!activeTabKey) return;
+    const chip = tabStripRef.current?.querySelector<HTMLElement>(`[data-tab-key="${CSS.escape(activeTabKey)}"]`);
+    chip?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabKey, browserTabs.length, browserContexts.length]);
 
   const { controlling, busy: controlBusy, toggle: toggleControl, input: sendInput, frameRevision } = useBrowserControl(tab?.id);
 
@@ -296,11 +312,28 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
   /** Temporary tab → gone. Permanent tab → asleep (session freed, state kept). */
   const handleCloseOrSleep = async (x: BrowserTab) => {
+    // The open tab also hears the live view's own activity, ahead of the poll.
+    const agentActive = (x.id === tab?.id && activity.active) || tabHasFreshAgentActivity(x);
+    const risk = closeRisk(x, agentActive);
+    if (risk) {
+      const name = x.contextName || x.title || displayUrl(x.url, 40) || t('browser.untitled');
+      const ok = await confirm({
+        title: t('browser.closeTabConfirmTitle', { name }),
+        description: risk === 'agent'
+          ? t(x.contextId ? 'browser.closeTabAgentSleepDescription' : 'browser.closeTabAgentDescription', {
+              agent: actorName(x.activity?.actor ?? activity.actor, agents) || t('browser.agentGeneric'),
+            })
+          : t('browser.closeTabTemporaryDescription'),
+        confirmText: t('browser.closeTab'),
+        destructive: true,
+      });
+      if (!ok) return;
+    }
     try {
       await closeBrowserTab(x.id);
       if (x.contextId) {
         if (selectedBrowserTabId === x.id) setSelectedBrowserContextId(x.contextId);
-        toast.success(t('browser.tabClosed'));
+        toast.success(t('browser.sleptToast'));
       } else {
         toast.success(t('browser.tabClosed'));
       }
@@ -345,12 +378,13 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // ── tab strip ─────────────────────────────────────────────────────────────
 
   const TabChip = ({
-    active, awake, label, sub, icon, onSelect, onClose, closeTitle, busy,
+    tabKey, active, awake, label, sub, icon, onSelect, onClose, closeTitle, busy,
   }: {
-    active: boolean; awake: boolean; label: string; sub?: string;
+    tabKey: string; active: boolean; awake: boolean; label: string; sub?: string;
     icon: React.ReactNode; onSelect: () => void; onClose?: () => void; closeTitle?: string; busy?: boolean;
   }) => (
     <div
+      data-tab-key={tabKey}
       role="tab"
       aria-selected={active}
       tabIndex={0}
@@ -384,14 +418,60 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     </div>
   );
 
+  const tabCount = permanent.length + temporary.length;
+  const selectEntry = (entry: TabEntry) => {
+    if (entry.tab) selectLive(entry.tab);
+    else if (entry.kind === 'permanent') { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
+  };
+
+  // Every tab, by name, including the ones scrolled out of the strip.
+  const allTabsMenu = tabCount > 0 && (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="mb-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums text-muted-foreground transition-colors hover:bg-zinc-200/70 hover:text-foreground dark:hover:bg-zinc-800"
+          title={t('browser.allTabs')}
+          aria-label={t('browser.allTabsCount', { count: tabCount })}
+        >
+          <span>{tabCount}</span>
+          <ChevronDown className="size-3.5" />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="max-h-96 w-72 overflow-y-auto">
+        <DropdownMenuLabel className="text-xs">{t('browser.allTabsCount', { count: tabCount })}</DropdownMenuLabel>
+        {permanent.length > 0 && <DropdownMenuSeparator />}
+        {permanent.map((entry) => {
+          const awake = !!entry.tab && !entry.tab.asleep;
+          return (
+            <DropdownMenuItem key={entry.key} onSelect={() => selectEntry(entry)} className="gap-2">
+              {awake ? <Globe className="size-3.5 shrink-0 text-muted-foreground" /> : <Moon className="size-3.5 shrink-0 text-zinc-400" />}
+              <span className={cn('min-w-0 flex-1 truncate', !awake && 'italic')}>{entry.context.name}</span>
+              <span className="shrink-0 text-[10px] text-muted-foreground">{t(awake ? 'browser.live' : 'browser.asleep')}</span>
+            </DropdownMenuItem>
+          );
+        })}
+        {temporary.length > 0 && <DropdownMenuSeparator />}
+        {temporary.map((entry) => (
+          <DropdownMenuItem key={entry.key} onSelect={() => selectEntry(entry)} className="gap-2">
+            <Globe className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 flex-1 truncate">{entry.tab.title || displayUrl(entry.tab.url, 30) || t('browser.untitled')}</span>
+            <span className="shrink-0 text-[10px] text-muted-foreground">{t('browser.kindTemporary')}</span>
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
   const tabStrip = (
-    <div className="flex h-10 shrink-0 items-end gap-1 overflow-x-auto border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <div className="flex h-10 shrink-0 items-end border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80">
+    <div ref={tabStripRef} className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {permanent.map((entry) => {
         const awake = !!entry.tab && !entry.tab.asleep;
         const active = entry.tab ? entry.tab.id === selectedBrowserTabId : entry.context.id === selectedBrowserContextId && !tab;
         return (
           <TabChip
             key={entry.key}
+            tabKey={entry.key}
             active={active}
             awake={awake}
             label={entry.context.name}
@@ -415,6 +495,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {temporary.map((entry) => (
         <TabChip
           key={entry.key}
+          tabKey={entry.key}
           active={entry.tab.id === selectedBrowserTabId}
           awake
           label={entry.tab.title || displayUrl(entry.tab.url, 30) || t('browser.untitled')}
@@ -433,19 +514,19 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       >
         <Plus className="size-4" />
       </button>
+    </div>
       {browserTabLimits && (
-        <div className="mb-1.5 ml-auto hidden shrink-0 items-center gap-2 pl-3 text-[10px] tabular-nums text-muted-foreground md:flex">
-          <span
-            className="inline-flex items-center gap-1"
-            title={t('browser.sessionCapacityHint')}
-          >
-            <Globe className="size-3" />
-            <span>
-              {t('browser.workspaceActiveSessions', { count: browserTabLimits.concurrent.used })}
-            </span>
+        <span
+          className="mb-1.5 ml-2 inline-flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-muted-foreground"
+          title={t('browser.sessionCapacityHint')}
+        >
+          <Globe className="size-3" />
+          <span>
+            {t('browser.awakeOfMax', { used: browserTabLimits.concurrent.used, max: browserTabLimits.concurrent.max })}
           </span>
-        </div>
+        </span>
       )}
+      {allTabsMenu}
     </div>
   );
 
