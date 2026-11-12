@@ -64,6 +64,14 @@ describe('AgentSetup form for a type already on the device', () => {
     expect(html).toContain('for example codex and codex-2');
   });
 
+  it('offers Back to agents at the top of the form as well as in its footer', () => {
+    const html = renderForm(false);
+    const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
+    expect(header).toContain(en.connect.nodeBackToAgents);
+    expect(header.indexOf(en.connect.nodeBackToAgents)).toBeLessThan(header.indexOf('Runs on'));
+    expect(html.slice(html.indexOf('<footer'))).toContain(en.connect.nodeBackToAgents);
+  });
+
   it('keeps one set of actions, inside the form column, in the desktop layout', () => {
     const html = renderForm(true);
     expect(html).toContain('data-testid="agent-setup-actions"');
