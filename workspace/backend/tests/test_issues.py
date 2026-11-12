@@ -788,6 +788,22 @@ def test_assigned_to_me_filters_before_pagination_and_search(client, workspace, 
     assert client.get(path(workspace) + '&assigned_to_me=true', headers=headers(workspace)).status_code == 401
 
 
+def test_list_filters_by_any_assignee_or_unassigned(client, workspace, two_members, db):
+    from urllib.parse import quote
+    from app.models import Issue
+    ann = create(client, workspace, title='For Ann')
+    bot = create(client, workspace, title='For the bot')
+    loose = create(client, workspace, title='Nobody yet')
+    db.get(Issue, ann['id']).assignee = 'human:ANN@acme.test'
+    db.get(Issue, bot['id']).assignee = 'openagents:scout'
+    db.commit()
+    ids = lambda q: [row['id'] for row in client.get(path(workspace) + q, headers=_bearer('ben')).json()['data']['issues']]
+    assert ids('&assignee=' + quote('human:ann@acme.test')) == [ann['id']]
+    assert ids('&assignee=' + quote('openagents:scout')) == [bot['id']]
+    assert ids('&assignee=none') == [loose['id']]
+    assert ids('&assignee=' + quote('human:nobody@acme.test')) == []
+
+
 def test_label_suggestions_are_workspace_scoped_and_deduplicated(client, workspace, db):
     from app.models import Issue
     first = create(client, workspace)
