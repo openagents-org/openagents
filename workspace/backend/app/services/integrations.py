@@ -56,6 +56,22 @@ _TELEGRAM_MAX_CHUNKS = 3
 _SLACK_MAX_CHARS = 12000
 
 
+# Slack threads and Lark topics each get their own workspace thread: the
+# conversation key is "<chat id>~<thread root id>". Keys without a root (older
+# channels, Telegram) cover the whole chat.
+THREAD_SEPARATOR = "~"
+
+
+def conversation_key(chat_id: str, thread_root: Optional[str] = None) -> str:
+    return f"{chat_id}{THREAD_SEPARATOR}{thread_root}" if thread_root else chat_id
+
+
+def split_conversation_key(key: str) -> tuple[str, Optional[str]]:
+    """(chat id, thread root id or None) — the inverse of :func:`conversation_key`."""
+    chat_id, _, root = (key or "").partition(THREAD_SEPARATOR)
+    return chat_id, root or None
+
+
 def channel_name_for(binding: IntegrationBinding, external_chat_id: str) -> str:
     """Deterministic workspace channel name for one external conversation."""
     return f"{CHANNEL_PREFIX}{binding.platform}-{str(binding.id)[:8]}-{external_chat_id}"
@@ -335,7 +351,8 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     resolved = resolve_binding_for_channel(workspace_id, target[len("channel/"):])
     if resolved is None:
         return
-    binding, chat_id = resolved
+    binding, key = resolved
+    chat_id, thread_root = split_conversation_key(key)
     platform = binding.platform
 
     error: Optional[str] = None
@@ -344,9 +361,9 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
             _send_telegram(binding.bot_token, chat_id, sender, content)
         elif platform == "slack":
             _send_slack(binding.bot_token, chat_id, sender, content,
-                        is_agent=source.startswith("openagents:"))
+                        is_agent=source.startswith("openagents:"), thread_ts=thread_root)
         elif platform == "lark":
-            _send_lark(binding, chat_id, sender, content)
+            _send_lark(binding, chat_id, sender, content, root_message_id=thread_root)
     except Exception as exc:
         logger.exception("integrations: relay to %s failed", platform)
         error = str(exc)
@@ -371,11 +388,12 @@ def _send_telegram(bot_token: str, chat_id: str, sender: str, content: str) -> N
 
 
 def _send_slack(bot_token: str, channel_id: str, sender: str, content: str,
-                is_agent: bool) -> None:
+                is_agent: bool, thread_ts: Optional[str] = None) -> None:
     if len(content) > _SLACK_MAX_CHARS:
         content = content[:_SLACK_MAX_CHARS] + "\n… (truncated)"
     headers = {"Authorization": f"Bearer {bot_token}"}
-    body = {"channel": channel_id, "text": content, "username": sender}
+    thread = {"thread_ts": thread_ts} if thread_ts else {}
+    body = {"channel": channel_id, "text": content, "username": sender, **thread}
     with httpx.Client(timeout=15.0) as client:
         resp = client.post("https://slack.com/api/chat.postMessage", headers=headers, json=body)
         data = resp.json()
@@ -384,7 +402,7 @@ def _send_slack(bot_token: str, channel_id: str, sender: str, content: str,
         if data.get("error") == "missing_scope":
             # No chat:write.customize — post under the app's own identity
             # with the sender name inlined instead.
-            fallback = {"channel": channel_id, "text": f"*{sender}*: {content}"}
+            fallback = {"channel": channel_id, "text": f"*{sender}*: {content}", **thread}
             resp = client.post("https://slack.com/api/chat.postMessage", headers=headers, json=fallback)
             data = resp.json()
             if data.get("ok"):
@@ -617,7 +635,8 @@ def lark_decrypt(encrypt_key: str, encrypted_b64: str) -> dict:
     return _json.loads(plain.decode("utf-8"))
 
 
-def _send_lark(binding, chat_id: str, sender: str, content: str) -> None:
+def _send_lark(binding, chat_id: str, sender: str, content: str,
+               root_message_id: Optional[str] = None) -> None:
     import json as _json
     cfg = binding.config or {}
     app_id = cfg.get("appId")
@@ -629,17 +648,22 @@ def _send_lark(binding, chat_id: str, sender: str, content: str) -> None:
     if len(text) > _LARK_MAX_CHARS:
         text = text[:_LARK_MAX_CHARS] + "\n… (truncated)"
     base = LARK_DOMAINS.get(domain, LARK_DOMAINS["feishu"])
+    body = {"msg_type": "text", "content": _json.dumps({"text": text})}
     with httpx.Client(timeout=15.0) as client:
-        resp = client.post(
-            f"{base}/open-apis/im/v1/messages",
-            params={"receive_id_type": "chat_id"},
-            headers={"Authorization": f"Bearer {token}"},
-            json={
-                "receive_id": chat_id,
-                "msg_type": "text",
-                "content": _json.dumps({"text": text}),
-            },
-        )
+        if root_message_id:
+            # Answer inside the topic the conversation started in.
+            resp = client.post(
+                f"{base}/open-apis/im/v1/messages/{root_message_id}/reply",
+                headers={"Authorization": f"Bearer {token}"},
+                json={**body, "reply_in_thread": True},
+            )
+        else:
+            resp = client.post(
+                f"{base}/open-apis/im/v1/messages",
+                params={"receive_id_type": "chat_id"},
+                headers={"Authorization": f"Bearer {token}"},
+                json={"receive_id": chat_id, **body},
+            )
         data = resp.json()
     if data.get("code") != 0:
         raise RuntimeError(f"lark im/v1/messages: {data.get('msg', resp.status_code)}")

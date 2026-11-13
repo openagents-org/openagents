@@ -628,7 +628,7 @@ def test_agent_chat_reply_relays_to_lark(client, workspace, lark_binding, monkey
     sent = []
     monkeypatch.setattr(
         svc, "_send_lark",
-        lambda binding, chat_id, sender, content: sent.append((chat_id, sender, content)),
+        lambda binding, chat_id, sender, content, **kw: sent.append((chat_id, sender, content)),
     )
     channel_name = f"ext-lark-{lark_binding['id'][:8]}-oc_relay"
     client.post(
@@ -762,3 +762,94 @@ def test_clean_slack_text():
         == "check this and https://y.io"
     cleaned = _clean_slack_text("hey <@UBOT> and <@UOTHER>", "UBOT")
     assert "@UOTHER" in cleaned and "UBOT" not in cleaned
+
+
+# ---------------------------------------------------------------------------
+# One workspace thread per Slack thread / Lark topic
+# ---------------------------------------------------------------------------
+
+def _channel_events(client, workspace, channel_name):
+    return client.get(
+        "/v1/events",
+        params={"network": workspace["id"], "channel": channel_name, "type": "workspace.message.posted"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["events"]
+
+
+def test_each_slack_thread_is_its_own_workspace_thread(client, db, workspace, slack_binding, monkeypatch):
+    from app.models import Channel
+    monkeypatch.setattr(svc, "slack_user_display_name", lambda tok, uid: "Jane Doe")
+
+    def post(event_id, text, ts, thread_ts=None):
+        event = {"type": "message", "text": text, "user": "U777", "channel": "C0CHAN",
+                 "channel_type": "channel", "ts": ts, **({"thread_ts": thread_ts} if thread_ts else {})}
+        resp = _slack_post(client, slack_binding["id"], {"type": "event_callback", "event_id": event_id, "event": event})
+        assert resp.status_code == 200, resp.text
+
+    post("EvA", "Fix the login bug", "111.1")
+    post("EvB", "It fails on Safari", "111.2", thread_ts="111.1")
+    post("EvC", "Draft the release notes", "222.1")
+    prefix = f"ext-slack-{slack_binding['id'][:8]}-C0CHAN"
+    first, second = f"{prefix}~111.1", f"{prefix}~222.1"
+    assert [e["payload"]["content"] for e in _channel_events(client, workspace, first)] == [
+        "Fix the login bug", "It fails on Safari"]
+    assert len(_channel_events(client, workspace, second)) == 1
+    titles = {c.name: c.title for c in db.query(Channel).filter(Channel.name.in_([first, second]))}
+    assert titles == {first: "Slack: Fix the login bug", second: "Slack: Draft the release notes"}
+
+
+def test_slack_relay_answers_in_the_thread(monkeypatch, slack_binding):
+    calls = []
+    monkeypatch.setattr(svc, "resolve_binding_for_channel",
+                        lambda ws, name: (type("B", (), {"platform": "slack", "bot_token": "xoxb", "id": "b1"})(), "C0CHAN~111.1"))
+    monkeypatch.setattr(svc, "_send_slack", lambda token, chat, sender, content, is_agent, thread_ts=None:
+                        calls.append((chat, thread_ts, content)))
+    monkeypatch.setattr(svc, "_record_binding_result", lambda *a: None)
+    svc.relay_for_event("ws", {"type": "workspace.message.posted", "source": "openagents:agent-alpha",
+                               "target": "channel/ext-slack-b1xxxxxx-C0CHAN~111.1",
+                               "payload": {"content": "Fixed", "message_type": "chat"}})
+    assert calls == [("C0CHAN", "111.1", "Fixed")]
+
+
+def test_send_slack_and_lark_target_the_thread(monkeypatch):
+    posted = []
+
+    class FakeClient:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def post(self, url, **kw):
+            posted.append((url, kw.get("json")))
+            return type("R", (), {"json": lambda self: {"ok": True, "code": 0}, "status_code": 200})()
+
+    monkeypatch.setattr(svc.httpx, "Client", FakeClient)
+    svc._send_slack("xoxb", "C0CHAN", "agent-alpha", "Done", is_agent=True, thread_ts="111.1")
+    assert posted[-1][1]["thread_ts"] == "111.1"
+    monkeypatch.setattr(svc, "lark_tenant_token", lambda *a: "t")
+    binding = type("B", (), {"config": {"appId": "cli_x", "domain": "feishu"}, "id": "b1", "bot_token": "s"})()
+    svc._send_lark(binding, "oc_chat1", "agent-alpha", "完成", root_message_id="om_root")
+    url, body = posted[-1]
+    assert url.endswith("/im/v1/messages/om_root/reply") and body["reply_in_thread"] is True
+    svc._send_lark(binding, "oc_chat1", "agent-alpha", "完成")
+    assert posted[-1][0].endswith("/im/v1/messages") and posted[-1][1]["receive_id"] == "oc_chat1"
+
+
+def test_each_lark_topic_is_its_own_workspace_thread(client, workspace, lark_binding, monkeypatch):
+    monkeypatch.setattr(svc, "lark_user_display_name", lambda binding, oid: "Li Lei")
+
+    def post(event_id, text, message_id, root_id=None):
+        body = _lark_message_body(text, event_id=event_id)
+        body["event"]["message"].update({"message_id": message_id, **({"root_id": root_id} if root_id else {})})
+        assert client.post(f"/v1/integrations/lark/events/{lark_binding['id']}", json=body).status_code == 200
+
+    post("LkT1", "整理本周问题", "om_1")
+    post("LkT2", "按标签分组", "om_2", root_id="om_1")
+    post("LkT3", "写发布说明", "om_3")
+    prefix = f"ext-lark-{lark_binding['id'][:8]}-oc_chat1"
+    assert len(_channel_events(client, workspace, f"{prefix}~om_1")) == 2
+    assert len(_channel_events(client, workspace, f"{prefix}~om_3")) == 1
+
+
+def test_conversation_keys_round_trip():
+    assert svc.split_conversation_key(svc.conversation_key("C1", "111.1")) == ("C1", "111.1")
+    assert svc.split_conversation_key("C1") == ("C1", None)
