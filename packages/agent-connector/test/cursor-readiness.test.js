@@ -30,6 +30,7 @@ const IS_WINDOWS = process.platform === 'win32';
 
 let tmpDir;
 let savedKey;
+let savedLocalAppData;
 
 function evaluate(configPath, binary = '/fake/cursor-agent') {
   const entry = { ...cursor, check_ready: { ...cursor.check_ready, creds_file: configPath } };
@@ -60,6 +61,8 @@ function configWithoutAuthInfo() {
 beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cursor-'));
   savedKey = process.env.CURSOR_API_KEY;
+  savedLocalAppData = process.env.LOCALAPPDATA;
+  process.env.LOCALAPPDATA = path.join(tmpDir, 'AppData', 'Local');
   delete process.env.CURSOR_API_KEY;
   clearVersionCache();
 });
@@ -67,6 +70,8 @@ beforeEach(() => {
 afterEach(() => {
   if (savedKey === undefined) delete process.env.CURSOR_API_KEY;
   else process.env.CURSOR_API_KEY = savedKey;
+  if (savedLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+  else process.env.LOCALAPPDATA = savedLocalAppData;
   setBlockingProbes(null);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -231,6 +236,29 @@ describe('Cursor readiness — how the status check is started', () => {
     assert.equal(call[1].shell, true);
   });
 
+  it('Windows: preserves the bundled node status path for the supported agent.cmd alias', () => {
+    const version = path.join(tmpDir, 'versions', '2026.10.01-e373342');
+    fs.mkdirSync(version, { recursive: true });
+    fs.writeFileSync(path.join(version, 'node.exe'), '');
+    fs.writeFileSync(path.join(version, 'index.js'), '');
+    const [call] = spawnAs('win32', path.join(tmpDir, 'agent.cmd'));
+    assert.equal(call[0], path.join(version, 'node.exe'));
+    assert.deepEqual(call[1], [path.join(version, 'index.js'), 'status']);
+    assert.equal(call[2].env.CURSOR_INVOKED_AS, 'agent.cmd');
+  });
+
+  it('Windows: Hermes status must not run the installed Cursor instead', () => {
+    const version = path.join(tmpDir, 'cursor-agent', 'versions', '2026.10.01-e373342');
+    fs.mkdirSync(version, { recursive: true });
+    fs.writeFileSync(path.join(version, 'node.exe'), '');
+    fs.writeFileSync(path.join(version, 'index.js'), '');
+    const bin = path.join(tmpDir, 'hermes.exe');
+    const [call] = spawnAs('win32', bin, { LOCALAPPDATA: tmpDir });
+    assert.equal(call[0], `"${bin}" status`);
+    assert.equal(call[1].shell, true);
+    assert.equal(call[1].env.PYTHONUNBUFFERED, '1');
+  });
+
   it('elsewhere: runs the binary with its args, no shell', () => {
     const bin = fakeCli('Not logged in');
     const [call] = spawnAs('linux', bin);
@@ -240,9 +268,100 @@ describe('Cursor readiness — how the status check is started', () => {
   });
 });
 
+describe('Hermes readiness — status times out after reporting credentials', () => {
+  function timedOutStatus(stdout, code = 'ETIMEDOUT') {
+    const inst = new Installer(mockRegistry, tmpDir);
+    inst._spawnLoginStatus = () => ({
+      stdout,
+      stderr: '',
+      status: null,
+      error: Object.assign(new Error('status did not exit'), { code }),
+    });
+    const spec = registry.find((entry) => entry.name === 'hermes').check_ready;
+    return inst._checkLoginStatus(spec, '/fake/hermes.exe');
+  }
+
+  it('retains explicit login evidence when unrelated diagnostics time out', () => {
+    assert.equal(timedOutStatus('OpenAI Codex  \x1b[32m✓\x1b[0m logged in\n◆ Terminal Backend\n'), true);
+  });
+
+  it('an incomplete signed-out report remains unknown', () => {
+    assert.equal(timedOutStatus('Nous Portal  ✗ not logged in\n'), null);
+  });
+
+  it('does not accept output from an unrelated spawn failure', () => {
+    assert.equal(timedOutStatus('OpenAI Codex  ✓ logged in\n', 'EACCES'), null);
+  });
+
+  it('keeps the summary Providers row printed before a slow gateway check', () => {
+    assert.equal(timedOutStatus('  Provider:     Anthropic\n  Providers:    Anthropic\n'), true);
+  });
+
+  it('an incomplete summary without a provider remains unknown', () => {
+    assert.equal(timedOutStatus('  Provider:     Auto\n  Providers:    none connected\n'), null);
+  });
+});
+
+// `hermes status` since Hermes 2026-10 (upstream a3149156e) is a summary; the
+// sections the patterns above read need --full. Layout from hermes_cli/status.py.
+function hermesSummary(providers, eol = '\n') {
+  return [
+    '',
+    '  Model:        claude-sonnet-4-6',
+    '  Provider:     Anthropic',
+    `  Providers:    ${providers}`,
+    '  Gateway:      stopped',
+    '  Platforms:    none configured',
+    '  Jobs:         none',
+    "  Run 'hermes status --full' for every section",
+    '',
+  ].join(eol);
+}
+
+describe('Hermes readiness — the default summary', () => {
+  const spec = () => require('../registry.json').find((entry) => entry.name === 'hermes').check_ready;
+
+  it('a provider with credentials is a sign-in, none connected is not', () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('Anthropic, OpenAI Codex'), 0), true);
+    assert.equal(loginVerdict(spec(), hermesSummary('Nous Portal', '\r\n'), 0), true);
+    assert.equal(loginVerdict(spec(), hermesSummary('none connected'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('none connected', '\r\n'), 0), false);
+  });
+
+  it("OpenAgents' own per-agent providers are not a sign-in", () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-hermes1'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-a, openagents-hermes-1-1a2b3c'), 0), false);
+    assert.equal(loginVerdict(spec(), hermesSummary('openagents-a, Nous Portal'), 0), true);
+  });
+
+  it('leans to ready when Hermes could not list its providers', () => {
+    assert.equal(loginVerdict(spec(), hermesSummary('unknown'), 0), true);
+  });
+
+  it('stays fast on a very long Providers row', () => {
+    const started = Date.now();
+    const row = `${'openagents-x, '.repeat(5000)}none connected`;
+    assert.equal(loginVerdict(spec(), hermesSummary(row), 0), false);
+    assert.ok(Date.now() - started < 1000);
+  });
+});
+
 describe('loginVerdict', () => {
   const signedOut = { logged_out_pattern: 'not logged in|logged out' };
   const signedIn = { logged_in_pattern: 'logged in as' };
+
+  it('recognises the registry Hermes OAuth status with ANSI colors', () => {
+    const spec = require('../registry.json').find((entry) => entry.name === 'hermes').check_ready;
+    assert.equal(loginVerdict(spec, 'Nous Portal  ✗ not logged in\nOpenAI Codex  \x1b[32m✓\x1b[0m logged in', 0), true);
+    assert.equal(loginVerdict(spec, 'OpenAI Codex  \x1b[31m✗\x1b[0m not logged in', 0), false);
+  });
+
+  it('recognises Hermes Anthropic credentials without a Nous or Codex login', () => {
+    const spec = require('../registry.json').find((entry) => entry.name === 'hermes').check_ready;
+    assert.equal(loginVerdict(spec, '  Anthropic     \x1b[32m✓\x1b[0m sk-ant-...test\n  Nous Portal   ✗ not logged in\n  OpenAI Codex  ✗ not logged in', 0), true);
+    assert.equal(loginVerdict(spec, '  Anthropic     ✗ (not set)\n  Nous Portal   ✗ not logged in', 0), false);
+    assert.equal(loginVerdict(spec, '  GitHub        ✓ ghp-...test\n  Anthropic     ✗ (not set)', 0), false);
+  });
 
   it('a signed-out pattern: match → false, clean run without it → true', () => {
     assert.equal(loginVerdict(signedOut, 'Not logged in\n', 0), false);

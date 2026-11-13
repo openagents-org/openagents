@@ -3,6 +3,9 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
 const {
   listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels,
 } = require('../src/cli-models');
@@ -219,6 +222,69 @@ describe('parsePiModels', () => {
 });
 
 describe('listCliModels', () => {
+  it('lists Hermes active-provider models through its own Python without starting a chat', async () => {
+    // The real path: the lookup resolves the binary first, and on macOS the
+    // temp dir (/var/folders/...) is a symlink to /private/var/folders/...
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'hermes-models-'));
+    try {
+      const python = path.join(dir, process.platform === 'win32' ? 'python.exe' : 'python');
+      fs.writeFileSync(python, '');
+      const binary = path.join(dir, process.platform === 'win32' ? 'hermes.exe' : 'hermes');
+      fs.writeFileSync(binary, '');
+      const fake = fakeSpawn(answers(JSON.stringify({ provider: 'openai-codex', models: ['gpt-6-astra', 'gpt-5.5', 'gpt-6-astra', 'bad;command'] })));
+      const result = await listCliModels(connector({ binary }), 'hermes', { spawnImpl: fake.spawnImpl });
+      assert.deepEqual(result.models, [
+        { id: 'gpt-6-astra', label: 'gpt-6-astra (openai-codex)' },
+        { id: 'gpt-5.5', label: 'gpt-5.5 (openai-codex)' },
+      ]);
+      assert.equal(result.ok, true);
+      assert.equal(fake.calls[0].binary, python);
+      assert.match(fake.calls[0].args[0], /hermes-models\.py$/);
+      assert.equal(fake.calls[0].options.shell, false);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not start an interactive Hermes command when its Python cannot be located', async () => {
+    const fake = fakeSpawn(answers(''));
+    const result = await listCliModels(connector({ binary: '/missing/hermes' }), 'hermes', { spawnImpl: fake.spawnImpl });
+    assert.equal(result.ok, false);
+    assert.equal(fake.calls.length, 0);
+  });
+
+  it('finds the Python used by the official Hermes managed-bin install', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-install-'));
+    try {
+      const scriptDir = process.platform === 'win32' ? 'Scripts' : 'bin';
+      const python = path.join(dir, 'hermes-agent', 'venv', scriptDir, process.platform === 'win32' ? 'python.exe' : 'python');
+      fs.mkdirSync(path.dirname(python), { recursive: true });
+      fs.writeFileSync(python, '');
+      const fake = fakeSpawn(answers('{"provider":"openai-codex","models":["gpt-6-astra"]}'));
+      const result = await listCliModels(connector({ binary: path.join(dir, 'bin', 'hermes.exe') }), 'hermes', { spawnImpl: fake.spawnImpl });
+      assert.equal(result.ok, true);
+      assert.equal(fake.calls[0].binary, python);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('uses a Unix installer shim literal interpreter instead of a different Python', { skip: process.platform === 'win32' }, async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-shim-'));
+    try {
+      const python = path.join(dir, 'install', 'venv', 'bin', 'python');
+      fs.mkdirSync(path.dirname(python), { recursive: true });
+      fs.writeFileSync(python, '');
+      const binary = path.join(dir, 'hermes');
+      fs.writeFileSync(binary, `#!/usr/bin/env bash\nexec "${python}" "/install/hermes" "$@"\n`);
+      const fake = fakeSpawn(answers('{"provider":"openai-codex","models":["gpt-6-astra"]}'));
+      assert.equal((await listCliModels(connector({ binary }), 'hermes', { spawnImpl: fake.spawnImpl })).ok, true);
+      assert.equal(fake.calls[0].binary, python);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it('knows which CLIs can be asked', () => {
     assert.equal(supportsCliModels('codex'), true);
     assert.equal(supportsCliModels('claude'), true);

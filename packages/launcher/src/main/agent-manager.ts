@@ -39,6 +39,7 @@ import {
 } from "./agents/auth-specs"
 import { codebuddyLoginEnv } from "./agents/codebuddy-signin"
 import { listedAgentModel } from "../shared/agent-model"
+import { readHermesModel } from "./agents/hermes-model"
 import {
   normalizeEnvForSave,
   normalizeWorkspaceEndpoint,
@@ -430,6 +431,8 @@ export class AgentManager extends EventEmitter {
         : null
       const statusEntry = status[a.name as string]
       const statusError = statusEntry?.last_error || null
+      const instanceEnv = (a.instanceEnv ?? a.env) as Record<string, string> | undefined
+      const binary = this.resolveBinary(type)
       return {
         ...a,
         state: statusEntry?.state || "stopped",
@@ -437,7 +440,7 @@ export class AgentManager extends EventEmitter {
         lastError: statusError || runtimeMessage,
         health: this._health.reconcileAgentHealth(
           type,
-          a.env as Record<string, string> | undefined,
+          instanceEnv,
           this._healthByType.get(type) || null,
         ),
         runtimeMismatch,
@@ -448,12 +451,21 @@ export class AgentManager extends EventEmitter {
         // list showed "—" for an agent that was configured correctly, and a
         // user with no way to check what it was running had to take the
         // agent's word for it (it guessed, and guessed wrong).
-        model: listedAgentModel(typeEnv(type), a as { env?: Record<string, string>; instanceEnv?: Record<string, string> }),
+        // Hermes passes the agent's selection to chat --model; only an agent
+        // without a selection falls back to its native profile config.
+        model: type === "hermes"
+          ? readHermesModel({
+              agentName: a.name as string,
+              binary,
+              typeEnv: typeEnv(type),
+              instanceEnv,
+            })
+          : listedAgentModel(typeEnv(type), a as { env?: Record<string, string>; instanceEnv?: Record<string, string> }),
         // Whether this agent type has an interactive CLI binary we can open a
         // terminal session against. API-only types (kimi, openclaw — run via the
         // core's generic LLM runner) resolve to no binary, so the renderer hides
         // the "Chat" action for them.
-        hasCli: !!this.resolveBinary(type),
+        hasCli: !!binary,
       }
     })
     this._agentsCache = { value, at: now, status }
