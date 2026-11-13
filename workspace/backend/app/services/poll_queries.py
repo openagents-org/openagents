@@ -1,6 +1,7 @@
 """Indexed event polling and short-lived, commit-invalidated stream heads."""
 import hashlib
 import json
+import time
 import uuid
 
 from sqlalchemy import event, literal_column, select
@@ -90,12 +91,24 @@ def _discard_rolled_back_heads(session):
         session.info.pop('dm_workspaces', None)
 
 
+# How long an event may take between its timestamp and becoming visible to
+# other polls (persistence restamps it, the request commits soon after).
+# Polls never jump their cursor into this window; re-reading it is harmless,
+# connectors drop duplicates by id.
+HEAD_SETTLE_MS = 5000
+
+
 def stream_head(db, workspace_id, prefix, channel=None, target=None):
     scope = json.dumps([str(workspace_id), prefix, channel, target], separators=(',', ':'))
     key = 'v1events:stream-head:' + hashlib.sha256(scope.encode()).hexdigest() + ':' + poll_generation(workspace_id)
 
     def fetch():
-        query = select(EventRecord.id, EventRecord.timestamp).where(EventRecord.network_id == workspace_id)
+        # Only settled events: one still being routed or committed may become
+        # visible later with an earlier timestamp, and a cursor already past it
+        # would skip it for good.
+        settled = int(time.time() * 1000) - HEAD_SETTLE_MS
+        query = select(EventRecord.id, EventRecord.timestamp).where(
+            EventRecord.network_id == workspace_id, EventRecord.timestamp <= settled)
         if prefix:
             query = query.where(event_type_filter(prefix))
         if channel:
