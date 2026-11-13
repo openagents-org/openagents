@@ -296,12 +296,16 @@ function stripCliNoise(text) {
  * Windows caps a whole command line at 32,767 characters and Node fails the
  * spawn itself with ENAMETOOLONG — the system prompt plus a large pinned
  * glossary got there with a one-word message. Linux caps a single argument at
- * 128 KiB. Both limits leave headroom for quoting and the rest of the argv.
- * Past it, an adapter sends the prompt over stdin.
+ * 128 KiB, counted in bytes: 44,000 Chinese characters are 132,000 bytes in
+ * UTF-8 and failed with E2BIG while well under a character limit. Windows
+ * counts UTF-16 units, which is what `length` is. Both limits leave headroom
+ * for quoting and the rest of the argv. Past it, an adapter sends the prompt
+ * over stdin.
  */
 function promptFitsArgv(prompt, platform = process.platform) {
-  const limit = platform === 'win32' ? 24000 : 100000;
-  return String(prompt || '').length <= limit;
+  const text = String(prompt || '');
+  if (platform === 'win32') return text.length <= 24000;
+  return Buffer.byteLength(text, 'utf8') <= 100000;
 }
 
 module.exports = {

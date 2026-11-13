@@ -64,6 +64,14 @@ describe('long prompts', () => {
     assert.equal(agyPromptFitsArgv('x'.repeat(200000), 'linux'), false);
   });
 
+  // Linux counts a single argument in bytes: 44,000 Chinese characters are
+  // 132,000 UTF-8 bytes and failed the spawn with E2BIG.
+  it('counts bytes, not characters, outside Windows', () => {
+    assert.equal(agyPromptFitsArgv('汉'.repeat(44000), 'linux'), false);
+    assert.equal(agyPromptFitsArgv('汉'.repeat(33000), 'linux'), true);
+    assert.equal(agyPromptFitsArgv('汉'.repeat(20000), 'win32'), true);
+  });
+
   it('writes the prompt as one stream-json user event line', () => {
     const line = agyStdinMessage('第一行\n"quoted"');
     assert.ok(line.endsWith('\n'));

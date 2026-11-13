@@ -593,6 +593,15 @@ describe('Hermes: a prompt too long for a command line', () => {
     assert.deepEqual(made.built, []);
   });
 
+  it('asks again after a version check that got no answer', async () => {
+    const made = stubbed(new Error('timed out'));
+    assert.equal(await made.a._supportsQueryFile(), false);
+    made.a._hermesVersionText = async () => { made.seen.versionProbes++; return CURRENT_HERMES; };
+    assert.equal(await made.a._supportsQueryFile(), true);
+    assert.equal(await made.a._supportsQueryFile(), true);
+    assert.equal(made.seen.versionProbes, 2);
+  });
+
   it('asks for the version once for the prefill and the stdin checks together', async () => {
     const made = stubbed(CURRENT_HERMES);
 

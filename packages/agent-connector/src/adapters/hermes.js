@@ -520,13 +520,15 @@ class HermesAdapter extends BaseAdapter {
   /**
    * What this hermes binary prints for `--version`, asked once per binary;
    * '' when it could not be asked, which every feature check reads as too old.
+   * Only an answer is kept: one slow ask (a WSL cold start past the timeout)
+   * would otherwise tell every later long message to `hermes update`.
    */
   async _cachedVersionText() {
     const known = this._versionTextCache;
     if (known && known.bin === this._hermesBin) return known.text;
     let text = '';
     try { text = String(await this._hermesVersionText()); } catch {}
-    this._versionTextCache = { bin: this._hermesBin, text };
+    if (text.trim()) this._versionTextCache = { bin: this._hermesBin, text };
     return text;
   }
 
