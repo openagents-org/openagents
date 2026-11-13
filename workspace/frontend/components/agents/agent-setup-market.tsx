@@ -9,8 +9,30 @@ import { Input } from '@/components/ui/input';
 import type { AgentCatalogEntry } from '@/lib/types';
 import { CatalogStateNotice, MarketLogo, MarketStatusBadge, marketStatusMeta, type CatalogState, type GalleryStatus } from './agent-setup';
 
-/** Listed first, under "Popular", in this order. */
-const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** Agent types by how many people use them (people per type over the last
+ *  30 days, Nov 2026); types without usage data follow in a hand-picked order.
+ *  The gallery, the featured spotlight and the compact picker all list types
+ *  in this order; types missing here go last, in catalog order. */
+export const MARKET_AGENT_ORDER = [
+  'codex', 'claude', 'opencode', 'hermes', 'cursor', 'deepseek', 'openclaw', 'gemini',
+  'codebuddy', 'antigravity', 'pi', 'kimi', 'copilot', 'cline',
+  'qwen-code', 'kiro', 'aider', 'goose', 'amp', 'qoder', 'qoder-cn', 'mimo-code',
+  'codearts', 'commandcode', 'openworker', 'nanoclaw', 'mini-swe-agent',
+];
+
+/** The first this-many types are listed under "Popular" (four rows of three). */
+const MARKET_POPULAR_COUNT = 12;
+
+export function sortByUsage<T extends { name: string }>(entries: T[]): T[] {
+  const rank = (name: string) => {
+    const i = MARKET_AGENT_ORDER.indexOf(name);
+    return i === -1 ? MARKET_AGENT_ORDER.length : i;
+  };
+  // Array.prototype.sort is stable, so unranked types keep catalog order.
+  return [...entries].sort((a, b) => rank(a.name) - rank(b.name));
+}
+
+const MARKET_POPULAR_AGENTS = MARKET_AGENT_ORDER.slice(0, MARKET_POPULAR_COUNT);
 
 // The gallery draws in the app's own tokens — cards on `bg-card`, the
 // near-black (near-white in dark) `primary` for the one filled button — so it
@@ -154,9 +176,8 @@ export function MarketGallery({
 }) {
   const t = useT();
   const q = query.trim();
-  const popular = MARKET_POPULAR_AGENTS
-    .map((n) => visible.find((e) => e.name === n))
-    .filter((e): e is AgentCatalogEntry => !!e);
+  // `visible` arrives in MARKET_AGENT_ORDER (see sortByUsage).
+  const popular = visible.filter((e) => MARKET_POPULAR_AGENTS.includes(e.name));
   const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
 
   const section = (title: string, entries: AgentCatalogEntry[]) => entries.length > 0 && (
