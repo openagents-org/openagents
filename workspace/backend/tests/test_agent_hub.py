@@ -223,3 +223,12 @@ def test_denied_consent_returns_access_denied(client, person):
         "client_id": client_id, "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
         "code_challenge": challenge, "approve": False}).json()["data"]["redirect"]
     assert parse_qs(urlparse(denied).query)["error"] == ["access_denied"]
+
+
+def test_hub_is_advertised_on_its_own_host(client):
+    meta = client.get("/.well-known/oauth-protected-resource").json()
+    assert meta["resource"] == "https://mcp.openagents.org/mcp"
+    assert meta["authorization_servers"] == ["https://mcp.openagents.org"]
+    assert client.get("/.well-known/oauth-authorization-server").json()["token_endpoint"] == \
+        "https://mcp.openagents.org/oauth/token"
+    assert "https://mcp.openagents.org/v1/hub/threads" in client.get("/v1/hub/docs").text

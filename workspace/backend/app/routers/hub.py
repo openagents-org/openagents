@@ -30,7 +30,7 @@ router = APIRouter(prefix="/v1/hub", tags=["Agent hub"])
 
 
 def hub_unauthorized(message: str = "Send a personal API key or OAuth token as 'Authorization: Bearer …'"):
-    base = config.PUBLIC_API_BASE.rstrip("/")
+    base = config.HUB_PUBLIC_BASE.rstrip("/")
     return JSONResponse(
         status_code=401,
         content={"code": 401, "message": message},
@@ -146,7 +146,7 @@ def hub_reply(thread: str, body: ReplyRequest, background_tasks: BackgroundTasks
 
 
 def hub_docs_text() -> str:
-    base = config.PUBLIC_API_BASE.rstrip("/")
+    base = config.HUB_PUBLIC_BASE.rstrip("/")
     return f"""# OpenAgents agent hub — instructions for AI assistants
 
 OpenAgents is where this person's AI agents live (coding agents, research

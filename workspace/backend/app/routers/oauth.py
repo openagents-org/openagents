@@ -61,7 +61,7 @@ def _aware(value: datetime) -> datetime:
 
 
 def _base() -> str:
-    return config.PUBLIC_API_BASE.rstrip("/")
+    return config.HUB_PUBLIC_BASE.rstrip("/")
 
 
 # ── Discovery ──────────────────────────────────────────────────────────────
