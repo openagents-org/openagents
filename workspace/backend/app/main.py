@@ -22,7 +22,7 @@ from app.config import config
 # Registers the commit hooks that invalidate cached permission results; it must
 # load before any request can write permission rows.
 import app.services.permission_cache  # noqa: E402,F401
-from app.routers import hub, mcp, oauth, file_links, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
+from app.routers import hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -624,6 +624,36 @@ from app.request_auth import RequestAuthMiddleware
 app.add_middleware(RequestAuthMiddleware)
 
 
+class ShareHostGuardMiddleware:
+    """On the share domain (SHARE_CONTENT_HOST) serve only shared pages and
+    health checks. That domain renders pages strangers made; the rest of the
+    API must not answer there, or it would be a second address for sign-in,
+    tokens and everything else (app/routers/public_shares.py)."""
+
+    _ALLOWED = ("/health", "/ready")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        host = config.SHARE_CONTENT_HOST
+        if scope["type"] == "http" and host:
+            raw = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k.lower() == b"host"), "")
+            if raw.split(":")[0].lower() == host:
+                path = scope.get("path", "")
+                shared_page = path.startswith("/v1/public/shares/") and "/site/" in path
+                if not shared_page and path not in self._ALLOWED:
+                    await send({"type": "http.response.start", "status": 404,
+                                "headers": [(b"content-type", b"text/plain"), (b"referrer-policy", b"no-referrer")]})
+                    await send({"type": "http.response.body", "body": b"Not found"})
+                    return
+        await self.app(scope, receive, send)
+
+
+# Added last, so it runs first: nothing else answers on the share domain.
+app.add_middleware(ShareHostGuardMiddleware)
+
+
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing
 # from a bare 422. Triggered any time FastAPI rejects a request body
@@ -674,7 +704,7 @@ app.include_router(events.router)
 app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
-app.include_router(file_links.router)
+app.include_router(public_shares.router)
 app.include_router(web_projects.router)
 app.include_router(integrations.router)
 app.include_router(invites.router)

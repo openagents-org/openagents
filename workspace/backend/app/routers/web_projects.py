@@ -97,6 +97,14 @@ def read_archive(record):
     """Validate even bundles uploaded through the generic file API."""
     try:
         data = get_file_store().read(record.storage_key)
+    except (ValueError, KeyError, TypeError, RuntimeError, OSError):
+        raise HTTPException(404, 'Project bundle is unavailable or invalid.')
+    return open_archive(data)
+
+
+def open_archive(data):
+    """(archive, manifest) for a bundle's bytes; 404 when it is not a valid one."""
+    try:
         if len(data) > MAX_BYTES + 1024 * 1024: raise ValueError()
         archive = zipfile.ZipFile(io.BytesIO(data))
         infos = archive.infolist()

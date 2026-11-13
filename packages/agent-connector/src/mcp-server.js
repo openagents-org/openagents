@@ -527,6 +527,20 @@ function buildToolDefs(disabledModules) {
       },
     },
     {
+      name: 'workspace_request_public_link',
+      description: 'Ask a person to publish a public "anyone with the link" page for a workspace file (image, video, HTML page, web project, table, document…) or knowledge entry. Use ONLY when the user asked to share something publicly or with people outside the workspace. You cannot create the link yourself: this files a request in the thread, and a person who can manage the artifact approves or rejects it. The link shows a snapshot of the artifact as it is now — later edits are not visible until someone shares it again. Optionally set an expiry (default: never). Once approved, the link arrives as a message in this thread @mentioning you; until then, do not claim a link exists.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          kind: { type: 'string', enum: ['file', 'knowledge'], description: 'file = a workspace file or web project; knowledge = a knowledge base entry' },
+          id: { type: 'string', description: 'The file id or knowledge entry id' },
+          reason: { type: 'string', description: 'Why it should be public, shown to the approver (e.g. "The user asked to send this report to a client")' },
+          expires_at: { type: 'string', description: 'Optional ISO 8601 date/time after which the link stops working, e.g. "2026-12-31T00:00:00Z". Omit for no expiry.' },
+        },
+        required: ['kind', 'id'],
+      },
+    },
+    {
       name: 'workspace_check_approval',
       description: 'Check the status of an approval request you made earlier (by id). Use after workspace_request_approval returned "pending".',
       inputSchema: {
@@ -1265,6 +1279,23 @@ class McpServer {
           }
         }
         return text(formatApproval(approval));
+      }
+
+      case 'workspace_request_public_link': {
+        const approval = await this.ws.requestPublicShare(this.workspaceId, this.token, {
+          channel: this.channelName,
+          kind: args.kind || 'file',
+          id: args.id,
+          reason: args.reason,
+          expires_at: args.expires_at,
+          source: `openagents:${this.agentName}`,
+        });
+        return text(
+          `Public link request filed (approval id: ${approval.id}, status: ${approval.status || 'pending'}). ` +
+          'No link exists yet: a person who can manage the artifact must approve it in this thread. ' +
+          'Stop here and tell the user it is waiting for their approval; when approved, the link arrives ' +
+          'as a message @mentioning you. Check later with workspace_check_approval.'
+        );
       }
 
       case 'workspace_check_approval': {

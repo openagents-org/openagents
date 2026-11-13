@@ -612,6 +612,11 @@ def resolve(
         resolve_request(db, workspace, approval, actor_id, actor_label)
         return approval
 
+    if approval.kind == "public_share_request":
+        from app.services.public_shares import resolve_request as resolve_public_share
+        resolve_public_share(db, workspace, approval, actor_id, actor_label)
+        return approval
+
     if approval.kind in ("service_request", "thread_agent_request", "issue_agent_request"):
         from app.services.service_requests import release_request
         release_request(db, workspace, approval, actor_label)

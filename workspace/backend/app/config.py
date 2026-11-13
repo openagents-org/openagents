@@ -199,6 +199,11 @@ class Config:
     PUBLIC_API_BASE: str = os.environ.get(
         "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
     )
+    # The separate domain shared web pages and web projects render on (e.g.
+    # "oa-share.page"), pointed at this API. A page rendered on the product's
+    # own domain could pass for an OpenAgents sign-in form, so public links
+    # render HTML only from this host; unset, they show its source instead.
+    SHARE_CONTENT_HOST: str = os.environ.get("SHARE_CONTENT_HOST", "").strip().lower()
     # Public origin of the agent hub: the MCP endpoint, its OAuth server and
     # the hub REST docs. A proxied CNAME to the same backend, so ChatGPT and
     # Claude see a stable, product-named URL (https://mcp.openagents.org/mcp).

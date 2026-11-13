@@ -668,28 +668,45 @@ class FileRecord(Base):
     )
 
 
-class FileShareLink(Base):
-    """An "anyone with the link" view link for one file.
+class PublicShare(Base):
+    """An "anyone with the link" public link to a snapshot of one artifact.
 
-    Opening /share/file/<token> needs no sign-in and no workspace membership.
-    A file has at most one live link; revoking stamps revoked_at, and sharing
-    again mints a new token, so an old link never comes back to life.
+    Opening /share/artifact/<token> needs no sign-in and no workspace
+    membership. What it serves is a copy taken when the link was made (or last
+    refreshed), never the live artifact, so later edits — an agent rewriting
+    the file — do not reach the public until a person shares again.
+
+    ``resource_kind`` is "file" or "knowledge"; a web project is a file. An
+    artifact has at most one live link: refreshing keeps the token and
+    replaces the snapshot; revoking stamps revoked_at, and sharing again mints
+    a new token, so an old link never comes back to life. ``assets`` holds the
+    images a shared markdown document embeds, copied with it.
     """
-    __tablename__ = "file_share_links"
+    __tablename__ = "public_shares"
 
     id = Column(Text, primary_key=True, default=_uuid)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
-    file_id = Column(Text, ForeignKey("files.id", ondelete="CASCADE"), nullable=False)
+    resource_kind = Column(Text, nullable=False)
+    resource_id = Column(Text, nullable=False)
     token = Column(Text, unique=True, nullable=False)
-    created_by = Column(Text, nullable=False)
+    created_by = Column(Text, nullable=False)          # "human:<email>"
+    approval_id = Column(Text, nullable=True)          # set when an agent asked and a person approved
+    title = Column(Text, nullable=False)
+    content_type = Column(Text, nullable=True)
+    size = Column(BigInteger, nullable=True)
+    storage_key = Column(Text, nullable=False)         # the snapshot, not the artifact's own object
+    assets = Column(JSONB, nullable=True)
+    entrypoint = Column(Text, nullable=True)          # the page an HTML file or web project opens on
+    expires_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    snapshot_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
     revoked_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
-        Index("idx_file_share_links_file", "file_id"),
-        # At most one live link per file, even when two creates race.
+        Index("idx_public_shares_resource", "resource_kind", "resource_id"),
+        # At most one live link per artifact, even when two creates race.
         Index(
-            "uq_file_share_links_live", "file_id", unique=True,
+            "uq_public_shares_live", "resource_kind", "resource_id", unique=True,
             postgresql_where=text("revoked_at IS NULL"),
             sqlite_where=text("revoked_at IS NULL"),
         ),

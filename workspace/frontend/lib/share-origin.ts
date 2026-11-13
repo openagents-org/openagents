@@ -21,7 +21,13 @@ export function shareOrigin(): string {
   return desktop ? desktop.replace(/\/$/, '') : HOSTED_ORIGIN;
 }
 
-/** The no-sign-in page for a file's "anyone with the link" token. */
-export function publicFileUrl(token: string): string {
-  return `${shareOrigin()}/share/file/${encodeURIComponent(token)}`;
+/** The no-sign-in page for an artifact's "anyone with the link" token. */
+export function publicShareUrl(token: string): string {
+  return `${shareOrigin()}/share/artifact/${encodeURIComponent(token)}`;
+}
+
+/** Point the images a shared document embeds (copied with it as
+ *  `oa-share-asset:<n>`) at their public copies under `assetBase`. */
+export function withSharedAssets(markdown: string, assetBase: string): string {
+  return markdown.replace(/oa-share-asset:(\d+)/g, (_, n: string) => `${assetBase}/${n}`);
 }

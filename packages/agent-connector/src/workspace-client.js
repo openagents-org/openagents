@@ -1199,6 +1199,27 @@ class WorkspaceClient {
     return data.data || data;
   }
 
+  /** Ask for a public "anyone with the link" link to an artifact (POST
+   * /v1/public-shares/requests). Nothing is published: the workspace files
+   * an approval in the thread, and a person who can manage the artifact
+   * decides. Returns the approval record (status "pending"). */
+  async requestPublicShare(workspaceId, token, {
+    channel, kind, id, expires_at, reason, source, requester_email,
+  } = {}) {
+    const body = {
+      network: workspaceId,
+      channel,
+      kind: kind || 'file',
+      id,
+      source: source || 'openagents:unknown',
+    };
+    if (expires_at) body.expires_at = expires_at;
+    if (reason) body.reason = String(reason).slice(0, 500);
+    if (requester_email) body.requester_email = requester_email;
+    const data = await this._post('/v1/public-shares/requests', body, this._wsHeaders(token));
+    return data.data || data;
+  }
+
   async getApproval(workspaceId, token, approvalId) {
     const params = new URLSearchParams({ network: workspaceId });
     const data = await this._get(`/v1/approvals/${encodeURIComponent(approvalId)}?${params}`, this._wsHeaders(token));

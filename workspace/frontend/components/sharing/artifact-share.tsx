@@ -28,6 +28,11 @@ import { ArtifactVisibilityBadge } from './artifact-access-badge';
 import { PublicLinkSection } from './public-link-section';
 import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
 
+/** Pages that render on the separate share domain rather than as a preview. */
+export function isWebPage(contentType: string | undefined, name: string): boolean {
+  return contentType === WEB_PROJECT_TYPE || /html/.test(contentType || '') || /\.html?$/i.test(name);
+}
+
 export interface ArtifactShareProps {
   kind: ArtifactKind;
   id: string;
@@ -39,7 +44,7 @@ export interface ArtifactShareProps {
   /** Files attached to a thread may also inherit (visibility null). */
   canInherit?: boolean;
   onVisibilityChange?: (visibility: ArtifactVisibility | null) => Promise<void> | void;
-  /** Files only: lets the public-link section say web projects aren't supported. */
+  /** Files only: lets the public-link section say how web pages are shown. */
   contentType?: string;
 }
 
@@ -163,7 +168,7 @@ export function ArtifactShareContent({
   return (
     <div className="space-y-4 text-sm">
       {/* Anyone with the link — the one way to reach people outside the workspace */}
-      {kind === 'file' && <PublicLinkSection fileId={id} unsupported={contentType === WEB_PROJECT_TYPE} />}
+      <PublicLinkSection kind={kind} id={id} webPage={isWebPage(contentType, name)} />
       {/* Visibility */}
       <section className="space-y-2">
         <div className="flex items-center justify-between gap-2">
