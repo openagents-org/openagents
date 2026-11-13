@@ -11,6 +11,7 @@ Expects context.extra to contain:
 """
 
 import logging
+import time
 from typing import List, Optional
 
 from openagents.core.onm_events import Event
@@ -41,6 +42,10 @@ class PersistenceMod(ObserveMod):
             logger.warning("persistence: no db or workspace in context, skipping")
             return None
 
+        # Stamp the time it is saved: routing can hold an event for seconds,
+        # and a timestamp older than events already visible would put it
+        # behind cursors that have moved past them.
+        event.timestamp = max(event.timestamp or 0, int(time.time() * 1000))
         record = EventRecord(
             id=event.id,
             network_id=workspace.id,

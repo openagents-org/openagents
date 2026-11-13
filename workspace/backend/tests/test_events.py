@@ -709,3 +709,45 @@ class TestPollCacheFreshness:
         self._post(client, workspace, "reply")
         after = client.get("/v1/events", params={**params, "after": cursor}, headers=headers).json()["data"]
         assert [e["payload"]["content"] for e in after["events"]] == ["reply"]
+
+
+class TestLateSavedEvents:
+    """An event can be saved seconds after its timestamp (routing); polls must not skip it."""
+
+    def test_late_saved_message_still_reaches_its_agent(self, client, workspace, db):
+        import time
+        from app.models import EventRecord
+        net, ch = workspace["id"], f"channel/{workspace['channel']['name']}"
+        now = int(time.time() * 1000)
+
+        def add(eid, targets, ts):
+            db.add(EventRecord(id=eid, network_id=net, type="workspace.message.posted", source="human:user1",
+                               target=ch, payload={"content": eid, "message_type": "chat"},
+                               metadata_={"target_agents": targets}, timestamp=ts))
+            db.commit()
+
+        def poll(after=None):
+            params = {"network": net, "type": "workspace.message.posted", "target_agents": "alpha"}
+            if after:
+                params["after"] = after
+            return client.get("/v1/events", params=params, headers={"X-Workspace-Token": workspace["token"]}).json()["data"]
+
+        add("ev-old", ["alpha"], now - 60_000)
+        first = poll()
+        add("ev-other", ["beta"], now - 1_000)        # someone else's message, visible at once
+        second = poll(first["next_cursor"])            # alpha polls while its own message is still routing
+        add("ev-late", ["alpha"], now - 2_000)         # saved late, stamped before ev-other
+        third = poll(second["next_cursor"])
+        assert "ev-late" in [e["id"] for e in third["events"]]
+
+    def test_posted_message_is_stamped_when_saved(self, client, workspace, db):
+        import time
+        from app.models import EventRecord
+        before = int(time.time() * 1000)
+        resp = client.post("/v1/events", json={"type": "workspace.message.posted", "source": "openagents:agent-alpha",
+                                               "target": f"channel/{workspace['channel']['name']}", "network": workspace["id"],
+                                               "payload": {"content": "hello"}, "timestamp": before - 3_600_000},
+                           headers={"X-Workspace-Token": workspace["token"]})
+        assert resp.status_code == 200, resp.text
+        row = db.get(EventRecord, resp.json()["data"]["id"])
+        assert row.timestamp >= before

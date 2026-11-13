@@ -207,3 +207,11 @@ def test_real_redis_lock_and_expiration():
         assert len(calls) == 2
     finally:
         cache.delete_key(key)
+
+
+def test_stream_head_ignores_unsettled_events(db, redis_memory):
+    # A cursor must not jump into the window where an earlier-stamped event can still appear.
+    now = int(time.time() * 1000)
+    add(db, 'settled', now - 60_000)
+    add(db, 'fresh', now - 1_000)
+    assert stream_head(db, WID, 'workspace.message')['id'] == 'settled'
