@@ -230,13 +230,21 @@ class ClaudeAdapter extends BaseAdapter {
    * 5s to actually finish the cleanup before the parent exits.
    */
   stop() {
+    // One stop, one notice. The daemon stops an agent twice per restart (once
+    // directly, once more from its 1s checkStop poll), and _stopAllProcesses
+    // only forgets a channel after awaiting its kill, so a second pass posted
+    // "Task interrupted" again for the same run.
+    if (this.wasStopRequested()) return;
+    // Marked before the kill: the turn waiting on the process must read its
+    // SIGTERM as this stop, not as a failure ("No response generated (exit
+    // code 143)" on top of the notice below).
+    super.stop();
     for (const channel of Object.keys(this._persistentProcs)) {
       this._killPersistentProc(channel);
     }
     this._stopAllProcesses(
       'Task interrupted — daemon restarting. Send another message to continue.'
     ).catch(() => {});
-    super.stop();
   }
 
   async _stopProcess(proc) {
@@ -1464,6 +1472,9 @@ class ClaudeAdapter extends BaseAdapter {
           await this._finishUserStop(msgChannel);
           return;
         }
+        // Killed by the agent's own stop (daemon restart or shutdown): stop()
+        // has told the channel, and a replacement spawned now would outlive it.
+        if (!result.resultEvent && this.wasStopRequested()) return;
         if (result.resultEvent) {
           const finalResponse = this._composeFinalResponse(existingPP);
           if (this._isPromptTooLong(existingPP, finalResponse) && this._channelSessions[msgChannel]) {
@@ -1575,6 +1586,11 @@ class ClaudeAdapter extends BaseAdapter {
           await this._finishUserStop(msgChannel);
           break;
         }
+
+        // Killed by the agent's own stop (daemon restart or shutdown): stop()
+        // posts the notice. Read as a failure, the exit posted "No response
+        // generated (exit code 143)" too, or was retried as a stale session.
+        if (result.exited && this.wasStopRequested()) break;
 
         if (result.exited) {
           this._log(`Process exited during first message (attempt ${attempt + 1})`);

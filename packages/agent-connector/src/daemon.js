@@ -1610,6 +1610,13 @@ async _runNodeCommand(n, cmd) {
     const agent = this.config.getAgent(agentName);
     if (agent) {
       this._launchAgent(agent);
+      // The reload's record of this agent is now what it runs on. Left
+      // stale, the config-watch reload that follows the same write (`agn
+      // connect` saves the workspace AND sends restart:<name>) found it
+      // "changed" and restarted the agent again about a second after it came
+      // online — killing the first message it had already picked up.
+      if (this._cachedAgentNames) this._cachedAgentNames.add(agentName);
+      if (this._cachedAgentConfigs) this._cachedAgentConfigs[agentName] = this._agentConfigFingerprint(agent);
       this._writeStatus();
     }
   }
