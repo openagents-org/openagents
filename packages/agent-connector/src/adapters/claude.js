@@ -29,6 +29,7 @@ const { isPostinstallStub } = require('../postinstall-stub');
 const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
 
 const IS_WINDOWS = process.platform === 'win32';
+const DAEMON_STOP_NOTICE = 'Task interrupted — daemon restarting. Send another message to continue.';
 
 class ClaudeAdapter extends BaseAdapter {
   /**
@@ -239,12 +240,13 @@ class ClaudeAdapter extends BaseAdapter {
     // SIGTERM as this stop, not as a failure ("No response generated (exit
     // code 143)" on top of the notice below).
     super.stop();
+    // The channels _stopAllProcesses below tells. A turn still preparing in
+    // another channel gets its notice from _bailOnStopDuringTurn, once.
+    this._daemonStopNotified = new Set(Object.keys(this._channelProcesses));
     for (const channel of Object.keys(this._persistentProcs)) {
       this._killPersistentProc(channel);
     }
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.'
-    ).catch(() => {});
+    this._stopAllProcesses(DAEMON_STOP_NOTICE).catch(() => {});
   }
 
   async _stopProcess(proc) {
@@ -335,6 +337,18 @@ class ClaudeAdapter extends BaseAdapter {
    * stopped. Returns true when the caller should give up.
    */
   async _bailOnStopDuringTurn(msgChannel) {
+    // The agent itself was stopped (daemon restart or shutdown) while this
+    // turn was preparing. stop() runs once and found no process here to
+    // kill, so a CLI spawned now would outlive the agent that owns it.
+    if (this.wasStopRequested()) {
+      this._log(`Agent stopped while preparing ${msgChannel} — not starting the run`);
+      const notified = this._daemonStopNotified || (this._daemonStopNotified = new Set());
+      if (!notified.has(msgChannel)) {
+        notified.add(msgChannel);
+        try { await this.sendResponse(msgChannel, DAEMON_STOP_NOTICE); } catch {}
+      }
+      return true;
+    }
     if (!this._stoppedBeforeStart(msgChannel)) return false;
     // Deduped: normally the stop handler already announced it.
     await this._finishUserStop(msgChannel);

@@ -93,6 +93,58 @@ describe('a daemon stop during a turn', () => {
     assert.equal(spawned, 1, 'not retried as a stale session');
   });
 
+  // Review of the first fix: stop() runs once now, so a turn still waiting on
+  // its pre-CLI round trips when it lands had nothing to kill, and nothing
+  // came round a second time to kill the CLI it spawned afterwards.
+  it('a stop while the turn is preparing starts no CLI and posts one notice', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    adapter._sendToPersistentProc = (pp) => new Promise((resolve) => { pp.messageResolve = resolve; });
+    let releaseGlossary;
+    const gate = new Promise((r) => { releaseGlossary = r; });
+    adapter._fetchGlossary = async () => {
+      await gate;
+      return { available: true, state: 'absent', entryId: null, content: null, error: false };
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    adapter.stop();
+    adapter.stop();
+    releaseGlossary();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(spawned, 0);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+  });
+
+  it('a channel stop() already told is not told again when its turn bails', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    // An idle process from the previous turn: stop() kills it and tells the
+    // channel, while the new turn is still fetching its glossary.
+    mkKillablePP(adapter, 'general');
+    let releaseGlossary;
+    const gate = new Promise((r) => { releaseGlossary = r; });
+    adapter._fetchGlossary = async () => {
+      await gate;
+      return { available: true, state: 'absent', entryId: null, content: null, error: false };
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    adapter.stop();
+    releaseGlossary();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(spawned, 0);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+  });
+
   it('a turn that already finished still posts its answer', async () => {
     const adapter = mkAdapter();
     adapter._spawnPersistentProc = (channel) => mkKillablePP(adapter, channel);
