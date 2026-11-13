@@ -173,7 +173,7 @@ async function refreshCachedSession(sessionId: string): Promise<void> {
 }
 
 export function ChatView() {
-  const { workspace, agents, loading: workspaceLoading, workspaceLoadError, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
+  const { workspace, agents, loading: workspaceLoading, workspaceLoadError, currentUser, currentSessionId, setCurrentSessionId, sessions, updateLastMessage, setSessionActive, markSessionUnarchived, updateAgentMode, stopAllAgents, activeSessionIds, stoppingSessionIds, renameSession, setSessionOrchestration, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
   const hasConnectedAgent = agents.some((agent) => !agent.builtin && agent.status === 'online');
   const needsConnection = !workspaceLoading && !workspaceLoadError && !hasConnectedAgent;
   const t = useT();
@@ -690,6 +690,7 @@ export function ChatView() {
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
           replyingTo?.messageId,
         );
+        if (sent.metadata?.thread_unarchived) markSessionUnarchived(currentSessionId);
         // Still queued only if routing picked a busy agent; otherwise show it now.
         const routedTo: string[] = Array.isArray(sent.metadata?.target_agents) ? sent.metadata.target_agents : [];
         const queuedNow = maybeQueued && routedTo.some((name) => busyHere.has(name));

@@ -280,3 +280,17 @@ it('uses a conversation empty state rather than an agent catalog when all agents
   await open('thread-a');
   expect(container.textContent).not.toContain('chat.connectAgentNotice');
 });
+
+it('shows an archived thread as active again once the server unarchives it on send', async () => {
+  const { workspaceApi } = await import('@/lib/api');
+  const unarchived = vi.fn();
+  h.ws.markSessionUnarchived = unarchived;
+  await open('thread-a');
+  const spy = vi.spyOn(workspaceApi, 'sendMessage').mockResolvedValueOnce({
+    id: 'a9', source: 'human:user-1', target: 'channel/thread-a', type: 'workspace.message.posted', timestamp: Date.now(),
+    visibility: 'channel', payload: { content: 'Back to this' }, metadata: { target_agents: ['bot'], thread_unarchived: true },
+  } as never);
+  await act(async () => { await h.send!('Back to this'); });
+  expect(unarchived).toHaveBeenCalledWith('thread-a');
+  spy.mockRestore();
+});
