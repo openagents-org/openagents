@@ -223,7 +223,9 @@ describe('parsePiModels', () => {
 
 describe('listCliModels', () => {
   it('lists Hermes active-provider models through its own Python without starting a chat', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hermes-models-'));
+    // The real path: the lookup resolves the binary first, and on macOS the
+    // temp dir (/var/folders/...) is a symlink to /private/var/folders/...
+    const dir = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'hermes-models-'));
     try {
       const python = path.join(dir, process.platform === 'win32' ? 'python.exe' : 'python');
       fs.writeFileSync(python, '');
