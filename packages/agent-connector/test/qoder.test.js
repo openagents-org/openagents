@@ -139,7 +139,7 @@ process.stdin.on('end', () => {
       w({ type: 'user', session_id: sid, message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] } });
       result({ subtype: 'success', is_error: false, result: 'Built.' });
       process.exit(0);
-    }, 600);
+    }, 1500);
     return;
   }
   if (scenario === 'wedged' || scenario === 'wedged_after_tool') {
@@ -497,7 +497,9 @@ describe('QoderAdapter — model fallback', () => {
 });
 
 describe('QoderAdapter — watchdog', () => {
-  const fastWatchdog = (a) => { a._watchdogIntervalMs = 25; a._watchdogMax = 4; return a; };
+  // The idle clock starts at spawn, so the limit (~500ms) has to cover a slow
+  // start of the fake CLI on a busy runner, and the build (1.5s) has to outlast it.
+  const fastWatchdog = (a) => { a._watchdogIntervalMs = 50; a._watchdogMax = 10; return a; };
 
   it('lets a silent tool call run past the idle limit', async () => {
     const a = fastWatchdog(makeAdapter({ scenario: 'long_tool' }));
