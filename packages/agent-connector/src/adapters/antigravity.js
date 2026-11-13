@@ -34,6 +34,7 @@ const {
   parseAgyEvent,
   AgyRunState,
   classifyAgyFailure,
+  agyShouldRetryStaleConversation,
   agyBinaryCandidates,
 } = require('./antigravity-stream');
 
@@ -278,6 +279,8 @@ class AntigravityAdapter extends BaseAdapter {
           let consecutiveTimeouts = 0;
           let lastDataTime = Date.now();
           let timeoutTimer = null;
+          let killedForIdle = false;
+          let idleSeconds = 0;
 
           const resetTimeout = () => {
             consecutiveTimeouts = 0;
@@ -294,7 +297,9 @@ class AntigravityAdapter extends BaseAdapter {
                   try { await this.sendStatus(msgChannel, 'Processing...'); } catch {}
                 }
                 if (consecutiveTimeouts >= 20) {
-                  this._log(`Process idle for ${consecutiveTimeouts * 15}s, killing...`);
+                  killedForIdle = true;
+                  idleSeconds = consecutiveTimeouts * 15;
+                  this._log(`Process idle for ${idleSeconds}s, killing...`);
                   await this._stopProcess(proc);
                 }
               }
@@ -352,9 +357,15 @@ class AntigravityAdapter extends BaseAdapter {
             if (response && !failed) {
               try { await this.sendResponse(msgChannel, response); } catch {}
               resolve(false);
-            } else if (failed && this._channelConversations[msgChannel] && attempt === 0) {
+            } else if (agyShouldRetryStaleConversation({
+              failed,
+              idleKilled: killedForIdle,
+              hasConversation: Boolean(this._channelConversations[msgChannel]),
+              attempt,
+            })) {
               // A stored conversation id the CLI no longer knows fails the
-              // whole run — clear it and retry once from scratch.
+              // whole run — clear it and retry once from scratch. An idle
+              // kill is the same non-zero exit and must not take this path.
               this._log(`Stale conversation for ${msgChannel}, clearing and retrying without resume`);
               delete this._channelConversations[msgChannel];
               this._saveSessions();
@@ -364,7 +375,12 @@ class AntigravityAdapter extends BaseAdapter {
               // instead of a generic retry prompt — the gemini adapter's
               // silent-stderr dead end is what this branch fixes.
               const { kind, message } = classifyAgyFailure({
-                code, stderr: stderrBuf, error: run.error, secrets: this._knownSecrets(),
+                code,
+                stderr: stderrBuf,
+                error: run.error,
+                secrets: this._knownSecrets(),
+                idleKilled: killedForIdle,
+                idleSeconds,
               });
               this._log(`run failed (${kind})`, 'error');
               try { await this.sendError(msgChannel, message); } catch {}
