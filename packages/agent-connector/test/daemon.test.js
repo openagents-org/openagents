@@ -1880,6 +1880,28 @@ describe('Daemon', () => {
     assert.deepEqual(events, ['stop elven-claude', 'launch elven-claude → ws1']);
   });
 
+  // Review of the second fix: the reload's fingerprint leaves out path and
+  // node_id, so a restart for a changed path was taken as already served.
+  for (const [field, value] of [['path', '/new/dir'], ['node_id', 'node-2']]) {
+    it(`a restart for a ${field} change made while a reload ran is not skipped`, async () => {
+      const { config, daemon, events } = mkLifecycleDaemon('a1');
+      daemon._launchAgent = (agent) => {
+        events.push(`launch ${agent.name} ${agent[field] || '-'}`);
+        daemon._adapters[agent.name] = {};
+      };
+      config.updateAgent('a1', { network: 'ws1' });
+
+      const reload = daemon._reload();
+      await new Promise((r) => setImmediate(r));
+      config.updateAgent('a1', { [field]: value });
+      const restart = daemon.restartAgent('a1');
+      daemon.releaseStop();
+      await Promise.all([reload, restart]);
+
+      assert.deepEqual(events.slice(-1), [`launch a1 ${value}`]);
+    });
+  }
+
   it('an explicit restart after a reload has finished still restarts', async () => {
     const { config, daemon, events } = mkLifecycleDaemon('a1');
     daemon.releaseStop();

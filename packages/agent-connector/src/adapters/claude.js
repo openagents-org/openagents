@@ -334,9 +334,18 @@ class ClaudeAdapter extends BaseAdapter {
    * stop handler kills whatever process is registered, but a turn still
    * working through its pre-CLI round trips has none yet — so without this
    * it goes on to spawn one and the agent resumes seconds after saying it
-   * stopped. Returns true when the caller should give up.
+   * stopped.
+   *
+   * Returns null to go on, synchronously: an `await` between this check and
+   * the spawn right after it would let a stop land unseen in between.
+   * Otherwise a promise the caller awaits before giving up.
    */
-  async _bailOnStopDuringTurn(msgChannel) {
+  _bailOnStopDuringTurn(msgChannel) {
+    if (!this.wasStopRequested() && !this._stopRequestedDuringTurn(msgChannel)) return null;
+    return this._bailOnStop(msgChannel);
+  }
+
+  async _bailOnStop(msgChannel) {
     // The agent itself was stopped (daemon restart or shutdown) while this
     // turn was preparing. stop() runs once and found no process here to
     // kill, so a CLI spawned now would outlive the agent that owns it.
@@ -347,12 +356,11 @@ class ClaudeAdapter extends BaseAdapter {
         notified.add(msgChannel);
         try { await this.sendResponse(msgChannel, DAEMON_STOP_NOTICE); } catch {}
       }
-      return true;
+      return;
     }
-    if (!this._stoppedBeforeStart(msgChannel)) return false;
+    this._stoppedBeforeStart(msgChannel);
     // Deduped: normally the stop handler already announced it.
     await this._finishUserStop(msgChannel);
-    return true;
   }
 
   /**
@@ -1478,7 +1486,8 @@ class ClaudeAdapter extends BaseAdapter {
         } else {
           this._log(`Reusing persistent process for ${msgChannel}`);
         }
-        if (await this._bailOnStopDuringTurn(msgChannel)) return;
+        const bail = this._bailOnStopDuringTurn(msgChannel);
+        if (bail) { await bail; return; }
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
         const result = await this._sendToPersistentProc(existingPP, turnContent);
@@ -1567,7 +1576,8 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       try {
-        if (await this._bailOnStopDuringTurn(msgChannel)) return;
+        const bail = this._bailOnStopDuringTurn(msgChannel);
+        if (bail) { await bail; return; }
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember the spawn-time configuration so the fast-path can detect
         // staleness on later messages — the pinned knowledge and the mode

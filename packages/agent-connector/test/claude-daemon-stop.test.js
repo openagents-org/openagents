@@ -145,6 +145,31 @@ describe('a daemon stop during a turn', () => {
     assert.deepEqual(adapter.posted, [INTERRUPTED]);
   });
 
+  // Review of the second fix: the check returned false through an `await`,
+  // and a stop queued on that microtask landed between the check and spawn.
+  it('a stop on the microtask after the last check still kills the CLI it meets', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    adapter._sendToPersistentProc = (pp) => new Promise((resolve) => { pp.messageResolve = resolve; });
+    const check = adapter._bailOnStopDuringTurn.bind(adapter);
+    adapter._bailOnStopDuringTurn = (ch) => {
+      const bail = check(ch);
+      queueMicrotask(() => adapter.stop());
+      return bail;
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 10));
+    await Promise.race([turn, new Promise((r) => setTimeout(r, 50))]);
+
+    // Spawned at once, so stop() saw the process and told the channel.
+    assert.equal(spawned, 1);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+    assert.equal(Object.keys(adapter._persistentProcs).length, 0, 'the CLI was killed');
+  });
+
   it('a turn that already finished still posts its answer', async () => {
     const adapter = mkAdapter();
     adapter._spawnPersistentProc = (channel) => mkKillablePP(adapter, channel);
