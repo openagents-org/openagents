@@ -19,8 +19,10 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { isRecentAgent } from '@/lib/helpers';
 import { countFiles } from '@/components/files/file-utils';
-import { unreadIssueCounts } from '@/lib/signals';
+import { latestUnreadIssueId, unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import type { KeyboardEvent } from 'react';
 import { useLayout, type ViewMode } from './layout-context';
 
 interface NavItem {
@@ -36,12 +38,19 @@ interface NavItem {
 
 /** `onNavigate` lets the mobile drawer close itself once a view is picked. */
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
-  const { viewMode, openView, setThreadFilter } = useLayout();
+  const { viewMode, openView, setThreadFilter, setPendingIssueId } = useLayout();
   const onboarding = useOnboardingSurface();
   const dismissOnboarding = useDismissOnboarding();
   const { agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
   const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
+  // The issues badge opens the newest unread issue; the row itself still opens the list.
+  const openLatestUnreadIssue = () => {
+    const issueId = latestUnreadIssueId(unreadSignals);
+    openView('issues');
+    if (issueId) setPendingIssueId(issueId);
+    onNavigate?.();
+  };
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
   // Fresh workspace (no real agent, no threads) is in guided onboarding — the
@@ -114,7 +123,17 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
 
               </SidebarMenuButton>
               {item.count !== undefined && item.count > 0 && (
-                <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">
+                <SidebarMenuBadge
+                  className={cn('group-data-[collapsible=icon]:hidden', item.mode === 'issues' && 'pointer-events-auto cursor-pointer hover:ring-2 hover:ring-destructive/30 rounded-full')}
+                  {...(item.mode === 'issues' ? {
+                    role: 'button',
+                    tabIndex: 0,
+                    title: t('nav.openLatestUnreadIssue'),
+                    'aria-label': t('nav.openLatestUnreadIssue'),
+                    onClick: openLatestUnreadIssue,
+                    onKeyDown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openLatestUnreadIssue(); } },
+                  } : {})}
+                >
                   <Badge
                     variant={item.urgent || item.mode === 'inbox' || item.mode === 'threads' ? 'destructive' : 'secondary'}
                     appearance="light"

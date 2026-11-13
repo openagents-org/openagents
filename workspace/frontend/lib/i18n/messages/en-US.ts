@@ -271,6 +271,7 @@ export const messages = {
     noMembersFound: 'No people found',
     thisComputer: 'This Computer',
     collaboration: 'Collaboration',
+    openLatestUnreadIssue: 'Open the latest issue with unread updates',
     agentsWithCount: 'Agents ({online}/{total})',
     myAgentsWithCount: 'My agents ({online}/{total})',
     sharedAgentsWithCount: 'Shared by others ({online}/{total})',

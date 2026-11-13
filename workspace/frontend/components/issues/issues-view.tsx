@@ -32,6 +32,7 @@ import { IssueEditor } from './issue-editor';
 import { IssueAssigneeFilter } from './issue-assignee-filter';
 import { IssueDiscussion } from './issue-discussion';
 import { IssueBoardTabs, useIssueBoards } from './issue-boards';
+import { filtersShowingIssue } from './issue-jump';
 import {
   ErrorNotice,
   StatusIcon,
@@ -52,7 +53,7 @@ export function IssuesView() {
 }
 
 function IssueWorkspace() {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace } = useWorkspace();
+  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace, currentUser } = useWorkspace();
   const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
   const { pendingIssueId, setPendingIssueId } = useLayout();
@@ -98,7 +99,7 @@ function IssueWorkspace() {
       if (cancelled || selectedRef.current !== selected) return;
       if (issue.id !== selected && String(issue.number) !== selected) return;
       selectedRef.current = issue.id;
-      writeIssueUrl(issueLinkId(issue), boardIdRef.current);
+      writeIssueUrl(issueLinkId(issue), showIssueInListRef.current(issue));
       setSelected(issue.id);
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -125,6 +126,28 @@ function IssueWorkspace() {
   const [pages, setPages] = useState(1);
   const requestVersion = useRef(0);
   const reload = useCallback(() => setRevision((v) => v + 1), []);
+  // An issue opened from outside the list (badge, notification, link) may sit
+  // on another board or under another tab: move only what hides it.
+  const showIssueInListRef = useRef<(issue: WorkspaceIssue) => string>(() => boardIdRef.current);
+  showIssueInListRef.current = (issue) => {
+    let reset = false;
+    let nextBoardId = boardIdRef.current;
+    if (issue.board_id && issue.board_id !== boardIdRef.current) {
+      nextBoardId = issue.board_id;
+      setBoardId(nextBoardId);
+      reset = true;
+    }
+    const next = filtersShowingIssue({ status, query, assignee }, issue, currentUser?.id ?? '');
+    if (next.status !== status) { setStatus(next.status); reset = true; }
+    if (next.assignee !== assignee) { setAssignee(next.assignee); reset = true; }
+    if (next.query !== query) { setQuery(next.query); reset = true; }
+    if (reset) {
+      setIssues([]);
+      setNextOffset(null);
+      setPages(1);
+    }
+    return nextBoardId;
+  };
   const [deleting, setDeleting] = useState<string | null>(null);
   const [copiedIssue, setCopiedIssue] = useState<string | null>(null);
   const copyIssueLink = async (issue: WorkspaceIssue) => {
