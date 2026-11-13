@@ -853,3 +853,106 @@ def test_each_lark_topic_is_its_own_workspace_thread(client, workspace, lark_bin
 def test_conversation_keys_round_trip():
     assert svc.split_conversation_key(svc.conversation_key("C1", "111.1")) == ("C1", "111.1")
     assert svc.split_conversation_key("C1") == ("C1", None)
+
+
+# ---------------------------------------------------------------------------
+# Telegram markdown rendering
+# ---------------------------------------------------------------------------
+
+def test_send_telegram_uses_html_parse_mode_and_escapes(
+    client, telegram_binding, monkeypatch
+):
+    """sendMessage must request parse_mode=HTML and escape raw special chars."""
+    sent = []
+
+    class _Resp:
+        def json(self):
+            return {"ok": True}
+
+    def fake_post(url, json=None):
+        sent.append((url, json))
+        return _Resp()
+
+    class _Client:
+        def __init__(self, timeout=None):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, json=None):
+            return fake_post(url, json=json)
+
+    monkeypatch.setattr(svc.httpx, "Client", _Client)
+    svc._send_telegram("123:ABCDEF", "555", "agent-alpha", "a < b & **bold** `code`")
+    assert len(sent) == 1
+    url, payload = sent[0]
+    assert payload["parse_mode"] == "HTML"
+    assert "&lt;" in payload["text"] and "&amp;" in payload["text"]
+    assert "<b>bold</b>" in payload["text"]
+    assert "<code>code</code>" in payload["text"]
+
+
+def test_fenced_code_block_becomes_pre_and_is_not_reformatted():
+    md = "before\n```python\nif a < b & c:\n    print('**not bold**')\n```\nafter"
+    html = svc._markdown_to_telegram_html(md)
+    assert "<pre>" in html and "</pre>" in html
+    assert "if a &lt; b &amp; c:" in html
+    # markdown inside a code block must stay literal
+    assert "**not bold**" in html
+    block = html.split("<pre>")[1].split("</pre>")[0]
+    assert "<b>" not in block
+
+
+def test_italic_converts_but_snake_case_stays_literal():
+    assert "<i>win</i>" in svc._markdown_to_telegram_html("a *win* here")
+    assert "file_name_here" in svc._markdown_to_telegram_html(
+        "the file_name_here stays"
+    )
+    assert "<i>" not in svc._markdown_to_telegram_html("the file_name_here stays")
+
+
+def test_links_become_html_anchors():
+    html = svc._markdown_to_telegram_html("see [docs](https://x.io) now")
+    assert '<a href="https://x.io">docs</a>' in html
+
+
+def test_headings_degrade_to_bold_lines():
+    assert "<b>Title</b>" in svc._markdown_to_telegram_html("## Title")
+    assert "<b>Deep</b>" in svc._markdown_to_telegram_html("#### Deep")
+
+
+def test_strikethrough_converts():
+    assert "<s>gone</s>" in svc._markdown_to_telegram_html("a ~~gone~~ b")
+
+
+def test_blockquote_becomes_telegram_blockquote():
+    html = svc._markdown_to_telegram_html("> quoted line")
+    assert "<blockquote>quoted line</blockquote>" in html
+
+
+def test_table_degrades_to_pre_block():
+    md = "| a | b |\n|---|---|\n| 1 | 2 |"
+    html = svc._markdown_to_telegram_html(md)
+    assert "<pre>" in html and "| a | b |" in html
+
+
+def test_chunks_never_leave_unclosed_tags():
+    """A >4000-char fenced block must be split with tags re-balanced per chunk."""
+    md = "intro\n```\n" + "x" * 5000 + "\n```\noutro"
+    chunks = svc._telegram_chunks(svc._markdown_to_telegram_html(md))
+    assert len(chunks) >= 2, "should have split"
+    for ch in chunks:
+        for tag in ("pre", "code", "b", "i", "s", "blockquote"):
+            assert ch.count(f"<{tag}>") + ch.count(f"<{tag} ") == ch.count(
+                f"</{tag}>"
+            ), f"unbalanced <{tag}> in chunk: {ch[:80]!r}"
+    assert "".join(chunks).count("x") == 5000  # content survives
+
+
+def test_short_message_is_single_chunk():
+    html = svc._markdown_to_telegram_html("just **one** short message")
+    assert svc._telegram_chunks(html) == [html]
