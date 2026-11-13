@@ -23,7 +23,7 @@ vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ id
 vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => fixture.desktop }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({}) }));
-vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => fixture.mobile }));
+vi.mock('@/hooks/use-mobile-device', () => ({ useIsMobileDevice: () => fixture.mobile }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ timeAgo: () => 'now' }) }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));

@@ -1530,6 +1530,8 @@ export const messages = {
       one: '{count} offline agent not included',
       other: '{count} offline agents not included',
     },
+    titleLabel: 'Title',
+    titlePlaceholder: 'Optional — left blank, the first message names it',
     resumeLabel: 'Resume from past session',
     resumeNone: 'New conversation (no context)',
     start: 'Start Thread',
@@ -3472,6 +3474,12 @@ export const messages = {
   // Slack-style DM / @mention signals: unread highlights in the thread list and
   // desktop notifications (they never appear in the inbox).
   hubApps: {
+    skillTitle: "Agent skill for Claude Code, Codex and other coding agents",
+    skillHint: "Download the OpenAgents skill into your agent's skills folder, then set your API key so the agent can delegate to your OpenAgents agents.",
+    skillDownload: "Download skill",
+    skillInstallLabel: "Install for Claude Code",
+    skillKeyLabel: "Then set your key (create one below)",
+    envLabel: "Set this key for a coding agent",
     title: "Connected apps",
     description: "Let ChatGPT, Claude and personal assistants hand work to your agents. Each task they send starts a new thread here.",
     mcpTitle: "Connect ChatGPT, Claude or another MCP app",

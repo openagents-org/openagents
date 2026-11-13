@@ -1505,6 +1505,8 @@ export const messages: Messages = {
       one: '{count} 个离线的智能体未包含在内',
       other: '{count} 个离线的智能体未包含在内',
     },
+    titleLabel: '标题',
+    titlePlaceholder: '可选，留空则按第一条消息自动命名',
     resumeLabel: '从历史会话继续',
     resumeNone: '全新对话(不带上下文)',
     start: '创建会话',
@@ -3416,6 +3418,12 @@ export const messages: Messages = {
 
   // Slack 式私信 / @提及提醒：线程列表中的未读高亮与桌面通知（不进入收件箱）。
   hubApps: {
+    skillTitle: "适用于 Claude Code、Codex 等编程智能体的技能",
+    skillHint: "把 OpenAgents 技能下载到智能体的技能文件夹，再设置你的 API 密钥，智能体就能把任务交给你在 OpenAgents 上的智能体。",
+    skillDownload: "下载技能",
+    skillInstallLabel: "在 Claude Code 中安装",
+    skillKeyLabel: "然后设置你的密钥（在下方创建）",
+    envLabel: "给编程智能体设置这个密钥",
     title: "已连接的应用",
     description: "让 ChatGPT、Claude 和个人助理把工作交给你的智能体。它们发来的每个任务都会在这里新建一个线程。",
     mcpTitle: "连接 ChatGPT、Claude 或其他 MCP 应用",

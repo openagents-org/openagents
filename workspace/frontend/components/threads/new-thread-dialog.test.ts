@@ -87,6 +87,22 @@ it('searches a large roster and preserves selections across filters', async () =
 
 vi.mock('@/hooks/use-team-roster', () => ({ useTeamRoster: () => [] }));
 
+it('names the thread with the typed title, trimmed, and leaves a blank one to auto-titling', async () => {
+  const create = vi.fn().mockResolvedValue(undefined);
+  await render([agent], create);
+  const title = document.getElementById('new-thread-title') as HTMLInputElement;
+  const type = async (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(title, value);
+    title.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await type('   ');
+  await act(async () => button('newThread.start').click());
+  expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ title: undefined }));
+  await type('  Launch plan  ');
+  await act(async () => title.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  expect(create).toHaveBeenLastCalledWith(expect.objectContaining({ title: 'Launch plan', participants: ['helper'] }));
+});
+
 
 it('excludes the built-in assistant from new thread participants', async () => {
   vi.spyOn(workspaceApi, 'listGroups').mockResolvedValue([]);

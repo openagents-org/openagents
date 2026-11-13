@@ -25,6 +25,19 @@ import { useT, type MessageKey, type TranslateFn } from '@/lib/i18n';
 const TOTAL_DURATION_MS = 28_000;
 const STAGE_W = 1280;
 const STAGE_H = 800;
+/**
+ * Stage rows the slides draw in. The band below stays empty on every slide, so
+ * it may sit behind the control bar; only the rows above must clear it.
+ */
+const CONTENT_H = 736;
+/**
+ * Least height kept clear above the container's bottom edge for the control
+ * bar (skip · dots · prev/next). The bar itself is measured as well: on an
+ * iPhone its home-indicator padding makes it taller than this.
+ */
+const CONTROLS_H = 72;
+/** Breathing room between the slide content and the measured control bar. */
+const CONTROLS_GAP = 8;
 
 // — official site brand —
 const BLUE = '#2F6BFF';
@@ -2179,7 +2192,8 @@ type SlideSegment = { dur: number; scale: number; freeze?: number; render: (ms: 
 // Pillar slide layout: the big title stays on screen the whole time, with
 // the product animation playing in a framed panel beneath it and freezing
 // on its closing illustration. One visual per slide — no card-then-cut.
-const PILLAR_SCENE_SCALE = 0.7;
+// 0.67 ends the panel at CONTENT_H, with its shadow still inside the stage.
+const PILLAR_SCENE_SCALE = 0.67;
 const PILLAR_SCENE_DELAY = 500; // title reveals first, then the panel animates
 
 function PillarFrame({ ms, kicker, kickerBg, titleKey, scene }: {
@@ -2202,7 +2216,7 @@ function PillarFrame({ ms, kicker, kickerBg, titleKey, scene }: {
       <div className="absolute left-1/2 -translate-x-1/2 overflow-hidden rounded-2xl"
         style={{
           top: 200, width: STAGE_W * PILLAR_SCENE_SCALE, height: STAGE_H * PILLAR_SCENE_SCALE,
-          border: '1px solid #e4e4e7', boxShadow: '0 18px 50px rgba(11,17,33,0.14)',
+          border: '1px solid #e4e4e7', boxShadow: '0 16px 40px rgba(11,17,33,0.14)',
           visibility: ms >= PILLAR_SCENE_DELAY ? undefined : 'hidden',
           animation: ms >= PILLAR_SCENE_DELAY ? `card-up 0.5s ${EASE} backwards` : undefined,
         }}>
@@ -2283,28 +2297,35 @@ export default function WelcomeFilm({
   const t = useT();
   const [idx, setIdx] = useState(() => clamp(initialSlide, 0, SLIDES.length - 1));
   const [slideMs, setSlideMs] = useState(0);
-  const [stageScale, setStageScale] = useState(1);
+  const [stage, setStage] = useState({ scale: 1, top: 0 });
   const containerRef = useRef<HTMLDivElement>(null);
+  const controlsRef = useRef<HTMLDivElement>(null);
 
+  // Fit the stage to the container (the viewport, when not embedded): as large
+  // as width and height allow, while the slide content (rows above CONTENT_H)
+  // stays clear of the control bar. The content block is then centred in the
+  // space above the bar, so a tall window doesn't leave the gap all at the top.
   useEffect(() => {
     const el = containerRef.current;
+    if (!el) return;
     const fit = () => {
-      if (embedded && el) {
-        const r = el.getBoundingClientRect();
-        setStageScale(Math.min(r.width / STAGE_W, r.height / STAGE_H));
-      } else {
-        setStageScale(Math.min(window.innerWidth / STAGE_W, (window.innerHeight - 72) / STAGE_H));
-      }
+      const { width, height } = el.getBoundingClientRect();
+      if (width === 0 || height === 0) return;
+      const controls = Math.max(CONTROLS_H, (controlsRef.current?.getBoundingClientRect().height ?? 0) + CONTROLS_GAP);
+      const scale = Math.max(0, Math.min(width / STAGE_W, height / STAGE_H, (height - controls) / CONTENT_H));
+      setStage({ scale, top: Math.max(0, (height - controls - CONTENT_H * scale) / 2) });
     };
     fit();
-    if (embedded && el && typeof ResizeObserver !== 'undefined') {
+    if (typeof ResizeObserver !== 'undefined') {
       const ro = new ResizeObserver(fit);
       ro.observe(el);
+      // The bar changes height on its own too (the last slide's wider button, safe-area changes).
+      if (controlsRef.current) ro.observe(controlsRef.current);
       return () => ro.disconnect();
     }
     window.addEventListener('resize', fit);
     return () => window.removeEventListener('resize', fit);
-  }, [embedded]);
+  }, []);
 
   // (Re)play the current slide's animation, then stop — the last frame holds.
   useEffect(() => {
@@ -2360,25 +2381,27 @@ export default function WelcomeFilm({
     >
       <div className="absolute left-1/2" style={{
         width: STAGE_W, height: STAGE_H,
-        top: embedded
-          ? `calc((100% - ${STAGE_H * stageScale}px) / 2)`
-          : `calc((100vh - 72px - ${STAGE_H * stageScale}px) / 2)`,
-        transform: `translateX(-50%) scale(${stageScale})`,
+        top: stage.top,
+        transform: `translateX(-50%) scale(${stage.scale})`,
         transformOrigin: 'top center',
       }}>
         <div className="h-full w-full relative overflow-hidden" style={{ background: '#fff', fontFamily: FONT, letterSpacing: '-0.01em' }}>
           <div key={`${idx}-${segIdx}`} className="h-full w-full" style={{ animation: 'flash-in 0.35s ease-out both' }}>
             {seg.render(sourceMs)}
           </div>
-          <div className="absolute inset-0 z-[44] pointer-events-none" style={{
-            backgroundImage: GRAIN, opacity: 0.04, mixBlendMode: 'multiply',
-          }} />
         </div>
       </div>
+      {/* Film grain over the whole container, not just the stage: confined to
+          the stage it tinted a rectangle whose edges showed against the white
+          margins around it. */}
+      <div className="absolute inset-0 z-[44] pointer-events-none" style={{
+        backgroundImage: GRAIN, opacity: 0.04, mixBlendMode: 'multiply',
+      }} />
+
 
       {/* Control bar: skip · dots · prev/next — sized for touch. The bottom
           padding respects the iPhone home-indicator (viewportFit: cover). */}
-      <div className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-5">
+      <div ref={controlsRef} className="absolute inset-x-0 bottom-0 z-50 flex items-center justify-between gap-3 px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6 sm:pb-5">
         {onSkip ? (
           <button
             onClick={onSkip}

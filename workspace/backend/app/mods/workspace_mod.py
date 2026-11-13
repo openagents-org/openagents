@@ -504,6 +504,9 @@ async def _handle_channel_create(event: Event, ctx: PipelineContext) -> Optional
         workspace_id=workspace.id,
         name=payload.get("name", f"channel-{event.id[:8]}"),
         title=payload.get("title"),
+        # A title the person typed in the New Thread dialog is kept, even when
+        # it happens to read like a default ("New Thread", "Session 1").
+        title_manually_set=bool(payload.get("title")) and payload.get("title_manually_set") is True,
         created_by=event.source,
         master_agent=payload.get("master"),
         resume_from=payload.get("resume_from"),
@@ -2082,8 +2085,9 @@ def _join_channel_as_human(channel, payload: dict, db, metadata: dict | None = N
 
 
 def _auto_title_channel(channel, content: str, db) -> None:
-    """Set channel title from message content if still using a default title."""
-    if channel.title not in _DEFAULT_TITLES:
+    """Set channel title from message content if still using a default title
+    that nobody chose: a title set by hand stays, whatever it reads."""
+    if channel.title_manually_set or channel.title not in _DEFAULT_TITLES:
         return
     if not content or not content.strip():
         return
@@ -2251,6 +2255,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         if not _cvc(db, str(workspace.id), _Viewer(False, _sender_email), channel):
             logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)
             raise EventRejected("workspace_mod", "private_thread")
+
+    # A person writing in an archived thread is using it again: bring it back
+    # to the active list (agents' and system posts leave it archived).
+    if channel is not None and channel.status == "archived" and event.source.startswith("human:"):
+        channel.status = "active"
+        event.metadata["thread_unarchived"] = True
+        logger.info("workspace_mod: unarchived %s on a new message", channel.name)
 
     if event.source.startswith("human:"):
         from app.services.message_replies import attach_reply

@@ -29,8 +29,10 @@ export function NewThreadDialogHost() {
       sessions={sessions}
       teammates={team.filter((person) => person.email.toLowerCase() !== (me?.email || currentUser.id).toLowerCase())}
       defaultAsChannel={newThreadAsChannel}
-      onCreateThread={async ({ participants, humanParticipants, resumeFrom, visibility, asChannel }) => {
+      onCreateThread={async ({ title, participants, humanParticipants, resumeFrom, visibility, asChannel }) => {
         const session = await createSession({
+          title,
+          titleManuallySet: Boolean(title),
           participants,
           resumeFrom,
           visibility,

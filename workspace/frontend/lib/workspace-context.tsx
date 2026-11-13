@@ -180,6 +180,8 @@ interface WorkspaceContextValue {
   agentModes: Record<string, string>;
   updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
+  /** The server unarchived this thread because a person wrote in it: show it as active. */
+  markSessionUnarchived: (sessionId: string) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
   setCurrentSessionId: (id: string | null, options?: { skipFocus?: boolean }) => void;
@@ -190,7 +192,7 @@ interface WorkspaceContextValue {
   setCurrentFilePath: (path: string) => void;
   /** Fork a thread and open the copy; resolves to the new thread's name. */
   forkSession: (sessionId: string, title?: string) => Promise<string>;
-  createSession: (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
+  createSession: (opts?: { title?: string; titleManuallySet?: boolean; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
   requestFirstThread: (agentName: string) => void;
@@ -755,6 +757,12 @@ export function WorkspaceProvider({
       else next.delete(sessionId);
       return next;
     });
+  }, []);
+
+  const markSessionUnarchived = useCallback((sessionId: string) => {
+    setSessions((prev) => (prev.some((s) => s.sessionId === sessionId && s.status === 'archived')
+      ? prev.map((s) => (s.sessionId === sessionId ? { ...s, status: 'active' } : s))
+      : prev));
   }, []);
 
   const updateAgentMode = useCallback((agentName: string, mode: string) => {
@@ -1964,7 +1972,7 @@ export function WorkspaceProvider({
 
   useDiscoveryPolling(refreshDiscovery, !loading && !error, hasActiveAgentsRef);
 
-  const createSession = useCallback(async (opts?: { title?: string; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
+  const createSession = useCallback(async (opts?: { title?: string; titleManuallySet?: boolean; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
     // single-agent DM path). The default "dynamic" orchestration mode needs no
     // leader, so threads created from the picker start with none — a leader can
@@ -1976,6 +1984,7 @@ export function WorkspaceProvider({
 
     const session = await workspaceApi.createChannel({
       title: opts?.title,
+      titleManuallySet: opts?.titleManuallySet,
       creatorId: currentUser.id,
       master: masterAgent,
       participants,
@@ -2249,6 +2258,7 @@ export function WorkspaceProvider({
         agentModes,
         updateLastMessage,
         setSessionActive,
+        markSessionUnarchived,
         updateAgentMode,
         stopAllAgents,
         setCurrentSessionId,
