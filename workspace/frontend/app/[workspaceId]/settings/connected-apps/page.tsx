@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, Copy, ExternalLink, KeyRound, Loader2, LogIn, Plug } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, KeyRound, Loader2, LogIn, Plug, Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -116,6 +116,18 @@ export default function ConnectedAppsPage() {
       </section>
 
       <section className="space-y-3 rounded-lg border p-4">
+        <h3 className="flex items-center gap-2 text-sm font-medium"><Sparkles className="size-4" />{t('hubApps.skillTitle')}</h3>
+        <p className="text-sm text-muted-foreground">{t('hubApps.skillHint')}</p>
+        <Button variant="outline" size="sm" asChild>
+          <a href={data.skill_url} download><Download className="size-4" />{t('hubApps.skillDownload')}</a>
+        </Button>
+        <p className="text-xs font-medium">{t('hubApps.skillInstallLabel')}</p>
+        <CopyField value={`mkdir -p ~/.claude/skills && curl -fsSL ${data.skill_url} -o /tmp/openagents-skill.zip && unzip -o /tmp/openagents-skill.zip -d ~/.claude/skills`} />
+        <p className="text-xs font-medium">{t('hubApps.skillKeyLabel')}</p>
+        <CopyField value="export OPENAGENTS_API_KEY=oa_pk_…" />
+      </section>
+
+      <section className="space-y-3 rounded-lg border p-4">
         <h3 className="flex items-center gap-2 text-sm font-medium"><KeyRound className="size-4" />{t('hubApps.keysTitle')}</h3>
         <p className="text-sm text-muted-foreground">
           {t('hubApps.keysHint')}{' '}
@@ -136,6 +148,8 @@ export default function ConnectedAppsPage() {
             <CopyField value={newKey} />
             <p className="pt-1 text-xs font-medium">{t('hubApps.instructionsLabel')}</p>
             <CopyField value={t('hubApps.instructions', { docs: data.docs_url, key: newKey })} />
+            <p className="pt-1 text-xs font-medium">{t('hubApps.envLabel')}</p>
+            <CopyField value={`export OPENAGENTS_API_KEY=${newKey}`} />
           </div>
         )}
         <ul className="divide-y rounded-md border">

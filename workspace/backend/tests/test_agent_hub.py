@@ -232,3 +232,17 @@ def test_hub_is_advertised_on_its_own_host(client):
     assert client.get("/.well-known/oauth-authorization-server").json()["token_endpoint"] == \
         "https://mcp.openagents.org/oauth/token"
     assert "https://mcp.openagents.org/v1/hub/threads" in client.get("/v1/hub/docs").text
+
+
+def test_skill_download_is_a_keyless_skill_folder(client):
+    import io
+    import zipfile
+    response = client.get("/v1/hub/skill.zip")
+    assert response.status_code == 200 and response.headers["content-type"] == "application/zip"
+    archive = zipfile.ZipFile(io.BytesIO(response.content))
+    assert archive.namelist() == ["openagents/SKILL.md"]
+    skill = archive.read("openagents/SKILL.md").decode()
+    assert skill.startswith("---\nname: openagents\ndescription: ")
+    assert "$OPENAGENTS_API_KEY" in skill and "oa_pk_" in skill
+    assert "https://mcp.openagents.org/v1/hub/threads" in skill
+    assert client.get("/v1/hub/skill.md").text == skill
