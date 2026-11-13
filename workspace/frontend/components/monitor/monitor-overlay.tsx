@@ -29,7 +29,7 @@ interface MonitorOverlayProps {
 }
 
 export function MonitorOverlay({ sessionId, session, initialMessages, open, onOpenChange }: MonitorOverlayProps) {
-  const { agents, currentUser, activeSessionIds, stoppingSessionIds, stopAllAgents, renameSession, createRoutine } = useWorkspace();
+  const { agents, currentUser, activeSessionIds, stoppingSessionIds, stopAllAgents, renameSession, createRoutine, markSessionUnarchived } = useWorkspace();
   const t = useT();
   const [showCreateRoutine, setShowCreateRoutine] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
@@ -180,6 +180,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
           currentUser.id,
           mentionedHumans.length > 0 ? mentionedHumans : undefined,
         );
+        if (sent.metadata?.thread_unarchived) markSessionUnarchived(sessionId);
         if (sent.metadata?.router_unavailable) toast.warning(t('responseMode.routerUnavailable'));
         if (Array.isArray(sent.metadata?.target_agents) && sent.metadata.target_agents.includes('__no_response__')) {
           setOptimisticMessages((prev) => prev.filter((m) => m.messageId !== loadingOptimisticMsg.messageId));

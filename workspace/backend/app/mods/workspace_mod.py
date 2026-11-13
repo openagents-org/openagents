@@ -2256,6 +2256,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)
             raise EventRejected("workspace_mod", "private_thread")
 
+    # A person writing in an archived thread is using it again: bring it back
+    # to the active list (agents' and system posts leave it archived).
+    if channel is not None and channel.status == "archived" and event.source.startswith("human:"):
+        channel.status = "active"
+        event.metadata["thread_unarchived"] = True
+        logger.info("workspace_mod: unarchived %s on a new message", channel.name)
+
     if event.source.startswith("human:"):
         from app.services.message_replies import attach_reply
         attach_reply(event, db, workspace, channel)

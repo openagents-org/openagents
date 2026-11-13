@@ -180,6 +180,8 @@ interface WorkspaceContextValue {
   agentModes: Record<string, string>;
   updateLastMessage: (sessionId: string, senderName: string, content: string, isStatus?: boolean, isAgent?: boolean) => void;
   setSessionActive: (sessionId: string, active: boolean) => void;
+  /** The server unarchived this thread because a person wrote in it: show it as active. */
+  markSessionUnarchived: (sessionId: string) => void;
   updateAgentMode: (agentName: string, mode: string) => void;
   stopAllAgents: (sessionId?: string) => Promise<void>;
   setCurrentSessionId: (id: string | null, options?: { skipFocus?: boolean }) => void;
@@ -755,6 +757,12 @@ export function WorkspaceProvider({
       else next.delete(sessionId);
       return next;
     });
+  }, []);
+
+  const markSessionUnarchived = useCallback((sessionId: string) => {
+    setSessions((prev) => (prev.some((s) => s.sessionId === sessionId && s.status === 'archived')
+      ? prev.map((s) => (s.sessionId === sessionId ? { ...s, status: 'active' } : s))
+      : prev));
   }, []);
 
   const updateAgentMode = useCallback((agentName: string, mode: string) => {
@@ -2250,6 +2258,7 @@ export function WorkspaceProvider({
         agentModes,
         updateLastMessage,
         setSessionActive,
+        markSessionUnarchived,
         updateAgentMode,
         stopAllAgents,
         setCurrentSessionId,
