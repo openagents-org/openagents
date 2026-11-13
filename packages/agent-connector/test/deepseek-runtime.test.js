@@ -441,6 +441,7 @@ describe('failure classification', () => {
     ['permission', "EACCES: permission denied, open '/etc/hosts'", FAILURE.PERMISSION],
     ['version', 'SyntaxError: Unexpected token (ESM)', FAILURE.VERSION],
     ['config', 'failed to compose profile: unknown bundle', FAILURE.CONFIG],
+    ['malformed tool json', 'LlmError: DeepSeek Messages stream: tool input is invalid JSON', FAILURE.MALFORMED],
     // dsh 0.2.1-rc.5's refusals, raised before any request is sent.
     ['an unlisted model as model', 'LlmError: DeepSeek model "deepseek-v4-flash" is not supported by DeepSeek Harness; current version is 0.2.1-rc.5', FAILURE.MODEL],
     ['a model needing a newer harness as version', 'LlmError: DeepSeek model "deepseek-v5" requires DeepSeek Harness 0.2.2 or later; current version is 0.2.1-rc.5', FAILURE.VERSION],
@@ -450,6 +451,15 @@ describe('failure classification', () => {
       assert.equal(classifyDshFailure({ code: 1, stderr }).category, expected);
     });
   }
+
+  it('reports a truncated tool call instead of treating reasoning words as config', () => {
+    const reasoning = 'dsh: reasoning: check the next row of the patch before delivery approval. '.repeat(40);
+    const stderr = `${reasoning}\nLlmError: DeepSeek Messages stream: tool input is invalid JSON (MALFORMED_RESPONSE)\n`;
+    const r = classifyDshFailure({ code: 1, stderr });
+    assert.equal(r.category, FAILURE.MALFORMED);
+    assert.match(r.message, /tool input is invalid JSON/);
+    assert.doesNotMatch(r.message, /next row/);
+  });
 
   it('falls back to unknown with the exit code when stderr is empty', () => {
     const r = classifyDshFailure({ code: 3, stderr: '' });
