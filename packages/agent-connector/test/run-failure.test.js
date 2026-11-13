@@ -50,6 +50,8 @@ describe('classifyFailureText', () => {
     ['quota', 'HTTP 429 Too Many Requests'],
     ['network', 'getaddrinfo ENOTFOUND api.example.com'],
     ['network', 'TypeError: fetch failed'],
+    ['network', 'API error (status 525 <unknown status code>): Secure connection to Grok failed. (HTTP 525).'],
+    ['network', 'SSL handshake failed'],
     ['model', 'unknown model "g9-ultra"'],
     ['model', 'models/x is not found for API version v1beta'],
     ['provider', 'unknown provider "acme"'],
@@ -183,6 +185,20 @@ describe('classifyRunFailure', () => {
     assert.equal(r.kind, 'network');
     assert.match(r.message, /Acme CLI could not reach its provider/);
     assert.match(r.message, /Details: fetch failed/);
+  });
+
+  it('reports an HTTP 525 secure-connection failure as network, not an unknown exit', () => {
+    const text = 'Internal error: { "message": "API error (status 525 <unknown status code>): Secure connection to Grok failed. (HTTP 525).", "http_status": 525 }';
+    const r = classifyRunFailure({ code: 143, error: text, cli: 'Native Grok CLI' });
+    assert.equal(r.kind, 'network');
+    assert.match(r.message, /Native Grok CLI could not reach its provider/);
+    assert.match(r.message, /HTTP 525/);
+    assert.doesNotMatch(r.message, /exit 143/);
+  });
+
+  it('does not treat a bare 525 as an HTTP status', () => {
+    assert.equal(classifyFailureText('elapsed 525ms and frame 525 was readable'), null);
+    assert.equal(classifyFailureText('HTTP 5250 from the mirror'), null);
   });
 
   it('quotes the exit code and the CLI output when nothing explains the failure', () => {
