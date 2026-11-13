@@ -4,7 +4,7 @@ import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, CircleUser, ClipboardCheck, Gift, Globe, KeyRound, Lock, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
+  ArrowLeft, CircleUser, ClipboardCheck, Plug, Gift, Globe, KeyRound, Lock, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { AdminSettingsContext, canAdminister, canAccessSettingsSection, type AdminSettingsValue } from '@/components/settings/admin-context';
@@ -30,6 +30,7 @@ function readCookieToken(workspaceId: string): string | null {
 
 const SECTIONS = [
   { slug: 'profile', labelKey: 'admin.navProfile', icon: CircleUser },
+  { slug: 'connected-apps', labelKey: 'admin.navConnectedApps', icon: Plug },
   { slug: 'general', labelKey: 'admin.navGeneral', icon: Settings2 },
   { slug: 'members', labelKey: 'admin.navMembers', icon: Users },
   { slug: 'security', labelKey: 'admin.navSecurity', icon: ShieldCheck },

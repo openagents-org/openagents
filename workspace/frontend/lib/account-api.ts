@@ -190,3 +190,30 @@ export async function resendVerificationEmail(idToken: string): Promise<{ sent: 
   const data = body?.data ?? body;
   return { sent: !!data?.sent, alreadyVerified: !!data?.email_verified };
 }
+
+// ── Agent hub: personal API keys and connected apps (OAuth) ────────────────
+
+export interface HubApiKey { id: string; name: string; prefix: string; created_at: string | null; last_used_at: string | null }
+export interface HubConnectedApp { id: string; client_id: string; name: string; connected_at: string | null; last_used_at: string | null }
+export interface HubCredentials { api_keys: HubApiKey[]; connected_apps: HubConnectedApp[]; mcp_url: string; docs_url: string }
+
+export function listHubCredentials(idToken: string): Promise<HubCredentials> {
+  return bearerFetch<HubCredentials>('/v1/account/hub-credentials', idToken);
+}
+
+/** The raw key is returned once, here, and never again. */
+export function createHubApiKey(idToken: string, name: string): Promise<HubApiKey & { key: string }> {
+  return bearerFetch('/v1/account/api-keys', idToken, { method: 'POST', body: JSON.stringify({ name }) });
+}
+
+/** Revoke a key, or disconnect an app (every token it holds). */
+export function revokeHubCredential(idToken: string, id: string): Promise<{ revoked: boolean }> {
+  return bearerFetch(`/v1/account/hub-credentials/${encodeURIComponent(id)}`, idToken, { method: 'DELETE' });
+}
+
+export interface OAuthApproval { client_id: string; redirect_uri: string; code_challenge: string; code_challenge_method: string; state?: string; approve: boolean }
+
+/** The consent page's answer; returns where to send the browser back to. */
+export function approveOAuth(idToken: string, approval: OAuthApproval): Promise<{ redirect: string; client_name: string }> {
+  return bearerFetch('/v1/oauth/approve', idToken, { method: 'POST', body: JSON.stringify(approval) });
+}
