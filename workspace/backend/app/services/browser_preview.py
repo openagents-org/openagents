@@ -221,17 +221,16 @@ def _resolve_target(workspace_id: str, channel_name: str) -> Optional[dict]:
     resolved = bridge.resolve_binding_for_channel(workspace_id, channel_name)
     if resolved is None:
         return None
-    binding, chat_id = resolved
+    binding, key = resolved
     if binding.platform != "slack" or not binding.bot_token:
         return None
+    chat_id, thread_ts = bridge.split_conversation_key(key)
     return {
         "binding_id": str(binding.id),
         "bot_token": binding.bot_token,
         "chat_id": chat_id,
-        # The bridge posts top-level messages today (no thread_ts anywhere in
-        # relay_for_event). Plumbed through so a threaded bridge only has to
-        # fill this in.
-        "thread_ts": None,
+        # Previews land in the Slack thread the conversation lives in.
+        "thread_ts": thread_ts,
         "workspace_slug": slug,
     }
 

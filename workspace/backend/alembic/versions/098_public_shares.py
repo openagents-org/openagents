@@ -10,8 +10,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 # New table only; old application versions ignore it.
 deployment_backward_compatible = True
-revision = "097"
-down_revision = "096"
+revision = "098"
+down_revision = "097"
 branch_labels = None
 depends_on = None
 

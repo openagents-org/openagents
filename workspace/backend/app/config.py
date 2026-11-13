@@ -204,6 +204,10 @@ class Config:
     # own domain could pass for an OpenAgents sign-in form, so public links
     # render HTML only from this host; unset, they show its source instead.
     SHARE_CONTENT_HOST: str = os.environ.get("SHARE_CONTENT_HOST", "").strip().lower()
+    # Public origin of the agent hub: the MCP endpoint, its OAuth server and
+    # the hub REST docs. A proxied CNAME to the same backend, so ChatGPT and
+    # Claude see a stable, product-named URL (https://mcp.openagents.org/mcp).
+    HUB_PUBLIC_BASE: str = os.environ.get("HUB_PUBLIC_BASE", "https://mcp.openagents.org")
     # The official "OpenAgents" Slack app (one-click Add to Slack). All three
     # come from the app's Basic Information page; when unset, the UI falls
     # back to the bring-your-own-app flow (docs/slack-app-setup.md).

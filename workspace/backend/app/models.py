@@ -1865,3 +1865,61 @@ class ProjectPreviewTicket(Base):
     storage_key = Column(Text, nullable=False)
     principal = Column(JSONB, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class PersonalAccessToken(Base):
+    """A credential that lets another app act for one person on the agent hub.
+
+    `kind="api_key"` rows are keys a person creates and pastes into an app
+    (for example a personal assistant's instructions). `kind="oauth"` rows are
+    issued to an OAuth client (ChatGPT, Claude) at the end of the consent flow
+    and carry a refresh token. Either way only hashes are stored, and the
+    credential is accepted solely by the hub API and the MCP endpoint — never
+    by the rest of the workspace API.
+    """
+    __tablename__ = "personal_access_tokens"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    kind = Column(Text, nullable=False, default="api_key", server_default="api_key")
+    name = Column(Text, nullable=False)
+    client_id = Column(Text, nullable=True)
+    token_hash = Column(Text, nullable=False, unique=True)
+    token_prefix = Column(Text, nullable=False)
+    refresh_hash = Column(Text, nullable=True, unique=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    refresh_expires_at = Column(DateTime(timezone=True), nullable=True)
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_personal_access_tokens_user", "user_id"),
+    )
+
+
+class OAuthClient(Base):
+    """A client registered through OAuth dynamic client registration (RFC 7591).
+
+    Public clients only: they prove possession with PKCE, so no secret is kept.
+    """
+    __tablename__ = "oauth_clients"
+
+    client_id = Column(Text, primary_key=True)
+    client_name = Column(Text, nullable=False)
+    redirect_uris = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class OAuthAuthorizationCode(Base):
+    """A single-use authorization code from the consent page (10-minute life)."""
+    __tablename__ = "oauth_authorization_codes"
+
+    code_hash = Column(Text, primary_key=True)
+    client_id = Column(Text, ForeignKey("oauth_clients.client_id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    redirect_uri = Column(Text, nullable=False)
+    code_challenge = Column(Text, nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
