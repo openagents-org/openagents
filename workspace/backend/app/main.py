@@ -505,6 +505,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # A download started before the file list has the file falls back to the
+    # name the files endpoint sends; cross-origin, the browser hides it unless
+    # it is exposed.
+    expose_headers=["Content-Disposition"],
 )
 
 # GZip — Compresses all responses above `minimum_size` bytes when the

@@ -31,7 +31,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   // With labels, a row repeats its name in a tooltip only when it is cut off.
   const [truncatedMember, setTruncatedMember] = useState<string | null>(null);
   const me = myAddress(currentUser);
-  const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name);
+  const members = sidebarMembers(team, onlineUsers, dmConversations, me, currentUser.name, email => unreadDmCounts[dmSessionId(me, `human:${email}`)] || 0);
   const online = onlineMemberNames(team, onlineUsers);
   const shownEmails = new Set(members.map(person => person.email));
   // Online/total, the same reading as the agent group's heading.
@@ -39,6 +39,11 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
   const moreCount = team.filter(person => !shownEmails.has(person.email.toLowerCase())).length;
   const memberLabel = (email: string, name: string) => email.toLowerCase() === currentUser.id.toLowerCase() ? `${name} (${t('threads.you')})` : name;
   const candidates = team.filter(person => `${person.displayName || ''} ${person.email}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const openInvite = () => {
+    if (!workspace?.slug) return;
+    router.push(`/${workspace.slug}/settings/members${currentRouteSearch()}`);
+    onNavigate?.();
+  };
   const startDM = (email: string) => {
     setSelectedAgentName(null);
     setCurrentSessionId(dmSessionId(me, `human:${email.toLowerCase()}`));
@@ -54,14 +59,16 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
             <ChevronDown className={cn('ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200', !membersOpen && '-rotate-90')} />
           </button>
         </SidebarGroupLabel>}
-        <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" aria-label={t('nav.newHumanDM')} title={t('nav.newHumanDM')} onClick={() => { setQuery(''); setOpen(true); }}><Plus className="size-3.5" /></button>
+        {/* "+" adds people to the workspace; a DM with a teammate starts from
+            their row, or from "N more" for everyone else. */}
+        {workspace?.slug && <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" aria-label={t('userMenu.inviteMembers')} title={t('userMenu.inviteMembers')} onClick={openInvite}><Plus className="size-3.5" /></button>}
       </div>
       <SidebarGroupContent id="rail-member-list" className={cn(showLabels && !membersOpen && 'hidden')}><SidebarMenu className="gap-0.5">
         {members.map(person => <SidebarMenuItem key={person.email}>
-          <SidebarMenuButton className={cn(!showLabels && 'justify-center!', !person.hasHistory && 'text-muted-foreground opacity-55')} aria-label={memberLabel(person.email, person.name)} tooltip={{ children: memberLabel(person.email, person.name), hidden: showLabels && truncatedMember !== person.email }} onPointerEnter={(e) => setTruncatedMember(hasTruncatedLabel(e.currentTarget) ? person.email : null)} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
+          <SidebarMenuButton className={cn(!showLabels && 'justify-center!')} aria-label={memberLabel(person.email, person.name)} tooltip={{ children: memberLabel(person.email, person.name), hidden: showLabels && truncatedMember !== person.email }} onPointerEnter={(e) => setTruncatedMember(hasTruncatedLabel(e.currentTarget) ? person.email : null)} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
             <span className="relative shrink-0"><HumanAvatar email={person.email} />{person.online && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />}</span>
             {showLabels && <span className="flex min-w-0 items-center gap-1"><span className="truncate" data-truncatable>{person.name}</span>{person.email === currentUser.id.toLowerCase() && <span className="shrink-0 text-xs text-muted-foreground">({t('threads.you')})</span>}</span>}
-            <DmUnreadBadge count={unreadDmCounts[dmSessionId(me, `human:${person.email}`)]} compact={!showLabels} />
+            <DmUnreadBadge count={person.unread} compact={!showLabels} />
           </SidebarMenuButton>
           {/* Your own row carries a settings button, as an agent's does: it
               opens the profile page where the name and avatar are edited. */}
@@ -80,10 +87,9 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
         {team.length > 0 && <button type="button" onClick={() => { setQuery(''); setOpen(true); }} className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title={t('nav.viewAllMembers')} aria-label={t('nav.viewAllMembers')}>
           {showLabels && <span className="flex-1 text-left">{moreCount > 0 ? t('nav.moreMembers', { count: moreCount }) : t('nav.viewAllMembers')}</span>}<ChevronRight className="size-3.5 shrink-0" />
         </button>}
-        {/* Inviting, spelled out at the end of the list: the "+" above starts a
-            DM, and the footer's invite icon was easy to miss. Permissions are
+        {/* Inviting, also spelled out at the end of the list. Permissions are
             enforced by the members page and the invite endpoint. */}
-        {workspace?.slug && <button type="button" onClick={() => { router.push(`/${workspace.slug}/settings/members${currentRouteSearch()}`); onNavigate?.(); }} className={cn('mt-1 flex w-full items-center gap-1.5 rounded-md border border-sidebar-border px-2 py-1.5 text-xs font-medium text-sidebar-foreground hover:bg-sidebar-accent', !showLabels && 'justify-center')} title={t('userMenu.inviteMembers')} aria-label={t('userMenu.inviteMembers')}>
+        {workspace?.slug && <button type="button" onClick={openInvite} className={cn('mt-1 flex w-full items-center gap-1.5 rounded-md border border-sidebar-border px-2 py-1.5 text-xs font-medium text-sidebar-foreground hover:bg-sidebar-accent', !showLabels && 'justify-center')} title={t('userMenu.inviteMembers')} aria-label={t('userMenu.inviteMembers')}>
           <UserPlus className="size-3.5 shrink-0" />{showLabels && t('userMenu.inviteMembers')}
         </button>}
       </SidebarGroupContent>

@@ -43,6 +43,9 @@ import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 import { WorkspaceLoadError } from './workspace-load-error';
 
+/** Narrowest the workspace shell lays out at — the desktop app's minimum window width. */
+export const WORKSPACE_MIN_WIDTH = 960;
+
 function WorkspaceLoadingScreen() {
   const t = useT();
 
@@ -196,6 +199,8 @@ export function Wrapper() {
   }
 
   // ── Mobile layout: single-pane with list/detail switching ──
+  // Only on a phone or tablet held narrow (see useIsMobile). A narrow desktop
+  // window keeps the desktop shell below.
   if (isMobile) {
     return (
       <OnboardingSurfaceContext.Provider value={{ active: showOnboarding, onDismiss: dismissOnboarding }}>
@@ -297,13 +302,20 @@ export function Wrapper() {
     railDragWidth ?? (isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED);
   const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
 
+  // On a computer a narrow window stays the desktop shell: one narrower than
+  // the shell's minimum scrolls it sideways inside this frame rather than
+  // squeezing rail, list and detail out of shape (or switching to the phone
+  // layout); the frame keeps the height exact so no vertical page scroll
+  // appears with it.
   return (
     <OnboardingSurfaceContext.Provider value={{ active: showOnboarding, onDismiss: dismissOnboarding }}>
+    <div className="h-[calc(100vh-var(--oa-banner-h,0px))] w-full overflow-x-auto overflow-y-hidden">
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
-      className="h-[calc(100vh-var(--oa-banner-h,0px))] min-h-0 [&_.container-fluid]:px-5"
+      className="relative h-full min-h-0 [&_.container-fluid]:px-5"
       style={{
+        minWidth: WORKSPACE_MIN_WIDTH,
         '--sidebar-width': `${shellWidth}px`,
         '--sidebar-width-icon': `${railWidth}px`,
         '--header-height': '48px',
@@ -378,6 +390,7 @@ export function Wrapper() {
 
       <NewThreadDialogHost />
     </SidebarProvider>
+    </div>
     </OnboardingSurfaceContext.Provider>
   );
 }

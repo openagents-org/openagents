@@ -4,7 +4,7 @@
  * same download / copy link / share the full file page offers, so a file an
  * agent produced can leave the conversation without a detour to Files.
  */
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Download, Share2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -25,18 +25,27 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
   // background poll (every 30 s) lists it; ask for the list now instead, so
   // the actions don't wait on that poll.
   const missing = artifact.kind === 'file' && !file;
+  // The file whose fresh list came back without it: deleted, in the trash or
+  // not shared with you. Its actions would only fail, so they go.
+  const [unavailableId, setUnavailableId] = useState<string | null>(null);
   useEffect(() => {
-    if (missing) void refreshFiles();
+    if (!missing) return;
+    let current = true;
+    // A failed refresh proves nothing; the actions stay and report their own errors.
+    refreshFiles().then(() => { if (current) setUnavailableId(artifact.id); }, () => {});
+    return () => { current = false; };
   }, [missing, artifact.id, refreshFiles]);
   if (artifact.kind === 'knowledge') return <CopyResourceLink view="knowledge" id={artifact.id} />;
-  if (!file) return null;
+  if (artifact.kind !== 'file' || (!file && unavailableId === artifact.id)) return null;
   const download = () => {
-    void workspaceApi.downloadFile(file.id, file.filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
+    void workspaceApi.downloadFile(artifact.id, file?.filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
+  // Download and the link need only the id, so they show from the first
+  // frame while the list loads; sharing settings need the file's record.
   return <>
     <Button variant="ghost" mode="icon" size="sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
-    <CopyResourceLink view="files" id={file.id} />
-    <ArtifactSharePopover
+    <CopyResourceLink view="files" id={artifact.id} />
+    {file && <ArtifactSharePopover
       kind="file"
       id={file.id}
       name={projectDisplayName(basename(file.filename), file.contentType)}
@@ -50,6 +59,6 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
         await refreshFiles();
       }}
       trigger={<Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactAccess.share')} title={t('artifactAccess.share')}><Share2 className="size-4" /></Button>}
-    />
+    />}
   </>;
 }

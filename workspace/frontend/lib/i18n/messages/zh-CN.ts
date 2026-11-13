@@ -1497,6 +1497,8 @@ export const messages: Messages = {
       one: '{count} 个离线的智能体未包含在内',
       other: '{count} 个离线的智能体未包含在内',
     },
+    titleLabel: '标题',
+    titlePlaceholder: '可选，留空则按第一条消息自动命名',
     resumeLabel: '从历史会话继续',
     resumeNone: '全新对话(不带上下文)',
     start: '创建会话',

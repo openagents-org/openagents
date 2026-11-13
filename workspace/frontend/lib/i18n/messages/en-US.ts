@@ -1522,6 +1522,8 @@ export const messages = {
       one: '{count} offline agent not included',
       other: '{count} offline agents not included',
     },
+    titleLabel: 'Title',
+    titlePlaceholder: 'Optional — left blank, the first message names it',
     resumeLabel: 'Resume from past session',
     resumeNone: 'New conversation (no context)',
     start: 'Start Thread',

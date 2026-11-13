@@ -14,6 +14,7 @@ import {
   DialogDescription,
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { History, Lock, Globe } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
@@ -36,6 +37,8 @@ import {
  * no-context choice needs a value of its own, unwrapped again on submit.
  */
 const NO_RESUME = 'none';
+/** Matches the length an auto-generated title is cut to. */
+const TITLE_MAX_LENGTH = 60;
 
 interface NewThreadDialogProps {
   open: boolean;
@@ -45,7 +48,7 @@ interface NewThreadDialogProps {
   teammates?: TeamMember[];
   /** Start with "Make it a channel" switched on (opened from a New channel button). */
   defaultAsChannel?: boolean;
-  onCreateThread: (opts: { participants: string[]; humanParticipants: string[]; resumeFrom?: string; visibility: ThreadVisibility; asChannel: boolean }) => Promise<void>;
+  onCreateThread: (opts: { title?: string; participants: string[]; humanParticipants: string[]; resumeFrom?: string; visibility: ThreadVisibility; asChannel: boolean }) => Promise<void>;
 }
 
 export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammates = [], defaultAsChannel = false, onCreateThread }: NewThreadDialogProps) {
@@ -64,8 +67,10 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
   const [visibility, setVisibility] = useState<ThreadVisibility>('private');
   const [selectedPeople, setSelectedPeople] = useState<Set<string>>(new Set());
   const [asChannel, setAsChannel] = useState(defaultAsChannel);
+  const [title, setTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const canCreate = !creating && (selected.size > 0 || selectedPeople.size > 0);
 
   const isAllSelected = bulkNames.length > 0 && bulkNames.every((n) => selected.has(n));
   const candidates: ParticipantOption[] = [
@@ -97,6 +102,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
       setVisibility('private');
       setSelectedPeople(new Set());
       setAsChannel(defaultAsChannel);
+      setTitle('');
       setError(null);
     }
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -107,6 +113,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
     setError(null);
     try {
       await onCreateThread({
+        title: title.trim() || undefined,
         participants: agentNames.filter((n) => selected.has(n)),
         humanParticipants: teammates.filter((p) => selectedPeople.has(p.email)).map((p) => p.email),
         resumeFrom: hasClaudeAgent && resumeFrom !== NO_RESUME ? resumeFrom : undefined,
@@ -153,6 +160,26 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
           {offlineAgentCount > 0 && <p className="text-[11px] text-muted-foreground/70">
             {t('newThread.offlineExcluded', { count: offlineAgentCount })}
           </p>}
+
+          {/* Optional: named up front, the thread keeps this title; left blank,
+              it is still titled from its first message as before. */}
+          <div className="space-y-1.5 pt-1">
+            <label htmlFor="new-thread-title" className="block px-1 text-xs font-medium text-muted-foreground">{t('newThread.titleLabel')}</label>
+            <Input
+              id="new-thread-title"
+              value={title}
+              maxLength={TITLE_MAX_LENGTH}
+              disabled={creating}
+              placeholder={t('newThread.titlePlaceholder')}
+              onChange={(event) => setTitle(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing && canCreate) {
+                  event.preventDefault();
+                  void handleCreate();
+                }
+              }}
+            />
+          </div>
 
           {/* Resume from past session — show when there are resumable sessions */}
           {hasClaudeAgent && resumableSessions.length > 0 && (
@@ -229,7 +256,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
-          <Button className="min-w-24" onClick={handleCreate} disabled={creating || (selected.size === 0 && selectedPeople.size === 0)}>
+          <Button className="min-w-24" onClick={handleCreate} disabled={!canCreate}>
             {hasClaudeAgent && resumeFrom !== NO_RESUME ? t('newThread.resume') : t(asChannel ? 'newThread.startChannel' : 'newThread.start')}
           </Button>
         </DialogFooter>

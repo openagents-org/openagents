@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { Check, Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
-import { useIsMobile } from '@/hooks/use-mobile';
+import { useIsMobileDevice } from '@/hooks/use-mobile-device';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -13,7 +13,7 @@ import { capture } from '@/lib/analytics';
 /** A phone user can continue setup later on the computer that will run agents. */
 export function SetupEmailButton() {
   const t = useT();
-  const isMobile = useIsMobile();
+  const isMobile = useIsMobileDevice();
   const { idToken } = useOpenAgentsAuth();
   const { workspace } = useWorkspace();
   const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle');

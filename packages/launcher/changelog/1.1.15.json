@@ -1,0 +1,61 @@
+{
+  "version": "1.1.15",
+  "date": "2026-11-12",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Name a conversation when you create it",
+        "zh": "新建会话时可直接填写标题"
+      },
+      "description": {
+        "en": "The New conversation dialog has an optional title field. Left blank, the conversation is still named after its first message.",
+        "zh": "「新建会话」中新增选填的标题项；留空时仍按第一条消息自动命名。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A tidier member list in the sidebar",
+        "zh": "侧边栏成员列表更清晰"
+      },
+      "description": {
+        "en": "It shows up to five people with whoever is online first, and no longer greys out teammates you haven't messaged. The + button now invites new members.",
+        "zh": "最多显示五人，在线成员排在前面，未私信过的成员不再显示为灰色；「+」按钮改为邀请新成员。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Download a file the moment an agent makes it",
+        "zh": "智能体刚生成的文件可立即下载"
+      },
+      "description": {
+        "en": "In the panel beside a conversation, download and copy link are available as soon as a new file opens.",
+        "zh": "在会话旁的面板中打开新文件后，即可下载和复制链接，无需等待。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "The workspace keeps its layout in a narrow window",
+        "zh": "窗口较窄时工作区布局保持完整"
+      },
+      "description": {
+        "en": "Shrinking the window no longer switches to a phone-style layout; the sidebar, list and conversation stay side by side.",
+        "zh": "缩小窗口后不再切换为手机样式，侧边栏、列表和会话仍并排显示。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Intro slides no longer cover the page dots",
+        "zh": "介绍页不再遮挡底部的页码圆点"
+      },
+      "description": {
+        "en": "At any window size the slides fill the window cleanly, with the dots and buttons below them always in view.",
+        "zh": "任意窗口尺寸下，介绍页都完整铺满窗口，底部的圆点和按钮始终可见。"
+      }
+    }
+  ]
+}
