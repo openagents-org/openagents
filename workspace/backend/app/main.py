@@ -620,6 +620,36 @@ from app.request_auth import RequestAuthMiddleware
 app.add_middleware(RequestAuthMiddleware)
 
 
+class ShareHostGuardMiddleware:
+    """On the share domain (SHARE_CONTENT_HOST) serve only shared pages and
+    health checks. That domain renders pages strangers made; the rest of the
+    API must not answer there, or it would be a second address for sign-in,
+    tokens and everything else (app/routers/public_shares.py)."""
+
+    _ALLOWED = ("/health", "/ready")
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        host = config.SHARE_CONTENT_HOST
+        if scope["type"] == "http" and host:
+            raw = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k.lower() == b"host"), "")
+            if raw.split(":")[0].lower() == host:
+                path = scope.get("path", "")
+                shared_page = path.startswith("/v1/public/shares/") and "/site/" in path
+                if not shared_page and path not in self._ALLOWED:
+                    await send({"type": "http.response.start", "status": 404,
+                                "headers": [(b"content-type", b"text/plain"), (b"referrer-policy", b"no-referrer")]})
+                    await send({"type": "http.response.body", "body": b"Not found"})
+                    return
+        await self.app(scope, receive, send)
+
+
+# Added last, so it runs first: nothing else answers on the share domain.
+app.add_middleware(ShareHostGuardMiddleware)
+
+
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing
 # from a bare 422. Triggered any time FastAPI rejects a request body

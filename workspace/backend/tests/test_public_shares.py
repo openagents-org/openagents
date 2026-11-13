@@ -427,3 +427,21 @@ def test_odd_titles_still_share(client, workspace, people):
     assert r.status_code == 200, r.text
     token = _token(_create(client, workspace, r.json()["data"]["id"], mia, kind="knowledge"))
     assert client.get(f"/v1/public/shares/{token}/content").status_code == 200
+
+
+def test_the_share_domain_serves_nothing_but_shared_pages(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    fid = _upload(client, workspace, mia, "page.html", b"<html><head></head><body>hi</body></html>", "text/html")
+    token = _token(_create(client, workspace, fid, mia))
+    monkeypatch.setattr(config, "SHARE_CONTENT_HOST", "oa-share.test")
+    share = {"Host": "oa-share.test"}
+    assert client.get(f"/v1/public/shares/{token}/site/index.html", headers=share).status_code == 200
+    assert client.get("/health", headers=share).status_code == 200
+    # The rest of the API — even the public metadata — does not answer there.
+    for url in (f"/v1/public/shares/{token}", f"/v1/public/shares/{token}/content",
+                f"/v1/files?network={workspace['id']}", "/v1/workspaces"):
+        assert client.get(url, headers={**share, **mia}).status_code == 404, url
+    assert client.post("/v1/public-shares", json={"network": workspace["id"], "kind": "file", "id": fid},
+                       headers={**share, **mia}).status_code == 404
+    # The API's own host is unaffected.
+    assert client.get(f"/v1/public/shares/{token}").status_code == 200
