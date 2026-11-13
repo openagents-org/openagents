@@ -13,6 +13,7 @@ GET  /v1/profile      Network profile metadata
 """
 
 import asyncio
+import json
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -23,6 +24,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.orm import Session
 
+from app import cache
 from app.config import config
 from app.database import get_db
 from app.models import Channel, CloudAgentConfig, Workspace, WorkspaceMember
@@ -162,6 +164,29 @@ async def _emit_event(event: Event, workspace, db: Session, token: str = None):
     except EventRejected:
         return None
     db.commit()
+    if result is not None and result.type != "network.ping":
+        # Convenience routes must wake the same SSE subscribers as POST
+        # /events, but only after persistence succeeds. Redis is best-effort:
+        # a publish failure must not turn a committed write into an API error.
+        # Heartbeats are not persisted and must not flood the event stream.
+        try:
+            snapshot = {
+                "id": result.id,
+                "type": result.type,
+                "source": result.source,
+                "target": result.target,
+                "payload": result.payload,
+                "metadata": result.metadata,
+                "timestamp": result.timestamp,
+                "visibility": getattr(getattr(result, "visibility", None), "value", None)
+                or str(getattr(result, "visibility", None) or "channel"),
+            }
+            cache.publish_event(
+                f"ws:{workspace.id}:events",
+                json.dumps(snapshot, default=str, separators=(",", ":")).encode(),
+            )
+        except Exception:
+            logger.debug("Convenience event SSE publish failed", exc_info=True)
     return result
 
 
