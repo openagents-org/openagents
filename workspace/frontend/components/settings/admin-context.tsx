@@ -35,7 +35,7 @@ export function canAdminister(me: WorkspaceMe | null): boolean {
 }
 
 export function canAccessSettingsSection(me: WorkspaceMe | null, section: string): boolean {
-  return !!me && (['profile', 'preferences', 'api-credits'].includes(section) || canAdminister(me));
+  return !!me && (['profile', 'connected-apps', 'preferences', 'api-credits'].includes(section) || canAdminister(me));
 }
 
 export const AdminSettingsContext = createContext<AdminSettingsValue | null>(null);
