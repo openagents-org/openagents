@@ -591,6 +591,9 @@ def _process_slack_event_callback(
         event.get("channel_type"),
         event.get("user") or "unknown",
         text,
+        # A top-level message starts a thread rooted at itself; a reply
+        # continues the thread it belongs to.
+        event.get("thread_ts") or event.get("ts"),
     )
     return success_response({"ok": True})
 
@@ -694,13 +697,23 @@ async def slack_events_shared(
     return results[0] if results else success_response({"ignored": True})
 
 
+def _topic_title(text: str) -> str:
+    line = " ".join((text or "").split())
+    return line if len(line) <= 60 else line[:59] + "…"
+
+
 def _ingest_slack_message(binding_id: str, bot_token: str, channel_id: str,
-                          channel_type: Optional[str], user_id: str, text: str) -> None:
+                          channel_type: Optional[str], user_id: str, text: str,
+                          thread_ts: Optional[str] = None) -> None:
     sender_name = svc.slack_user_display_name(bot_token, user_id)
-    chat_title = sender_name if channel_type == "im" else f"#{channel_id}"
+    if thread_ts:
+        # Each Slack thread is its own workspace thread, titled by its first message.
+        chat_title = _topic_title(text)
+    else:
+        chat_title = sender_name if channel_type == "im" else f"#{channel_id}"
     svc.ingest_external_message(
-        binding_id, channel_id, chat_title, sender_name, text,
-        {"slackUserId": user_id, "slackChannelType": channel_type},
+        binding_id, svc.conversation_key(channel_id, thread_ts), chat_title, sender_name, text,
+        {"slackUserId": user_id, "slackChannelType": channel_type, "slackThreadTs": thread_ts},
     )
 
 
@@ -799,12 +812,15 @@ async def lark_events(
         message.get("chat_type"),
         sender_open_id or "unknown",
         text,
+        # A new message starts a topic rooted at itself; a reply continues
+        # the topic of its root message.
+        message.get("root_id") or message.get("message_id"),
     )
     return success_response({"ok": True})
 
 
 def _ingest_lark_message(binding_id: str, chat_id: str, chat_type: Optional[str],
-                         open_id: str, text: str) -> None:
+                         open_id: str, text: str, root_id: Optional[str] = None) -> None:
     # svc.SessionLocal (not app.database's) so tests patching the service's
     # session factory cover this path too.
     db = svc.SessionLocal()
@@ -815,8 +831,11 @@ def _ingest_lark_message(binding_id: str, chat_id: str, chat_type: Optional[str]
     if binding is None:
         return
     sender_name = svc.lark_user_display_name(binding, open_id) if open_id != "unknown" else "user"
-    chat_title = sender_name if chat_type == "p2p" else f"Group {chat_id[-6:]}"
+    if root_id:
+        chat_title = _topic_title(text)
+    else:
+        chat_title = sender_name if chat_type == "p2p" else f"Group {chat_id[-6:]}"
     svc.ingest_external_message(
-        binding_id, chat_id, chat_title, sender_name, text,
-        {"larkOpenId": open_id, "larkChatType": chat_type},
+        binding_id, svc.conversation_key(chat_id, root_id), chat_title, sender_name, text,
+        {"larkOpenId": open_id, "larkChatType": chat_type, "larkRootId": root_id},
     )
