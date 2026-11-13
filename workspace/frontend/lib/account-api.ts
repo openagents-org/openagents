@@ -195,7 +195,7 @@ export async function resendVerificationEmail(idToken: string): Promise<{ sent: 
 
 export interface HubApiKey { id: string; name: string; prefix: string; created_at: string | null; last_used_at: string | null }
 export interface HubConnectedApp { id: string; client_id: string; name: string; connected_at: string | null; last_used_at: string | null }
-export interface HubCredentials { api_keys: HubApiKey[]; connected_apps: HubConnectedApp[]; mcp_url: string; docs_url: string }
+export interface HubCredentials { api_keys: HubApiKey[]; connected_apps: HubConnectedApp[]; mcp_url: string; docs_url: string; skill_url: string }
 
 export function listHubCredentials(idToken: string): Promise<HubCredentials> {
   return bearerFetch<HubCredentials>('/v1/account/hub-credentials', idToken);

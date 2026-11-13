@@ -323,7 +323,8 @@ def list_credentials(db: Session = Depends(get_db), authorization: Optional[str]
             if row.last_used_at and (app["last_used_at"] is None or _iso(row.last_used_at) > app["last_used_at"]):
                 app["last_used_at"] = _iso(row.last_used_at)
     return success_response({"api_keys": keys, "connected_apps": list(apps.values()),
-                             "mcp_url": f"{_base()}/mcp", "docs_url": f"{_base()}/v1/hub/docs"})
+                             "mcp_url": f"{_base()}/mcp", "docs_url": f"{_base()}/v1/hub/docs",
+                             "skill_url": f"{_base()}/v1/hub/skill.zip"})
 
 
 @router.post("/v1/account/api-keys")
