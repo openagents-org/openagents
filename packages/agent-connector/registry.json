@@ -292,6 +292,11 @@
         "name": "OPENAI_BASE_URL",
         "description": "OpenAI-compatible base URL (optional if using Codex subscription)",
         "required": false
+      },
+      {
+        "name": "CODEX_SANDBOX_MODE",
+        "description": "CLI execution policy: read-only, workspace-write, or inherit (local Codex policy). Unset, empty, or whitespace-only values preserve the legacy bypass of approvals and sandbox. Invalid values prevent execution.",
+        "required": false
       }
     ],
     "models": {
