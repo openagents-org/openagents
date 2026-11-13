@@ -30,6 +30,7 @@ const IS_WINDOWS = process.platform === 'win32';
 
 let tmpDir;
 let savedKey;
+let savedLocalAppData;
 
 function evaluate(configPath, binary = '/fake/cursor-agent') {
   const entry = { ...cursor, check_ready: { ...cursor.check_ready, creds_file: configPath } };
@@ -61,12 +62,17 @@ beforeEach(() => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cursor-'));
   savedKey = process.env.CURSOR_API_KEY;
   delete process.env.CURSOR_API_KEY;
+  savedLocalAppData = process.env.LOCALAPPDATA;
+  // Keep the user's real Cursor install out of the fake CLI status checks.
+  process.env.LOCALAPPDATA = path.join(tmpDir, 'Local');
   clearVersionCache();
 });
 
 afterEach(() => {
   if (savedKey === undefined) delete process.env.CURSOR_API_KEY;
   else process.env.CURSOR_API_KEY = savedKey;
+  if (savedLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+  else process.env.LOCALAPPDATA = savedLocalAppData;
   setBlockingProbes(null);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
@@ -188,7 +194,7 @@ describe('Cursor readiness — asking the CLI', () => {
 
 describe('Cursor readiness — how the status check is started', () => {
   /** _spawnLoginStatus as it runs on `platform`, recording each spawnSync call. */
-  function spawnAs(platform, binary, env = {}) {
+  function spawnAs(platform, binary, env = {}, args = ['status']) {
     const calls = [];
     const inst = new Installer(mockRegistry, tmpDir);
     inst._spawnSyncForTest = (...a) => { calls.push(a); return { status: 0, stdout: 'Not logged in', stderr: '' }; };
@@ -198,7 +204,7 @@ describe('Cursor readiness — how the status check is started', () => {
     if (env.LOCALAPPDATA === undefined) delete process.env.LOCALAPPDATA;
     else process.env.LOCALAPPDATA = env.LOCALAPPDATA;
     try {
-      inst._spawnLoginStatus(binary, ['status'], `"${binary}" status`);
+      inst._spawnLoginStatus(binary, args, `"${binary}" ${args.join(' ')}`);
     } finally {
       Object.defineProperty(process, 'platform', saved);
       if (savedLocal === undefined) delete process.env.LOCALAPPDATA;
@@ -229,6 +235,34 @@ describe('Cursor readiness — how the status check is started', () => {
     const [call] = spawnAs('win32', bin);
     assert.equal(call[0], `"${bin}" status`);
     assert.equal(call[1].shell, true);
+  });
+
+  for (const file of ['step.exe', 'step.cmd']) {
+    it(`Windows: checking ${file} does not run an installed Cursor instead`, () => {
+      const localAppData = path.join(tmpDir, 'Local');
+      const cursorRoot = path.join(localAppData, 'cursor-agent');
+      fs.mkdirSync(cursorRoot, { recursive: true });
+      fs.writeFileSync(path.join(cursorRoot, 'node.exe'), '');
+      fs.writeFileSync(path.join(cursorRoot, 'index.js'), '');
+      const bin = path.join(tmpDir, file);
+      const [call] = spawnAs('win32', bin, { LOCALAPPDATA: localAppData }, ['login', 'status', '--json']);
+      assert.equal(call[0], `"${bin}" login status --json`);
+      assert.equal(call[1].shell, true);
+      assert.equal(call[1].windowsHide, true);
+    });
+  }
+
+  it('Windows: a relocated Cursor launcher can still use its default install root', () => {
+    const localAppData = path.join(tmpDir, 'Local');
+    const cursorRoot = path.join(localAppData, 'cursor-agent');
+    fs.mkdirSync(cursorRoot, { recursive: true });
+    fs.writeFileSync(path.join(cursorRoot, 'node.exe'), '');
+    fs.writeFileSync(path.join(cursorRoot, 'index.js'), '');
+    const bin = path.join(tmpDir, 'cursor-agent.cmd');
+    const [call] = spawnAs('win32', bin, { LOCALAPPDATA: localAppData });
+    assert.equal(call[0], path.join(cursorRoot, 'node.exe'));
+    assert.deepEqual(call[1], [path.join(cursorRoot, 'index.js'), 'status']);
+    assert.equal(call[2].shell, false);
   });
 
   it('elsewhere: runs the binary with its args, no shell', () => {
