@@ -66,6 +66,15 @@ case "$(uname -s)" in
     MINGW*|MSYS*|CYGWIN*) OS="windows";;
 esac
 
+# Node.js archive names differ from uname's Linux architecture names.
+if [ "$OS" = "linux" ]; then
+    case "$ARCH" in
+        x86_64)       NODE_ARCH="x64";;
+        aarch64|arm64) NODE_ARCH="arm64";;
+        *) fail "Unsupported Linux architecture: $ARCH. Supported architectures: x86_64, aarch64, arm64.";;
+    esac
+fi
+
 # =========================================================================
 # Step 1: Node.js
 # =========================================================================
@@ -119,7 +128,7 @@ else
                 sudo dnf install -y nodejs 2>/dev/null || true
             else
                 info "Downloading Node.js portable..."
-                NODE_URL="https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-x64.tar.xz"
+                NODE_URL="https://nodejs.org/dist/v22.22.3/node-v22.22.3-linux-${NODE_ARCH}.tar.xz"
                 mkdir -p "$HOME/.openagents/nodejs"
                 curl -fsSL "$NODE_URL" | tar xJ -C "$HOME/.openagents/nodejs" --strip-components=1
                 export PATH="$HOME/.openagents/nodejs/bin:$PATH"
@@ -178,14 +187,15 @@ if [ "${_install_portable:-}" = "1" ]; then
             curl -fsSL "$_PNODE_URL" | tar xz -C "$HOME/.openagents/nodejs" --strip-components=1
             ;;
         linux)
-            _PNODE_URL="https://nodejs.org/dist/$PORTABLE_NODE_VER/node-${PORTABLE_NODE_VER}-linux-x64.tar.xz"
+            _PNODE_URL="https://nodejs.org/dist/$PORTABLE_NODE_VER/node-${PORTABLE_NODE_VER}-linux-${NODE_ARCH}.tar.xz"
             mkdir -p "$HOME/.openagents/nodejs"
             curl -fsSL "$_PNODE_URL" | tar xJ -C "$HOME/.openagents/nodejs" --strip-components=1
             ;;
     esac
-    if [ -x "$PORTABLE_NODE" ]; then
-        ok "Portable Node.js $PORTABLE_NODE_VER installed"
+    if ! "$PORTABLE_NODE" --version >/dev/null 2>&1; then
+        fail "Portable Node.js could not run on $OS ($ARCH). Check that the downloaded runtime matches your OS and CPU architecture."
     fi
+    ok "Portable Node.js $PORTABLE_NODE_VER installed"
 fi
 export PATH="$HOME/.openagents/nodejs/bin:$PATH"
 
