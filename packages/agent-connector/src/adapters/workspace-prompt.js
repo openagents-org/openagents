@@ -652,18 +652,10 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       'arrives as a new message in this thread @mentioning you (✅ Approved / ❌ Rejected). ' +
       'You can also poll:\n' +
       `\`${curl} -s -H "${h}" "${baseUrl}/v1/approvals/APPROVAL_ID?network=${workspaceId}"\`\n` +
-      '\n### Public share link (needs human approval)\n\n' +
-      'Only when the user asks to share a file or knowledge entry publicly (with people outside ' +
-      'the workspace). You cannot create the link yourself: this files a request, and a person who ' +
-      'can manage the artifact approves it in the thread. The link shows a snapshot of the artifact ' +
-      'as it is now. `expires_at` (ISO 8601) is optional; omit it for no expiry. `kind` is `file` or `knowledge`.\n\n' +
-      '**Request a public link:**\n' +
-      `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json" ` +
-      `${baseUrl}/v1/public-shares/requests -d '{"network":"${workspaceId}","channel":"${channelName}",` +
-      `"kind":"file","id":"FILE_ID","reason":"The user asked to share this report with a client",` +
-      `"source":"openagents:${agentName}"}'\`\n\n` +
-      'The response is a pending approval. STOP and tell the user it awaits their approval; do not claim ' +
-      'a link exists. When approved, the link arrives as a message in this thread @mentioning you.\n'
+      // Kept to one line: Copilot passes this prompt on its command line,
+      // and on Windows it sits just under the length that fits (promptFitsArgv).
+      'Public link to a file/knowledge entry, only if the user asks: POST {network,channel,kind,id,source} ' +
+      `to ${baseUrl}/v1/public-shares/requests; a person approves it here, then the link arrives.\n`
     );
   }
 
