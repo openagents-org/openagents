@@ -574,6 +574,8 @@ async def delete_knowledge(
 
     entry.status = "deleted"
     entry.updated_at = datetime.now(timezone.utc)
+    from app.services.public_shares import revoke as revoke_public_shares
+    revoke_public_shares(db, "knowledge", [entry.id])
     db.commit()
 
     event = Event(

@@ -199,6 +199,11 @@ class Config:
     PUBLIC_API_BASE: str = os.environ.get(
         "PUBLIC_API_BASE", "https://workspace-endpoint.openagents.org"
     )
+    # The separate domain shared web pages and web projects render on (e.g.
+    # "oa-share.page"), pointed at this API. A page rendered on the product's
+    # own domain could pass for an OpenAgents sign-in form, so public links
+    # render HTML only from this host; unset, they show its source instead.
+    SHARE_CONTENT_HOST: str = os.environ.get("SHARE_CONTENT_HOST", "").strip().lower()
     # The official "OpenAgents" Slack app (one-click Add to Slack). All three
     # come from the app's Basic Information page; when unset, the UI falls
     # back to the bring-your-own-app flow (docs/slack-app-setup.md).

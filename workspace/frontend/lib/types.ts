@@ -1439,18 +1439,39 @@ export type GrantRight = 'read' | 'act' | 'share';
 
 /** GET/POST/DELETE /v1/files/{id}/public-link — an "anyone with the link"
  *  view link. `token` is only returned to people who can manage the file. */
-export interface FilePublicLinkState {
-  link: { active: true; created_at: string | null; token?: string; created_by?: string } | null;
+/** What a public link can point at: a workspace file (web projects too) or
+ *  a knowledge document. */
+export type PublicShareKind = 'file' | 'knowledge';
+
+/** GET /v1/public-shares */
+export interface PublicShareState {
+  link: {
+    active: true;
+    created_at: string | null;
+    /** When the copy the link serves was taken. */
+    snapshot_at: string | null;
+    expires_at: string | null;
+    token?: string;
+    url?: string;
+    created_by?: string;
+  } | null;
   can_manage: boolean;
 }
 
-/** GET /v1/public/files/{token} — no auth. */
-export interface PublicFileInfo {
+/** GET /v1/public/shares/{token} — no auth. */
+export interface PublicShareInfo {
+  kind: PublicShareKind;
+  title: string;
   filename: string;
   content_type: string;
   size: number;
-  /** When the link was created. */
+  /** When the copy was taken. */
   shared_at: string | null;
+  expires_at: string | null;
+  web_project: boolean;
+  /** Where an HTML page or web project renders, on the separate share
+   *  domain; null when none is configured. */
+  render_url: string | null;
 }
 
 /** GET /v1/grants */

@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils';
 import { FileGrid } from './file-grid';
 import { ImageStage } from './image-stage';
 import { AudioStage, VideoStage } from './media-stage';
+import { SheetStage, delimiterFor } from './sheet-stage';
 import {
   basename,
   dirname,
@@ -47,17 +48,8 @@ import { AccessExplainer } from '@/components/sharing/access-explainer';
  *  preview is slower and less useful than the download button. */
 const MAX_TEXT_BYTES = 2 * 1024 * 1024;
 /** Rows we're willing to put in the DOM for a delimited file. */
-const MAX_SHEET_ROWS = 500;
-
 function isHtml(contentType: string, filename: string): boolean {
   return contentType === 'text/html' || /\.html?$/i.test(filename);
-}
-
-/** CSV/TSV are the only spreadsheets we can render without a parser library. */
-function delimiterFor(contentType: string, filename: string): string | null {
-  if (/\.tsv$/i.test(filename) || contentType === 'text/tab-separated-values') return '\t';
-  if (/\.csv$/i.test(filename) || contentType === 'text/csv') return ',';
-  return null;
 }
 
 /**
@@ -92,48 +84,6 @@ function loadStrategyFor(kind: FileKind, contentType: string, filename: string):
   }
 }
 
-/** RFC 4180-ish: quoted cells, doubled quotes, embedded newlines. */
-function parseDelimited(text: string, delimiter: string): string[][] {
-  const rows: string[][] = [];
-  let row: string[] = [];
-  let cell = '';
-  let quoted = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (quoted) {
-      if (ch === '"') {
-        if (text[i + 1] === '"') {
-          cell += '"';
-          i++;
-        } else {
-          quoted = false;
-        }
-      } else {
-        cell += ch;
-      }
-      continue;
-    }
-    if (ch === '"') quoted = true;
-    else if (ch === delimiter) {
-      row.push(cell);
-      cell = '';
-    } else if (ch === '\n') {
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = '';
-    } else if (ch !== '\r') {
-      cell += ch;
-    }
-  }
-  if (cell !== '' || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-  return rows;
-}
-
 /* ── Per-kind stages ─────────────────────────────────────────────────────── */
 
 /** Plain text and source: line numbers, no wrapping, no highlighting. */
@@ -159,65 +109,6 @@ function TextStage({ content }: { content: string }) {
   );
 }
 
-/** CSV/TSV as a real table — the first row reads as a header, because in
- *  practice it always is one, and a sticky one at that. */
-function SheetStage({ content, delimiter }: { content: string; delimiter: string }) {
-  const t = useT();
-  const rows = useMemo(() => parseDelimited(content, delimiter), [content, delimiter]);
-  const truncated = rows.length > MAX_SHEET_ROWS;
-  const visible = truncated ? rows.slice(0, MAX_SHEET_ROWS) : rows;
-
-  if (visible.length === 0) {
-    return <p className="p-6 text-sm text-muted-foreground">{t('files.fileEmpty')}</p>;
-  }
-
-  const [header, ...body] = visible;
-
-  return (
-    <div className="p-4">
-      <div className="overflow-hidden rounded-lg border border-border">
-        <table className="w-full border-collapse text-xs">
-          <thead className="sticky top-0 bg-muted/70 backdrop-blur">
-            <tr>
-              <th className="w-10 border-b border-border px-2 py-1.5 text-right font-normal text-muted-foreground/60 tabular-nums" />
-              {header.map((cell, i) => (
-                <th
-                  key={i}
-                  className="border-b border-l border-border px-2.5 py-1.5 text-left font-semibold whitespace-nowrap"
-                >
-                  {cell}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {body.map((row, r) => (
-              <tr key={r} className="hover:bg-muted/40">
-                <td className="border-b border-border/60 px-2 py-1.5 text-right text-muted-foreground/50 tabular-nums select-none">
-                  {r + 1}
-                </td>
-                {header.map((_, c) => (
-                  <td
-                    key={c}
-                    className="max-w-70 truncate border-b border-l border-border/60 px-2.5 py-1.5"
-                    title={row[c] || ''}
-                  >
-                    {row[c] || ''}
-                  </td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {truncated && (
-        <p className="px-1 pt-2 text-xs text-muted-foreground">
-          {t('files.rowsTruncated', { shown: MAX_SHEET_ROWS, total: rows.length })}
-        </p>
-      )}
-    </div>
-  );
-}
 
 /** Everything we can't render in the browser — Office formats, archives,
  *  binaries. Named, typed, and one click from being downloaded. */

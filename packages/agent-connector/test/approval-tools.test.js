@@ -48,10 +48,51 @@ describe('approval tool surface', () => {
   });
 });
 
+describe('public link requests', () => {
+  it('is always offered and files a request instead of creating a link', async () => {
+    for (const disabled of [new Set(), new Set(['knowledge', 'files', 'browser'])]) {
+      assert.ok(buildToolDefs(disabled).map((tool) => tool.name).includes('workspace_request_public_link'));
+    }
+    let body;
+    const server = new McpServer({
+      ...options,
+      wsClient: {
+        async requestPublicShare(workspaceId, token, args) {
+          assert.equal(workspaceId, 'ws-1');
+          body = args;
+          return { id: 'approval-9', status: 'pending', kind: 'public_share_request' };
+        },
+      },
+    });
+    const result = await server._dispatch('workspace_request_public_link', {
+      kind: 'knowledge', id: 'k-1', reason: 'For the client', expires_at: '2026-12-31T00:00:00Z',
+    });
+    assert.deepEqual(body, {
+      channel: 'general', kind: 'knowledge', id: 'k-1', reason: 'For the client',
+      expires_at: '2026-12-31T00:00:00Z', source: 'openagents:test-agent',
+    });
+    const out = JSON.stringify(result);
+    assert.match(out, /approval-9/);
+    assert.match(out, /must approve/);
+  });
+
+  it('posts to the request endpoint, never to the create endpoint', async () => {
+    const { WorkspaceClient } = require('../src/workspace-client');
+    const client = new WorkspaceClient('https://example.test');
+    let call;
+    client._post = async (path, body) => { call = { path, body }; return { data: { id: 'a', status: 'pending' } }; };
+    const out = await client.requestPublicShare('ws-1', 'tok', { channel: 'general', kind: 'file', id: 'f-1', source: 'openagents:x' });
+    assert.equal(call.path, '/v1/public-shares/requests');
+    assert.deepEqual(call.body, { network: 'ws-1', channel: 'general', kind: 'file', id: 'f-1', source: 'openagents:x' });
+    assert.equal(out.status, 'pending');
+  });
+});
+
 describe('generated workspace instructions', () => {
   it('documents approval tools without removed escalation tools', () => {
     const text = prompt.buildClaudeMcpToolBlock();
     assert.match(text, /workspace_request_approval/);
+    assert.match(text, /workspace_request_public_link/);
     for (const name of removed) assert.ok(!text.includes(name));
   });
   for (const build of ['buildClaudeSkillMd', 'buildCursorSkillMd', 'buildOpenCodeSkillMd', 'buildOpenclawSkillMd']) {
@@ -59,6 +100,8 @@ describe('generated workspace instructions', () => {
       const text = prompt[build](options);
       assert.match(text, /Request approval/);
       assert.match(text, /\/v1\/approvals/);
+      assert.match(text, /\/v1\/public-shares\/requests/);
+      assert.doesNotMatch(text, /\/v1\/public-shares -d/);
       assert.doesNotMatch(text, /"kind":"(?:help|proposal)"/);
       assert.doesNotMatch(text, /Ask your owner|Propose an improvement/);
       for (const name of removed) assert.ok(!text.includes(name));

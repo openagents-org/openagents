@@ -1,20 +1,18 @@
 'use client';
 /**
  * Header actions for the artifact opened in the thread's side panel — the
- * same download / copy link / share the full file page offers, so a file an
- * agent produced can leave the conversation without a detour to Files.
+ * same download / copy link the full file page offers, so a file an agent
+ * produced can leave the conversation without a detour to Files. Sharing is
+ * the panel's Share button (artifact-share-button.tsx).
  */
 import { useEffect } from 'react';
-import { Download, Share2 } from 'lucide-react';
+import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
-import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
-import { basename } from '@/components/files/file-utils';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
-import { projectDisplayName } from '@/lib/web-projects';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
 
 export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference }) {
@@ -36,20 +34,5 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
   return <>
     <Button variant="ghost" mode="icon" size="sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
     <CopyResourceLink view="files" id={file.id} />
-    <ArtifactSharePopover
-      kind="file"
-      id={file.id}
-      name={projectDisplayName(basename(file.filename), file.contentType)}
-      visibility={file.visibility}
-      effectiveVisibility={file.effectiveVisibility}
-      canManage={file.canManage}
-      canInherit={!!file.channelName}
-      contentType={file.contentType}
-      onVisibilityChange={async (v) => {
-        await workspaceApi.updateFileVisibility(file.id, v);
-        await refreshFiles();
-      }}
-      trigger={<Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactAccess.share')} title={t('artifactAccess.share')}><Share2 className="size-4" /></Button>}
-    />
   </>;
 }

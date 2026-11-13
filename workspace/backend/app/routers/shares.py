@@ -84,6 +84,14 @@ def create_share(
     # v1.1: only someone who can read the thread may snapshot it.
     from app.services.visibility import can_view_channel_name, resolve_viewer
     _viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
+    # A public snapshot is a person's decision, never an agent's. On a legacy
+    # workspace that does not enforce login the workspace token is the
+    # person's credential (as for approvals), so a caller not identified as an
+    # agent may still share there, as before.
+    signed_in = _viewer.kind == "human" and bool(_viewer.email)
+    legacy_open = not workspace.require_login and not _viewer.is_agent
+    if not (signed_in or legacy_open):
+        return json_response(ResponseCode.FORBIDDEN, "Only a signed-in person can share a thread publicly")
     if _viewer.is_human and not can_view_channel_name(db, str(workspace.id), _viewer, body.channel):
         return json_response(ResponseCode.FORBIDDEN, "No access to this thread")
 
@@ -137,7 +145,7 @@ def create_share(
         workspace_id=str(workspace.id),
         channel_name=body.channel,
         title=title,
-        created_by=body.created_by or "human:user",
+        created_by=f"human:{_viewer.email}" if signed_in else (body.created_by or "human:user"),
         snapshot_data=chat_messages,
         share_token=share_token,
         message_count=len(chat_messages),

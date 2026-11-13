@@ -13,6 +13,7 @@ import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
 import { ProjectUpload } from './project-upload';
 import { ArtifactContent } from './artifact-content';
 import { ArtifactFileActions } from './artifact-file-actions';
+import { ArtifactShareButton, type ShareableArtifact } from './artifact-share-button';
 import { basename } from '@/components/files/file-utils';
 
 type Entry = { ref: ArtifactReference; title: string; kind: 'document' | 'html' | 'browser' | 'project'; here: boolean; detail?: string };
@@ -36,6 +37,11 @@ export function ArtifactPanel() {
     ...browserTabs.map(tab => ({ref:{kind:'browser' as const,id:tab.id},title:tab.title || tab.url,kind:'browser' as const,here:!!tab.artifactChannels?.includes(currentSessionId || ''),detail:tab.activity ? `${tab.activity.actor.replace(/^(openagents:|human:)/,'')} · ${tab.url}` : tab.url})),
   ], [files, knowledge, browserTabs, currentSessionId]);
   const selected = entries.find(entry => sameArtifact(entry.ref,selectedArtifact));
+  // What the Share button offers: the thread's files and documents (and the
+  // pinned one). Browser tabs have no link outside the workspace.
+  const shareable = useMemo<ShareableArtifact[]>(() => entries
+    .filter(entry => entry.ref.kind !== 'browser' && (entry.here || sameArtifact(entry.ref,setting?.artifact || null)))
+    .map(entry => ({ ref: entry.ref as ShareableArtifact['ref'], title: entry.title })), [entries, setting]);
   const pinned = sameArtifact(setting?.artifact || null, selectedArtifact);
   const filtered = entries.filter(entry => (all || query || entry.here || sameArtifact(entry.ref,setting?.artifact || null)) && `${entry.title} ${entry.detail || ''}`.toLowerCase().includes(query.toLowerCase()));
   const pin = async (artifact: ArtifactReference | null) => {
@@ -56,6 +62,7 @@ export function ArtifactPanel() {
       {setting?.can_pin && (selectedArtifact || setting.unavailable) && <Button variant={pinned?'outline':'ghost'} mode="icon" size="sm" disabled={busy} title={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button>}
       {selectedArtifact && <ArtifactFileActions artifact={selectedArtifact} />}
       <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.refresh')} onClick={()=>void refresh()}><RefreshCw className="size-3.5" /></Button>
+      <ArtifactShareButton choices={shareable} selected={selectedArtifact} />
       <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.close')} onClick={()=>setShowBrowserPreview(false)}><X className="size-4" /></Button>
     </header>
     {pinned && <div className="flex items-center gap-1.5 border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground"><Pin className="size-3" />{t('artifactPanel.pinnedHint')}</div>}

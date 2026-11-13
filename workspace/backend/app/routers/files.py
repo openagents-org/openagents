@@ -58,7 +58,7 @@ from app.services.access_model import (
 )
 from app.services.visibility import resolve_viewer
 from app.services.personal_files import default_file_folder
-from app.services.file_share_links import revoke_file_links
+from app.services.public_shares import move_file_links, revoke_file_links
 from app.storage import get_file_store
 from openagents.core.onm_events import Event
 
@@ -896,6 +896,7 @@ async def upload_files_to_folder(
 
         target = f"{folder}/{name}" if folder else name
         replaced = False
+        replaced_ids: list[str] = []
 
         if target in taken:
             if on_conflict == "error":
@@ -911,7 +912,7 @@ async def upload_files_to_folder(
                     .where(FileRecord.status == "active")
                 ).scalars().all():
                     old.status = "deleted"
-                    revoke_file_links(db, [old.id])
+                    replaced_ids.append(old.id)
                 replaced = True
 
         content_type = upload.content_type or "application/octet-stream"
@@ -938,6 +939,8 @@ async def upload_files_to_folder(
         )
         db.add(record)
         db.flush()
+        # Its public link (a snapshot) follows the file to the new upload.
+        move_file_links(db, replaced_ids, file_id)
         taken.add(target)
 
         # Same event as POST /files — existing listeners shouldn't have to

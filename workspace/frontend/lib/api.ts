@@ -4,7 +4,8 @@ import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
   AgentCatalogDetail,
-  FilePublicLinkState,
+  PublicShareKind,
+  PublicShareState,
   AgentCatalogEntry,
   ApiResponse,
   BrowserPersistentContext,
@@ -2890,23 +2891,25 @@ class WorkspaceApi {
     return mapFileResponse(raw);
   }
 
-  /** The file's "anyone with the link" view link. `token` only comes back
-   *  to people who can manage the file. */
-  async getFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
-    const params = new URLSearchParams({ network: this.requireWorkspace() });
-    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link?${params}`);
+  /** The artifact's "anyone with the link" public link (a snapshot).
+   *  `token` and `url` only come back to people who can manage it. */
+  async getPublicShare(kind: PublicShareKind, id: string): Promise<PublicShareState> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), kind, id });
+    return this.request<PublicShareState>(`/v1/public-shares?${params}`);
   }
 
-  async createFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
-    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link`, {
+  /** Create the link, or refresh the live one: same token, a new snapshot
+   *  of the artifact as it is now, and this expiry (null = never). */
+  async createPublicShare(kind: PublicShareKind, id: string, expiresAt: string | null): Promise<PublicShareState> {
+    return this.request<PublicShareState>('/v1/public-shares', {
       method: 'POST',
-      body: JSON.stringify({ network: this.requireWorkspace() }),
+      body: JSON.stringify({ network: this.requireWorkspace(), kind, id, expires_at: expiresAt }),
     });
   }
 
-  async revokeFilePublicLink(fileId: string): Promise<FilePublicLinkState> {
-    const params = new URLSearchParams({ network: this.requireWorkspace() });
-    return this.request<FilePublicLinkState>(`/v1/files/${encodeURIComponent(fileId)}/public-link?${params}`, { method: 'DELETE' });
+  async revokePublicShare(kind: PublicShareKind, id: string): Promise<PublicShareState> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), kind, id });
+    return this.request<PublicShareState>(`/v1/public-shares?${params}`, { method: 'DELETE' });
   }
 
   /** Save an edited markdown file in place. `baseSha256` is the hash of the
