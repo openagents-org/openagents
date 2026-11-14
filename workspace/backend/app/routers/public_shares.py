@@ -229,25 +229,31 @@ def public_share_info(token: str, db: Session = Depends(get_db)):
         "expires_at": shares._aware(link.expires_at).isoformat() if link.expires_at else None,
         "web_project": shares.is_web_project(link.content_type),
         "render_url": render_url,
+        # Where the link lives: the share domain's own viewer when there is one.
+        "public_url": shares.public_url(token),
     }), headers=_NO_REFERRER)
 
 
 _RANGE = re.compile(r"bytes=(\d*)-(\d*)$")
 
 
-def _download(data: bytes, filename: str, content_type: Optional[str], range_header: Optional[str]) -> Response:
+def _download(data: bytes, filename: str, content_type: Optional[str], range_header: Optional[str],
+              *, inline: bool = False, sandbox: bool = True) -> Response:
     # A title may hold a newline, which no header can carry.
     filename = re.sub(r"[\x00-\x1f\x7f]", " ", filename).strip() or "download"
     ascii_fallback = filename.encode("ascii", "replace").decode("ascii").replace("?", "_")
     ascii_fallback = ascii_fallback.replace("\\", "_").replace('"', "_")
     headers = {
-        "Content-Disposition": f"attachment; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename, safe='')}",
+        "Content-Disposition": f"{'inline' if inline else 'attachment'}; filename=\"{ascii_fallback}\"; filename*=UTF-8''{quote(filename, safe='')}",
         "Accept-Ranges": "bytes",
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "sandbox",
         "Cache-Control": "private, no-store",
         **_NO_REFERRER,
     }
+    # A sandbox keeps a shared SVG's script from running when opened as a
+    # page; a PDF viewer refuses to run inside one, and a PDF has no script.
+    if sandbox:
+        headers["Content-Security-Policy"] = "sandbox"
     total = len(data)
     m = _RANGE.match((range_header or "").strip())
     if m and (m.group(1) or m.group(2)):
@@ -340,3 +346,59 @@ def public_share_site(token: str, asset_path: str, request: Request, db: Session
         "Cross-Origin-Resource-Policy": "cross-origin",
         **_NO_REFERRER,
     })
+
+
+# ---------------------------------------------------------------------------
+# The viewer on the share domain: https://<share host>/<token>
+# (ShareHostGuardMiddleware in app/main.py maps /<token>, /<token>/raw,
+# /<token>/download and /<token>/assets/<n> onto the routes below)
+# ---------------------------------------------------------------------------
+
+def _on_share_host(request: Request) -> bool:
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    return bool(config.SHARE_CONTENT_HOST) and host == config.SHARE_CONTENT_HOST
+
+
+def _html(body: str, status: int = 200) -> Response:
+    from app.services.share_viewer import PAGE_CSP
+    return Response(body, status_code=status, media_type="text/html; charset=utf-8", headers={
+        "Content-Security-Policy": PAGE_CSP, "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", **_NO_REFERRER})
+
+
+@router.get("/public/shares/{token}/view")
+def public_share_view(token: str, request: Request, db: Session = Depends(get_db)):
+    """The page a public link opens. Only on the share domain: it shows what
+    a stranger wrote, which must never render on the API's own host."""
+    from app.services import share_viewer
+    if not _on_share_host(request):
+        return _public_error(ResponseCode.NOT_FOUND, "Not found")
+    lang = share_viewer.language(request.headers.get("accept-language"))
+    link, why = shares.resolve_public(db, token)
+    if link is None:
+        return _html(share_viewer.error_page(why, lang), 404)
+    data = _read(link.storage_key) if share_viewer.renders_from_bytes(link) else None
+    if share_viewer.renders_from_bytes(link) and data is None:
+        return _html(share_viewer.error_page("", lang), 404)
+    fmt = (lambda d: d.strftime("%Y-%m-%d")) if lang == "zh" else (lambda d: d.strftime("%b %-d, %Y"))
+    return _html(share_viewer.page(link, data, lang, fmt))
+
+
+@router.get("/public/shares/{token}/raw")
+def public_share_raw(token: str, request: Request, db: Session = Depends(get_db)):
+    """The image, video, audio or PDF the viewer embeds, served inline (with
+    ranges, so media seeks). Never HTML: that is only ever framed from /site/."""
+    from app.services import share_viewer
+    if not _on_share_host(request):
+        return _public_error(ResponseCode.NOT_FOUND, "Not found")
+    link, why = shares.resolve_public(db, token)
+    if link is None:
+        return _public_error(ResponseCode.NOT_FOUND, why)
+    kind = share_viewer.inline_kind(link)
+    if kind is None:
+        return _public_error(ResponseCode.NOT_FOUND, "Not found")
+    data = _read(link.storage_key)
+    if data is None:
+        return _public_error(ResponseCode.NOT_FOUND, "The shared copy could not be read")
+    return _download(data, link.title, link.content_type, request.headers.get("range"),
+                     inline=True, sandbox=kind != "pdf")

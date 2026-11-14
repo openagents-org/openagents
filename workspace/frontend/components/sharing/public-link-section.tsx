@@ -84,7 +84,9 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
     }
   };
 
-  const linkUrl = (next: PublicShareState) => (next.link?.token ? publicShareUrl(next.link.token) : null);
+  // The server says where the link lives (the share domain's own page);
+  // older servers only send the token, which opens here.
+  const linkUrl = (next: PublicShareState) => next.link?.url || (next.link?.token ? publicShareUrl(next.link.token) : null);
   const publish = (refresh: boolean) => run(
     () => workspaceApi.createPublicShare(kind, id, expiryTimestamp(expiry, customDate)),
     async (next) => {

@@ -445,3 +445,95 @@ def test_the_share_domain_serves_nothing_but_shared_pages(client, workspace, peo
                        headers={**share, **mia}).status_code == 404
     # The API's own host is unaffected.
     assert client.get(f"/v1/public/shares/{token}").status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# The viewer on the share domain: https://<share host>/<token>
+# ---------------------------------------------------------------------------
+
+SHARE = {"Host": "oa-share.test"}
+
+
+def _shared(client, workspace, mia, name, data, content_type, monkeypatch):
+    fid = _upload(client, workspace, mia, name, data, content_type)
+    monkeypatch.setattr(config, "SHARE_CONTENT_HOST", "oa-share.test")
+    created = _create(client, workspace, fid, mia).json()["data"]["link"]
+    return created["token"], created
+
+
+def test_links_are_handed_out_on_the_share_domain(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    token, created = _shared(client, workspace, mia, "a.png", b"\x89PNG", "image/png", monkeypatch)
+    assert created["url"] == f"https://oa-share.test/{token}"
+    assert client.get(f"/v1/public/shares/{token}").json()["data"]["public_url"] == f"https://oa-share.test/{token}"
+
+
+def test_the_viewer_embeds_media_from_the_share_domain(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    data = b"\x89PNG\r\n\x1a\n" + bytes(200)
+    token, _ = _shared(client, workspace, mia, "chart.png", data, "image/png", monkeypatch)
+    page = client.get(f"/{token}", headers=SHARE)
+    assert page.status_code == 200 and page.headers["content-type"].startswith("text/html")
+    assert f'<img src="/{token}/raw"' in page.text and "chart.png" in page.text
+    assert f'href="/{token}/download"' in page.text
+    csp = page.headers["content-security-policy"]
+    assert "default-src 'none'" in csp and "script-src" not in csp and "form-action 'none'" in csp
+    assert page.headers["referrer-policy"] == "no-referrer"
+    raw = client.get(f"/{token}/raw", headers=SHARE)
+    assert raw.status_code == 200 and raw.content == data
+    assert raw.headers["content-disposition"].startswith("inline")
+    assert raw.headers["content-security-policy"] == "sandbox"
+    assert client.get(f"/{token}/raw", headers={**SHARE, "Range": "bytes=0-7"}).status_code == 206
+    download = client.get(f"/{token}/download", headers=SHARE)
+    assert download.status_code == 200 and download.headers["content-disposition"].startswith("attachment")
+
+
+def test_the_viewer_never_answers_on_the_api_host(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    token, _ = _shared(client, workspace, mia, "notes.md", b"# hi", "text/markdown", monkeypatch)
+    assert client.get(f"/v1/public/shares/{token}/view").status_code == 404
+    assert client.get(f"/v1/public/shares/{token}/raw").status_code == 404
+
+
+def test_markdown_renders_escaped_with_its_images(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    png = b"\x89PNG\r\n\x1a\nfake"
+    img = _upload(client, workspace, mia, "pic.png", png, "image/png")
+    doc = (f"# Plan\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n![pic](/v1/files/{img})\n\n"
+           "<script>alert(1)</script>\n\n[x](javascript:alert(1))")
+    token, _ = _shared(client, workspace, mia, "plan.md", doc.encode(), "text/markdown", monkeypatch)
+    page = client.get(f"/{token}", headers=SHARE).text
+    assert "<h1>Plan</h1>" in page and "<table>" in page
+    assert f'src="/{token}/assets/0"' in page
+    assert "<script>" not in page and "&lt;script&gt;" in page
+    assert 'href="javascript:' not in page
+    assert client.get(f"/{token}/assets/0", headers=SHARE).content == png
+
+
+def test_csv_renders_as_a_table(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    token, _ = _shared(client, workspace, mia, "q3.csv", b'name,note\nacme,"<b>big</b>"\n', "text/csv", monkeypatch)
+    page = client.get(f"/{token}", headers=SHARE).text
+    assert "<th>name</th>" in page and "&lt;b&gt;big&lt;/b&gt;" in page
+
+
+def test_web_pages_are_framed_under_the_user_content_banner(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    token, _ = _shared(client, workspace, mia, "page.html", b"<html><head></head><body>hi</body></html>", "text/html", monkeypatch)
+    page = client.get(f"/{token}", headers=SHARE).text
+    assert f'src="/v1/public/shares/{token}/site/index.html" sandbox="allow-scripts"' in page
+    assert "not by OpenAgents" in page
+    # HTML is never served inline from /raw: only framed from /site/.
+    assert client.get(f"/{token}/raw", headers=SHARE).status_code == 404
+
+
+def test_dead_links_show_a_page_saying_so(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    fid = _upload(client, workspace, mia, "a.txt", b"x", "text/plain")
+    monkeypatch.setattr(config, "SHARE_CONTENT_HOST", "oa-share.test")
+    token = _token(_create(client, workspace, fid, mia))
+    assert _revoke(client, workspace, fid, mia).status_code == 200
+    page = client.get(f"/{token}", headers={**SHARE, "Accept-Language": "zh-CN,zh;q=0.9"})
+    assert page.status_code == 404 and "此链接已失效" in page.text
+    assert "This link is no longer available" in client.get(f"/{token}", headers=SHARE).text
+    assert client.get("/", headers=SHARE).status_code == 404

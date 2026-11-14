@@ -431,6 +431,11 @@ def resolve_public(db: Session, token: str) -> Tuple[Optional[PublicShare], Opti
 
 
 def public_url(token: str) -> str:
+    """The address a public link is handed out as: the share domain's own
+    viewer (https://<share host>/<token>), or the workspace app's page where
+    no share domain is configured (preview, local development)."""
+    if config.SHARE_CONTENT_HOST:
+        return f"https://{config.SHARE_CONTENT_HOST}/{token}"
     return f"{config.FRONTEND_BASE_URL.rstrip('/')}/share/artifact/{token}"
 
 

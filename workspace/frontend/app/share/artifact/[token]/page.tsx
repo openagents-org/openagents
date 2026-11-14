@@ -6,6 +6,11 @@
  * when the link was made. No sign-in and no workspace: the token is the whole
  * credential.
  *
+ * Where a share domain is configured, links live there instead
+ * (https://<share host>/<token>, served by the backend); this page sends a
+ * link handed out here before the move on to it, and still serves preview and
+ * local development, which have no share domain.
+ *
  * Anyone can share anything here, under our domain, so nothing shared may act
  * like a page of ours. An HTML page or web project renders only from the
  * separate share domain (`render_url`), in a sandboxed frame whose content
@@ -87,6 +92,12 @@ export default function SharedArtifactPage({ params }: { params: Promise<{ token
         return;
       }
       const meta = json.data as PublicShareInfo;
+      // Links now live on the share domain; one handed out as this page
+      // before the move goes there.
+      if (meta.public_url && new URL(meta.public_url).origin !== window.location.origin) {
+        window.location.replace(meta.public_url);
+        return;
+      }
       setInfo(meta);
       const kind = previewKind(meta);
       if (kind === 'none' || kind === 'project') { setBody({ kind }); return; }

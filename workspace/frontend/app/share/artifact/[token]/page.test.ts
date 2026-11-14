@@ -81,3 +81,11 @@ it('says when a link has expired', async () => {
   await open();
   expect(host.textContent).toContain('sharedFile.expired');
 });
+
+it('sends a link handed out here on to the share domain', async () => {
+  const replace = vi.fn();
+  vi.stubGlobal('location', { ...window.location, origin: 'https://workspace.test', replace });
+  serve({ ...base, title: 'a.png', content_type: 'image/png', public_url: 'https://oa-share.test/tok' });
+  await open();
+  expect(replace).toHaveBeenCalledWith('https://oa-share.test/tok');
+});

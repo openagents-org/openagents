@@ -78,3 +78,11 @@ it('turns an expiry choice into a timestamp', () => {
   expect(expiryTimestamp('custom', '2026-12-01', now)).toBe(new Date(2026, 11, 1, 23, 59, 59).toISOString());
   expect(expiryTimestamp('custom', '', now)).toBeNull();
 });
+
+it('copies the address the server hands out, on the share domain', async () => {
+  mocks.get.mockResolvedValue({ link: null, can_manage: true });
+  mocks.create.mockResolvedValue({ link: { active: true, token: 'tok-3', url: 'https://oa-share.test/tok-3', created_at: null, snapshot_at: null, expires_at: null }, can_manage: true });
+  await render({ kind: 'file', id: 'f3' });
+  await act(async () => button('artifactAccess.linkCreate').click());
+  expect(writeText).toHaveBeenCalledWith('https://oa-share.test/tok-3');
+});

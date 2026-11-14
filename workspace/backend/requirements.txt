@@ -24,3 +24,6 @@ redis>=5.0.0
 
 # Resize browser preview frames without changing the live page viewport.
 Pillow>=10.4.0
+
+# Renders shared markdown on the public share page (raw HTML off).
+markdown-it-py>=3.0.0
