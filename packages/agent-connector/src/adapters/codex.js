@@ -25,7 +25,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
-const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT, networkErrorText } = require('./utils');
+const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT, networkErrorText, stripAnsi } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -69,6 +69,38 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 // the field they came first in stderr and were quoted as the reason a run
 // failed. Quoted only when nothing else was logged.
 const CODEX_SIDE_ERROR = /\brmcp::|failed to load skill\b/;
+// WARN records about codex's own bookkeeping that never say why a run failed,
+// so they are never quoted. "dropping turn-scoped item for unknown turn id" is
+// logged (app-server-protocol thread_history) while codex rebuilds a thread's
+// history, once per item; on a run that then stopped with nothing else in
+// stderr, five of them were quoted as the reason (field report 2026-11-14).
+// The other three are its analytics reducer losing track of a turn or item,
+// logged for the same items (codex-rs/analytics, rust-v0.160.0). Only at WARN:
+// an ERROR quoting the same sentence is something else.
+const CODEX_HARMLESS_RECORD = new RegExp([
+  'dropping turn-scoped item for unknown turn id',
+  'dropping (?:turn|sub-agent activity) tool count update: missing turn state',
+  'dropping tool item analytics event: missing item started notification',
+].join('|'), 'i');
+
+// What codex says when it cannot resume a thread: it fails at once, before
+// any request to the model.
+const CODEX_THREAD_GONE = /no rollout found for thread id/i;
+
+/**
+ * codex's stderr as trimmed, non-empty lines, without colour. With colour on
+ * (FORCE_COLOR, --color always) its log records start with escape sequences
+ * and CODEX_LOG_RECORD did not match them.
+ */
+function codexStderrLines(stderr) {
+  return stripAnsi(stderr).split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+}
+
+/** A record that is codex's bookkeeping (CODEX_HARMLESS_RECORD). */
+function isHarmlessRecord(line) {
+  const record = CODEX_LOG_RECORD.exec(line);
+  return !!record && record[1] === 'WARN' && CODEX_HARMLESS_RECORD.test(record[2]);
+}
 // Codex's wording when the model service could not be reached or the stream
 // dropped. Seen in the field from devices that cannot reach OpenAI, and
 // reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
@@ -846,12 +878,29 @@ class CodexAdapter extends BaseAdapter {
    * conversation, and the same refused request was sent a second time.
    */
   static _serviceRefused({ errorMessage, stderr } = {}) {
+    // In order of trust: the run's own error, then what codex said about the
+    // thread, then the end of stderr. Codex saying the thread is gone outranks
+    // the window below: it moves up when bookkeeping records are left out, and
+    // an earlier 401 or quota line in it kept a thread that no longer exists.
+    // In stderr only where codex said so itself (an ERROR record or a line of
+    // its own), not in a WARN that mentions it beside a run.
+    const error = String(errorMessage || '');
+    if (CODEX_THREAD_GONE.test(error)) return false;
     const refused = /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i;
-    if (refused.test(String(errorMessage || ''))) return true;
+    if (refused.test(error)) return true;
+    const threadGone = codexStderrLines(stderr).some((l) => {
+      if (!CODEX_THREAD_GONE.test(l)) return false;
+      const record = CODEX_LOG_RECORD.exec(l);
+      return !record || record[1] === 'ERROR';
+    });
+    if (threadGone) return false;
     // Only the end of stderr, where the reason the run died is: a stale
     // thread whose earlier log mentioned a quota was kept, and every later
-    // message in that channel failed until restart.
-    const lastLines = String(stderr || '').split(/\r?\n/).filter((l) => l.trim()).slice(-5).join('\n');
+    // message in that channel failed until restart. Bookkeeping records are
+    // left out first: logged once per item, a run of them pushed a 401 out of
+    // those lines, and the thread was dropped and the refused request sent
+    // again.
+    const lastLines = codexStderrLines(stderr).filter((l) => !isHarmlessRecord(l)).slice(-5).join('\n');
     return refused.test(lastLines);
   }
 
@@ -899,9 +948,10 @@ class CodexAdapter extends BaseAdapter {
    * of the last lines was mostly that noise. So, in order: lines the CLI
    * printed for a person; failing those, its ERROR records with timestamp and
    * module stripped; failing those, its warnings and the ERROR records it logs
-   * beside a run (CODEX_SIDE_ERROR). The banner and known-harmless
-   * lines are never a reason: a clean exit with only the banner reads as "no
-   * reply", not as "> Reading prompt from stdin...".
+   * beside a run (CODEX_SIDE_ERROR). The banner, known-harmless lines and
+   * bookkeeping records (CODEX_HARMLESS_RECORD) are never a reason: a clean
+   * exit with only the banner reads as "no reply", not as "> Reading prompt
+   * from stdin...".
    *
    * The cut is taken from the END: codex's own "Error: …" line comes last, and
    * keeping the first 500 characters cut it in half behind long log lines.
@@ -910,9 +960,8 @@ class CodexAdapter extends BaseAdapter {
     const said = [];
     const errors = [];
     const notes = [];
-    for (const raw of String(stderr || '').split(/\r?\n/)) {
-      const line = raw.trim();
-      if (!line || CODEX_STDIN_BANNER.test(line)) continue;
+    for (const line of codexStderrLines(stderr)) {
+      if (CODEX_STDIN_BANNER.test(line) || isHarmlessRecord(line)) continue;
       const record = CODEX_LOG_RECORD.exec(line);
       if (record) {
         const [, level, message] = record;
@@ -1018,10 +1067,10 @@ class CodexAdapter extends BaseAdapter {
     // Not the lines of codex's own ChatGPT MCP connector: they report its
     // sign-in to a side service, and an "AuthRequired" there says nothing
     // about why the run failed.
-    const logged = String(stderr || '').split(/\r?\n/)
+    const logged = codexStderrLines(stderr)
       .filter((l) => {
-        if (!l.trim() || /rmcp::/.test(l)) return false;
-        const record = CODEX_LOG_RECORD.exec(l.trim());
+        if (/rmcp::/.test(l)) return false;
+        const record = CODEX_LOG_RECORD.exec(l);
         return !record || record[1] === 'ERROR';
       })
       .slice(-CONNECTION_EVIDENCE_LINES)

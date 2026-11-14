@@ -251,6 +251,79 @@ describe('Codex — what of stderr is quoted', () => {
     assert.strictEqual(detail, 'codex exited with code 1');
   });
 
+  // Field report 2026-11-14: "Codex stopped partway > …item_id=… dropping
+  // turn-scoped item for unknown turn id `0…" — history bookkeeping codex
+  // logs while resuming a thread, quoted because nothing else was in stderr.
+  const DROPPED = (n) => `2026-11-14T02:44:0${n}.123456Z  WARN codex_app_server_protocol::protocol::thread_history: `
+    + `dropping turn-scoped item for unknown turn id \`019a8${n}\` thread_id=\`01a1d7b9-09c0-7151-9017-5e1aaea1a2c8\` item_id="item_${n}"`;
+
+  it('never quotes the dropped turn-scoped item records', () => {
+    const stderr = [BANNER, DROPPED(1), DROPPED(2), DROPPED(3)].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+    const withWarn = CodexAdapter._failureDetail({ stderr: [stderr, REFRESH].join('\n'), exitCode: 1 });
+    assert.ok(withWarn.includes('failed to refresh available models'), withWarn);
+    assert.ok(!withWarn.includes('turn-scoped'), withWarn);
+  });
+
+  // Review of the first fix: the same records coloured (FORCE_COLOR, --color
+  // always) were not read as log records at all, and so were quoted.
+  it('never quotes them coloured either', () => {
+    const coloured = (n) => DROPPED(n)
+      .replace(/^(\S+)\s+WARN /, '\x1b[2m$1\x1b[0m \x1b[33m WARN\x1b[0m ');
+    const stderr = [BANNER, coloured(1), coloured(2)].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+  });
+
+  it("never quotes the analytics reducer's dropped-item records", () => {
+    const at = '2026-11-14T02:44:09.000000Z  WARN codex_analytics::reducer: ';
+    const stderr = [
+      BANNER,
+      `${at}dropping turn tool count update: missing turn state thread_id=t turn_id=u item_id=i`,
+      `${at}dropping sub-agent activity tool count update: missing turn state thread_id=t turn_id=u`,
+      `${at}dropping tool item analytics event: missing item started notification thread_id=t item_id=i`,
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+  });
+
+  it('still quotes an ERROR that says the same words', () => {
+    const stderr = [BANNER, '2026-11-14T02:44:09.000000Z ERROR codex_core::x: dropping turn-scoped item for unknown turn id `t`'].join('\n');
+    assert.ok(CodexAdapter._failureDetail({ stderr, exitCode: 1 }).includes('turn-scoped'));
+  });
+
+  // A 401 followed by a run of them was read as a stale thread: the thread was
+  // dropped and the refused request sent a second time.
+  it('sees a refusal behind a run of bookkeeping records', () => {
+    const stderr = [
+      BANNER,
+      '2026-11-14T02:44:00.000000Z ERROR codex_core::client: unexpected status 401 Unauthorized',
+      ...[1, 2, 3, 4, 5, 6].map(DROPPED),
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), true);
+  });
+
+  // Review of the second fix: with those records left out, an earlier 401 came
+  // back into the last five lines, and a thread codex said was gone was kept.
+  it('drops a thread codex says is gone, whatever came before', () => {
+    const stderr = [
+      BANNER,
+      '2026-11-14T02:44:00.000000Z ERROR codex_models_manager::manager: failed to refresh available models: 401 Unauthorized',
+      ...[1, 2, 3, 4, 5, 6].map(DROPPED),
+      '2026-11-14T02:44:09.000000Z ERROR codex_exec: no rollout found for thread id thread-1',
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), false);
+    assert.strictEqual(CodexAdapter._serviceRefused({ errorMessage: 'no rollout found for thread id t', stderr: 'quota exceeded' }), false);
+  });
+
+  // Review of the third fix: a WARN mentioning another thread's missing
+  // rollout outranked the run's own 401, and a good thread was dropped.
+  it("keeps the thread when the run's own error is a refusal", () => {
+    const warn = '2026-11-14T02:44:00.000000Z  WARN codex_core::x: no rollout found for thread id different-thread';
+    assert.strictEqual(CodexAdapter._serviceRefused({ errorMessage: '401 Unauthorized', stderr: warn }), true);
+    // Nor does such a WARN alone count against a refusal at the end of stderr.
+    const stderr = [warn, '2026-11-14T02:44:01.000000Z ERROR codex_core::client: unexpected status 429 Too Many Requests'].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), true);
+  });
+
   it('says a lost connection is the network, after the quote and whatever its length', () => {
     const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
     const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
