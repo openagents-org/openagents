@@ -38,7 +38,7 @@ const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { maskSecretValues } = require('./utils');
+const { maskSecretValues, promptFitsArgv } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 /** The variable each run hands its key in; every agent's provider names it as key_env. */
@@ -87,6 +87,13 @@ const PREFILL_ENV = 'HERMES_PREFILL_MESSAGES_FILE';
 // version ("Hermes Agent v0.21.6 · stable").
 const PREFILL_ENV_SINCE = [2026, 6, 5];
 const PREFILL_ENV_SINCE_VERSION = [0, 16, 0];
+// A prompt too long for a command line goes over stdin as `--query-file -`,
+// which the CLI has taken since 0.20.5 of 2026.8.19. On Windows the whole
+// command line is capped at 32,767 characters and Node fails the spawn itself
+// with ENAMETOOLONG; a new session's prompt carries the workspace instructions
+// (when they cannot go as a prefill), the members and the recent messages.
+const QUERY_FILE_SINCE = [2026, 8, 19];
+const QUERY_FILE_SINCE_VERSION = [0, 20, 5];
 const RELEASE_DATE_RE = /\((\d{4})\.(\d{1,2})\.(\d{1,2})\)/;
 const SEMVER_RE = /\bv(\d+)\.(\d+)\.(\d+)\b/;
 // Our prefill files, in os.tmpdir(); they carry the workspace token. One left
@@ -150,6 +157,7 @@ class HermesAdapter extends BaseAdapter {
     this._channelProcesses = {};
     // { bin, ok }: whether the resolved hermes reads PREFILL_ENV.
     this._prefillEnvSupport = null;
+    this._versionTextCache = null;
     this._sessionsFile = path.join(
       os.homedir(), '.openagents', 'sessions',
       `${this.workspaceId}_${this.agentName}_hermes.json`,
@@ -437,16 +445,29 @@ class HermesAdapter extends BaseAdapter {
 
   /** True when a `hermes --version` output names a release that reads PREFILL_ENV. */
   _readsPrefillEnv(versionText) {
+    return this._releaseAtLeast(versionText, PREFILL_ENV_SINCE, PREFILL_ENV_SINCE_VERSION);
+  }
+
+  /** True when a `hermes --version` output names a release that takes `--query-file -`. */
+  _readsQueryFile(versionText) {
+    return this._releaseAtLeast(versionText, QUERY_FILE_SINCE, QUERY_FILE_SINCE_VERSION);
+  }
+
+  /**
+   * True when a `hermes --version` output names a release dated `sinceDate` or
+   * later, or, without a date, numbered `sinceVersion` or later.
+   */
+  _releaseAtLeast(versionText, sinceDate, sinceVersion) {
     const text = String(versionText || '');
     const atLeast = (have, want) => {
       const i = have.findIndex((n, k) => n !== want[k]);
       return i === -1 || have[i] > want[i];
     };
     const date = RELEASE_DATE_RE.exec(text);
-    if (date) return atLeast(date.slice(1, 4).map(Number), PREFILL_ENV_SINCE);
+    if (date) return atLeast(date.slice(1, 4).map(Number), sinceDate);
     const ver = SEMVER_RE.exec(text);
     // The old calendar tags (v2026.3.12) are dates, not versions.
-    if (ver && Number(ver[1]) < 1000) return atLeast(ver.slice(1, 4).map(Number), PREFILL_ENV_SINCE_VERSION);
+    if (ver && Number(ver[1]) < 1000) return atLeast(ver.slice(1, 4).map(Number), sinceVersion);
     return false;
   }
 
@@ -490,11 +511,35 @@ class HermesAdapter extends BaseAdapter {
   async _supportsPrefillEnv() {
     const known = this._prefillEnvSupport;
     if (known && known.bin === this._hermesBin) return known.ok;
-    let ok = false;
-    try { ok = this._readsPrefillEnv(await this._hermesVersionText()); } catch {}
+    const ok = this._readsPrefillEnv(await this._cachedVersionText());
     if (!ok) this._log(`This hermes does not read ${PREFILL_ENV}; sending the workspace instructions with each message`);
     this._prefillEnvSupport = { bin: this._hermesBin, ok };
     return ok;
+  }
+
+  /**
+   * What this hermes binary prints for `--version`, asked once per binary;
+   * '' when it could not be asked, which every feature check reads as too old.
+   * Only an answer is kept: one slow ask (a WSL cold start past the timeout)
+   * would otherwise tell every later long message to `hermes update`.
+   */
+  async _cachedVersionText() {
+    const known = this._versionTextCache;
+    if (known && known.bin === this._hermesBin) return known.text;
+    let text = '';
+    try { text = String(await this._hermesVersionText()); } catch {}
+    if (text.trim()) this._versionTextCache = { bin: this._hermesBin, text };
+    return text;
+  }
+
+  /** Whether this hermes reads its query from stdin with `--query-file -`. */
+  async _supportsQueryFile() {
+    return this._readsQueryFile(await this._cachedVersionText());
+  }
+
+  /** Whether a prompt can go to hermes as the value of `-q`. */
+  _promptFitsArgv(prompt) {
+    return promptFitsArgv(prompt);
   }
 
   /**
@@ -589,7 +634,7 @@ class HermesAdapter extends BaseAdapter {
   // Subprocess lifecycle
   // ------------------------------------------------------------------
 
-  _buildHermesCmd(prompt, resumeSessionId) {
+  _buildHermesCmd(prompt, resumeSessionId, { viaStdin = false } = {}) {
     if (!this._hermesBin) {
       throw new Error(`hermes CLI not found. Install with: ${HERMES_INSTALL_HINT}`);
     }
@@ -599,7 +644,7 @@ class HermesAdapter extends BaseAdapter {
     }
     args.push(
       'chat',
-      '-q', prompt,
+      ...(viaStdin ? ['--query-file', '-'] : ['-q', prompt]),
       '-Q',
       '--source', this.hermesSource,
       '--max-turns', String(this.maxTurns),
@@ -731,10 +776,22 @@ class HermesAdapter extends BaseAdapter {
       );
     }
 
+    // Too long for a command line: over stdin, or a plain account of why not
+    // in place of Node's bare "spawn ENAMETOOLONG".
+    const viaStdin = !this._promptFitsArgv(prompt);
+    if (viaStdin && !(await this._supportsQueryFile())) {
+      throw classifiedError(
+        `This message and its workspace context come to ${prompt.length} characters, more than fits on a ` +
+        'command line, and this version of Hermes takes a message only there. Hermes 0.20.5 (2026.8.19) or ' +
+        'newer reads it from stdin. Update it with `hermes update` (or reinstall: ' +
+        `${HERMES_INSTALL_HINT}), then restart the agent.`,
+      );
+    }
+
     const endpoint = this._endpoint();
     if (endpoint) await this._ensureProvider(endpoint);
-    const args = this._buildHermesCmd(prompt, resumeId);
-    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''})`);
+    const args = this._buildHermesCmd(prompt, resumeId, { viaStdin });
+    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''}${viaStdin ? `, prompt over stdin (${prompt.length} chars)` : ''})`);
 
     const env = { ...(this.agentEnv || process.env) };
     if (prefillFile) env[PREFILL_ENV] = prefillFile;
@@ -747,7 +804,7 @@ class HermesAdapter extends BaseAdapter {
     // for model and keys. Nothing to special-case here.
     const proc = spawn(this._hermesBin, args, {
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       cwd: this.workingDir,
       // No process group on Windows (can't signal one); windowsHide keeps a
       // console from flashing up.
@@ -761,6 +818,12 @@ class HermesAdapter extends BaseAdapter {
     let spawnError = null;
     proc.stdout.on('data', (d) => { stdout += d.toString('utf-8'); });
     proc.stderr.on('data', (d) => { stderr += d.toString('utf-8'); });
+    if (viaStdin && proc.stdin) {
+      // A hermes that exits before reading it all closes the pipe (EPIPE);
+      // its exit code and stderr say why.
+      proc.stdin.on('error', () => {});
+      proc.stdin.end(prompt, 'utf-8');
+    }
 
     // 'exit' can fire with output still in the pipes, and the session id is
     // the last thing Hermes prints. 'close' means they are drained — but it

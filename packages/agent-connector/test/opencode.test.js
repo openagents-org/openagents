@@ -269,6 +269,17 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(cls.category, 'network_error');
   });
 
+  it('a connection Bun dropped (ECONNRESET) → network_error, not undetermined', () => {
+    const message = 'Cannot connect to API: ECONNRESET: The socket connection was closed unexpectedly. '
+      + 'For more information, pass `verbose: true` in the second argument to fetch()';
+    const fromStdout = OpenCodeAdapter._classifyFailure({
+      code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '',
+    });
+    assert.equal(fromStdout.category, 'network_error');
+    const fromStderr = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: `Error: ${message}` });
+    assert.equal(fromStderr.category, 'network_error');
+  });
+
   // Field reports (core 0.2.223) that all read "failed for an undetermined
   // reason" while the provider had said exactly why.
   it('names a spent account, a revoked key, an oversized request and a busy provider', () => {

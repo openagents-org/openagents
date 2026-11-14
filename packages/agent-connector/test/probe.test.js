@@ -646,6 +646,30 @@ describe('probeAgentType', () => {
     assert.ok(/502 Bad Gateway/.test(r.message), r.message);
   });
 
+  // Field reports (core 0.2.227/0.2.228): a timed-out smoke test read "Timed
+  // out after 120s: …config.toml): `network_access` is ignored." and "…is
+  // overriding the same skill from …SKILL.md", neither of which is why.
+  it('does not quote Codex\'s ignored config keys or Gemini\'s skill conflicts as why it timed out', async () => {
+    const cases = [
+      ['codex', 'Codex', [
+        'user (C:\\Users\\someone\\.codex\\config.toml): `network_access` is ignored.',
+        'user (C:\\Users\\someone\\.codex\\config.toml): `windows_wsl_setup_acknowledged` is ignored.',
+      ]],
+      ['gemini', 'Gemini', [
+        'Skill conflict detected: "agents-sdk" from "C:\\Users\\owner\\.agents\\skills\\agents-sdk\\SKILL.md" '
+          + 'is overriding the same skill from "C:\\Users\\owner\\.gemini\\skills\\agents-sdk\\SKILL.md"',
+      ]],
+    ];
+    for (const [name, label, lines] of cases) {
+      const print = lines.map((l) => `console.error(${JSON.stringify(l)});`).join(' ');
+      const entry = { name, label, probe: { args: ['-e', `${print} setTimeout(()=>{}, 60000)`] } };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      const r = await probeAgentType(c, name, { timeoutMs: 500 });
+      assert.equal(r.ok, false);
+      assert.match(r.message, /^Timed out after \d+s$/, r.message);
+    }
+  });
+
   it('does not count the unknown-model notice alone as a reply', async () => {
     const entry = {
       name: 'claude', label: 'Claude',

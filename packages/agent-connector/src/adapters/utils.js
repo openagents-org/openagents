@@ -251,8 +251,12 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * "[claude-code:unrecognized_model] {"model":…}", on every run against a relay
  * model; read as the failure, it turned a timed-out smoke test into "wrong
  * model" and skipped the direct API check that would have said why.
+ * Codex lists each config.toml key it does not use ("user (C:\Users\…\
+ * .codex\config.toml): `network_access` is ignored."), and Gemini each skill
+ * found in two places ("Skill conflict detected: "x" from "…" is overriding
+ * the same skill from "…""); both were quoted as why a smoke test timed out.
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|\.toml\): `[^`]+` is ignored|is overriding the same skill from/i;
 
 /**
  * What a failed socket says went wrong. Node 20+ tries every address a host
@@ -292,12 +296,16 @@ function stripCliNoise(text) {
  * Windows caps a whole command line at 32,767 characters and Node fails the
  * spawn itself with ENAMETOOLONG — the system prompt plus a large pinned
  * glossary got there with a one-word message. Linux caps a single argument at
- * 128 KiB. Both limits leave headroom for quoting and the rest of the argv.
- * Past it, an adapter sends the prompt over stdin.
+ * 128 KiB, counted in bytes: 44,000 Chinese characters are 132,000 bytes in
+ * UTF-8 and failed with E2BIG while well under a character limit. Windows
+ * counts UTF-16 units, which is what `length` is. Both limits leave headroom
+ * for quoting and the rest of the argv. Past it, an adapter sends the prompt
+ * over stdin.
  */
 function promptFitsArgv(prompt, platform = process.platform) {
-  const limit = platform === 'win32' ? 24000 : 100000;
-  return String(prompt || '').length <= limit;
+  const text = String(prompt || '');
+  if (platform === 'win32') return text.length <= 24000;
+  return Buffer.byteLength(text, 'utf8') <= 100000;
 }
 
 module.exports = {
