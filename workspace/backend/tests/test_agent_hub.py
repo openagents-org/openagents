@@ -246,3 +246,13 @@ def test_skill_download_is_a_keyless_skill_folder(client):
     assert "$OPENAGENTS_API_KEY" in skill and "oa_pk_" in skill
     assert "https://mcp.openagents.org/v1/hub/threads" in skill
     assert client.get("/v1/hub/skill.md").text == skill
+
+
+def test_regenerating_the_key_retires_the_old_one(client, person):
+    first = client.post("/v1/account/api-keys", headers=person["headers"], json={}).json()["data"]
+    assert first["name"] == "API key"
+    second = client.post("/v1/account/api-keys", headers=person["headers"], json={"replace": True}).json()["data"]
+    assert client.get("/v1/hub/workspaces", headers=auth(first["key"])).status_code == 401
+    assert client.get("/v1/hub/workspaces", headers=auth(second["key"])).status_code == 200
+    keys = client.get("/v1/account/hub-credentials", headers=person["headers"]).json()["data"]["api_keys"]
+    assert [k["id"] for k in keys] == [second["id"]]

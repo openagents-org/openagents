@@ -296,7 +296,9 @@ async def revoke(request: Request, db: Session = Depends(get_db)):
 # ── Key management for the signed-in person ────────────────────────────────
 
 class CreateKeyRequest(BaseModel):
-    name: str = Field(..., min_length=1, max_length=80)
+    name: str = Field("API key", min_length=1, max_length=80)
+    # Regenerate: revoke the person's existing keys and issue a fresh one.
+    replace: bool = False
 
 
 def _iso(value: Optional[datetime]) -> Optional[str]:
@@ -332,10 +334,15 @@ def create_key(body: CreateKeyRequest, db: Session = Depends(get_db), authorizat
     user = resolve_current_user(db, authorization)
     if not user:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign in first")
-    active = db.execute(select(PersonalAccessToken.id).where(
+    active = db.execute(select(PersonalAccessToken).where(
         PersonalAccessToken.user_id == user.id, PersonalAccessToken.kind == "api_key",
         PersonalAccessToken.revoked_at.is_(None),
-    )).all()
+    )).scalars().all()
+    if body.replace:
+        now = _now()
+        for row in active:
+            row.revoked_at = now
+        active = []
     if len(active) >= MAX_ACTIVE_KEYS:
         return json_response(ResponseCode.BAD_REQUEST, f"You can have up to {MAX_ACTIVE_KEYS} keys. Revoke one first.")
     row, raw = create_api_key(db, user, body.name.strip())
