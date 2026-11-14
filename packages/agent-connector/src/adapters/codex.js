@@ -83,6 +83,10 @@ const CODEX_HARMLESS_RECORD = new RegExp([
   'dropping tool item analytics event: missing item started notification',
 ].join('|'), 'i');
 
+// What codex says when it cannot resume a thread: it fails at once, before
+// any request to the model.
+const CODEX_THREAD_GONE = /no rollout found for thread id/i;
+
 /**
  * codex's stderr as trimmed, non-empty lines, without colour. With colour on
  * (FORCE_COLOR, --color always) its log records start with escape sequences
@@ -874,6 +878,10 @@ class CodexAdapter extends BaseAdapter {
    * conversation, and the same refused request was sent a second time.
    */
   static _serviceRefused({ errorMessage, stderr } = {}) {
+    // Codex saying the thread is gone outranks anything else it logged: the
+    // window below moves up when bookkeeping records are left out, and an
+    // earlier 401 or quota line in it kept a thread that no longer exists.
+    if (CODEX_THREAD_GONE.test(`${errorMessage || ''}\n${stripAnsi(stderr)}`)) return false;
     const refused = /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i;
     if (refused.test(String(errorMessage || ''))) return true;
     // Only the end of stderr, where the reason the run died is: a stale

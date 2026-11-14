@@ -301,6 +301,19 @@ describe('Codex — what of stderr is quoted', () => {
     assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), true);
   });
 
+  // Review of the second fix: with those records left out, an earlier 401 came
+  // back into the last five lines, and a thread codex said was gone was kept.
+  it('drops a thread codex says is gone, whatever came before', () => {
+    const stderr = [
+      BANNER,
+      '2026-11-14T02:44:00.000000Z ERROR codex_models_manager::manager: failed to refresh available models: 401 Unauthorized',
+      ...[1, 2, 3, 4, 5, 6].map(DROPPED),
+      '2026-11-14T02:44:09.000000Z ERROR codex_exec: no rollout found for thread id thread-1',
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), false);
+    assert.strictEqual(CodexAdapter._serviceRefused({ errorMessage: 'no rollout found for thread id t', stderr: 'quota exceeded' }), false);
+  });
+
   it('says a lost connection is the network, after the quote and whatever its length', () => {
     const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
     const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
