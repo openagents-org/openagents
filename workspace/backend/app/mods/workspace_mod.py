@@ -2105,8 +2105,11 @@ def _director_rule(event, channel, mentions: List[str], sender_email: Optional[s
 
     One person directs a shared thread (``Channel.director_email``). When a
     DIFFERENT person speaks there:
-      • without an @mention → the message is *information* for the record;
-        it wakes nobody (returns ``"informational"``);
+      • without an @mention → ``"informational"``: the caller asks the router
+        whether the message still requests work from a participant (an answer
+        to the agent's question, a follow-up). Only a concrete recipient is
+        woken, flagged as non-director; otherwise it stays information for
+        the record and wakes nobody;
       • with an explicit @mention → still a request to that agent, but flagged
         so the agent can weigh it against the director's instructions
         (returns ``"non_director"``).
@@ -2128,6 +2131,26 @@ def _director_rule(event, channel, mentions: List[str], sender_email: Optional[s
         return None
     return "non_director" if mentions else "informational"
 
+
+
+async def _non_director_targets(event, channel, db, workspace, known_agents) -> List[str]:
+    """Agents a non-director's unmentioned message asks for work, per the router.
+
+    Only thread participants the sender may use are candidates. The router can
+    answer ``stop`` or ``ask``; both, a missing router and errors return [] so
+    the message stays information, as the director rule intends.
+    """
+    from app.config import config
+    names = [p.agent_name for p in channel.participants or []
+             if p.agent_name != "__no_response__" and p.agent_name in known_agents]
+    if not names or not config.ROUTER_LLM_ENABLED:
+        return []
+    targets = await _route_with_llm(
+        channel, event, db, workspace,
+        workflow_instruction=channel.orchestration_instruction if channel.orchestration_mode == "workflow" else None,
+        allow_human_stop=True, allowed_agents=names,
+    )
+    return [name for name in targets if name in names]
 
 
 _PERSON_MENTION_RE = re.compile(r"(?<![\w.@-])@[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
@@ -2400,11 +2423,23 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # and pushed like any message but starts no run, so it returns before the
     # router, the master fallback and the offline-agent notice.
     _director_verdict = _director_rule(event, channel, mentions, _sender_email)
+    director_targets = None
     if _director_verdict == "informational":
-        event.metadata["informational"] = True
-        event.metadata["director_email"] = channel.director_email
-        event.metadata["target_agents"] = ["__no_response__"]
-        return event
+        # A plain message can still ask an agent for work (an answer to its
+        # question, a follow-up). The classifier decides; a concrete
+        # recipient is delivered like a mention, anything else stays
+        # information for the record.
+        director_targets = await _non_director_targets(
+            event, channel, db, workspace, [n for n in known_agents if n not in protected]
+        )
+        if not director_targets:
+            for key in ("routing_choice", "routing_decision", "router_unavailable"):
+                event.metadata.pop(key, None)
+            event.metadata["informational"] = True
+            event.metadata["director_email"] = channel.director_email
+            event.metadata["target_agents"] = ["__no_response__"]
+            return event
+        _director_verdict = "non_director"
     if _director_verdict == "non_director":
         event.metadata["from_non_director"] = True
         event.metadata["director_email"] = channel.director_email
@@ -2414,7 +2449,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
         p for p in (channel.participants or [])
         if p.agent_name != "__no_response__" and p.agent_name not in protected
     ]
-    conversation_targets = await _conversation_targets(
+    conversation_targets = director_targets if director_targets is not None else await _conversation_targets(
         event, channel, db, workspace, [n for n in known_agents if n not in protected]
     )
     if event.source.startswith("openagents:") and _agent_chat_stopped(db, workspace, channel):
