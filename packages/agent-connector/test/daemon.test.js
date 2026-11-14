@@ -463,10 +463,45 @@ describe('Daemon', () => {
     assert.deepEqual(
       roster.sort((a, b) => a.name.localeCompare(b.name)),
       [
-        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: null, cliModels: null, probe: null },
-        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: 'chat', cliModels: null, probe: null },
+        { name: 'coder', type: 'claude', status: 'running', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: null, cliModels: null, probe: null, memory: null },
+        { name: 'helper', type: 'codex', status: 'stopped', model: null, workingDir: null, apiKeyMasked: null, authMode: 'cli_login', baseUrlHost: null, codexWireApi: 'chat', cliModels: null, probe: null, memory: null },
       ],
     );
+  });
+
+  it('memory_* commands scan, import and undo for an agent, with contents kept on the device', () => {
+    // A user's Claude Code setup with one project's memory, under a fake home.
+    // Outside the launcher home: folders under it are agents' own, never offered.
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-home-'));
+    const repo = path.join(home, 'code', 'shop');
+    const proj = path.join(home, '.claude', 'projects', repo.replace(/[^A-Za-z0-9]/g, '-'));
+    fs.mkdirSync(proj, { recursive: true });
+    fs.writeFileSync(path.join(proj, 's.jsonl'), JSON.stringify({ cwd: repo }) + '\n');
+    fs.mkdirSync(repo, { recursive: true });
+    fs.writeFileSync(path.join(repo, 'CLAUDE.md'), '# shop: deploy with make ship');
+
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'coder', type: 'claude', path: path.join(tmpDir, 'work') });
+    config.setAgentNetwork('coder', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const agent = config.getAgent('coder');
+
+    withProcessEnv({ HOME: home, USERPROFILE: home, CLAUDE_CONFIG_DIR: undefined }, () => {
+      const scanned = daemon._runMemoryCommand('memory_scan', agent, {});
+      assert.equal(scanned.ok, true);
+      const item = scanned.data.items.find((i) => i.status === 'importable');
+      assert.ok(item, 'the project memory is offered');
+      // The workspace gets labels and paths, never what the files say.
+      assert.ok(!JSON.stringify(scanned.data).includes('make ship'));
+
+      const imported = daemon._runMemoryCommand('memory_import', agent, { ids: [item.id] });
+      assert.equal(imported.data.receipt.items.length, 1);
+      assert.equal(daemon._runMemoryCommand('memory_scan', agent, {}).data.items.find((i) => i.id === item.id).status, 'imported');
+
+      const undone = daemon._runMemoryCommand('memory_undo', agent, {});
+      assert.ok(undone.data.undone.removed >= 1);
+    });
+    fs.rmSync(home, { recursive: true, force: true });
   });
 
   it('_buildRoster reports a configured API key masked, never in full', () => {

@@ -130,6 +130,45 @@ export interface EnvField {
  * agents the loaded core can actually run are returned, and `authMode` is
  * resolved authoritatively so onboarding never mislabels auth requirements.
  */
+export type MemoryItemKind = "memory" | "instructions" | "skill" | "persona"
+
+/** One entry of a memory scan: labels, paths and sizes (contents via memoryPreview). */
+export interface MemoryScanItem {
+  id: string
+  tool: string
+  kind: MemoryItemKind
+  label: string
+  source: string
+  files: string[]
+  fileCount: number
+  bytes: number
+  status: "importable" | "imported" | "loaded" | "skipped"
+  secret: boolean
+  selected: boolean
+  note?: string
+  description?: string
+}
+
+export interface MemoryScan {
+  agent: string
+  type: string
+  tool: string
+  supported: boolean
+  /** The installed core predates memory import. */
+  outdated?: boolean
+  items: MemoryScanItem[]
+  importedAt: string | null
+  dismissedAt: string | null
+}
+
+export interface MemoryImportReceipt {
+  at: string
+  tool: string
+  items: { id: string; label: string; kind: MemoryItemKind; tool: string; source: string; files: number }[]
+  counts: Partial<Record<MemoryItemKind, number>>
+  files: number
+}
+
 export interface OnboardingAgent {
   name: string
   label: string
@@ -715,6 +754,12 @@ declare global {
         path?: string | null
         env?: Record<string, string>
       }): Promise<{ agentName: string; warning: string | null }>
+      /** "Bring your memory" — see the connector's memory-import.js. */
+      memoryScan(agentName: string): Promise<MemoryScan>
+      memoryPreview(agentName: string, itemId: string): Promise<{ path: string; text: string }[]>
+      memoryImport(agentName: string, itemIds: string[]): Promise<MemoryImportReceipt>
+      memoryUndo(agentName: string): Promise<{ removed: number; restored: number; items: number }>
+      memoryDismiss(agentName: string): Promise<{ dismissedAt: string }>
       getNodeStatus(): Promise<NodeStatus>
       /** Same, but verified against the workspace first (throttled). */
       refreshNodeStatus(force?: boolean): Promise<NodeStatus>

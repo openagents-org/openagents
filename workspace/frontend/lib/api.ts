@@ -458,7 +458,8 @@ class WorkspaceApi {
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,
-    action: 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models',
+    action: 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models'
+      | 'memory_scan' | 'memory_import' | 'memory_undo' | 'memory_dismiss',
     args: Record<string, unknown> = {},
   ): Promise<NodeCommand> {
     return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {

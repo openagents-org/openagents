@@ -1578,6 +1578,26 @@ function setupIPC(): void {
   ipcMain.handle("onboarding:provision", (_e, opts) =>
     requireManager().provisionFirstAgent(opts),
   )
+  // "Bring your memory": see AgentManager.memoryCall.
+  ipcMain.handle("memory:scan", (_e, agentName: string) =>
+    requireManager().memoryCall("scanMemory", String(agentName || "")),
+  )
+  ipcMain.handle("memory:preview", (_e, agentName: string, itemId: string) =>
+    requireManager().memoryCall("previewMemory", String(agentName || ""), String(itemId || "")),
+  )
+  ipcMain.handle("memory:import", (_e, agentName: string, itemIds: unknown) =>
+    requireManager().memoryCall(
+      "importMemory",
+      String(agentName || ""),
+      Array.isArray(itemIds) ? itemIds.map(String) : [],
+    ),
+  )
+  ipcMain.handle("memory:undo", (_e, agentName: string) =>
+    requireManager().memoryCall("undoMemoryImport", String(agentName || "")),
+  )
+  ipcMain.handle("memory:dismiss", (_e, agentName: string) =>
+    requireManager().memoryCall("dismissMemory", String(agentName || "")),
+  )
   // Renderer consumes the post-upgrade reset flag (set by the startup
   // migration) to clear its onboarding localStorage and re-open the flow.
   // Read-and-clear so it only fires once.

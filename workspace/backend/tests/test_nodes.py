@@ -278,6 +278,27 @@ class TestNodeCommands:
         assert r.status_code == 200 and r.json()["data"]["action"] == "list_models"
 
 
+    def test_memory_commands_need_an_agent_name(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        hdr = _tok(ws["device_token"])
+        for action in ("memory_scan", "memory_import", "memory_undo", "memory_dismiss"):
+            assert client.post(f"/v1/nodes/{node_id}/commands", json={"action": action, "args": {}}, headers=hdr).status_code == 400
+            r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": action, "args": {"name": "coder", "ids": ["claude:global"]}}, headers=hdr)
+            assert r.status_code == 200 and r.json()["data"]["action"] == action
+
+    def test_memory_import_ids_are_scrubbed_with_the_args(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        hdr = _tok(ws["device_token"])
+        cmd = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "memory_import", "args": {"name": "coder", "ids": ["a", "b"]}}, headers=hdr).json()["data"]
+        r = client.post(f"/v1/nodes/commands/{cmd['commandId']}/result", json={"ok": True, "message": "Imported 2 item(s)", "data": {"receipt": {"items": []}}}, headers=hdr)
+        assert r.status_code == 200
+        listed = client.get(f"/v1/nodes/{node_id}/commands", headers=hdr).json()["data"]
+        mine = next(c for c in listed if c["commandId"] == cmd["commandId"])
+        assert mine["status"] == "done" and mine["result"]["message"] == "Imported 2 item(s)"
+
+
 class TestNodeRuntimes:
     def test_heartbeat_reports_runtimes(self, client):
         ws = _make_workspace(client)

@@ -78,6 +78,62 @@ export interface NodeAgent {
   /** Last smoke-test result for THIS agent (probes are per agent, run after
    * create/reconfigure and hourly by the daemon). */
   probe?: NodeProbe | null;
+  /** "Bring your memory": what this agent could still copy from the user's
+   * own Claude Code / Codex / OpenClaw setup, and what it has. Null/absent:
+   * an agent type without import, or a launcher too old to report it. */
+  memory?: NodeMemorySummary | null;
+}
+
+export type MemoryItemKind = 'memory' | 'instructions' | 'skill' | 'persona';
+
+export interface NodeMemorySummary {
+  status: 'available' | 'imported' | 'dismissed' | 'none';
+  /** Items that can still be imported. */
+  found: number;
+  /** Items the agent already sees on its own (global CLAUDE.md, …). */
+  loaded: number;
+  imported: number;
+  counts: Partial<Record<MemoryItemKind, number>>;
+  importedCounts: Partial<Record<MemoryItemKind, number>>;
+  importedAt: string | null;
+  /** The tool's display name: "Claude Code", "Codex", "OpenClaw". */
+  tool: string;
+}
+
+/** One entry of a memory_scan result. Labels, file names and sizes only —
+ * the contents never leave the device. */
+export interface MemoryScanItem {
+  id: string;
+  tool: string;
+  kind: MemoryItemKind;
+  label: string;
+  source: string;
+  files: string[];
+  fileCount: number;
+  bytes: number;
+  status: 'importable' | 'imported' | 'loaded' | 'skipped';
+  secret: boolean;
+  selected: boolean;
+  note?: string;
+  description?: string;
+}
+
+export interface MemoryScan {
+  agent: string;
+  type: string;
+  tool: string;
+  supported: boolean;
+  items: MemoryScanItem[];
+  importedAt: string | null;
+  dismissedAt: string | null;
+}
+
+export interface MemoryImportReceipt {
+  at: string;
+  tool: string;
+  items: { id: string; label: string; kind: MemoryItemKind; tool: string; source: string; files: number }[];
+  counts: Partial<Record<MemoryItemKind, number>>;
+  files: number;
 }
 
 /** Last smoke-test result the daemon reported for an agent type: one tiny

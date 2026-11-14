@@ -49,6 +49,16 @@ export function OnboardingHeader({
           subtitle={authSubtitle(entry, label, t)}
         />
       )
+    case "memory": {
+      const agent = flow.memory.agentName || label
+      const tool = flow.memory.scan?.tool || label
+      return (
+        <StepHeading
+          title={t("onboarding.flow.memory.title", { agent })}
+          subtitle={t("onboarding.flow.memory.subtitle", { agent, tool })}
+        />
+      )
+    }
     default:
       return (
         <StepHeading

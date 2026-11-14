@@ -487,7 +487,7 @@ class ClaudeAdapter extends BaseAdapter {
     // The builder emits the correct tool-reference block for toolMode directly
     // (mcp → workspace_* tools, skills → openagents-workspace skill), so there
     // is no post-hoc string replacement to drift out of sync.
-    const systemPrompt = '\n' + buildClaudeSystemPrompt({
+    let systemPrompt = '\n' + buildClaudeSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
@@ -497,6 +497,8 @@ class ClaudeAdapter extends BaseAdapter {
       toolMode: this.toolMode,
       glossary,
     });
+    const memory = this.importedMemoryPrompt();
+    if (memory) systemPrompt += `\n\n${memory}\n`;
 
     const cmd = [claudeBin, '-p', prompt, '--output-format', 'stream-json', '--verbose'];
 

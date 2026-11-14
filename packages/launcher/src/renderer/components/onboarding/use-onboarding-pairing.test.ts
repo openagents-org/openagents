@@ -28,10 +28,10 @@ describe("onboarding flow shape", () => {
   // One flow, pairing first: everything after pairNode is the optional
   // local-agent continuation, and there is no workspace step at the end —
   // createAgent binds to the paired workspace itself.
-  it("leads with welcome → pairNode and ends at createAgent", () => {
+  it("leads with welcome → pairNode and ends at createAgent, then memory", () => {
     expect(ONBOARDING_STEPS[0]).toBe("welcome")
     expect(ONBOARDING_STEPS[1]).toBe("pairNode")
-    expect(ONBOARDING_STEPS[ONBOARDING_STEPS.length - 1]).toBe("createAgent")
+    expect(ONBOARDING_STEPS.slice(-2)).toEqual(["createAgent", "memory"])
     expect(ONBOARDING_STEPS).not.toContain("connectWorkspace")
   })
 
@@ -42,7 +42,14 @@ describe("onboarding flow shape", () => {
     expect(ONBOARDING_STEPS[OPTIONAL_STEPS_FROM]).toBe("agent")
     expect(visibleSteps(0)).toEqual(["welcome", "pairNode"])
     expect(visibleSteps(1)).toEqual(["welcome", "pairNode"])
-    expect(visibleSteps(OPTIONAL_STEPS_FROM)).toEqual(ONBOARDING_STEPS)
+    expect(visibleSteps(OPTIONAL_STEPS_FROM, true)).toEqual(ONBOARDING_STEPS)
     expect(visibleSteps(ONBOARDING_STEPS.length - 1)).toEqual(ONBOARDING_STEPS)
+  })
+
+  // The memory step exists only for Claude Code / Codex / OpenClaw agents.
+  it("leaves the memory step off the tracker for other agents", () => {
+    const withoutMemory = ONBOARDING_STEPS.filter((s) => s !== "memory")
+    expect(visibleSteps(OPTIONAL_STEPS_FROM)).toEqual(withoutMemory)
+    expect(visibleSteps(ONBOARDING_STEPS.indexOf("createAgent"))).toEqual(withoutMemory)
   })
 })

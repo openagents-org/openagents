@@ -22,7 +22,8 @@
       "pairNode": "Connect device",
       "agent": "Pick agents",
       "configure": "Configure",
-      "createAgent": "Create agent"
+      "createAgent": "Create agent",
+      "memory": "Bring your memory"
     },
     "rail": {
       "steps": {
@@ -30,7 +31,8 @@
         "pairNode": "One code from your workspace, and this device is in.",
         "agent": "Pick from the bundled CLIs and agents — run several at once.",
         "configure": "Inject env vars and API routes, then test connectivity.",
-        "createAgent": "Name the instance and choose the folder it runs in."
+        "createAgent": "Name the instance and choose the folder it runs in.",
+        "memory": "Keep what your Claude Code, Codex or OpenClaw setup already knows."
       }
     },
     "sections": {
@@ -70,7 +72,13 @@
       "saveAndContinue": "Save & continue",
       "creating": "Creating…",
       "connecting": "Connecting…",
-      "createAndFinish": "Create & finish"
+      "createAndFinish": "Create & finish",
+      "createAndContinue": "Create & continue",
+      "skip": "Skip",
+      "finish": "Finish",
+      "importing": "Copying…",
+      "importCount_one": "Bring over {{count}} item",
+      "importCount_other": "Bring over {{count}} items"
     },
     "toast": {
       "fillRequiredFields": "Fill in the required fields first",
@@ -226,6 +234,36 @@
       "folderPlaceholder": "Choose where this agent runs…",
       "folderHint": "The agent runs in this directory. We'll create it if it doesn't exist yet.",
       "browse": "Browse"
+    },
+    "memory": {
+      "title": "Bring your memory to {{agent}}",
+      "subtitle": "{{agent}} is a new instance. Choose what it should keep from your {{tool}} setup: project memory, instructions and skills. Files are copied on this computer; your originals are not changed and nothing is uploaded.",
+      "scanning": "Looking through your {{tool}} setup…",
+      "failed": "Could not read your {{tool}} setup: {{message}}",
+      "retry": "Try again",
+      "groupImportable": "Ready to bring over",
+      "groupImported": "Already imported",
+      "groupLoaded": "Already available to the agent",
+      "groupSkipped": "Skipped",
+      "nothingFound": "Nothing else to bring over: {{agent}} already has everything we found in your {{tool}} setup.",
+      "secret": "May contain a password or API key. Preview it before importing.",
+      "files_one": "{{count}} file",
+      "files_other": "{{count}} files",
+      "preview": "Preview",
+      "hidePreview": "Hide preview",
+      "previewLoading": "Loading…",
+      "kind": {
+        "memory": "Memory",
+        "instructions": "Instructions",
+        "skill": "Skill",
+        "persona": "Persona"
+      },
+      "receiptTitle": "Memory brought over",
+      "receiptBody_one": "{{agent}} now has {{count}} item from your {{tool}} setup ({{files}} files). It uses them from its first message.",
+      "receiptBody_other": "{{agent}} now has {{count}} items from your {{tool}} setup ({{files}} files). It uses them from its first message.",
+      "undo": "Undo import",
+      "undone": "Import undone. The copied files were removed.",
+      "later": "You can do this later from the agent's page in your workspace."
     }
   },
   "wizard": {

@@ -168,7 +168,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, configDir, onStatus, logSink }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -177,6 +177,9 @@ class BaseAdapter {
     this.agentEnv = agentEnv || process.env;
     this.agentType = agentType;
     this.workingDir = workingDir || undefined;
+    // The launcher home (~/.openagents): where memory the user imported for
+    // this agent is kept (see memory-import.js).
+    this.configDir = configDir || undefined;
     // Optional callback the daemon supplies to surface live runtime/connectivity
     // status (reason + redacted message) into daemon.status.json so the Agents
     // list / TUI can show the REAL failure instead of a swallowed log line. A
@@ -292,6 +295,20 @@ class BaseAdapter {
     // errors are caught so the loop keeps going, and nothing else logs them.
     this._controlFailures = new FailureStreak();
   }
+  /**
+   * The system-prompt section holding the memory the user imported for this
+   * agent ("Bring your memory"), or '' when there is none. Read per turn, so an
+   * import made while the agent runs counts from its next message.
+   */
+  importedMemoryPrompt() {
+    try {
+      const { buildImportedMemoryPrompt } = require('../memory-import');
+      return buildImportedMemoryPrompt({ agentName: this.agentName, configDir: this.configDir });
+    } catch {
+      return '';
+    }
+  }
+
 
   // ------------------------------------------------------------------
   // Redaction of text quoted into the channel

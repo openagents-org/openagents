@@ -41,6 +41,9 @@ const CLI_MODELS_RETRY_MS = 9 * 60 * 1000;
 // stopped. A few rather than one per type: each child loads the whole core.
 const RUNTIME_DETECT_GROUPS = 4;
 const RUNTIME_DETECT_TIMEOUT_MS = 90 * 1000;
+// An agent's memory-import status (roster `memory`) is rescanned this often;
+// any memory_* command refreshes it at once.
+const MEMORY_SUMMARY_TTL_MS = 10 * 60 * 1000;
 // Probe results that mean the setup was never finished (no key, no sign-in,
 // not installed). Time alone does not change them, and re-running them every
 // hour re-reported the same failure all day; they are swept daily, and again
@@ -740,12 +743,75 @@ class Daemon {
           codexWireApi: a.type === 'codex' ? ((a.env && a.env.CODEX_WIRE_API) || typeEnv.CODEX_WIRE_API || 'chat') : null,
           cliModels: listed && listed.models && this._onCliSignIn(a) ? listed.models : null,
           probe: this._probes[a.name] || null,
+          memory: this._memorySummary(a),
         });
       }
     } catch {
       // best-effort
     }
     return roster;
+  }
+
+  /** Where memory-import.js finds this agent's tool and its own store. */
+  _memoryOpts(agentCfg) {
+    let env = process.env;
+    try { env = this._buildAgentEnv(agentCfg); } catch {}
+    return {
+      name: agentCfg.name,
+      type: agentCfg.type,
+      workingDir: resolveAgentWorkdir(agentCfg.path) || defaultAgentWorkdir(agentCfg.name, { create: false }),
+      env,
+      configDir: this.config.configDir,
+    };
+  }
+
+  /**
+   * The agent's memory-import status for its roster entry: whether there is
+   * memory to bring over, and what was. A scan reads a few dozen small files,
+   * so it is cached rather than repeated on every heartbeat.
+   */
+  _memorySummary(agentCfg) {
+    const memory = require('./memory-import');
+    if (!memory.SUPPORTED_TYPES.has(agentCfg.type)) return null;
+    if (!this._memoryCache) this._memoryCache = new Map();
+    const hit = this._memoryCache.get(agentCfg.name);
+    if (!hit || (Date.now() - hit.at >= MEMORY_SUMMARY_TTL_MS && !hit.refreshing)) {
+      // Refresh off the heartbeat's path: a first scan on a cold disk can take
+      // seconds. The roster carries the last value (null at first) meanwhile.
+      const entry = { at: hit ? hit.at : 0, value: hit ? hit.value : null, refreshing: true };
+      this._memoryCache.set(agentCfg.name, entry);
+      setImmediate(() => {
+        let value = null;
+        try { value = memory.memorySummary(this._memoryOpts(agentCfg)); } catch {}
+        this._memoryCache.set(agentCfg.name, { at: Date.now(), value, refreshing: false });
+      });
+      return entry.value;
+    }
+    return hit.value;
+  }
+
+  _runMemoryCommand(action, agentCfg, args) {
+    const memory = require('./memory-import');
+    const opts = this._memoryOpts(agentCfg);
+    if (action === 'memory_scan') {
+      const data = memory.scanMemory(opts);
+      const n = data.items.filter((i) => i.status === 'importable').length;
+      return { ok: true, message: `Found ${n} item(s) to bring over`, data };
+    }
+    if (action === 'memory_import') {
+      const receipt = memory.importMemory(opts, Array.isArray(args.ids) ? args.ids : []);
+      this._log(`${agentCfg.name}: imported ${receipt.items.length} memory item(s), ${receipt.files} file(s)`);
+      return { ok: true, message: `Imported ${receipt.items.length} item(s)`, data: { receipt } };
+    }
+    if (action === 'memory_undo') {
+      const undone = memory.undoImport(opts);
+      this._log(`${agentCfg.name}: undid memory import (${undone.removed} removed, ${undone.restored} restored)`);
+      return { ok: true, message: 'Import undone', data: { undone } };
+    }
+    if (action === 'memory_dismiss') {
+      return { ok: true, message: 'Dismissed', data: memory.dismissMemory(opts) };
+    }
+    throw new Error(`Unknown action '${action}'`);
   }
 
   /**
@@ -1115,7 +1181,8 @@ async _runNodeCommand(n, cmd) {
     // that target an existing agent connected to a different workspace, so a
     // newly-paired workspace can't start/stop/remove/reconfigure agents that
     // belong to another one (they surface in no roster of ours either).
-    const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent']);
+    const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent',
+      'memory_scan', 'memory_import', 'memory_undo', 'memory_dismiss']);
     try {
       if (AGENT_SCOPED.has(action)) {
         const existing = this.config.getAgent(name);
@@ -1273,6 +1340,20 @@ async _runNodeCommand(n, cmd) {
         ok = listed.models.length > 0;
         message = ok ? `Listed ${listed.models.length} model(s)` : listed.error;
         data = { models: listed.models };
+      } else if (action.startsWith('memory_')) {
+        // "Bring your memory": list / copy / undo what the user's own Claude
+        // Code, Codex or OpenClaw setup knows (memory-import.js). Only the
+        // inventory — labels, file names, sizes — goes back to the workspace;
+        // the contents stay on this device.
+        const agentCfg = this.config.getAgent(name);
+        ({ ok, message, data } = this._runMemoryCommand(action, agentCfg, args));
+        // Push the new status right away, so the workspace card updates.
+        try {
+          const value = require('./memory-import').memorySummary(this._memoryOpts(agentCfg));
+          if (!this._memoryCache) this._memoryCache = new Map();
+          this._memoryCache.set(name, { at: Date.now(), value, refreshing: false });
+        } catch {}
+        this._nodeHeartbeat();
       } else if (action === 'list_dir') {
         data = this._listDir(args.path);
         ok = true;

@@ -466,6 +466,47 @@ class AgentConnector {
     return probeAgentType(this, agentType, opts);
   }
 
+  // -- Memory import ("Bring your memory", see memory-import.js) --
+
+  /** Where memory-import.js finds an agent's tool and its store; the daemon's env rules. */
+  memoryOptions(agentName) {
+    const agent = this.config.getAgent(agentName);
+    if (!agent) throw new Error(`No agent named '${agentName}' on this device`);
+    const { stripForCliLogin } = require('./env');
+    const { resolveAgentWorkdir, defaultAgentWorkdir } = require('./paths');
+    const type = agent.type || 'openclaw';
+    const merged = this.env.getForAgent(type, this.registry, agent.env);
+    let env = stripForCliLogin(type, { ...process.env, ...merged }, this.registry, agent.env);
+    if (type === 'openclaw') env = require('./adapters/openclaw').instanceEnv(agent.name, env, this._configDir);
+    return {
+      name: agent.name,
+      type,
+      workingDir: resolveAgentWorkdir(agent.path) || defaultAgentWorkdir(agent.name, { create: false }),
+      env,
+      configDir: this._configDir,
+    };
+  }
+
+  scanMemory(agentName) {
+    return require('./memory-import').scanMemory(this.memoryOptions(agentName));
+  }
+
+  previewMemory(agentName, itemId) {
+    return require('./memory-import').previewItem(this.memoryOptions(agentName), itemId);
+  }
+
+  importMemory(agentName, itemIds) {
+    return require('./memory-import').importMemory(this.memoryOptions(agentName), itemIds);
+  }
+
+  undoMemoryImport(agentName) {
+    return require('./memory-import').undoImport(this.memoryOptions(agentName));
+  }
+
+  dismissMemory(agentName) {
+    return require('./memory-import').dismissMemory(this.memoryOptions(agentName));
+  }
+
   /**
    * Ask an agent type's own CLI which models the account it is signed in to
    * can run. See cli-models.js.

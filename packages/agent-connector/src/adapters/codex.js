@@ -333,8 +333,8 @@ class CodexAdapter extends BaseAdapter {
       disabledModules: this.disabledModules,
       ...this.pinnedPromptOpts(channelName),
     });
-    const skillsSection = this._buildInstalledSkillsSection();
-    return skillsSection ? `${base}\n\n${skillsSection}` : base;
+    const sections = [base, this._buildInstalledSkillsSection(), this.importedMemoryPrompt()].filter(Boolean);
+    return sections.join('\n\n');
   }
 
   /**
