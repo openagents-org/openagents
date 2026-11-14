@@ -201,9 +201,9 @@ export function listHubCredentials(idToken: string): Promise<HubCredentials> {
   return bearerFetch<HubCredentials>('/v1/account/hub-credentials', idToken);
 }
 
-/** The raw key is returned once, here, and never again. */
-export function createHubApiKey(idToken: string, name: string): Promise<HubApiKey & { key: string }> {
-  return bearerFetch('/v1/account/api-keys', idToken, { method: 'POST', body: JSON.stringify({ name }) });
+/** The raw key is returned once, here, and never again. `replace` regenerates: older keys stop working. */
+export function createHubApiKey(idToken: string, options: { name?: string; replace?: boolean } = {}): Promise<HubApiKey & { key: string }> {
+  return bearerFetch('/v1/account/api-keys', idToken, { method: 'POST', body: JSON.stringify(options) });
 }
 
 /** Revoke a key, or disconnect an app (every token it holds). */
