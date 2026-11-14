@@ -180,7 +180,13 @@ class Daemon {
     this._cliModelsInFlight = new Set(); // sign-in keys whose CLI is being asked right now
     this._cliModelsStartupTimer = null;
     this._cliModelsInterval = null;
-    this._reloadInFlight = null;  // serialize concurrent _reload() calls
+    // _reload and restartAgent run one at a time, in arrival order (see
+    // _exclusive). Each launch they make is recorded with a sequence number
+    // and the full config it ran on, so a restart can tell it was already
+    // served by a reload queued before it.
+    this._lifecycleTail = Promise.resolve();
+    this._lifecycleSeq = 0;
+    this._launchedAs = {};
     this._runtimeRepairs = new Map(); // agent type → in-flight reinstall of its supported version
   }
 
@@ -1583,6 +1589,27 @@ async _runNodeCommand(n, cmd) {
    * Restart a single agent by name.
    */
   async restartAgent(agentName) {
+    const requestedAt = ++this._lifecycleSeq;
+    return this._exclusive(() => this._restartAgentUnsafe(agentName, requestedAt));
+  }
+
+  async _restartAgentUnsafe(agentName, requestedAt) {
+    // A reload that ran while this restart waited already relaunched the
+    // agent on the config it would launch now (`agn connect` and reconfigure
+    // both write daemon.yaml and restart, and the watch may get there first).
+    // Restarting again would kill the run it has just picked up.
+    // The whole config is compared, not the reload's fingerprint: that one
+    // leaves out path and node_id, which a restart must still pick up.
+    const launched = this._launchedAs[agentName];
+    if (launched && launched.seq > requestedAt && this._isAgentRunning(agentName)) {
+      this.config.load();
+      const agent = this.config.getAgent(agentName);
+      if (agent && JSON.stringify(agent) === launched.config) {
+        this._log(`Restart ${agentName}: already relaunched on this config, skipping`);
+        return;
+      }
+    }
+
     // Set state to 'starting' immediately so UI never sees 'stopped' during restart
     if (this._processes[agentName]) {
       this._processes[agentName].state = 'starting';
@@ -1610,6 +1637,14 @@ async _runNodeCommand(n, cmd) {
     const agent = this.config.getAgent(agentName);
     if (agent) {
       this._launchAgent(agent);
+      this._noteLaunch(agent);
+      // The reload's record of this agent is now what it runs on. Left
+      // stale, the config-watch reload that follows the same write (`agn
+      // connect` saves the workspace AND sends restart:<name>) found it
+      // "changed" and restarted the agent again about a second after it came
+      // online — killing the first message it had already picked up.
+      if (this._cachedAgentNames) this._cachedAgentNames.add(agentName);
+      if (this._cachedAgentConfigs) this._cachedAgentConfigs[agentName] = this._agentConfigFingerprint(agent);
       this._writeStatus();
     }
   }
@@ -2366,19 +2401,28 @@ async _runNodeCommand(n, cmd) {
     // may both observe the same stale `this._adapters[name]` entry between
     // stopAgent() and _launchAgent(), leaving a ghost adapter running
     // alongside the new one → duplicate bot replies per message.
-    if (this._reloadInFlight) {
-      // Wait for the in-flight reload to finish, then run once more
-      // (the config may have changed again since it started).
-      this._reloadInFlight = this._reloadInFlight.then(
-        () => this._reloadUnsafe(),
-        () => this._reloadUnsafe(),
-      );
-      return this._reloadInFlight;
-    }
-    this._reloadInFlight = this._reloadUnsafe().finally(() => {
-      this._reloadInFlight = null;
-    });
-    return this._reloadInFlight;
+    // restartAgent shares the same queue: a reload that compared against the
+    // record before a restart updated it would restart the agent again.
+    return this._exclusive(() => this._reloadUnsafe());
+  }
+
+  /** Run `fn` after every reload/restart queued before it has finished. */
+  _exclusive(fn) {
+    const run = this._lifecycleTail.then(fn, fn);
+    this._lifecycleTail = run.catch(() => {});
+    return run;
+  }
+
+  _noteLaunch(agent) {
+    this._launchedAs[agent.name] = { seq: ++this._lifecycleSeq, config: JSON.stringify(agent) };
+  }
+
+  /** Same test as `start:` uses: an adapter, or a process starting/running. */
+  _isAgentRunning(agentName) {
+    return !!((this._adapters && this._adapters[agentName])
+      || ['running', 'starting'].includes(
+        this._processes[agentName] && this._processes[agentName].state
+      ));
   }
 
   async _reloadUnsafe() {
@@ -2405,6 +2449,7 @@ async _runNodeCommand(n, cmd) {
       if (!oldNames.has(agent.name)) {
         await this._ensureAdapterCleared(agent.name);
         this._launchAgent(agent);
+        this._noteLaunch(agent);
         this._log(`Reload: started new agent '${agent.name}'`);
       } else if ((oldConfigs[agent.name] || '') !== newConfigs[agent.name]) {
         // Network or env config changed — restart agent
@@ -2412,6 +2457,7 @@ async _runNodeCommand(n, cmd) {
         this._stoppedAgents.delete(agent.name);
         await this._ensureAdapterCleared(agent.name);
         this._launchAgent(agent);
+        this._noteLaunch(agent);
         this._log(`Reload: restarted '${agent.name}' (config changed)`);
       }
     }

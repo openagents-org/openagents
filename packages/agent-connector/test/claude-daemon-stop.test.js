@@ -1,0 +1,187 @@
+'use strict';
+
+/**
+ * What a channel is told when the daemon stops the agent mid-turn.
+ *
+ * Field report 2026-11-13: one restart of a just-added agent left three
+ * messages under the user's first message: "No response generated (exit code
+ * 143). Please try again." and "Task interrupted — daemon restarting. Send
+ * another message to continue." twice. The turn read the SIGTERM as a
+ * failure, and the daemon calls stop() twice per restart (directly, then from
+ * its checkStop poll), each call posting the notice for the same run.
+ */
+
+const { describe, it } = require('node:test');
+const assert = require('node:assert/strict');
+
+const ClaudeAdapter = require('../src/adapters/claude');
+const { pinnedFingerprint } = require('../src/adapters/decision-log');
+
+const INTERRUPTED = 'Task interrupted — daemon restarting. Send another message to continue.';
+
+function mkAdapter() {
+  const adapter = new ClaudeAdapter({
+    workspaceId: `test-ws-${Math.random().toString(36).slice(2)}`,
+    channelName: 'general',
+    token: 'tok',
+    agentName: 'claude',
+  });
+  adapter._saveSessions = () => {};
+  adapter.posted = [];
+  adapter.sendStatus = async () => {};
+  adapter.sendResponse = async (ch, text) => { adapter.posted.push(text); };
+  adapter.sendError = async (ch, text) => { adapter.posted.push(text); };
+  adapter.sendThinking = async () => {};
+  adapter.getRemainingTodos = async () => [];
+  adapter.getBrowserEnabled = async () => false;
+  adapter._resetIdleTimer = () => {};
+  adapter._titledSessions.add('general');
+  adapter._fetchGlossary = async () => ({ available: true, state: 'absent', entryId: null, content: null, error: false });
+  adapter._buildChannelRecap = async () => null;
+  adapter._buildClaudeCmd = () => ({ cmd: ['claude'], mcpConfigFile: null });
+  adapter._stopProcess = async () => {};
+  return adapter;
+}
+
+/** A Claude process that runs until killed, then exits 143 like SIGTERM. */
+function mkKillablePP(adapter, channel) {
+  const proc = { pid: 1, exitCode: null };
+  const pp = {
+    alive: true,
+    proc,
+    msgChannel: channel,
+    lastResponseText: [],
+    lastErrorText: '',
+    everPostedAnything: false,
+    userStopped: false,
+    pinnedHash: pinnedFingerprint([{ entryId: null, content: null }]),
+    spawnMode: 'execute',
+  };
+  adapter._persistentProcs[channel] = pp;
+  adapter._channelProcesses[channel] = proc;
+  adapter._killPersistentProc = (ch) => {
+    const p = adapter._persistentProcs[ch];
+    delete adapter._persistentProcs[ch];
+    if (p && p.messageResolve) {
+      const resolve = p.messageResolve;
+      p.messageResolve = null;
+      setImmediate(() => resolve({ exited: true, code: 143 }));
+    }
+    return Promise.resolve();
+  };
+  return pp;
+}
+
+describe('a daemon stop during a turn', () => {
+  it('posts one notice, not "exit code 143" and not a second notice', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    adapter._sendToPersistentProc = (pp) => new Promise((resolve) => { pp.messageResolve = resolve; });
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(spawned, 1);
+
+    // As the daemon does it: stopAgent, then checkStop a moment later.
+    adapter.stop();
+    adapter.stop();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+    assert.equal(spawned, 1, 'not retried as a stale session');
+  });
+
+  // Review of the first fix: stop() runs once now, so a turn still waiting on
+  // its pre-CLI round trips when it lands had nothing to kill, and nothing
+  // came round a second time to kill the CLI it spawned afterwards.
+  it('a stop while the turn is preparing starts no CLI and posts one notice', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    adapter._sendToPersistentProc = (pp) => new Promise((resolve) => { pp.messageResolve = resolve; });
+    let releaseGlossary;
+    const gate = new Promise((r) => { releaseGlossary = r; });
+    adapter._fetchGlossary = async () => {
+      await gate;
+      return { available: true, state: 'absent', entryId: null, content: null, error: false };
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    adapter.stop();
+    adapter.stop();
+    releaseGlossary();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(spawned, 0);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+  });
+
+  it('a channel stop() already told is not told again when its turn bails', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    // An idle process from the previous turn: stop() kills it and tells the
+    // channel, while the new turn is still fetching its glossary.
+    mkKillablePP(adapter, 'general');
+    let releaseGlossary;
+    const gate = new Promise((r) => { releaseGlossary = r; });
+    adapter._fetchGlossary = async () => {
+      await gate;
+      return { available: true, state: 'absent', entryId: null, content: null, error: false };
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    adapter.stop();
+    releaseGlossary();
+    await turn;
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.equal(spawned, 0);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+  });
+
+  // Review of the second fix: the check returned false through an `await`,
+  // and a stop queued on that microtask landed between the check and spawn.
+  it('a stop on the microtask after the last check still kills the CLI it meets', async () => {
+    const adapter = mkAdapter();
+    let spawned = 0;
+    adapter._spawnPersistentProc = (channel) => { spawned++; return mkKillablePP(adapter, channel); };
+    adapter._sendToPersistentProc = (pp) => new Promise((resolve) => { pp.messageResolve = resolve; });
+    const check = adapter._bailOnStopDuringTurn.bind(adapter);
+    adapter._bailOnStopDuringTurn = (ch) => {
+      const bail = check(ch);
+      queueMicrotask(() => adapter.stop());
+      return bail;
+    };
+
+    const turn = adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setImmediate(r));
+    await new Promise((r) => setTimeout(r, 10));
+    await Promise.race([turn, new Promise((r) => setTimeout(r, 50))]);
+
+    // Spawned at once, so stop() saw the process and told the channel.
+    assert.equal(spawned, 1);
+    assert.deepEqual(adapter.posted, [INTERRUPTED]);
+    assert.equal(Object.keys(adapter._persistentProcs).length, 0, 'the CLI was killed');
+  });
+
+  it('a turn that already finished still posts its answer', async () => {
+    const adapter = mkAdapter();
+    adapter._spawnPersistentProc = (channel) => mkKillablePP(adapter, channel);
+    adapter._composeFinalResponse = () => 'Hello!';
+    adapter._sendToPersistentProc = async () => {
+      adapter.stop();
+      return { resultEvent: { type: 'result', subtype: 'success' } };
+    };
+
+    await adapter._handleMessage({ content: '你好', sessionId: 'general' });
+    await new Promise((r) => setTimeout(r, 10));
+
+    assert.ok(adapter.posted.includes('Hello!'), adapter.posted.join(' | '));
+  });
+});
