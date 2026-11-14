@@ -265,6 +265,42 @@ describe('Codex — what of stderr is quoted', () => {
     assert.ok(!withWarn.includes('turn-scoped'), withWarn);
   });
 
+  // Review of the first fix: the same records coloured (FORCE_COLOR, --color
+  // always) were not read as log records at all, and so were quoted.
+  it('never quotes them coloured either', () => {
+    const coloured = (n) => DROPPED(n)
+      .replace(/^(\S+)\s+WARN /, '\x1b[2m$1\x1b[0m \x1b[33m WARN\x1b[0m ');
+    const stderr = [BANNER, coloured(1), coloured(2)].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+  });
+
+  it("never quotes the analytics reducer's dropped-item records", () => {
+    const at = '2026-11-14T02:44:09.000000Z  WARN codex_analytics::reducer: ';
+    const stderr = [
+      BANNER,
+      `${at}dropping turn tool count update: missing turn state thread_id=t turn_id=u item_id=i`,
+      `${at}dropping sub-agent activity tool count update: missing turn state thread_id=t turn_id=u`,
+      `${at}dropping tool item analytics event: missing item started notification thread_id=t item_id=i`,
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+  });
+
+  it('still quotes an ERROR that says the same words', () => {
+    const stderr = [BANNER, '2026-11-14T02:44:09.000000Z ERROR codex_core::x: dropping turn-scoped item for unknown turn id `t`'].join('\n');
+    assert.ok(CodexAdapter._failureDetail({ stderr, exitCode: 1 }).includes('turn-scoped'));
+  });
+
+  // A 401 followed by a run of them was read as a stale thread: the thread was
+  // dropped and the refused request sent a second time.
+  it('sees a refusal behind a run of bookkeeping records', () => {
+    const stderr = [
+      BANNER,
+      '2026-11-14T02:44:00.000000Z ERROR codex_core::client: unexpected status 401 Unauthorized',
+      ...[1, 2, 3, 4, 5, 6].map(DROPPED),
+    ].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), true);
+  });
+
   it('says a lost connection is the network, after the quote and whatever its length', () => {
     const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
     const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
