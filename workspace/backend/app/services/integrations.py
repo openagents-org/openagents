@@ -370,9 +370,116 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     _record_binding_result(str(binding.id), error)
 
 
+# ---------------------------------------------------------------------------
+# Telegram markdown → HTML rendering
+# ---------------------------------------------------------------------------
+
+
+def _md_escape(text: str) -> str:
+    """HTML-escape everything Telegram's parse_mode=HTML would otherwise eat."""
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _markdown_to_telegram_html(text: str) -> str:
+    """Convert standard agent markdown to Telegram's HTML subset.
+
+    Pipeline: fenced blocks and code spans are stashed first (their content
+    must never be reformatted or double-escaped), the remaining text is
+    HTML-escaped, inline formatting is applied with word-boundary guards
+    (so ``file_name`` never becomes italic), then the stashes are restored
+    as ``<pre>`` / ``<code>``.
+    """
+    blocks: list[str] = []
+    spans: list[str] = []
+
+    def _stash_block(m: "re.Match[str]") -> str:
+        blocks.append(_md_escape(m.group(1)))
+        return f"\x01{len(blocks) - 1}\x01"
+
+    def _stash_span(m: "re.Match[str]") -> str:
+        spans.append(_md_escape(m.group(1)))
+        return f"\x00{len(spans) - 1}\x00"
+
+    text = re.sub(r"```[^\n]*\n(.*?)```", _stash_block, text, flags=re.S)
+    text = re.sub(r"`([^`\n]+)`", _stash_span, text)
+    text = _md_escape(text)
+    # Headings → bold lines (Telegram has no heading levels)
+    text = re.sub(r"^#{1,6}\s+(.+)$", r"<b>\1</b>", text, flags=re.M)
+    # Blockquotes (after escaping, ">" is already &gt;)
+    text = re.sub(r"^&gt;\s?(.+)$", r"<blockquote>\1</blockquote>", text, flags=re.M)
+    # Tables don't exist in Telegram — degrade pipe-row runs to monospace
+    text = re.sub(
+        r"^\|.*(?:\n\|.*)*$", lambda m: f"<pre>{m.group(0)}</pre>", text, flags=re.M
+    )
+    text = re.sub(r"\*\*([^*\n]+)\*\*", r"<b>\1</b>", text)
+    text = re.sub(r"~~([^~\n]+)~~", r"<s>\1</s>", text)
+    text = re.sub(r"(?<![\w*])\*([^*\n]+)\*(?![\w*])", r"<i>\1</i>", text)
+    text = re.sub(r"(?<![\w_])_([^_\n]+)_(?![\w_])", r"<i>\1</i>", text)
+    text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)\)", r'<a href="\2">\1</a>', text)
+
+    out: list[str] = []
+    for token in re.split(r"(\x00\d+\x00|\x01\d+\x01)", text):
+        if m_span := re.fullmatch(r"\x00(\d+)\x00", token):
+            out.append(f"<code>{spans[int(m_span.group(1))]}</code>")
+        elif m_block := re.fullmatch(r"\x01(\d+)\x01", token):
+            out.append(f"<pre>{blocks[int(m_block.group(1))]}</pre>")
+        else:
+            out.append(token)
+    return "".join(out)
+
+
+_TELEGRAM_TAGS = ("pre", "blockquote", "code", "b", "i", "s", "a")
+
+
+def _telegram_chunks(html: str, limit: int = _TELEGRAM_CHUNK) -> list[str]:
+    """Split converted HTML on line boundaries, then re-balance tags per chunk.
+
+    Telegram's parse_mode=HTML rejects a message with unclosed tags (HTTP 400
+    → the reply is lost), so every chunk must be independently well-formed:
+    still-open tags are closed at the chunk end and re-opened in the next.
+    """
+    rough: list[str] = []
+    cur = ""
+    for line in html.split("\n"):
+        cand = f"{cur}\n{line}" if cur else line
+        if len(cand) <= limit:
+            cur = cand
+        else:
+            if cur:
+                rough.append(cur)
+            while len(line) > limit:  # pathological single long line
+                rough.append(line[:limit])
+                line = line[limit:]
+            cur = line
+    if cur:
+        rough.append(cur)
+
+    tag_re = re.compile(r"<(/?)(pre|blockquote|code|b|i|s|a)[\s>]")
+    balanced: list[str] = []
+    reopen: list[str] = []
+    for chunk in rough:
+        # Scan the RAW chunk only — the reopen prefix below is accounted for
+        # by seeding the stack, so it must not be counted again.
+        stack = list(reopen)
+        for m in tag_re.finditer(chunk):
+            tag = m.group(2)
+            if m.group(1):  # closing tag — pop its most recent open
+                for j in range(len(stack) - 1, -1, -1):
+                    if stack[j] == tag:
+                        del stack[j]
+                        break
+            else:
+                stack.append(tag)
+        prefix = "".join(f"<{t}>" for t in reopen)
+        suffix = "".join(f"</{t}>" for t in reversed(stack))
+        balanced.append(prefix + chunk + suffix)
+        reopen = stack
+    return balanced
+
+
 def _send_telegram(bot_token: str, chat_id: str, sender: str, content: str) -> None:
-    text = f"{sender}:\n{content}"
-    chunks = [text[i:i + _TELEGRAM_CHUNK] for i in range(0, len(text), _TELEGRAM_CHUNK)]
+    text = f"{sender}:\n{_markdown_to_telegram_html(content)}"
+    chunks = _telegram_chunks(text)
     if len(chunks) > _TELEGRAM_MAX_CHUNKS:
         chunks = chunks[:_TELEGRAM_MAX_CHUNKS]
         chunks[-1] += "\n… (truncated)"
@@ -380,7 +487,7 @@ def _send_telegram(bot_token: str, chat_id: str, sender: str, content: str) -> N
         for chunk in chunks:
             resp = client.post(
                 f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={"chat_id": chat_id, "text": chunk},
+                json={"chat_id": chat_id, "text": chunk, "parse_mode": "HTML"},
             )
             data = resp.json()
             if not data.get("ok"):
