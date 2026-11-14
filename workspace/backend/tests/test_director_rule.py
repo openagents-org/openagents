@@ -164,3 +164,59 @@ class TestDirectorRule:
         meta = _post(client, workspace, channel=ch, by="x", content="Done — results attached.",
                      source="openagents:agent-alpha", email=False)
         assert not meta.get("informational") and not meta.get("from_non_director")
+
+
+class TestNonDirectorRouting:
+    """A non-director's plain message reaches an agent only when the router names one."""
+
+    @pytest.fixture
+    def router(self, monkeypatch):
+        from app.config import config
+        from app.mods import workspace_mod
+        monkeypatch.setattr(config, "ROUTER_LLM_ENABLED", True)
+        calls = []
+
+        def install(result, decision=None):
+            async def fake(channel, event, db, workspace, workflow_instruction=None,
+                           allow_human_stop=False, allowed_agents=None):
+                calls.append({"allowed": allowed_agents, "allow_human_stop": allow_human_stop})
+                if decision:
+                    event.metadata["routing_decision"] = decision
+                return list(result)
+            monkeypatch.setattr(workspace_mod, "_route_with_llm", fake)
+            return calls
+        return install
+
+    def test_answer_to_the_agent_reaches_it_flagged(self, client, workspace, people, router):
+        calls = router(["agent-alpha"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        meta = _post(client, workspace, channel=ch, by="ned", content="yes, go ahead and save it")
+        assert meta.get("target_agents") == ["agent-alpha"]
+        assert meta.get("from_non_director") is True
+        assert meta.get("director_email") == "mia@acme.test"
+        assert not meta.get("informational")
+        assert calls == [{"allowed": ["agent-alpha"], "allow_human_stop": True}]
+
+    @pytest.mark.parametrize("decision", ["stop", "ask"])
+    def test_router_without_recipient_keeps_information(self, client, workspace, people, router, decision):
+        router([], decision=decision)
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        meta = _post(client, workspace, channel=ch, by="ned", content="FYI the staging DB was rotated")
+        assert meta.get("informational") is True
+        assert meta.get("target_agents") == ["__no_response__"]
+        # No chooser card or routing decision is shown for a non-director's note.
+        assert "routing_choice" not in meta and "routing_decision" not in meta
+
+    def test_router_cannot_wake_a_non_participant(self, client, workspace, people, router):
+        router(["agent-beta"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        meta = _post(client, workspace, channel=ch, by="ned", content="can someone check this?")
+        assert meta.get("informational") is True
+        assert meta.get("target_agents") == ["__no_response__"]
+
+    def test_director_messages_are_not_flagged(self, client, workspace, people, router):
+        router(["agent-alpha"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        meta = _post(client, workspace, channel=ch, by="mia", content="please start the eval")
+        assert meta.get("target_agents") == ["agent-alpha"]
+        assert not meta.get("from_non_director") and not meta.get("informational")
