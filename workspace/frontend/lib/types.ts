@@ -1472,6 +1472,8 @@ export interface PublicShareInfo {
   /** Where an HTML page or web project renders, on the separate share
    *  domain; null when none is configured. */
   render_url: string | null;
+  /** Where the link lives: the share domain's own page when there is one. */
+  public_url?: string;
 }
 
 /** GET /v1/grants */

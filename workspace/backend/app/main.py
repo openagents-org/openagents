@@ -7,6 +7,7 @@ A workspace is an ONM network with workspace-specific mods loaded.
 
 import asyncio
 import logging
+import re
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -625,12 +626,22 @@ app.add_middleware(RequestAuthMiddleware)
 
 
 class ShareHostGuardMiddleware:
-    """On the share domain (SHARE_CONTENT_HOST) serve only shared pages and
-    health checks. That domain renders pages strangers made; the rest of the
-    API must not answer there, or it would be a second address for sign-in,
-    tokens and everything else (app/routers/public_shares.py)."""
+    """On the share domain (SHARE_CONTENT_HOST) serve public links and health
+    checks, nothing else. That domain shows what strangers made; the rest of
+    the API must not answer there, or it would be a second address for
+    sign-in, tokens and everything else (app/routers/public_shares.py).
+
+    Its short addresses map onto the public share routes:
+      /<token>                -> the viewer page
+      /<token>/raw            -> the media the viewer embeds
+      /<token>/download       -> the snapshot as a download
+      /<token>/assets/<n>     -> an image a shared document embeds
+      /v1/public/shares/<token>/site/...  shared web pages, as they are
+    """
 
     _ALLOWED = ("/health", "/ready")
+    _TOKEN = re.compile(r"^/([A-Za-z0-9_-]{16,64})(/raw|/download|/assets/\d+)?/?$")
+    _TARGET = {None: "view", "/raw": "raw", "/download": "content"}
 
     def __init__(self, app):
         self.app = app
@@ -641,8 +652,13 @@ class ShareHostGuardMiddleware:
             raw = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k.lower() == b"host"), "")
             if raw.split(":")[0].lower() == host:
                 path = scope.get("path", "")
-                shared_page = path.startswith("/v1/public/shares/") and "/site/" in path
-                if not shared_page and path not in self._ALLOWED:
+                short = self._TOKEN.match(path)
+                if short:
+                    token, rest = short.group(1), short.group(2)
+                    target = rest[1:] if rest and rest.startswith("/assets/") else self._TARGET[rest]
+                    path = f"/v1/public/shares/{token}/{target}"
+                    scope = {**scope, "path": path, "raw_path": path.encode()}
+                elif not (path.startswith("/v1/public/shares/") and "/site/" in path) and path not in self._ALLOWED:
                     await send({"type": "http.response.start", "status": 404,
                                 "headers": [(b"content-type", b"text/plain"), (b"referrer-policy", b"no-referrer")]})
                     await send({"type": "http.response.body", "body": b"Not found"})

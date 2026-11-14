@@ -38,7 +38,9 @@ idna==3.20
 jiter==0.17.0
 jmespath==1.1.0
 Mako==1.4.3
+markdown-it-py==4.3.0
 MarkupSafe==3.0.4
+mdurl==0.1.2
 msgpack==1.2.3
 openai==3.28.0
 opentelemetry-api==1.45.1
