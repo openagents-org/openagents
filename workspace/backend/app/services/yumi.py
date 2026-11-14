@@ -278,14 +278,39 @@ def seed_welcome_thread(db, workspace) -> bool:
 class WorkspaceApi:
     """Calls the workspace's own HTTP API in-process (ASGI transport).
 
-    Every Yumi tool goes through the real FastAPI app — routing, auth
-    (X-Workspace-Token), validation, serialization, and side effects like SSE
-    publishes — instead of querying the database directly. No network hop.
+    Every Yumi tool goes through the real FastAPI app — routing, auth,
+    validation, serialization, and side effects like SSE publishes — instead
+    of querying the database directly. No network hop.
+
+    Yumi works for one person at a time, so it calls as that person: a
+    minutes-long workspace session for ``acting_email``, never the workspace
+    token. It can then see and do exactly what that person can. With nobody
+    to act for, every call is refused.
     """
 
-    def __init__(self, workspace_id: str, token: str):
+    def __init__(self, workspace_id: str, acting_email: Optional[str] = None):
         self.workspace_id = workspace_id
-        self.token = token
+        self.acting_email = acting_email
+        self._user = None
+
+    def _authorization(self) -> Optional[str]:
+        """A fresh short session per call: a long tool loop outlives one."""
+        if not self.acting_email:
+            return None
+        from app.services.hub_auth import acting_authorization
+        if self._user is None:
+            from app.database import SessionLocal
+            from app.models import User
+            db = SessionLocal()
+            try:
+                self._user = db.execute(select(User).where(
+                    User.email == self.acting_email,
+                )).scalars().first()
+                if self._user is not None:
+                    db.expunge(self._user)
+            finally:
+                db.close()
+        return acting_authorization(self._user) if self._user is not None else None
 
     async def request(
         self, method: str, path: str, *,
@@ -297,6 +322,15 @@ class WorkspaceApi:
         from app.main import app
 
         try:
+            authorization = self._authorization()
+        except Exception:
+            logger.exception("yumi api: could not act for %s", self.acting_email)
+            authorization = None
+        if not authorization:
+            return {"ok": False, "status": 403, "error": (
+                "I can only do this when the person I'm helping asks me directly."
+            )}
+        try:
             transport = httpx.ASGITransport(app=app)
             async with httpx.AsyncClient(
                 transport=transport,
@@ -306,7 +340,7 @@ class WorkspaceApi:
                 resp = await client.request(
                     method, path,
                     json=json, params=params,
-                    headers={"X-Workspace-Token": self.token},
+                    headers={"Authorization": authorization},
                 )
         except Exception as exc:
             logger.exception("yumi api: %s %s failed", method, path)
@@ -1311,7 +1345,7 @@ async def _tool_create_thread(api: WorkspaceApi, agent_name: str, args: dict) ->
 
     res = await api.post("/v1/events", json={
         "type": "network.channel.create",
-        "source": f"openagents:{agent_name}",
+        "source": f"human:{api.acting_email}",
         "target": "core",
         "payload": {"title": title, "participants": participants},
         "metadata": {},
@@ -1422,12 +1456,14 @@ async def _tool_post_to_thread(
         )}
     members = await workspace_member_names(api)
     targets = delegation_targets(message, members, agent_name)
+    # Posted as the person Yumi works for: the thread's rules (who may post,
+    # which agents they may wake) apply to them, as if they typed it.
     res = await api.post("/v1/events", json={
         "type": "workspace.message.posted",
-        "source": f"openagents:{agent_name}",
+        "source": f"human:{api.acting_email}",
         "target": f"channel/{thread}",
         "payload": {"content": message, "message_type": "chat"},
-        "metadata": {"explicit_targets": targets},
+        "metadata": {"sent_via": agent_name},
         "network": api.workspace_id,
     })
     if not res["ok"]:

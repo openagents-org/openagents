@@ -369,13 +369,20 @@ async def _invoke_assistant_agent(
 
     channel_name = channel_target[len("channel/") :] if channel_target.startswith("channel/") else None
 
-    # Yumi's tools go through the real workspace HTTP API (in-process ASGI),
-    # authenticated with the workspace token — never direct DB access.
+    # Yumi's tools go through the real workspace HTTP API (in-process ASGI) —
+    # never direct DB access — as the person it is working for, so it can see
+    # and do only what that person can. Nobody verified to act for → no tools.
     workspace = db.execute(select(Workspace).where(Workspace.id == workspace_id)).scalar_one_or_none()
     if not workspace:
         logger.error("assistant %s: workspace %s not found", agent_name, workspace_id)
         return
-    api = yumi.WorkspaceApi(workspace_id, workspace.password_hash)
+    from app.services.personal_assistant import acting_email
+    acting_for = acting_email(db, workspace_id, event_data)
+    if not acting_for:
+        logger.info("assistant %s: no verified person to act for (%s) — staying silent",
+                    agent_name, trigger_source or "unknown source")
+        return
+    api = yumi.WorkspaceApi(workspace_id, acting_for)
 
     # The built-in only speaks in threads a human added it to. Routing already
     # never targets it elsewhere; this keeps the rule true even if some future
