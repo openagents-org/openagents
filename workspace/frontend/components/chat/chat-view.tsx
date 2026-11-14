@@ -19,6 +19,7 @@ import { useComposingSignal } from '@/hooks/use-composing-signal';
 import { ApiError, workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
+import { MEMORY_IMPORT_TYPES, MemoryImportBanner } from '@/components/agents/memory-import';
 import { Button } from '@/components/ui/button';
 import { ListTree, MessageSquare, CalendarClock, Pencil, Square, ChevronLeft, Plus, PanelRight, Globe, Lock, Share2, AlertTriangle, RefreshCw, Cpu, X } from 'lucide-react';
 import { ShareDialog } from './share-dialog';
@@ -192,13 +193,21 @@ export function ChatView() {
   // Dismiss only this result in this thread; a new health check can warn again.
   const [dismissedProbes, setDismissedProbes] = useState<Set<string>>(new Set());
   const [retesting, setRetesting] = useState<Set<string>>(new Set());
+  // The same roster says whether a participant could still bring memory over
+  // from the user's own Claude Code / Codex / OpenClaw ("Bring your memory").
+  const [agentMemory, setAgentMemory] = useState<Map<string, { summary: import('@/lib/types').NodeMemorySummary; nodeId: string; deviceName: string; type: string }>>(new Map());
   const loadProbes = useCallback(async () => {
     const nodes = await workspaceApi.listNodes();
     const m = new Map<string, { probe: import('@/lib/types').NodeProbe; nodeId: string }>();
+    const mem = new Map<string, { summary: import('@/lib/types').NodeMemorySummary; nodeId: string; deviceName: string; type: string }>();
     for (const n of nodes) {
-      for (const a of n.agents || []) if (a.probe) m.set(a.name, { probe: a.probe, nodeId: n.nodeId });
+      for (const a of n.agents || []) {
+        if (a.probe) m.set(a.name, { probe: a.probe, nodeId: n.nodeId });
+        if (a.memory) mem.set(a.name, { summary: a.memory, nodeId: n.nodeId, deviceName: n.name || n.hostname || '', type: a.type });
+      }
     }
     setAgentProbes(m);
+    setAgentMemory(mem);
     return m;
   }, []);
   useEffect(() => {
@@ -1042,6 +1051,29 @@ export function ChatView() {
               );
             })}
           </div>
+        );
+      })()}
+
+      {/* Bring your memory — a participant on the user's own device can still
+          copy memory from their Claude Code / Codex / OpenClaw setup. Offered
+          once per agent; the agent page keeps the way back in. */}
+      {(() => {
+        const participants = currentSession?.participants || [];
+        const target = participants
+          .map((name) => ({ name, entry: agentMemory.get(name) }))
+          .find((x) => x.entry && x.entry.summary.status === 'available' && x.entry.summary.found > 0 && MEMORY_IMPORT_TYPES.has(x.entry.type));
+        if (!target || !target.entry) return null;
+        return (
+          <MemoryImportBanner
+            key={target.name}
+            api={workspaceApi}
+            nodeId={target.entry.nodeId}
+            deviceName={target.entry.deviceName}
+            agentName={target.name}
+            agentType={target.entry.type}
+            summary={target.entry.summary}
+            onChanged={() => { loadProbes().catch(() => {}); }}
+          />
         );
       })()}
 

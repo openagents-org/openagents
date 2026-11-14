@@ -2501,6 +2501,31 @@ export class AgentManager extends EventEmitter {
   }
 
   /**
+   * "Bring your memory" (the connector's memory-import.js): list, preview,
+   * copy and undo what the user's own Claude Code / Codex / OpenClaw setup
+   * knows, for one agent. Everything stays on this machine. A core from before
+   * memory import has none of these methods; the scan then says
+   * `supported: false` and onboarding moves on without the step.
+   */
+  memoryCall(
+    method: "scanMemory" | "previewMemory" | "importMemory" | "undoMemoryImport" | "dismissMemory",
+    agentName: string,
+    arg?: unknown,
+  ): unknown {
+    this._ensureConnector()
+    const fn = this._connector?.[method] as
+      | ((name: string, arg?: unknown) => unknown)
+      | undefined
+    if (typeof fn !== "function") {
+      if (method === "scanMemory") {
+        return { agent: agentName, type: "", tool: "", supported: false, outdated: true, items: [], importedAt: null, dismissedAt: null }
+      }
+      throw new Error("Update the agent runtime to bring memory over")
+    }
+    return fn.call(this._connector, agentName, arg)
+  }
+
+  /**
    * Atomically provision the onboarding agent. Ordering and verification live
    * here in the main process so failures surface as precise errors instead of
    * a misleading "not found" downstream:

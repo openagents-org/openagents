@@ -22,7 +22,7 @@ export function OnboardingFooter({
 }): React.JSX.Element {
   const { t } = useTranslation()
   const { steps, stepIndex, stepId, goNext, goBack } = flow
-  const { agents, auth, provision, pairing } = flow
+  const { agents, auth, provision, pairing, memory } = flow
 
   const bar = (children: React.ReactNode, withBack = true): React.JSX.Element => (
     <FooterBar
@@ -124,6 +124,49 @@ export function OnboardingFooter({
         </Button>,
       )
 
+    // "Bring your memory": import is the forward action; skipping is a real
+    // choice here (the agent already works without it), and after an import
+    // the only thing left is to finish.
+    case "memory":
+      return bar(
+        memory.receipt ? (
+          <Button onClick={memory.finish}>
+            {t("onboarding.flow.footer.finish")}
+            <Check />
+          </Button>
+        ) : (
+          <>
+            <Button variant="ghost" onClick={() => void memory.skip()} disabled={memory.importing}>
+              {t("onboarding.flow.footer.skip")}
+            </Button>
+            {memory.pickedCount > 0 && (
+              <Button onClick={() => void memory.importPicked()} disabled={memory.importing}>
+                {memory.importing ? (
+                  <>
+                    <Loader2 className="animate-spin" />
+                    {t("onboarding.flow.footer.importing")}
+                  </>
+                ) : (
+                  <>
+                    {t("onboarding.flow.footer.importCount", { count: memory.pickedCount })}
+                    <Check />
+                  </>
+                )}
+              </Button>
+            )}
+            {memory.scan && memory.pickedCount === 0 && (
+              <Button onClick={() => void memory.skip()}>
+                {t("onboarding.flow.footer.finish")}
+                <Check />
+              </Button>
+            )}
+          </>
+        ),
+        // The agent exists now; going back to its create form would only
+        // offer to create it again.
+        false,
+      )
+
     // Creating the agent is the last step: it binds to the paired workspace
     // (when there is one) and finishes onboarding in the same action. No skip —
     // four steps in, with a name and a folder already on screen, "skip" throws
@@ -146,8 +189,10 @@ export function OnboardingFooter({
               </>
             ) : (
               <>
-                {t("onboarding.flow.footer.createAndFinish")}
-                <Check />
+                {flow.withMemory
+                  ? t("onboarding.flow.footer.createAndContinue")
+                  : t("onboarding.flow.footer.createAndFinish")}
+                {flow.withMemory ? <ChevronRight /> : <Check />}
               </>
             )}
           </Button>

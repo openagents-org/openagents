@@ -4,6 +4,7 @@ export type StepId =
   | "agent"
   | "configure"
   | "createAgent"
+  | "memory"
 
 /**
  * One flow, pairing first: welcome → pair → (optionally) pick, configure and
@@ -19,6 +20,7 @@ export const ONBOARDING_STEPS: readonly StepId[] = [
   "agent",
   "configure",
   "createAgent",
+  "memory",
 ]
 
 /**
@@ -35,11 +37,18 @@ export const OPTIONAL_STEPS_FROM = 2
  * appears only once they are actually in it — before that the tracker shows the
  * path they have committed to, which pairing alone completes.
  */
-export function visibleSteps(index: number): readonly StepId[] {
-  return index >= OPTIONAL_STEPS_FROM
+export function visibleSteps(index: number, withMemory = false): readonly StepId[] {
+  if (index < OPTIONAL_STEPS_FROM) return ONBOARDING_STEPS.slice(0, OPTIONAL_STEPS_FROM)
+  // "Bring your memory" only exists for agents whose tool keeps memory we can
+  // read (Claude Code, Codex, OpenClaw); for any other agent the flow ends at
+  // createAgent and the tracker must not promise a step that never comes.
+  return withMemory || index >= ONBOARDING_STEPS.indexOf("memory")
     ? ONBOARDING_STEPS
-    : ONBOARDING_STEPS.slice(0, OPTIONAL_STEPS_FROM)
+    : ONBOARDING_STEPS.filter((s) => s !== "memory")
 }
+
+/** Agent types the memory step can import for (connector memory-import.js). */
+export const MEMORY_IMPORT_TYPES: ReadonlySet<string> = new Set(["claude", "codex", "openclaw"])
 
 /** Human-readable step names so the funnel reads clearly in PostHog. */
 export const STEP_NAMES: Record<StepId, string> = {
@@ -48,12 +57,15 @@ export const STEP_NAMES: Record<StepId, string> = {
   agent: "select_agent",
   configure: "configure",
   createAgent: "create_agent",
+  memory: "bring_memory",
 }
 
 export const ONBOARDING_KEY = "onboarding_completed"
 export const STEP_KEY = "onboarding_step"
 export const MODE_KEY = "onboarding_mode"
 export const SELECTED_AGENT_KEY = "last_selected_agent"
+/** The agent the memory step is for, so a resumed session lands on it. */
+export const MEMORY_AGENT_KEY = "onboarding_memory_agent"
 /** The spotlight tour, which runs AFTER the wizard, has its own mark. */
 export const TOUR_KEY = "guided_tour_completed"
 

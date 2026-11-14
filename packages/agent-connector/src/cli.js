@@ -1082,6 +1082,73 @@ async function cmdProbe(connector, flags, positional) {
 }
 
 /**
+ * `agn memory <agent> [scan|preview <id>|import <id…>|import --all|undo|dismiss] [--json]`
+ * — see and copy what the user's own Claude Code / Codex / OpenClaw setup
+ * knows into the agent (memory-import.js). Sources are only read; `undo`
+ * puts everything back.
+ */
+async function cmdMemory(connector, flags, positional) {
+  const [agentName, action = 'scan', ...rest] = positional;
+  if (!agentName) {
+    print('Usage: agn memory <agent> [scan | preview <id> | import <id>... | import --all | undo | dismiss] [--json]');
+    return;
+  }
+  const out = (data, text) => {
+    if (flags.json) process.stdout.write(JSON.stringify(data));
+    else print(text);
+  };
+  try {
+    if (action === 'scan') {
+      const scan = connector.scanMemory(agentName);
+      if (flags.json) { out(scan); return; }
+      if (!scan.supported) { print(`Memory import is not available for ${scan.type} agents yet.`); return; }
+      print(`Memory from your ${scan.tool} setup for '${agentName}':`);
+      if (!scan.items.length) print('  Nothing found.');
+      const mark = { importable: '[ ]', imported: '[x]', loaded: '[=]', skipped: '[-]' };
+      for (const i of scan.items) {
+        const flag = i.secret ? '  ⚠ may contain a credential' : '';
+        print(`  ${mark[i.status] || '   '} ${i.label} — ${i.fileCount} file(s), ${i.source}${flag}`);
+        print(`        id: ${i.id}${i.note ? ` · ${i.note}` : ''}`);
+      }
+      print('\n[ ] can be imported  [x] imported  [=] already available to the agent  [-] skipped');
+      print(`Import: agn memory ${agentName} import --all   (or list ids)`);
+      return;
+    }
+    if (action === 'preview') {
+      const files = connector.previewMemory(agentName, rest[0]);
+      out(files, files.map((f) => `── ${f.path}\n${f.text}`).join('\n\n'));
+      return;
+    }
+    if (action === 'import') {
+      let ids = rest;
+      if (flags.all) {
+        ids = connector.scanMemory(agentName).items.filter((i) => i.selected).map((i) => i.id);
+      }
+      const receipt = connector.importMemory(agentName, ids);
+      out(receipt, `Imported ${receipt.items.length} item(s), ${receipt.files} file(s) from ${receipt.tool}:\n`
+        + receipt.items.map((i) => `  ✓ ${i.label} (${i.files} file(s))`).join('\n')
+        + `\nUndo with: agn memory ${agentName} undo`);
+      return;
+    }
+    if (action === 'undo') {
+      const r = connector.undoMemoryImport(agentName);
+      out(r, `Undone: removed ${r.removed} file(s), restored ${r.restored}.`);
+      return;
+    }
+    if (action === 'dismiss') {
+      out(connector.dismissMemory(agentName), 'OK — the workspace will stop offering this import.');
+      return;
+    }
+    print(`Unknown memory action '${action}'`);
+    process.exitCode = 1;
+  } catch (e) {
+    if (flags.json) process.stdout.write(JSON.stringify({ error: e.message }));
+    else print(`Error: ${e.message}`);
+    process.exitCode = 1;
+  }
+}
+
+/**
  * `agn login <type|agent>` — run the agent CLI's own sign-in on this device.
  * See agent-login.js for why this is more than the bare login command.
  */
@@ -1286,6 +1353,8 @@ Commands:
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
   probe <type|agent> [--json] Smoke-test an agent (tiny end-to-end prompt)
+  memory <agent> [action]     Bring memory from your Claude Code / Codex / OpenClaw setup
+                              (scan | preview <id> | import <id>... | import --all | undo)
   models <type|agent> [--json] List the models the agent's CLI offers its signed-in account
                               (--sign-in: a type, on the device's own sign-in)
   logs [agent] [--lines N]    View daemon logs
@@ -1383,6 +1452,7 @@ async function main() {
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),
+    memory: () => cmdMemory(connector, flags, positional),
     models: () => cmdModels(connector, flags, positional),
     login: () => cmdLogin(connector, flags, positional),
     update: () => cmdUpdate(connector),

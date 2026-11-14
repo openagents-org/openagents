@@ -66,6 +66,8 @@ export interface AgentSetupExtensions {
   breadcrumbRoot?: string;
   /** Compact only: the column beside the form (type, device, workspace). */
   aside?: (props: { type: string }) => React.ReactNode;
+  /** Extra panels on an existing agent's form, below its smoke test. */
+  agentPanels?: (props: { agent: import('@/lib/types').NodeAgent; node: WorkspaceNode; onChanged: () => void }) => React.ReactNode;
 }
 
 /** What an add was submitted with — enough to reopen the form when it fails on the device. */
@@ -1103,6 +1105,14 @@ export function AgentSetup({
               onChanged={onChanged}
             />
           )}
+
+          {/* Host panels about an existing agent (the workspace: "Bring your
+              memory"). */}
+          {isEdit && editAgent && !extensions?.configuration && extensions?.agentPanels?.({
+            agent: (node.agents || []).find((a) => a.name === editAgent.name) ?? editAgent,
+            node,
+            onChanged,
+          })}
 
           {/* Display name — the label, editable where the host can rename. */}
           {canRename && (

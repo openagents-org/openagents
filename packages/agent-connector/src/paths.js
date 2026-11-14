@@ -1088,10 +1088,10 @@ function getCorePrefix() {
  * stripped from a child process's environment) rather than the env-derived
  * HOME above.
  */
-function defaultAgentWorkdir(agentName) {
+function defaultAgentWorkdir(agentName, { create = true } = {}) {
   const safe = String(agentName || 'default').replace(/[^A-Za-z0-9._-]/g, '_') || 'default';
   const dir = path.join(os.homedir(), '.openagents', 'workspaces', safe);
-  try { fs.mkdirSync(dir, { recursive: true }); } catch {}
+  if (create) try { fs.mkdirSync(dir, { recursive: true }); } catch {}
   return dir;
 }
 

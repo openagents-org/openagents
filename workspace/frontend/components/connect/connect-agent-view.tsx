@@ -13,6 +13,7 @@ import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
 import { desktopHost } from '@/lib/desktop-host';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { AgentSetup, CatalogStateNotice, type AgentDraft, type CatalogState } from '@/components/agents/agent-setup';
+import { MEMORY_IMPORT_TYPES, MemoryPanel } from '@/components/agents/memory-import';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 import { SetupEmailButton } from './setup-email-button';
@@ -2353,5 +2354,17 @@ function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.ComponentP
       },
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
       promo: (promo) => CAMPAIGN_PROMO_AGENT_TYPES.has(promo.agentType) ? <CampaignPromoAccess {...promo} /> : null,
+      // Bring your memory: what this agent keeps from the user's own Claude
+      // Code / Codex / OpenClaw setup, and the way to review it.
+      agentPanels: ({ agent, node, onChanged }) => MEMORY_IMPORT_TYPES.has(agent.type) ? (
+        <MemoryPanel api={workspaceApi}
+          nodeId={node.nodeId}
+          deviceName={node.name || node.hostname}
+          agentName={agent.name}
+          agentType={agent.type}
+          summary={agent.memory}
+          onChanged={onChanged}
+        />
+      ) : null,
     }} />;
 }

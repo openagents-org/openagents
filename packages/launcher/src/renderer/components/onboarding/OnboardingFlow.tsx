@@ -14,6 +14,7 @@ import {
 import { AgentSelectionStep } from "./steps/agent-selection-step"
 import { ApiKeyStep } from "./steps/api-key-step"
 import { CreateAgentStep } from "./steps/create-agent-step"
+import { MemoryStep } from "./steps/memory-step"
 import { PairNodeStep } from "./steps/pair-node-step"
 import { WelcomeStep } from "./steps/welcome-step"
 
@@ -46,6 +47,8 @@ function StepBody({
           provision={provision}
         />
       )
+    case "memory":
+      return <MemoryStep memory={flow.memory} />
     default:
       return null
   }

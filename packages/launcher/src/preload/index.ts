@@ -77,6 +77,11 @@ contextBridge.exposeInMainWorld('api', {
   consumeOnboardingReset: () => ipcRenderer.invoke('onboarding:consume-reset'),
   provisionFirstAgent: (opts: { agentType: string; agentName: string; path?: string | null; env?: Record<string, string> }) =>
     ipcRenderer.invoke('onboarding:provision', opts),
+  memoryScan: (agentName: string) => ipcRenderer.invoke('memory:scan', agentName),
+  memoryPreview: (agentName: string, itemId: string) => ipcRenderer.invoke('memory:preview', agentName, itemId),
+  memoryImport: (agentName: string, itemIds: string[]) => ipcRenderer.invoke('memory:import', agentName, itemIds),
+  memoryUndo: (agentName: string) => ipcRenderer.invoke('memory:undo', agentName),
+  memoryDismiss: (agentName: string) => ipcRenderer.invoke('memory:dismiss', agentName),
 
   getNodeStatus: () => ipcRenderer.invoke('node:status'),
   refreshNodeStatus: (force?: boolean) => ipcRenderer.invoke('node:refresh', !!force),

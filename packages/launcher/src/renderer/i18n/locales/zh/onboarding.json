@@ -22,7 +22,8 @@
       "pairNode": "连接设备",
       "agent": "选择智能体",
       "configure": "配置",
-      "createAgent": "创建智能体"
+      "createAgent": "创建智能体",
+      "memory": "带入记忆"
     },
     "rail": {
       "steps": {
@@ -30,7 +31,8 @@
         "pairNode": "在工作区取一个配对码，这台设备就接入了。",
         "agent": "挑选预装的 CLI 工具与 Agent，支持多模型并发。",
         "configure": "注入环境变量与 API 通道，并测试连通性。",
-        "createAgent": "命名实例并指定它的工作目录。"
+        "createAgent": "命名实例并指定它的工作目录。",
+        "memory": "保留你的 Claude Code、Codex 或 OpenClaw 已经知道的内容。"
       }
     },
     "sections": {
@@ -70,7 +72,13 @@
       "saveAndContinue": "保存并继续",
       "creating": "正在创建…",
       "connecting": "正在连接…",
-      "createAndFinish": "创建并完成"
+      "createAndFinish": "创建并完成",
+      "createAndContinue": "创建并继续",
+      "skip": "跳过",
+      "finish": "完成",
+      "importing": "正在复制…",
+      "importCount_one": "带过来 {{count}} 项",
+      "importCount_other": "带过来 {{count}} 项"
     },
     "toast": {
       "fillRequiredFields": "请先填写必填项",
@@ -226,6 +234,36 @@
       "folderPlaceholder": "选择该智能体的运行目录…",
       "folderHint": "智能体将在此目录中运行；若目录不存在会自动创建。",
       "browse": "浏览"
+    },
+    "memory": {
+      "title": "把你的记忆带给 {{agent}}",
+      "subtitle": "{{agent}} 是一个新实例。选择它要从你的 {{tool}} 中保留哪些内容：项目记忆、指令和技能。文件只在这台电脑上复制，原文件不会改动，也不会上传。",
+      "scanning": "正在查看你的 {{tool}}…",
+      "failed": "无法读取你的 {{tool}}：{{message}}",
+      "retry": "重试",
+      "groupImportable": "可以带过来",
+      "groupImported": "已导入",
+      "groupLoaded": "智能体已经可以使用",
+      "groupSkipped": "已跳过",
+      "nothingFound": "没有需要再带过来的内容：你 {{tool}} 中找到的内容 {{agent}} 都已经有了。",
+      "secret": "可能包含密码或 API 密钥，导入前请先预览。",
+      "files_one": "{{count}} 个文件",
+      "files_other": "{{count}} 个文件",
+      "preview": "预览",
+      "hidePreview": "收起预览",
+      "previewLoading": "正在加载…",
+      "kind": {
+        "memory": "记忆",
+        "instructions": "指令",
+        "skill": "技能",
+        "persona": "人设"
+      },
+      "receiptTitle": "记忆已带过来",
+      "receiptBody_one": "{{agent}} 现在有了你 {{tool}} 中的 {{count}} 项内容（{{files}} 个文件），从第一条消息开始使用。",
+      "receiptBody_other": "{{agent}} 现在有了你 {{tool}} 中的 {{count}} 项内容（{{files}} 个文件），从第一条消息开始使用。",
+      "undo": "撤销导入",
+      "undone": "已撤销导入，复制过来的文件已删除。",
+      "later": "之后也可以在工作区的智能体页面里操作。"
     }
   },
   "wizard": {

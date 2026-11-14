@@ -4,6 +4,8 @@ import type { ToastType } from "@renderer/hooks/useToast"
 import { capture } from "@renderer/lib/analytics"
 
 import {
+  MEMORY_AGENT_KEY,
+  MEMORY_IMPORT_TYPES,
   ONBOARDING_KEY,
   ONBOARDING_STEPS,
   OPTIONAL_STEPS_FROM,
@@ -14,6 +16,7 @@ import {
 } from "./onboarding-shared"
 import { useOnboardingAgents, type OnboardingAgentsApi } from "./use-onboarding-agents"
 import { useOnboardingAuth, type OnboardingAuthApi } from "./use-onboarding-auth"
+import { useOnboardingMemory, type OnboardingMemoryApi } from "./use-onboarding-memory"
 import {
   useOnboardingPairing,
   type OnboardingPairingApi,
@@ -40,6 +43,9 @@ export interface OnboardingFlowApi {
   auth: OnboardingAuthApi
   provision: OnboardingProvisionApi
   pairing: OnboardingPairingApi
+  memory: OnboardingMemoryApi
+  /** Whether the agent picked gets the "Bring your memory" step. */
+  withMemory: boolean
 }
 
 /** Composes the wizard's step machine with the feature hooks. */
@@ -66,7 +72,6 @@ export function useOnboardingFlow({
   // position from it in turn would be circular.
   const index = Math.min(stepIndex, ONBOARDING_STEPS.length - 1)
   const stepId = ONBOARDING_STEPS[index]
-  const steps = visibleSteps(index)
 
   useEffect(() => {
     try {
@@ -115,6 +120,37 @@ export function useOnboardingFlow({
   const finish = useCallback(() => close(true), [close])
 
   const agents = useOnboardingAgents({ open, showToast, onInstalled: goNext })
+  const withMemory = MEMORY_IMPORT_TYPES.has(agents.selectedEntry?.name || "")
+  const steps = visibleSteps(index, withMemory)
+  // The agent the memory step brings memory to; kept so a resumed session
+  // (the wizard reopened mid-step) still knows it.
+  const [memoryAgent, setMemoryAgent] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(MEMORY_AGENT_KEY)
+    } catch {
+      return null
+    }
+  })
+  const onAgentCreated = useCallback(
+    (name: string) => {
+      if (!withMemory) {
+        finish()
+        return
+      }
+      try {
+        localStorage.setItem(MEMORY_AGENT_KEY, name)
+      } catch {}
+      setMemoryAgent(name)
+      goToStep("memory")
+    },
+    [withMemory, finish, goToStep],
+  )
+  const finishMemory = useCallback(() => {
+    try {
+      localStorage.removeItem(MEMORY_AGENT_KEY)
+    } catch {}
+    finish()
+  }, [finish])
   const auth = useOnboardingAuth({
     active: open && stepId === "configure",
     entry: agents.selectedEntry,
@@ -127,7 +163,13 @@ export function useOnboardingFlow({
     entry: agents.selectedEntry,
     agentEnv: auth.signedInEnv,
     showToast,
-    onFinished: finish,
+    onFinished: onAgentCreated,
+  })
+  const memory = useOnboardingMemory({
+    active: open && stepId === "memory",
+    agentName: memoryAgent,
+    showToast,
+    onDone: finishMemory,
   })
   const pairing = useOnboardingPairing({
     active: open && stepId === "pairNode",
@@ -140,7 +182,7 @@ export function useOnboardingFlow({
   // list has actually loaded and the saved selection isn't in it, send the user
   // back to the picker to choose again.
   useEffect(() => {
-    if (!open || index < OPTIONAL_STEPS_FROM) return
+    if (!open || index < OPTIONAL_STEPS_FROM || stepId === "memory") return
     if (agents.agentsLoading || agents.agents.length === 0) return
     if (!agents.selectedEntry) goToPicker()
   }, [
@@ -163,5 +205,7 @@ export function useOnboardingFlow({
     auth,
     provision,
     pairing,
+    memory,
+    withMemory,
   }
 }

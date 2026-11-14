@@ -23,7 +23,8 @@ export interface OnboardingProvisionApi {
   browseFolder: () => Promise<void>
   /**
    * Creates the agent, binds it to the paired workspace when there is one,
-   * and finishes onboarding — the terminal action of the flow.
+   * and finishes onboarding — or, for an agent whose tool keeps memory we
+   * can read, moves on to "Bring your memory".
    */
   createAgent: () => Promise<void>
   /** The workspace the agent will connect to, or null for local-only. */
@@ -58,7 +59,8 @@ export function useOnboardingProvision({
   /** The agent's own env from the configure step (a sign-in), if any. */
   agentEnv?: Record<string, string> | null
   showToast: (msg: string, type?: ToastType) => void
-  onFinished: () => void
+  /** The agent exists (and is bound when there was a workspace). */
+  onFinished: (agentName: string) => void
 }): OnboardingProvisionApi {
   const { t } = useTranslation()
 
@@ -167,7 +169,7 @@ export function useOnboardingProvision({
         }
       }
       await refreshAgentsStore()
-      onFinished()
+      onFinished(name)
     } catch (e) {
       showToast((e as Error).message, "error")
     } finally {
