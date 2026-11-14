@@ -145,6 +145,24 @@ function skillFiles(dir) {
   return tooBig ? null : { files: out, bytes };
 }
 
+/**
+ * Drop names that are the same file. On a case-insensitive disk (macOS,
+ * Windows) MEMORY.md and memory.md both "exist" and are one file; copying it
+ * twice made the second copy look like a file we replaced, and undo then put
+ * it back.
+ */
+function uniqueFiles(files) {
+  const seen = new Set();
+  return files.filter((f) => {
+    let key;
+    try { key = fs.realpathSync.native(f); } catch { key = f; }
+    if (process.platform === 'win32' || process.platform === 'darwin') key = key.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function sumBytes(files) {
   return files.reduce((n, f) => n + ((statOrNull(f) || {}).size || 0), 0);
 }
@@ -279,6 +297,7 @@ function claudeItems(ctx) {
     }
     const memDir = path.join(p.dir, 'memory');
     if (isDir(memDir)) files.push(...markdownFiles(memDir));
+    files.splice(0, files.length, ...uniqueFiles(files));
     const projectSkills = cwd
       ? readdir(path.join(cwd, '.claude', 'skills')).filter((e) => e.isDirectory() && !OWN_SKILL_RE.test(e.name))
       : [];
@@ -386,7 +405,7 @@ function codexItems(ctx) {
     }
   }
   for (const cwd of cwds) {
-    const files = ['AGENTS.override.md', 'AGENTS.md'].map((f) => path.join(cwd, f)).filter((f) => isFile(f) && readText(f) != null);
+    const files = uniqueFiles(['AGENTS.override.md', 'AGENTS.md'].map((f) => path.join(cwd, f)).filter((f) => isFile(f) && readText(f) != null));
     if (!files.length) continue;
     const label = path.basename(cwd);
     items.push({ id: `codex:project:${hash(cwd)}`, tool: 'codex', kind: 'instructions', label: `Project instructions: ${label}`,
@@ -413,7 +432,7 @@ function openclawItems(ctx) {
   const loadedNote = 'This agent runs on your own OpenClaw setup and reads this already.';
 
   for (const g of OPENCLAW_GROUPS) {
-    const files = g.files.map((f) => path.join(srcWs, f)).filter((f) => isFile(f) && readText(f) != null);
+    const files = uniqueFiles(g.files.map((f) => path.join(srcWs, f)).filter((f) => isFile(f) && readText(f) != null));
     if (!files.length) continue;
     items.push({ id: `openclaw:${g.key}`, tool: 'openclaw', kind: g.kind, label: g.label, source: srcWs, files,
       status: shared ? 'loaded' : 'importable', note: shared ? loadedNote : undefined,
@@ -452,7 +471,7 @@ function readManifest(ctx) {
     const m = JSON.parse(fs.readFileSync(manifestPath(ctx), 'utf-8'));
     if (m && m.version === MANIFEST_VERSION) return m;
   } catch {}
-  return { version: MANIFEST_VERSION, agent: ctx.name, imports: [], written: [], backups: [], dismissedAt: null };
+  return { version: MANIFEST_VERSION, agent: ctx.name, imports: [], written: [], dirs: [], backups: [], dismissedAt: null };
 }
 
 function writeManifest(ctx, m) {
@@ -547,9 +566,25 @@ function memorySummary(opts) {
   };
 }
 
+/** mkdir -p that records the folders it creates, so undo removes only those. */
+function mkdirTracked(m, dir) {
+  const missing = [];
+  let d = path.resolve(dir);
+  while (!fs.existsSync(d)) {
+    missing.push(d);
+    const up = path.dirname(d);
+    if (up === d) break;
+    d = up;
+  }
+  if (!missing.length) return;
+  fs.mkdirSync(dir, { recursive: true });
+  if (!m.dirs) m.dirs = [];
+  for (const created of missing.reverse()) if (!m.dirs.includes(created)) m.dirs.push(created);
+}
+
 /** Copy one file, recording what was written and backing up what it replaces. */
 function copyTracked(ctx, m, src, dest, stamp) {
-  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  mkdirTracked(m, path.dirname(dest));
   if (fs.existsSync(dest)) {
     const already = m.written.includes(dest) || m.backups.some((b) => b.path === dest);
     if (!already) {
@@ -638,7 +673,6 @@ function undoImport(opts) {
   let restored = 0;
   for (const f of [...m.written].reverse()) {
     try { fs.unlinkSync(f); removed++; } catch {}
-    pruneEmptyDirs(path.dirname(f), ctx);
   }
   for (const b of [...m.backups].reverse()) {
     try {
@@ -647,22 +681,16 @@ function undoImport(opts) {
       restored++;
     } catch {}
   }
+  // Folders the import created, deepest first, and only once empty: anything
+  // the user or the agent put there since stays.
+  for (const d of [...(m.dirs || [])].sort((a, b) => b.length - a.length)) {
+    try { fs.rmdirSync(d); } catch {}
+  }
   try { fs.rmSync(path.join(ctx.store, 'files'), { recursive: true, force: true }); } catch {}
   try { fs.rmSync(path.join(ctx.store, 'backups'), { recursive: true, force: true }); } catch {}
   const items = (m.imports || []).reduce((n, i) => n + (i.items || []).length, 0);
-  writeManifest(ctx, { version: MANIFEST_VERSION, agent: ctx.name, imports: [], written: [], backups: [], dismissedAt: null, undoneAt: new Date().toISOString() });
+  writeManifest(ctx, { version: MANIFEST_VERSION, agent: ctx.name, imports: [], written: [], dirs: [], backups: [], dismissedAt: null, undoneAt: new Date().toISOString() });
   return { removed, restored, items };
-}
-
-/** Remove now-empty folders we created, stopping at anything not ours. */
-function pruneEmptyDirs(dir, ctx) {
-  let d = dir;
-  for (let i = 0; i < 8; i++) {
-    const stop = [ctx.store, ctx.workingDir, ctx.home].filter(Boolean).some((s) => path.resolve(s) === path.resolve(d));
-    if (stop) return;
-    try { fs.rmdirSync(d); } catch { return; }
-    d = path.dirname(d);
-  }
 }
 
 /** "Not now": stop offering the import until the user opens it again. */

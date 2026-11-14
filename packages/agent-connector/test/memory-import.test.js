@@ -202,6 +202,25 @@ describe('memory import — OpenClaw', () => {
   });
 });
 
+describe('memory import — one file under two names', () => {
+  // A case-insensitive disk shows MEMORY.md and memory.md as one file; a
+  // symlink gives the same situation on any OS.
+  it('copies it once, so undo leaves nothing behind', () => {
+    const ws = path.join(home, '.openclaw', 'workspace');
+    write(path.join(ws, 'MEMORY.md'), 'Ada prefers tea');
+    try { fs.symlinkSync(path.join(ws, 'MEMORY.md'), path.join(ws, 'memory.md')); } catch { /* no symlinks here */ }
+    const state = path.join(configDir, 'openclaw', 'abc');
+    const privateWs = path.join(state, 'workspace');
+    fs.mkdirSync(privateWs, { recursive: true });
+    const o = opts('openclaw', { env: { OPENCLAW_STATE_DIR: state } });
+    const item = memory.scanMemory(o).items.find((i) => i.id === 'openclaw:memory');
+    assert.equal(item.fileCount, 1);
+    memory.importMemory(o, [item.id]);
+    memory.undoImport(o);
+    assert.deepEqual(fs.readdirSync(privateWs), []);
+  });
+});
+
 describe('memory import — status', () => {
   it('summarises available / dismissed and ignores unsupported types', () => {
     claudeProject(path.join(home, 'code', 'shop'), { claudeMd: '# rules' });
