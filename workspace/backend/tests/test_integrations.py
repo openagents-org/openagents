@@ -646,6 +646,244 @@ def test_agent_chat_reply_relays_to_lark(client, workspace, lark_binding, monkey
 
 
 # ---------------------------------------------------------------------------
+# Telegram typing indicator
+# ---------------------------------------------------------------------------
+
+
+def test_inbound_telegram_message_starts_typing(client, telegram_binding, monkeypatch):
+    """A bridged-in Telegram message makes the bot show "typing…" immediately."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or True,
+    )
+    secret = _get_binding_secret(telegram_binding["id"])
+    resp = client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hello", chat_id=556),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    assert resp.status_code == 200, resp.text
+    time.sleep(0.2)
+    try:
+        assert calls, "no typing action was sent after an inbound message"
+        assert all(c == "556" for c in calls)
+    finally:
+        svc.stop_telegram_typing(telegram_binding["id"], "556")
+
+
+def test_typing_stops_when_reply_relayed(
+    client, workspace, telegram_binding, monkeypatch
+):
+    """Once the agent's reply is relayed back, the typing indicator stops."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or True,
+    )
+    monkeypatch.setattr(svc, "_send_telegram", lambda *args: None)
+    secret = _get_binding_secret(telegram_binding["id"])
+    client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hello", chat_id=557),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    time.sleep(0.15)
+    try:
+        assert len(calls) >= 2, "typing should be ticking while the agent works"
+
+        channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-557"
+        client.post(
+            "/v1/events",
+            json={
+                "type": "workspace.message.posted",
+                "source": "openagents:agent-alpha",
+                "target": f"channel/{channel_name}",
+                "payload": {"content": "done!", "message_type": "chat"},
+                "network": workspace["id"],
+            },
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        time.sleep(0.3)
+        after_reply = len(calls)
+        time.sleep(0.15)
+        assert len(calls) == after_reply, "typing continued after the reply was relayed"
+    finally:
+        svc.stop_telegram_typing(telegram_binding["id"], "557")
+
+
+def test_typing_times_out_without_reply(client, telegram_binding, monkeypatch):
+    """No reply ever comes — the indicator must stop on its own (hard cap)."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    monkeypatch.setattr(svc, "_TYPING_MAX_SECONDS", 0.15)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or True,
+    )
+    secret = _get_binding_secret(telegram_binding["id"])
+    client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("anybody there?", chat_id=558),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    time.sleep(0.4)
+    capped = len(calls)
+    time.sleep(0.15)
+    assert len(calls) == capped, "typing kept going past the hard cap"
+    assert 1 <= capped <= 6, f"unexpected send count around the cap: {capped}"
+
+
+def test_typing_stops_when_telegram_rejects(client, telegram_binding, monkeypatch):
+    """Telegram says no (bot blocked / chat gone) — exactly one send, then stop."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or False,
+    )
+    secret = _get_binding_secret(telegram_binding["id"])
+    client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hello?", chat_id=560),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    time.sleep(0.2)
+    assert len(calls) == 1, f"expected exactly one send, got {len(calls)}"
+
+
+def test_second_message_supersedes_single_typing_thread(
+    client, telegram_binding, monkeypatch
+):
+    """Two quick messages → one live indicator, not two threads."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: True,
+    )
+    secret = _get_binding_secret(telegram_binding["id"])
+    for text in ("one", "two"):
+        client.post(
+            f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+            json=_telegram_update(text, chat_id=561),
+            headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+        )
+        time.sleep(0.1)
+    try:
+        live = [k for k in svc._typing_state if k.endswith(":561")]
+        assert len(live) == 1, f"expected one live typing thread, got {live}"
+    finally:
+        svc.stop_telegram_typing(telegram_binding["id"], "561")
+
+
+def test_typing_stops_even_if_reply_send_fails(
+    client, workspace, telegram_binding, monkeypatch
+):
+    """The reply event landed — typing stops even when the Telegram API errors."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or True,
+    )
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("telegram is down")
+
+    monkeypatch.setattr(svc, "_send_telegram", boom)
+    secret = _get_binding_secret(telegram_binding["id"])
+    client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("hello", chat_id=562),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    time.sleep(0.15)
+    try:
+        channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-562"
+        client.post(
+            "/v1/events",
+            json={
+                "type": "workspace.message.posted",
+                "source": "openagents:agent-alpha",
+                "target": f"channel/{channel_name}",
+                "payload": {
+                    "content": "reply that cannot be delivered",
+                    "message_type": "chat",
+                },
+                "network": workspace["id"],
+            },
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        time.sleep(0.3)
+        after_reply = len(calls)
+        time.sleep(0.15)
+        assert len(calls) == after_reply, "typing continued after a failed reply send"
+    finally:
+        svc.stop_telegram_typing(telegram_binding["id"], "562")
+
+
+def test_typing_restarts_on_agent_status_after_partial_reply(
+    client,
+    workspace,
+    telegram_binding,
+    monkeypatch,
+):
+    """Multi-part replies: an intermediate chat message stops the indicator,
+    but a later thinking/status event (agent still working) brings it back."""
+    monkeypatch.setattr(svc, "_TYPING_INTERVAL", 0.05)
+    calls = []
+    monkeypatch.setattr(
+        svc,
+        "_telegram_send_chat_action",
+        lambda token, chat_id: calls.append(chat_id) or True,
+    )
+    monkeypatch.setattr(svc, "_send_telegram", lambda *args: None)
+    secret = _get_binding_secret(telegram_binding["id"])
+    client.post(
+        f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
+        json=_telegram_update("long task please", chat_id=563),
+        headers={"X-Telegram-Bot-Api-Secret-Token": secret},
+    )
+    channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-563"
+
+    def _agent_post(message_type):
+        client.post(
+            "/v1/events",
+            json={
+                "type": "workspace.message.posted",
+                "source": "openagents:agent-alpha",
+                "target": f"channel/{channel_name}",
+                "payload": {"content": "…", "message_type": message_type},
+                "network": workspace["id"],
+            },
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+
+    try:
+        time.sleep(0.15)
+        _agent_post("chat")  # intermediate reply part
+        time.sleep(0.2)
+        assert len(calls) >= 1
+        stopped_at = len(calls)
+        time.sleep(0.15)
+        assert len(calls) == stopped_at, "typing should stop at the chat relay"
+
+        _agent_post("status")  # agent keeps working after the part-reply
+        time.sleep(0.15)
+        assert len(calls) > stopped_at, "status event should restart typing"
+    finally:
+        svc.stop_telegram_typing(telegram_binding["id"], "563")
+
+
+# ---------------------------------------------------------------------------
 # Outbound relay
 # ---------------------------------------------------------------------------
 

@@ -19,7 +19,10 @@ Outbound (workspace → platform): ``routers/events.send_event`` and the cloud
     platform conversation. On Slack the agent's name is carried via the
     ``username`` per-message override (needs ``chat:write.customize``; falls
     back to a ``*name*:`` prefix without it); Telegram has no per-message
-    identity, so the name is always prefixed.
+    identity, so the name is always prefixed. While a Telegram message waits
+    for its reply, a lightweight indicator thread keeps the chat showing
+    "typing…" (:func:`start_telegram_typing`, stopped by the relay or a hard
+    cap) — the other platforms expose no equivalent bot API.
 
 Browser previews (workspace → Slack): when an agent drives the shared cloud
     browser inside a Slack-bridged thread, ``services/browser_preview`` posts
@@ -35,6 +38,8 @@ import asyncio
 import hashlib
 import logging
 import re
+import threading
+import time
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -123,6 +128,72 @@ def _record_binding_result(binding_id: str, error: Optional[str]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Telegram typing indicator
+# ---------------------------------------------------------------------------
+
+# Telegram's "typing…" status expires after ~5 seconds; renew slightly sooner.
+_TYPING_INTERVAL = 4.0
+# Hard cap: a chat that never gets a reply (agent down, reply filtered out)
+# must not show "typing…" forever.
+_TYPING_MAX_SECONDS = 15 * 60
+
+_typing_lock = threading.Lock()
+_typing_state: dict[str, dict] = {}
+
+
+def _telegram_send_chat_action(bot_token: str, chat_id: str) -> bool:
+    """Fire one typing action; True when Telegram acked it."""
+    with httpx.Client(timeout=10.0) as client:
+        resp = client.post(
+            f"https://api.telegram.org/bot{bot_token}/sendChatAction",
+            json={"chat_id": chat_id, "action": "typing"},
+        )
+    return bool(resp.json().get("ok"))
+
+
+def _typing_loop(bot_token: str, key: str, chat_id: str, stop: threading.Event) -> None:
+    deadline = time.monotonic() + _TYPING_MAX_SECONDS
+    while not stop.is_set() and time.monotonic() < deadline:
+        try:
+            ok = _telegram_send_chat_action(bot_token, chat_id)
+        except Exception:
+            logger.debug("integrations: telegram sendChatAction failed", exc_info=True)
+            ok = True  # transient network error — retry on the next tick
+        if ok is False:
+            break  # Telegram rejected it (chat gone / bot blocked) — give up
+        stop.wait(_TYPING_INTERVAL)
+    with _typing_lock:
+        if _typing_state.get(key, {}).get("stop") is stop:
+            del _typing_state[key]
+
+
+def start_telegram_typing(bot_token: str, binding_id: str, chat_id: str) -> None:
+    """Show "typing…" in one Telegram chat until the outbound relay stops it."""
+    key = f"{binding_id}:{chat_id}"
+    with _typing_lock:
+        state = _typing_state.get(key)
+        if state is not None:
+            state["stop"].set()  # a fresh message supersedes the old wait
+        stop = threading.Event()
+        thread = threading.Thread(
+            target=_typing_loop,
+            args=(bot_token, key, chat_id, stop),
+            daemon=True,
+            name=f"tg-typing:{key}",
+        )
+        _typing_state[key] = {"stop": stop, "thread": thread}
+        thread.start()
+
+
+def stop_telegram_typing(binding_id: str, chat_id: str) -> None:
+    key = f"{binding_id}:{chat_id}"
+    with _typing_lock:
+        state = _typing_state.pop(key, None)
+    if state is not None:
+        state["stop"].set()
+
+
+# ---------------------------------------------------------------------------
 # Inbound: platform message → workspace event pipeline
 # ---------------------------------------------------------------------------
 
@@ -196,6 +267,11 @@ def ingest_external_message(
         workspace = db.get(Workspace, binding.workspace_id)
         if workspace is None or workspace.status == "deleted":
             return
+
+        if binding.platform == "telegram":
+            # The user sees "typing…" while the agent works on this message;
+            # the outbound relay stops it when the reply lands.
+            start_telegram_typing(binding.bot_token, str(binding.id), external_chat_id)
 
         channel = _ensure_channel(db, workspace, binding, external_chat_id, chat_title)
 
@@ -332,8 +408,7 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     if event.get("type") != "workspace.message.posted":
         return
     payload = event.get("payload") or {}
-    if (payload.get("message_type") or "chat") != "chat":
-        return
+    message_type = payload.get("message_type") or "chat"
     target = str(event.get("target") or "")
     if not target.startswith("channel/" + CHANNEL_PREFIX):
         return
@@ -341,6 +416,19 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     if metadata.get("integration"):
         return  # bridged in from the platform — never echo back
     source = str(event.get("source") or "")
+
+    # An agent's thinking/status in a bridged Telegram channel means it is
+    # (still) working — e.g. between the parts of a multi-part reply — so
+    # (re)start the "typing…" indicator for that chat.
+    if message_type != "chat" and source.startswith("openagents:"):
+        resolved = resolve_binding_for_channel(workspace_id, target[len("channel/") :])
+        if resolved is not None:
+            binding0, chat_id0 = resolved
+            if binding0.platform == "telegram":
+                start_telegram_typing(binding0.bot_token, str(binding0.id), chat_id0)
+
+    if message_type != "chat":
+        return
     sender = _display_name(source)
     if sender is None:
         return  # system chatter (timers etc.) stays internal
@@ -358,7 +446,12 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     error: Optional[str] = None
     try:
         if platform == "telegram":
-            _send_telegram(binding.bot_token, chat_id, sender, content)
+            try:
+                _send_telegram(binding.bot_token, chat_id, sender, content)
+            finally:
+                # The reply event landed — stop "typing…" even if the API
+                # call itself failed (the agent is done either way).
+                stop_telegram_typing(str(binding.id), chat_id)
         elif platform == "slack":
             _send_slack(binding.bot_token, chat_id, sender, content,
                         is_agent=source.startswith("openagents:"), thread_ts=thread_root)
