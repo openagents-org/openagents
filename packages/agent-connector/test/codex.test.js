@@ -314,6 +314,16 @@ describe('Codex — what of stderr is quoted', () => {
     assert.strictEqual(CodexAdapter._serviceRefused({ errorMessage: 'no rollout found for thread id t', stderr: 'quota exceeded' }), false);
   });
 
+  // Review of the third fix: a WARN mentioning another thread's missing
+  // rollout outranked the run's own 401, and a good thread was dropped.
+  it("keeps the thread when the run's own error is a refusal", () => {
+    const warn = '2026-11-14T02:44:00.000000Z  WARN codex_core::x: no rollout found for thread id different-thread';
+    assert.strictEqual(CodexAdapter._serviceRefused({ errorMessage: '401 Unauthorized', stderr: warn }), true);
+    // Nor does such a WARN alone count against a refusal at the end of stderr.
+    const stderr = [warn, '2026-11-14T02:44:01.000000Z ERROR codex_core::client: unexpected status 429 Too Many Requests'].join('\n');
+    assert.strictEqual(CodexAdapter._serviceRefused({ stderr }), true);
+  });
+
   it('says a lost connection is the network, after the quote and whatever its length', () => {
     const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
     const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });

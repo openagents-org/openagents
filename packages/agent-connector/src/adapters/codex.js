@@ -878,12 +878,22 @@ class CodexAdapter extends BaseAdapter {
    * conversation, and the same refused request was sent a second time.
    */
   static _serviceRefused({ errorMessage, stderr } = {}) {
-    // Codex saying the thread is gone outranks anything else it logged: the
-    // window below moves up when bookkeeping records are left out, and an
-    // earlier 401 or quota line in it kept a thread that no longer exists.
-    if (CODEX_THREAD_GONE.test(`${errorMessage || ''}\n${stripAnsi(stderr)}`)) return false;
+    // In order of trust: the run's own error, then what codex said about the
+    // thread, then the end of stderr. Codex saying the thread is gone outranks
+    // the window below: it moves up when bookkeeping records are left out, and
+    // an earlier 401 or quota line in it kept a thread that no longer exists.
+    // In stderr only where codex said so itself (an ERROR record or a line of
+    // its own), not in a WARN that mentions it beside a run.
+    const error = String(errorMessage || '');
+    if (CODEX_THREAD_GONE.test(error)) return false;
     const refused = /\b(401|402|403|429)\b|too many requests|rate.?limit|usage limit|quota|credits|unauthorized|forbidden|error sending request/i;
-    if (refused.test(String(errorMessage || ''))) return true;
+    if (refused.test(error)) return true;
+    const threadGone = codexStderrLines(stderr).some((l) => {
+      if (!CODEX_THREAD_GONE.test(l)) return false;
+      const record = CODEX_LOG_RECORD.exec(l);
+      return !record || record[1] === 'ERROR';
+    });
+    if (threadGone) return false;
     // Only the end of stderr, where the reason the run died is: a stale
     // thread whose earlier log mentioned a quota was kept, and every later
     // message in that channel failed until restart. Bookkeeping records are
