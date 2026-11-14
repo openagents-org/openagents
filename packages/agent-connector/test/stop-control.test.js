@@ -1367,3 +1367,43 @@ describe('the control poller cannot be silenced by one await', () => {
     }
   });
 });
+
+describe('agent stop control — DM composite session ids', () => {
+  function dmAdapter() {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws',
+      channelName: 'thread',
+      token: 'token',
+      agentName: 'agent',
+    });
+    adapter._finishUserStop = async () => {};
+    adapter.sendStatus = async () => {};
+    adapter.sendError = async () => {};
+    const notices = [];
+    captureNotices(adapter, notices);
+    return { adapter, notices };
+  }
+
+  it('stops work under the bare channel when the stop names a composite DM session id', async () => {
+    const { adapter } = dmAdapter();
+    adapter._channelBusy.add('dm:human:a@b.c'); // work registered under the bare channel
+    const stopped = [];
+    adapter._stopChannelWork = async (ch) => { stopped.push(ch); return 'stopped'; };
+
+    await adapter._handleUserStop('dm:human:a@b.c,openagents:agent');
+
+    assert.deepEqual(stopped, ['dm:human:a@b.c']);
+  });
+
+  it('leaves running channels untouched when the composite id matches nothing', async () => {
+    const { adapter } = dmAdapter();
+    adapter._channelBusy.add('channel-x');
+    const stopped = [];
+    adapter._stopChannelWork = async (ch) => { stopped.push(ch); return 'idle'; };
+
+    await adapter._handleUserStop('dm:human:nobody@nowhere.tld,openagents:agent');
+
+    assert.deepEqual(stopped, ['dm:human:nobody@nowhere.tld,openagents:agent']);
+    assert.equal(adapter._channelBusy.has('channel-x'), true);
+  });
+});

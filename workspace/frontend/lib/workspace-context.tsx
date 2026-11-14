@@ -784,9 +784,24 @@ export function WorkspaceProvider({
     // missing. Several adapters still ignore the channel a stop names and stop
     // everything they are running, so broadcasting would let one thread's Stop
     // kill an uninvolved agent's work in another thread.
-    const targetAgents = targetSessionId
+    let targetAgents = targetSessionId
       ? agents.filter((a) => participants.includes(a.agentName))
       : agents;
+
+    // DM sessions are not channels — there is no channel row to source a
+    // participant list from, so `participants` is always empty and the Stop
+    // click below would be a silent no-op (the button still renders, because
+    // active-detection is message-based). Fall back to the agent whose status
+    // message marked this session active: the same single-agent precision the
+    // participant list gives threads, never a broadcast.
+    if (targetAgents.length === 0 && targetSessionId) {
+      const last = lastMessageBySession[targetSessionId];
+      if (last?.senderName) {
+        targetAgents = agents.filter(
+          (a) => a.agentName === last.senderName || a.displayName === last.senderName,
+        );
+      }
+    }
 
     // Resolved BEFORE anything is shown as stopping. With no agent to ask,
     // nothing would ever acknowledge, and flipping the UI first would strand
@@ -857,7 +872,7 @@ export function WorkspaceProvider({
         return next;
       });
     }, STOP_ACK_TIMEOUT_MS);
-  }, [activeSessionIds, agents, sessions]);
+  }, [activeSessionIds, agents, lastMessageBySession, sessions]);
 
   // Configure API client on mount
   useEffect(() => {
