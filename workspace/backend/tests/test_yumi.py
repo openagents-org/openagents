@@ -15,7 +15,7 @@ Covers:
 import asyncio
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.config import config
 from app.models import CloudAgentConfig, EventRecord, WorkspaceMember
@@ -167,7 +167,8 @@ class TestYumiTools:
 
     def _api(self, data):
         from app.services.yumi import WorkspaceApi
-        return WorkspaceApi(data["workspaceId"], data["token"])
+        from tests.conftest import acting_api
+        return acting_api(data["workspaceId"])
 
     def test_pairing_redeem_nodes_and_commands(self, client, yumi_enabled):
         from app.services.yumi import execute_tool
@@ -298,7 +299,7 @@ class TestAssistantLoop:
             "target": channel_target,
             "source": "human:test@example.com",
             "payload": {"content": "hello", "message_type": "chat"},
-            "metadata": {"target_agents": ["yumi"]},
+            "metadata": {"target_agents": ["yumi"], "acting_for": "test@example.com"},
         }
 
         asyncio.run(cloud_agent._invoke_assistant_agent(db, ws_id, event_data, cfg, 0))
@@ -665,13 +666,22 @@ class TestDelegationRouting:
 
 
 class TestManagerTools:
-    def test_add_agent_set_leader_read_post(self, client, yumi_enabled, quiet_background):
-        from app.services.yumi import WorkspaceApi, execute_tool
+    def test_add_agent_set_leader_read_post(self, client, db, yumi_enabled, quiet_background):
+        from app.models import Channel
+        from app.services.yumi import execute_tool
+        from tests.conftest import acting_api
 
         data = _create_workspace(client)
-        api = WorkspaceApi(data["workspaceId"], data["token"])
+        # Yumi works for test@example.com, who owns the threads it manages.
+        api = acting_api(data["workspaceId"])
+
+        def owned(name):
+            db.execute(update(Channel).where(Channel.name == name).values(owner_email="test@example.com"))
+            db.commit()
+            return name
+
         # Yumi is deliberately NOT the leader: the built-in may still manage membership.
-        ch = _make_thread(client, data, "Plan", ["agent-alpha"], master="agent-alpha")
+        ch = owned(_make_thread(client, data, "Plan", ["agent-alpha"], master="agent-alpha"))
         _join(client, data, "agent-beta")
 
         res = asyncio.run(execute_tool(api, "yumi", "add_agent_to_thread",
@@ -683,18 +693,20 @@ class TestManagerTools:
                                        {"agent_name": "nobody-here"}, channel_name=ch))
         assert res["ok"] is False
 
+        # Thread leaders (master mode) are retired; the API refuses them.
         res = asyncio.run(execute_tool(api, "yumi", "set_thread_leader",
                                        {"agent_name": "agent-beta"}, channel_name=ch))
-        assert res["ok"], res
-        assert _channel(client, data, ch)["masterAgent"] == "agent-beta"
+        assert res["ok"] is False
 
-        ch2 = _make_thread(client, data, "Research", ["agent-alpha"], master="agent-alpha")
+        ch2 = owned(_make_thread(client, data, "Research", ["agent-alpha"], master="agent-alpha"))
         res = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
                                        {"thread": ch2, "message": "@agent-alpha please review the plan"},
                                        channel_name=ch, allow_delegation=True))
         assert res["ok"] and res["delivered_to"] == ["agent-alpha"], res
         newest = _events(client, data, ch2)[0]
-        assert newest["source"] == "openagents:yumi"
+        # Sent as the person, marked as sent through Yumi.
+        assert newest["source"] == "human:test@example.com"
+        assert newest["metadata"]["sent_via"] == "yumi"
         assert (newest.get("metadata") or {}).get("target_agents") == ["agent-alpha"]
 
         blocked = asyncio.run(execute_tool(api, "yumi", "post_to_thread",
@@ -704,12 +716,12 @@ class TestManagerTools:
 
         res = asyncio.run(execute_tool(api, "yumi", "read_thread", {"thread": ch2}))
         assert res["ok"], res
-        assert res["messages"][-1]["speaker"] == "yumi"
+        assert res["messages"][-1]["speaker"] != "yumi"
         assert "please review the plan" in res["messages"][-1]["text"]
 
         res = asyncio.run(execute_tool(api, "yumi", "list_threads", {}))
         row = next(t for t in res["threads"] if t["thread_id"] == ch)
-        assert row["leader"] == "agent-beta" and "agent-beta" in row["agents"]
+        assert "agent-beta" in row["agents"]
 
 
 class TestAssistantDelegation:

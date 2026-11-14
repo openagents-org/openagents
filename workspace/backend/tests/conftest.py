@@ -134,3 +134,34 @@ def disable_analytics(monkeypatch):
     from app.config import config as _cfg
     monkeypatch.setattr(_cfg, "ANALYTICS_ENABLED", False)
     yield
+
+
+def acting_api(workspace_id, email="test@example.com", role="owner"):
+    """Yumi's in-process API client working for `email`, who is made a member
+    of the workspace with `role` (default: the creator's owner role)."""
+    from app.firebase_auth import config
+    from app.models import User, WorkspaceMembership
+    from app.services.yumi import WorkspaceApi
+    if not config.WORKSPACE_SESSION_SECRET:
+        config.WORKSPACE_SESSION_SECRET = "test-session-secret-at-least-32-bytes"
+    db = TestingSessionLocal()
+    try:
+        user = db.query(User).filter(User.email == email).first()
+        if user is None:
+            user = User(email=email)
+            db.add(user)
+            db.flush()
+        if not db.query(WorkspaceMembership).filter_by(workspace_id=workspace_id, user_id=user.id).first():
+            db.add(WorkspaceMembership(workspace_id=workspace_id, user_id=user.id, role=role))
+        db.commit()
+    finally:
+        db.close()
+    return WorkspaceApi(workspace_id, email)
+
+
+@pytest.fixture(autouse=True)
+def _restore_session_secret():
+    from app.firebase_auth import config
+    saved = config.WORKSPACE_SESSION_SECRET
+    yield
+    config.WORKSPACE_SESSION_SECRET = saved

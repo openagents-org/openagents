@@ -873,7 +873,10 @@ def explain(db: Session, principal: Principal, resource: Resource, right: str = 
     from app.services.personal_assistant import is_personal_channel, is_yumi
     if resource.kind == "channel" and resource.obj is not None and is_personal_channel(db, resource.obj):
         own = principal.kind == "human" and principal.email == _norm(resource.obj.owner_email)
-        assistant = principal.kind == "agent" and principal.agent_name == "yumi"
+        # The assistant reads its conversations server-side; a token caller
+        # naming itself "yumi" gets no more than that agent's owner could see.
+        assistant = (principal.kind == "agent" and principal.agent_name == "yumi"
+                     and bool(principal.owner_email) and principal.owner_email == _norm(resource.obj.owner_email))
         return Explanation(bool((own or assistant) and right in ("read", "act")), "personal", "This is a personal Yumi conversation.")
     if resource.kind == "agent" and is_yumi(db, wid, resource.id):
         usable = principal.kind == "human" and resource.id in _builtin_assistant_names(db, wid, principal)

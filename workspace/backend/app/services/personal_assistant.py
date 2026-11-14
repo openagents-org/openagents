@@ -80,3 +80,29 @@ def may_invoke(db, workspace_id, event):
         return channel is not None and is_personal_channel(db, channel)
     # Human DMs have their own per-person history and visibility rules.
     return target == "openagents:yumi" and source.startswith("human:")
+
+
+# The person Yumi acts for. Only the server writes this key into a message's
+# metadata: POST /v1/events sets it to the signed-in sender (and drops any copy
+# a client sent), and watch wake-ups set it to the owner of the conversation
+# they wake. A message's `human:<email>` source is not proof: anyone holding a
+# workspace or device token can write any source.
+ACTING_FOR = "acting_for"
+
+
+def acting_email(db, workspace_id, event):
+    """The person whose access Yumi's tools use for this event, or None.
+
+    In a personal conversation it must be the conversation's owner."""
+    email = ((event.get("metadata") or {}).get(ACTING_FOR) or "")
+    email = email.strip().lower() if isinstance(email, str) else ""
+    if not email or "@" not in email:
+        return None
+    target = event.get("target") or ""
+    if target.startswith("channel/"):
+        channel = db.execute(select(Channel).where(
+            Channel.workspace_id == str(workspace_id), Channel.name == target[8:],
+        )).scalar_one_or_none()
+        if channel is None or (channel.owner_email or "").strip().lower() != email:
+            return None
+    return email

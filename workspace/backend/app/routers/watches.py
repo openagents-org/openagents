@@ -46,6 +46,25 @@ def _bare(name: str) -> str:
     return (name or "").strip().removeprefix("openagents:")
 
 
+def _caller(db, workspace, token, authorization, agent_name=None):
+    from app.services.visibility import resolve_viewer
+    return resolve_viewer(db, workspace, token, authorization, agent_name=agent_name)
+
+
+def _thread_exists(db, workspace, name) -> bool:
+    return db.execute(select(Channel.id).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == name,
+    )).first() is not None
+
+
+def _sees_thread(db, workspace, viewer, name) -> bool:
+    from app.services.access_model import can_view_channel
+    channel = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == name,
+    )).scalar_one_or_none()
+    return channel is not None and can_view_channel(db, str(workspace.id), viewer, channel)
+
+
 @router.post("/watches")
 def create_watch(
     body: CreateWatchRequest,
@@ -67,6 +86,21 @@ def create_watch(
     if not origin:
         return json_response(ResponseCode.BAD_REQUEST, "channel (origin thread) is required")
     ws_id = str(workspace.id)
+
+    # A watch quotes its subject into its origin thread: the caller must be
+    # able to read both, and to use the agent it watches.
+    viewer = _caller(db, workspace, x_workspace_token, authorization, agent_name=watcher)
+    if not viewer.machine:
+        if not _sees_thread(db, workspace, viewer, origin):
+            return json_response(ResponseCode.FORBIDDEN, "No access to the thread the watch reports to")
+        if body.subject_kind == "thread" and _thread_exists(db, workspace, subject) \
+                and not _sees_thread(db, workspace, viewer, subject):
+            return json_response(ResponseCode.FORBIDDEN, "No access to the thread to watch")
+        if body.subject_kind == "agent":
+            from app.services.access_model import can_use_agent
+            member = db.get(WorkspaceMember, (ws_id, subject))
+            if member is not None and not can_use_agent(db, ws_id, viewer, member):
+                return json_response(ResponseCode.FORBIDDEN, "No access to the agent to watch")
 
     if body.subject_kind == "thread":
         if subject == origin:
@@ -169,6 +203,9 @@ def list_watches(
     if channel:
         query = query.where(AgentWatch.origin_channel == channel.removeprefix("channel/"))
     rows = db.execute(query.order_by(AgentWatch.expires_at.asc())).scalars().all()
+    viewer = _caller(db, workspace, x_workspace_token, authorization)
+    if not viewer.machine:
+        rows = [w for w in rows if _sees_thread(db, workspace, viewer, w.origin_channel)]
     return success_response({"watches": [svc.serialize(w) for w in rows]})
 
 
@@ -188,6 +225,9 @@ def stop_watch(
         return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
     if not _verify_workspace_access(workspace, x_workspace_token, authorization):
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    viewer = _caller(db, workspace, x_workspace_token, authorization)
+    if not viewer.machine and not _sees_thread(db, workspace, viewer, watch.origin_channel):
+        return json_response(ResponseCode.FORBIDDEN, "No access to this watch")
     if watch.status != "active":
         return json_response(ResponseCode.BAD_REQUEST, f"Watch is already {watch.status}")
     watch.status = "stopped"

@@ -335,7 +335,8 @@ class TestExpiry:
 class TestYumiTools:
     def test_watch_list_stop_via_tools(self, client, workspace, setup):
         from app.services.yumi import WorkspaceApi, execute_tool
-        api = WorkspaceApi(workspace["id"], workspace["token"])
+        from tests.conftest import acting_api
+        api = acting_api(workspace["id"])
 
         res = asyncio.run(execute_tool(api, "yumi", "watch_thread",
                                        {"thread": setup["work"], "note": "relay to Li Lei", "minutes": 45},
@@ -378,7 +379,8 @@ class TestYumiTools:
         assert "Slack" in bridged_thread_context("ext-slack-12345678-D0AAA")
 
         _join(client, workspace, "yumi")
-        api = WorkspaceApi(workspace["id"], workspace["token"])
+        from tests.conftest import acting_api
+        api = acting_api(workspace["id"])
         ch = _make_thread(client, workspace, "Plain", ["yumi"], master="yumi")
         # A watch wake-up is flagged as automated in the live thread block.
         ctx = asyncio.run(thread_context(api, ch, "system:watch", {}))

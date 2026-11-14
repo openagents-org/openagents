@@ -307,6 +307,8 @@ def test_other_cloud_invocations_forward_dm_source(monkeypatch, db, workspace, k
 
     if kind == "assistant":
         from app.services import yumi
+        # The server records who the assistant works for (see POST /v1/events).
+        event_data["metadata"] = {"acting_for": "user@example.com"}
 
         async def fake_tools(**_kwargs):
             return {"role": "assistant", "content": "assistant reply"}

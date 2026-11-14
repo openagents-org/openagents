@@ -191,6 +191,17 @@ async def _emit_wake(
     from openagents.core.onm_events import Event
     from openagents.core.onm_mods import EventRejected, PipelineContext
 
+    # A wake-up in someone's personal conversation is the assistant working for
+    # that person, so its tools keep that person's access (and no more).
+    from app.services.personal_assistant import ACTING_FOR, is_personal_channel
+    origin = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == origin_channel,
+    )).scalar_one_or_none()
+    if origin is not None and is_personal_channel(db, origin):
+        acting = {ACTING_FOR: origin.owner_email.strip().lower()}
+    else:
+        acting = {}
+
     event = Event(
         type="workspace.message.posted",
         source=WATCH_SOURCE,
@@ -202,6 +213,7 @@ async def _emit_wake(
             "target_agents": [watcher],
             "watch": watch_meta,
             "cloud_agent_depth": depth,
+            **acting,
         },
         visibility="channel",
         network=str(workspace.id),
@@ -262,6 +274,36 @@ async def _emit_wake(
 # Hook: message posted → wake matching watchers
 # ---------------------------------------------------------------------------
 
+def may_relay(db, workspace_id: str, subject_channel: str, origin_channel: str) -> bool:
+    """May a wake-up quote `subject_channel` into `origin_channel`?
+
+    Only when everyone who can read the origin can read the subject: a public
+    subject, or an origin whose owner and participants all see the subject
+    (and which is not itself open to the whole workspace)."""
+    from app.services.access_model import Principal, can_view_channel, channel_participant_emails
+    from app.services.personal_assistant import is_personal_channel
+    subject = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace_id), Channel.name == subject_channel,
+    )).scalar_one_or_none()
+    if subject is None:
+        return False
+    anyone = Principal("human", email=None, workspace_id=str(workspace_id))
+    if can_view_channel(db, str(workspace_id), anyone, subject):
+        return True
+    origin = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace_id), Channel.name == origin_channel,
+    )).scalar_one_or_none()
+    if origin is None or can_view_channel(db, str(workspace_id), anyone, origin):
+        return False
+    readers = set(channel_participant_emails(db, origin))
+    if origin.owner_email:
+        readers.add(origin.owner_email.strip().lower())
+    if not readers and not is_personal_channel(db, origin):
+        return False
+    return all(can_view_channel(db, str(workspace_id), Principal("human", email=e, workspace_id=str(workspace_id)), subject)
+               for e in readers)
+
+
 def notify_watchers(workspace_id: str, event: dict) -> None:
     """Background hook on every posted message. Cheap no-op for the vast
     majority of events; never raises."""
@@ -307,6 +349,9 @@ def notify_watchers(workspace_id: str, event: dict) -> None:
             groups.setdefault((w.watcher_agent, w.origin_channel), []).append(w)
 
         for (watcher, origin), group in groups.items():
+            if not may_relay(db, workspace_id, channel_name, origin):
+                logger.info("watches: not relaying %s into %s (its readers may not see it)", channel_name, origin)
+                continue
             notes = [w.note for w in group if w.note]
             text = _wake_text(sender, channel_name, title, kind, content, notes)
             meta = {
