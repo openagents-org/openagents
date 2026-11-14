@@ -69,6 +69,13 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 // the field they came first in stderr and were quoted as the reason a run
 // failed. Quoted only when nothing else was logged.
 const CODEX_SIDE_ERROR = /\brmcp::|failed to load skill\b/;
+// Records about codex's own bookkeeping that never say why a run failed, so
+// they are never quoted. "dropping turn-scoped item for unknown turn id" is
+// logged (WARN, app-server-protocol thread_history) while codex rebuilds a
+// resumed thread's history, once per item; on a run that then stopped with
+// nothing else in stderr, five of them were quoted as the reason (field
+// report 2026-11-14).
+const CODEX_HARMLESS_RECORD = /dropping turn-scoped item for unknown turn id/i;
 // Codex's wording when the model service could not be reached or the stream
 // dropped. Seen in the field from devices that cannot reach OpenAI, and
 // reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
@@ -899,8 +906,8 @@ class CodexAdapter extends BaseAdapter {
    * of the last lines was mostly that noise. So, in order: lines the CLI
    * printed for a person; failing those, its ERROR records with timestamp and
    * module stripped; failing those, its warnings and the ERROR records it logs
-   * beside a run (CODEX_SIDE_ERROR). The banner and known-harmless
-   * lines are never a reason: a clean exit with only the banner reads as "no
+   * beside a run (CODEX_SIDE_ERROR). The banner, known-harmless lines and
+   * bookkeeping records (CODEX_HARMLESS_RECORD) are never a reason: a clean exit with only the banner reads as "no
    * reply", not as "> Reading prompt from stdin...".
    *
    * The cut is taken from the END: codex's own "Error: …" line comes last, and
@@ -916,6 +923,7 @@ class CodexAdapter extends BaseAdapter {
       const record = CODEX_LOG_RECORD.exec(line);
       if (record) {
         const [, level, message] = record;
+        if (CODEX_HARMLESS_RECORD.test(message)) continue;
         const side = level === 'WARN' || (level === 'ERROR' && CODEX_SIDE_ERROR.test(line));
         const bucket = side ? notes : level === 'ERROR' ? errors : null;
         if (bucket && message && !bucket.includes(message)) bucket.push(message);

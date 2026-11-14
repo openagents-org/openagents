@@ -251,6 +251,20 @@ describe('Codex — what of stderr is quoted', () => {
     assert.strictEqual(detail, 'codex exited with code 1');
   });
 
+  // Field report 2026-11-14: "Codex stopped partway > …item_id=… dropping
+  // turn-scoped item for unknown turn id `0…" — history bookkeeping codex
+  // logs while resuming a thread, quoted because nothing else was in stderr.
+  const DROPPED = (n) => `2026-11-14T02:44:0${n}.123456Z  WARN codex_app_server_protocol::protocol::thread_history: `
+    + `dropping turn-scoped item for unknown turn id \`019a8${n}\` thread_id=\`01a1d7b9-09c0-7151-9017-5e1aaea1a2c8\` item_id="item_${n}"`;
+
+  it('never quotes the dropped turn-scoped item records', () => {
+    const stderr = [BANNER, DROPPED(1), DROPPED(2), DROPPED(3)].join('\n');
+    assert.strictEqual(CodexAdapter._failureDetail({ stderr, exitCode: 1 }), 'codex exited with code 1');
+    const withWarn = CodexAdapter._failureDetail({ stderr: [stderr, REFRESH].join('\n'), exitCode: 1 });
+    assert.ok(withWarn.includes('failed to refresh available models'), withWarn);
+    assert.ok(!withWarn.includes('turn-scoped'), withWarn);
+  });
+
   it('says a lost connection is the network, after the quote and whatever its length', () => {
     const noise = Array.from({ length: 4 }, (_, i) => `ERROR other::module: ${'y'.repeat(200)} ${i}`);
     const detail = CodexAdapter._failureDetail({ stderr: [BANNER, ...noise, FINAL].join('\n'), exitCode: 1 });
