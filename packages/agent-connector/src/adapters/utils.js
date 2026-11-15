@@ -251,8 +251,12 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * "[claude-code:unrecognized_model] {"model":…}", on every run against a relay
  * model; read as the failure, it turned a timed-out smoke test into "wrong
  * model" and skipped the direct API check that would have said why.
+ * Claude Code also says when it ignores a folder's own settings ("Ignoring 14
+ * permissions.allow entries from .claude/settings.local.json: this workspace
+ * has not been trusted…"); a probe whose real error matched no known kind
+ * quoted that as why Claude failed.
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|^\s*Ignoring \d+ permissions\.\w+ entries from .*has not been trusted/i;
 
 /**
  * What a failed socket says went wrong. Node 20+ tries every address a host

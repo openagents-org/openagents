@@ -630,6 +630,26 @@ describe('probeAgentType', () => {
     assert.ok(r.guidance.some((l) => /expired/.test(l) && /claude login/.test(l)), JSON.stringify(r.guidance));
   });
 
+  it('looks past Claude Code\'s untrusted-workspace notice to the real error', async () => {
+    // A folder with .claude/settings.local.json that was never opened
+    // interactively makes Claude Code say it ignores that file's permissions.
+    // When the real error matched no known kind, the probe quoted that notice
+    // (stderr comes first) as why Claude failed, and the reason it printed on
+    // stdout never reached the dashboard.
+    const notice = 'Ignoring 14 permissions.allow entries from .claude/settings.local.json: this workspace has not been trusted. '
+      + 'Run Claude Code interactively here once and accept its trust dialog.';
+    const entry = {
+      name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+      probe: {
+        args: ['-e', `console.error(${JSON.stringify(notice)}); console.log("API Error: 400 relay says something odd"); process.exit(1)`],
+        timeout_s: 30,
+      },
+    };
+    const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+    const r = await probeAgentType(c, 'claude');
+    assert.equal(r.message, 'API Error: 400 relay says something odd');
+  });
+
   it('looks past Codex\'s fallback-metadata warning to the real error', async () => {
     const warning = 'warning: Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.';
     const entry = {
