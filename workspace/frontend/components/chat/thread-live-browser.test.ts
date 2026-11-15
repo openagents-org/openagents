@@ -159,5 +159,11 @@ it('labels the selected tab, not another tab with current activity', async () =>
   h.ws.browserTabs = [tab(), {...tab('chosen'), title:'Research paper', url:'https://example.org/paper'}];
   h.layout.selectedArtifact = {kind:'browser',id:'chosen'}; await render();
   expect(host.querySelector('[title="threadLiveBrowser.minimize"]')?.textContent).toBe('Research paper');
-  expect(host.querySelector('p[title]')?.textContent).toBe('https://example.org/paper');
+  // A selected tab opens interactive, with the browser's own address bar:
+  // the address is not repeated above it.
+  expect(host.querySelector('p[title="https://example.org/paper"]')).toBeNull();
+});
+it('shows the address in the small watch-only view, which has no address bar', async () => {
+  h.ws.browserTabs = [tab()]; await render();
+  expect(host.querySelector('p[title]')?.textContent).toBe('https://example.com');
 });
