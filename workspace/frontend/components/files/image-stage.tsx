@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -13,33 +13,13 @@ import {
 } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { basename, getFileTypeMeta } from './file-utils';
-import { useT, type MessageKey } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
+import { MAX_ZOOM, MIN_ZOOM, MODE_LABEL_KEYS, ZOOM_STEP, useImageFit } from './image-fit';
 import { ViewerFooter, ViewerToolbar } from './viewer-chrome';
-
-/** Room left around the picture when it's fitted to the pane. */
-const CANVAS_PADDING = 48;
-const MIN_ZOOM = 0.1;
-const MAX_ZOOM = 8;
-const ZOOM_STEP = 0.25;
-
-/**
- * How the picture is sized against the pane.
- *
- * `custom` isn't in the cycle — it's where the zoom buttons leave you, and
- * naming it is what keeps the button from claiming "Fit" while you're at 250%.
- */
-type FitMode = 'fit' | 'fill' | 'original' | 'custom';
-
-const MODE_CYCLE: FitMode[] = ['fit', 'fill', 'original'];
-const MODE_LABEL_KEYS: Record<FitMode, MessageKey> = {
-  fit: 'media.fit',
-  fill: 'media.fill',
-  original: 'media.originalSize',
-  custom: 'media.customZoom',
-};
 
 /** The other images in this folder, so a preview isn't a dead end. */
 export interface ImageSiblings {
@@ -48,6 +28,36 @@ export interface ImageSiblings {
   total: number;
   onPrevious: () => void;
   onNext: () => void;
+}
+
+/** Previous / next through the folder's pictures, with where you are in it. */
+function ImageSiblingNav({ siblings }: { siblings: ImageSiblings }) {
+  const t = useT();
+  return (
+    <div className="flex h-11 shrink-0 items-center justify-center gap-2 border-t">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={siblings.onPrevious}
+        aria-label={t("media.previousImage")}
+        className="text-muted-foreground"
+      >
+        <ChevronLeft />
+      </Button>
+      <span className="min-w-16 text-center text-xs text-muted-foreground tabular-nums">
+        {siblings.position} / {siblings.total}
+      </span>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        onClick={siblings.onNext}
+        aria-label={t("media.nextImage")}
+        className="text-muted-foreground"
+      >
+        <ChevronRight />
+      </Button>
+    </div>
+  );
 }
 
 /**
@@ -76,8 +86,6 @@ export function ImageStage({
 }) {
   const canvasRef = useRef<HTMLDivElement>(null);
   const [natural, setNatural] = useState<{ width: number; height: number } | null>(null);
-  const [zoom, setZoom] = useState(1);
-  const [mode, setMode] = useState<FitMode>('fit');
   /**
    * Total degrees turned, not the angle it lands on.
    *
@@ -94,49 +102,7 @@ export function ImageStage({
 
   const loaded = natural !== null;
   const heading = rotation % 360;
-
-  /** The zoom a sizing mode works out to, given the pane and a quarter turn. */
-  const zoomForMode = useCallback(
-    (target: FitMode) => {
-      const canvas = canvasRef.current;
-      if (!canvas || !natural || target === 'original' || target === 'custom') return 1;
-      const turned = rotation % 180 !== 0;
-      const width = turned ? natural.height : natural.width;
-      const height = turned ? natural.width : natural.height;
-      const across = Math.max(1, canvas.clientWidth - CANVAS_PADDING) / width;
-      const down = Math.max(1, canvas.clientHeight - CANVAS_PADDING) / height;
-      // Fit is bounded at 1 — blowing a small image up to fill the pane isn't
-      // "fit", it's a decision the user didn't make. Fill is the opposite by
-      // definition: cover the pane and let the overflow be scrolled to.
-      return target === 'fill' ? Math.max(across, down) : Math.min(1, across, down);
-    },
-    [natural, rotation],
-  );
-
-  // Re-apply the sizing on load, on rotation, and as the pane is resized —
-  // dragging the seam between panes is a resize, and a picture that stops
-  // fitting halfway through the drag looks like it broke.
-  useEffect(() => {
-    if (!natural || mode === 'custom' || mode === 'original') return;
-    const apply = () => setZoom(zoomForMode(mode));
-    apply();
-    const canvas = canvasRef.current;
-    if (!canvas || typeof ResizeObserver === 'undefined') return;
-    const observer = new ResizeObserver(apply);
-    observer.observe(canvas);
-    return () => observer.disconnect();
-  }, [mode, natural, zoomForMode]);
-
-  const changeZoom = (delta: number) => {
-    setMode('custom');
-    setZoom((current) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, +(current + delta).toFixed(2))));
-  };
-
-  const cycleMode = () => {
-    const next = MODE_CYCLE[(MODE_CYCLE.indexOf(mode) + 1) % MODE_CYCLE.length];
-    setMode(next);
-    if (next === 'original') setZoom(1);
-  };
+  const { zoom, mode, changeZoom, cycleMode } = useImageFit(canvasRef, natural, rotation);
 
   return (
     <div className="flex h-full flex-col">
@@ -152,7 +118,7 @@ export function ImageStage({
                 aria-label={t("media.zoomOut")}
                 className="text-muted-foreground"
               >
-                <ZoomOut className="size-4" />
+                <ZoomOut />
               </Button>
               <span className="w-12 text-center text-xs tabular-nums text-muted-foreground">
                 {loaded ? `${Math.round(zoom * 100)}%` : '—'}
@@ -165,7 +131,7 @@ export function ImageStage({
                 aria-label={t("media.zoomIn")}
                 className="text-muted-foreground"
               >
-                <ZoomIn className="size-4" />
+                <ZoomIn />
               </Button>
 
               <Button
@@ -174,9 +140,9 @@ export function ImageStage({
                 onClick={cycleMode}
                 disabled={!loaded}
                 aria-label={t("media.sizingMode", { mode: t(MODE_LABEL_KEYS[mode]) })}
-                className="ml-1 gap-1.5 text-muted-foreground"
+                className="ms-1 text-muted-foreground"
               >
-                <Maximize2 className="size-3.5" />
+                <Maximize2 data-icon="inline-start" />
                 {t(MODE_LABEL_KEYS[mode])}
               </Button>
             </>
@@ -193,7 +159,7 @@ export function ImageStage({
                     aria-label={t("media.rotate")}
                     className="text-muted-foreground"
                   >
-                    <RotateCw className="size-4" />
+                    <RotateCw />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("media.rotate90")}</TooltipContent>
@@ -209,7 +175,7 @@ export function ImageStage({
                     aria-pressed={flipped}
                     className={cn('text-muted-foreground', flipped && 'text-foreground')}
                   >
-                    <FlipHorizontal className="size-4" />
+                    <FlipHorizontal />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent>{t("media.flipHorizontally")}</TooltipContent>
@@ -252,42 +218,20 @@ export function ImageStage({
           )}
 
           {failed && (
-            <div className="absolute inset-0 grid place-items-center text-center">
-              <div className="flex flex-col items-center gap-2 text-muted-foreground">
-                <ImageOff className="size-8 opacity-40" />
-                <p className="text-sm">This image couldn&apos;t be loaded.</p>
-              </div>
-            </div>
+            <Empty className="absolute inset-0">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <ImageOff />
+                </EmptyMedia>
+                <EmptyDescription>This image couldn&apos;t be loaded.</EmptyDescription>
+              </EmptyHeader>
+            </Empty>
           )}
         </div>
 
         {/* The folder is the album: stepping between its pictures without
-              going back to the grid is the reason to open one full-size. */}
-        {siblings && siblings.total > 1 && (
-          <div className="flex h-11 shrink-0 items-center justify-center gap-2 border-t border-border">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={siblings.onPrevious}
-              aria-label={t("media.previousImage")}
-              className="text-muted-foreground"
-            >
-              <ChevronLeft className="size-4" />
-            </Button>
-            <span className="min-w-16 text-center text-xs tabular-nums text-muted-foreground">
-              {siblings.position} / {siblings.total}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={siblings.onNext}
-              aria-label={t("media.nextImage")}
-              className="text-muted-foreground"
-            >
-              <ChevronRight className="size-4" />
-            </Button>
-          </div>
-        )}
+            going back to the grid is the reason to open one full-size. */}
+        {siblings && siblings.total > 1 && <ImageSiblingNav siblings={siblings} />}
       </div>
 
       <ViewerFooter

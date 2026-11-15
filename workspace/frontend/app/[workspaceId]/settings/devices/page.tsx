@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Laptop, RefreshCw, Ticket, Trash2 } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
@@ -90,17 +91,17 @@ export default function DevicesSettingsPage() {
       {!editable && <ReadOnlyBanner />}
 
       {editable && host && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex items-center justify-between gap-4">
           <div><p className="text-sm font-medium">{t('admin.connectThisComputer')}</p><p className="mt-1 text-sm text-muted-foreground">{t('admin.connectThisComputerHint')}</p></div>
           <Button onClick={connectComputer} disabled={connecting}>
             {connecting ? <Spinner /> : <Laptop className="size-4" />}
             {t('admin.connectThisComputer')}
           </Button>
-        </div>
+        </CardContent></Card>
       )}
 
       {editable && (
-        <div className="flex flex-col gap-3 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <Ticket className="size-4 text-muted-foreground" />
@@ -120,7 +121,7 @@ export default function DevicesSettingsPage() {
               </p>
             </div>
           )}
-        </div>
+        </CardContent></Card>
       )}
 
       <div className="flex flex-col gap-3">
@@ -139,7 +140,7 @@ export default function DevicesSettingsPage() {
         ) : nodes.length === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">{t('admin.noDevices')}</p>
         ) : (
-          <div className="divide-y rounded-lg border">
+          <Card className="gap-0 divide-y py-0">
             {nodes.map((n) => (
               <div key={n.nodeId} className="flex items-center gap-3 px-4 py-3">
                 <Laptop className="size-5 shrink-0 text-muted-foreground" />
@@ -173,7 +174,7 @@ export default function DevicesSettingsPage() {
                 )}
               </div>
             ))}
-          </div>
+          </Card>
         )}
       </div>
     </div>

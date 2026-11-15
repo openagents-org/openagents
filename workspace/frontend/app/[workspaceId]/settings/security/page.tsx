@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Check, Copy, Eye, EyeOff, Shield, ShieldCheck } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -43,7 +44,7 @@ export default function SecuritySettingsPage() {
       {!editable && <ReadOnlyBanner />}
 
       {/* Enforced login */}
-      <div className="flex items-start justify-between gap-4 rounded-lg border p-4">
+      <Card size="sm"><CardContent className="flex items-start justify-between gap-4">
         <div className="flex flex-col gap-0.5">
           <div className="flex items-center gap-1.5">
             <ShieldCheck className="size-4 text-muted-foreground" />
@@ -52,11 +53,11 @@ export default function SecuritySettingsPage() {
           <p className="text-xs text-muted-foreground">{t('admin.requireLoginHint')}</p>
         </div>
         <Switch checked={requireLogin} onCheckedChange={toggleRequireLogin} disabled={!editable} />
-      </div>
+      </CardContent></Card>
 
       {/* Workspace token (only shown when the visitor holds it) */}
       {token && (
-        <Field className="rounded-lg border p-4">
+        <Card size="sm"><CardContent><Field>
           <FieldLabel>{t('admin.workspaceToken')}</FieldLabel>
           <div className="flex items-center gap-2">
             <Input
@@ -72,12 +73,12 @@ export default function SecuritySettingsPage() {
             </Button>
           </div>
           <FieldDescription>{t('admin.workspaceTokenHint')}</FieldDescription>
-        </Field>
+        </Field></CardContent></Card>
       )}
 
       {/* Ownership — display only; login is enforced, so workspaces get an
           owner at creation. The Members section handles owner transfer. */}
-      <div className="flex flex-col gap-2 rounded-lg border p-4">
+      <Card size="sm"><CardContent className="flex flex-col gap-2">
         <div className="flex items-center gap-1.5">
           <Shield className="size-4 text-muted-foreground" />
           <Label>{t('admin.claimTitle')}</Label>
@@ -87,7 +88,7 @@ export default function SecuritySettingsPage() {
             ? t('admin.claimedBy', { email: workspace.creatorEmail })
             : t('admin.unclaimed')}
         </p>
-      </div>
+      </CardContent></Card>
     </div>
   );
 }

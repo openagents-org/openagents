@@ -6,6 +6,7 @@
 // their device connection owner; sharing is managed through Services.
 
 import { useCallback, useEffect, useState } from 'react';
+import { Card } from '@/components/ui/card';
 import { Cloud, Monitor, UserRoundPlus } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
@@ -104,7 +105,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
       ) : agents.length === 0 ? (
         <p className="py-3 text-sm text-muted-foreground">{t('collab.noAgentsYet')}</p>
       ) : (
-        <div className="divide-y rounded-lg border">
+        <Card className="gap-0 divide-y py-0">
           {agents.map((agent) => {
             const manage = canManageAgent(me, agent.ownerEmail);
             const claim = !manage && canClaimAgent(me, agent.ownerEmail);
@@ -183,7 +184,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
               </div>
             );
           })}
-        </div>
+        </Card>
       )}
     </div>
   );

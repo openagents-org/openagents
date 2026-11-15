@@ -1,220 +1,36 @@
 'use client';
 
-import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
-import { DocxStage } from './docx-stage';
-import { ProjectPreview } from '@/components/artifacts/project-preview';
-import { useFileObjectUrl } from '@/hooks/use-file-object-url';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import {
-  ArrowLeft,
-  ChevronRight,
-  Download,
-  ExternalLink,
-  PanelRight,
-  Pencil,
-  Save,
-  Trash2,
-} from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
-import { useWorkspace } from '@/lib/workspace-context';
-import { useLayout } from '@/components/layout/layout-context';
-import { DetailHeader } from '@/components/layout/app-header';
-import { ApiError, workspaceApi } from '@/lib/api';
+import { useState } from 'react';
+import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { MarkdownContent } from '@/components/chat/markdown-content';
+import { DetailHeader } from '@/components/layout/app-header';
+import { useLayout } from '@/components/layout/layout-context';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { useConfirm } from '@/components/ui/dialogs-provider';
+import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { useFileObjectUrl } from '@/hooks/use-file-object-url';
+import { workspaceApi } from '@/lib/api';
+import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { useWorkspace } from '@/lib/workspace-context';
+import { projectDisplayName } from '@/lib/web-projects';
 import { FileGrid } from './file-grid';
-import { ImageStage } from './image-stage';
-import { AudioStage, VideoStage } from './media-stage';
-import { SheetStage, delimiterFor } from './sheet-stage';
-import {
-  basename,
-  dirname,
-  getFileIcon,
-  getFileIconLarge,
-  getFileKind,
-  getFileTypeMeta,
-  type FileKind,
-} from './file-utils';
-import { useFormatters, useT } from '@/lib/i18n';
-import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
-import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
-import { ArtifactOwner, ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
-import { AccessExplainer } from '@/components/sharing/access-explainer';
-
-/** Text we're willing to pull into the browser and lay out. Past this a
- *  preview is slower and less useful than the download button. */
-const MAX_TEXT_BYTES = 2 * 1024 * 1024;
-/** Rows we're willing to put in the DOM for a delimited file. */
-function isHtml(contentType: string, filename: string): boolean {
-  return contentType === 'text/html' || /\.html?$/i.test(filename);
-}
-
-/**
- * How the preview gets at a file's bytes.
- *
- * `url` hands the download route straight to an <img>/<audio>/<video>/<iframe>
- * (the URL carries the workspace token). `blob` is for PDFs: the route serves
- * them as an attachment, which makes a direct <iframe> download the file
- * instead of rendering it — a blob URL has no disposition, so the browser's
- * built-in viewer takes over.
- */
-type LoadStrategy = 'text' | 'blob' | 'url' | 'none';
-
-function loadStrategyFor(kind: FileKind, contentType: string, filename: string): LoadStrategy {
-  switch (kind) {
-    case 'markdown':
-    case 'text':
-    case 'code':
-      return 'text';
-    case 'sheet':
-      return delimiterFor(contentType, filename) ? 'text' : 'none';
-    case 'pdf':
-      return 'blob';
-    case 'image':
-    case 'audio':
-    case 'video':
-      return 'url';
-    case 'web':
-      return isHtml(contentType, filename) ? 'url' : 'none';
-    default:
-      return 'none';
-  }
-}
-
-/* ── Per-kind stages ─────────────────────────────────────────────────────── */
-
-/** Plain text and source: line numbers, no wrapping, no highlighting. */
-function TextStage({ content }: { content: string }) {
-  const lines = useMemo(() => content.replace(/\n$/, '').split('\n'), [content]);
-
-  return (
-    <div className="flex min-h-full font-mono text-xs leading-5">
-      <div
-        aria-hidden
-        className="sticky left-0 shrink-0 border-r border-border/60 bg-muted/30 px-2.5 py-4 text-right text-muted-foreground/60 tabular-nums select-none"
-      >
-        {lines.map((_, i) => (
-          <div key={i}>{i + 1}</div>
-        ))}
-      </div>
-      <pre className="flex-1 px-3 py-4 whitespace-pre text-foreground">
-        {lines.map((line, i) => (
-          <div key={i}>{line || '​'}</div>
-        ))}
-      </pre>
-    </div>
-  );
-}
-
-
-/** Everything we can't render in the browser — Office formats, archives,
- *  binaries. Named, typed, and one click from being downloaded. */
-function UnsupportedStage({
-  filename,
-  contentType,
-  reason,
-  onDownload,
-}: {
-  filename: string;
-  contentType: string;
-  reason?: string;
-  onDownload: () => void;
-}) {
-  const t = useT();
-  const { color, labelKey } = getFileTypeMeta(contentType, filename);
-
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <div
-        className="flex size-20 items-center justify-center rounded-2xl"
-        style={{ background: `color-mix(in oklab, ${color} 14%, transparent)` }}
-      >
-        {getFileIconLarge(contentType, filename)}
-      </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-sm font-medium">{t(labelKey)}</p>
-        <p className="max-w-sm text-xs text-muted-foreground">
-          {reason ?? t('files.cannotPreview')}
-        </p>
-      </div>
-      <Button variant="outline" size="sm" onClick={onDownload}>
-        <Download className="size-3.5" />
-        {t('files.downloadFile')}
-      </Button>
-    </div>
-  );
-}
-
-/** Hex SHA-256 of the bytes as served — what the save route compares against
- *  to tell whether the file moved on while it was open. Undefined where the
- *  browser has no SubtleCrypto (plain-http origins); the save then skips the check. */
-async function sha256Hex(data: ArrayBuffer): Promise<string | undefined> {
-  if (typeof crypto === 'undefined' || !crypto.subtle) return undefined;
-  const digest = await crypto.subtle.digest('SHA-256', data);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
-}
-
-/** Markdown source on the left, the rendered result on the right — the right
- *  pane drops away where there's no room for two. */
-function MarkdownEditStage({
-  draft,
-  onChange,
-  onSave,
-}: {
-  draft: string;
-  onChange: (value: string) => void;
-  onSave: () => void;
-}) {
-  const t = useT();
-  return (
-    <div className="flex h-full min-h-0">
-      <textarea
-        value={draft}
-        onChange={(e) => onChange(e.target.value)}
-        onKeyDown={(e) => {
-          if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
-            e.preventDefault();
-            onSave();
-          }
-        }}
-        autoFocus
-        spellCheck={false}
-        aria-label={t('files.editMarkdown')}
-        className="h-full min-w-0 flex-1 resize-none bg-transparent p-5 font-mono text-sm leading-6 text-foreground outline-none"
-      />
-      <div className="hidden h-full min-w-0 flex-1 overflow-auto border-l border-border/60 lg:block">
-        <p className="px-5 pt-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('files.editPreview')}</p>
-        <div className="p-5 pt-2 text-sm">
-          <MarkdownContent content={draft} agentNames={[]} />
-        </div>
-      </div>
-    </div>
-  );
-}
+import { FilePreviewActions } from './file-preview-actions';
+import { FilePreviewBody } from './file-preview-body';
+import { basename, dirname, getFileIcon, getFileKind } from './file-utils';
+import { loadStrategyFor } from './preview-load';
+import { usePreviewContent } from './use-preview-content';
 
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
 export function FilePreview() {
-  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath, refreshFiles } = useWorkspace();
+  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
-  const { formatFileSize } = useFormatters();
-  const [content, setContent] = useState<string | null>(null);
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const confirm = useConfirm();
   /** Whether the stages that have a metadata column are showing it. Kept here
    *  rather than per stage so the choice survives moving between files. */
   const [infoOpen, setInfoOpen] = useState(true);
-  /** Hash of the markdown as loaded, sent back on save so an edit made
-   *  meanwhile (say, by an agent) isn't silently overwritten. */
-  const [contentHash, setContentHash] = useState<string | undefined>();
-  /** The text being edited; null when the file is just being viewed. */
-  const [draft, setDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
 
   const file = files.find((f) => f.id === selectedFileId);
   const contentType = file?.contentType || '';
@@ -227,148 +43,20 @@ export function FilePreview() {
   // everything a column would have.
   const hasInfoPanel = kind === 'audio' || kind === 'video';
 
-  /**
-   * The other pictures in this file's own folder, in the order the grid shows
-   * them, so the preview can step between them.
-   *
-   * Its own folder, not the whole workspace: the grid you opened this from was
-   * a folder's contents, and "next" landing three folders away would be a
-   * different set than the one you were looking at.
-   */
-  const imageSiblings = useMemo(() => {
-    if (kind !== 'image' || !file) return [];
-    const folder = dirname(filename);
-    return files
-      .filter(
-        (candidate) =>
-          dirname(candidate.filename) === folder &&
-          getFileKind(candidate.contentType, candidate.filename) === 'image',
-      )
-      .sort((a, b) => basename(a.filename).localeCompare(basename(b.filename)));
-  }, [files, file, kind, filename]);
-
-  // Load whatever this kind needs — text into state, PDFs into a blob URL,
-  // media straight off the download route.
-  //
-  // <Activity> re-runs this when Files is shown again. What it loaded is
-  // still in state (and an unsaved draft with it), so a reveal of the same
-  // file is a no-op: re-fetching blanked the preview to a spinner on every
-  // switch back, and threw the draft away. The PDF URL is therefore revoked
-  // when it's replaced, not on cleanup, which also runs on hide.
-  const loadedRef = useRef<string | null>(null);
-  const blobRef = useRef<string | null>(null);
-  useEffect(() => {
-    const loadKey = file ? `${file.id}:${strategy}` : null;
-    if (loadKey && loadedRef.current === loadKey) return;
-    loadedRef.current = null;
-    setContent(null);
-    setContentHash(undefined);
-    setDraft(null);
-    setError(null);
-    setBlobUrl(null);
-
-    if (!file || (strategy !== 'text' && strategy !== 'blob')) {
-      setLoading(false);
-      return;
-    }
-
-    if (strategy === 'text' && file.size > MAX_TEXT_BYTES) {
-      setError(t('files.tooLargeToPreview', { size: formatFileSize(file.size) }));
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setLoading(true);
-
-    workspaceApi.fetchFile(file.id)
-      .then(async (res) => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        if (strategy === 'text') {
-          const bytes = await res.arrayBuffer();
-          const text = new TextDecoder().decode(bytes);
-          const hash = kind === 'markdown' ? await sha256Hex(bytes).catch(() => undefined) : undefined;
-          if (!cancelled) {
-            setContent(text);
-            setContentHash(hash);
-            loadedRef.current = loadKey;
-          }
-        } else {
-          const data = await res.blob();
-          if (cancelled) return;
-          // Force the type: the browser only opens its PDF viewer when the
-          // blob says application/pdf, and uploads often arrive octet-stream.
-          const objectUrl = URL.createObjectURL(new Blob([data], { type: 'application/pdf' }));
-          if (blobRef.current) URL.revokeObjectURL(blobRef.current);
-          blobRef.current = objectUrl;
-          setBlobUrl(objectUrl);
-          loadedRef.current = loadKey;
-        }
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('files.loadFailed'));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [file?.id, strategy]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Release the PDF when the preview goes away. <Activity> runs this on hide
-  // as well, so a PDF (unlike text, which costs nothing to keep) is fetched
-  // again when Files is shown next.
-  useEffect(() => () => {
-    if (!blobRef.current) return;
-    URL.revokeObjectURL(blobRef.current);
-    blobRef.current = null;
-    loadedRef.current = null;
-  }, []);
-
-  const dirty = draft !== null && draft !== content;
-
-  // Closing the tab with unsaved edits asks first.
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
-    window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
-
-  const handleSave = useCallback(async () => {
-    if (!file || draft === null || saving) return;
-    if (!dirty) {
-      setDraft(null);
-      return;
-    }
-    setSaving(true);
-    try {
-      const saved = draft;
-      await workspaceApi.updateFileContent(file.id, saved, contentHash);
-      const bytes = new TextEncoder().encode(saved);
-      setContent(saved);
-      setContentHash(await sha256Hex(bytes.buffer as ArrayBuffer).catch(() => undefined));
-      setDraft(null);
-      toast.success(t('files.fileSaved', { name: basename(file.filename) }));
-      void refreshFiles();
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 409) toast.error(t('files.editConflict'));
-      else if (err instanceof ApiError && err.status === 403) toast.error(t('files.noEditPermission'));
-      else toast.error(err instanceof ApiError && err.serverMessage ? err.serverMessage : t('files.saveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  }, [file, draft, saving, dirty, contentHash, refreshFiles, t]);
-
-  const cancelEdit = () => {
-    if (dirty && !window.confirm(t('files.discardEdits'))) return;
-    setDraft(null);
-  };
+  const preview = usePreviewContent(file, kind, strategy);
+  const { content, blobUrl, draft, setDraft, saving, dirty, handleSave, cancelEdit } = preview;
 
   if (!file) {
-    return selectedFileId ? <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t("resourceLinks.unavailable")}</p><Button variant="outline" onClick={() => setSelectedFileId(null)}>{t("files.backToFiles")}</Button></div> : <FileGrid />;
+    return selectedFileId ? (
+      <Empty className="h-full">
+        <EmptyHeader>
+          <EmptyTitle>{t('resourceLinks.unavailable')}</EmptyTitle>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" onClick={() => setSelectedFileId(null)}>{t('files.backToFiles')}</Button>
+        </EmptyContent>
+      </Empty>
+    ) : <FileGrid />;
   }
 
   const folderSegments = dirname(filename) ? dirname(filename).split('/') : [];
@@ -383,157 +71,21 @@ export function FilePreview() {
     void workspaceApi.downloadFile(file.id, filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
 
+  // Same confirm as the grid and list: from here a stray click would also
+  // drop an unsaved markdown draft.
   const handleDelete = async () => {
+    const ok = await confirm({
+      title: t('files.deleteTitle'),
+      description: t('files.deleteDescription', { name: basename(filename) }),
+      confirmText: t('common.delete'),
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await deleteFile(file.id);
       toast.success(t('files.movedToTrash', { name: basename(filename) }));
     } catch (err) {
       toast.error(err instanceof Error ? err.message : t('files.deleteFailed'));
-    }
-  };
-
-  const renderBody = () => {
-    if (contentType === WEB_PROJECT_TYPE) return <ProjectPreview id={file.id} />;
-    if (loading || (strategy === 'url' && !media.url && !media.failed)) {
-      return (
-        <div className="flex h-full items-center justify-center">
-          <Spinner className="size-6 text-muted-foreground" />
-        </div>
-      );
-    }
-
-    if (error || (strategy === 'url' && media.failed)) {
-      return (
-        <UnsupportedStage
-          filename={filename}
-          contentType={contentType}
-          reason={error || t('files.loadFailed')}
-          onDownload={handleDownload}
-        />
-      );
-    }
-
-    switch (kind) {
-      case 'image': {
-        const position = imageSiblings.findIndex((candidate) => candidate.id === file.id);
-        const step = (delta: number) => {
-          // Wraps, so the last picture's "next" is the first rather than a
-          // dead button at the end of every folder.
-          const next = imageSiblings[(position + delta + imageSiblings.length) % imageSiblings.length];
-          if (next) setSelectedFileId(next.id);
-        };
-        return (
-          <ImageStage
-            key={sourceUrl}
-            src={sourceUrl}
-            filename={filename}
-            contentType={contentType}
-            siblings={
-              position >= 0
-                ? {
-                    position: position + 1,
-                    total: imageSiblings.length,
-                    onPrevious: () => step(-1),
-                    onNext: () => step(1),
-                  }
-                : undefined
-            }
-          />
-        );
-      }
-
-      // Keyed on the URL: the stages hold player state (playhead, volume,
-      // speed, the decoded waveform) that belongs to one file, and React would
-      // otherwise reuse the instance and carry it into the next one.
-      case 'video':
-        return (
-          <VideoStage
-            key={sourceUrl}
-            src={sourceUrl}
-            filename={filename}
-            contentType={contentType}
-            size={file.size}
-            infoOpen={infoOpen}
-          />
-        );
-
-      case 'audio':
-        return (
-          <AudioStage
-            key={sourceUrl}
-            src={sourceUrl}
-            filename={filename}
-            contentType={contentType}
-            size={file.size}
-            infoOpen={infoOpen}
-          />
-        );
-
-      case 'doc':
-        if (/\.docx$/i.test(filename)) return <DocxStage key={file.id} fileId={file.id} filename={basename(filename)} size={file.size} onDownload={handleDownload} />;
-        return <UnsupportedStage filename={filename} contentType={contentType} onDownload={handleDownload} />;
-
-      case 'pdf':
-        return blobUrl ? (
-          <iframe src={blobUrl} title={projectDisplayName(basename(filename),contentType)} className="h-full w-full border-0" />
-        ) : null;
-
-      case 'web':
-        if (isHtml(contentType, filename)) {
-          return (
-            <iframe
-              src={sourceUrl}
-              title={projectDisplayName(basename(filename),contentType)}
-              className="h-full w-full border-0 bg-white"
-              sandbox="allow-scripts allow-same-origin"
-            />
-          );
-        }
-        return (
-          <UnsupportedStage
-            filename={filename}
-            contentType={contentType}
-            reason="This is a link, not a document."
-            onDownload={handleDownload}
-          />
-        );
-
-      case 'markdown':
-        if (content === null) return null;
-        if (draft !== null) return <MarkdownEditStage draft={draft} onChange={setDraft} onSave={handleSave} />;
-        return (
-          <div className="mx-auto max-w-3xl p-5 text-sm">
-            <MarkdownContent content={content} agentNames={[]} />
-          </div>
-        );
-
-      case 'sheet': {
-        const delimiter = delimiterFor(contentType, filename);
-        if (delimiter && content !== null) {
-          return <SheetStage content={content} delimiter={delimiter} />;
-        }
-        return (
-          <UnsupportedStage
-            filename={filename}
-            contentType={contentType}
-            reason="Excel workbooks can't be rendered in the browser — download it to open in a spreadsheet app."
-            onDownload={handleDownload}
-          />
-        );
-      }
-
-      case 'text':
-      case 'code':
-        return content === null ? null : <TextStage content={content} />;
-
-      default:
-        return (
-          <UnsupportedStage
-            filename={filename}
-            contentType={contentType}
-            onDownload={handleDownload}
-          />
-        );
     }
   };
 
@@ -559,9 +111,9 @@ export function FilePreview() {
               }}
               title={t('files.backToFiles')}
               aria-label={t('files.backToFiles')}
-              className="mr-1 shrink-0 text-muted-foreground"
+              className="me-1 shrink-0 text-muted-foreground"
             >
-              <ArrowLeft className="size-4" />
+              <ArrowLeft />
             </Button>
             {/* The path is the way out: every segment walks back to that folder,
                 so an opened file is never a dead end. It starts at the file's own
@@ -569,12 +121,14 @@ export function FilePreview() {
             {folderSegments.map((segment, i) => (
               <span key={i} className="flex shrink-0 items-center gap-0.5">
                 {i > 0 && <ChevronRight className="size-3.5 opacity-40" />}
-                <button
+                <Button
+                  variant="ghost"
+                  size="xs"
                   onClick={() => closePreview(folderSegments.slice(0, i + 1).join('/'))}
-                  className="rounded-md px-1.5 py-0.5 transition-colors hover:bg-muted hover:text-foreground"
+                  className="px-1.5 text-sm font-normal text-muted-foreground"
                 >
                   {segment}
-                </button>
+                </Button>
               </span>
             ))}
             {folderSegments.length > 0 && <ChevronRight className="size-3.5 shrink-0 opacity-40" />}
@@ -585,118 +139,23 @@ export function FilePreview() {
           </div>
         }
       >
-        {/* File metadata — the single-line header keeps it beside the actions */}
-        <span className="hidden max-w-105 truncate text-xs text-muted-foreground lg:inline">
-          {formatFileSize(file.size)} · {t(getFileTypeMeta(contentType, filename).labelKey)} ·{' '}
-          {(file.uploadedBy || 'unknown').replace(/^(openagents:|human:)/, '')}
-        </span>
-        {/* Permission model v1.1 — owner + visibility, then Share… */}
-        {(file.owner || file.visibility) && (
-          <span className="hidden items-center gap-1.5 lg:inline-flex">
-            <ArtifactOwner owner={file.owner} ownerLabel={file.ownerLabel} />
-            <ArtifactVisibilityBadge kind="file" visibility={file.visibility} effectiveVisibility={file.effectiveVisibility} />
-            <AccessExplainer resourceKind="file" resourceId={file.id} className="max-w-56" />
-          </span>
-        )}
-        {kind === 'markdown' && content !== null && (draft === null ? (
-          <Button variant="outline" size="sm" onClick={() => setDraft(content)}>
-            <Pencil className="size-3.5" />
-            {t('files.editMarkdown')}
-          </Button>
-        ) : (
-          <>
-            <Button variant="ghost" size="sm" onClick={cancelEdit} disabled={saving}>
-              {t('common.cancel')}
-            </Button>
-            <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
-              {saving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />}
-              {t('common.save')}
-            </Button>
-          </>
-        ))}
-        <CopyResourceLink view="files" id={file.id} />
-        <ArtifactSharePopover
-          kind="file"
-          id={file.id}
-          name={projectDisplayName(basename(filename),contentType)}
-          visibility={file.visibility}
-          effectiveVisibility={file.effectiveVisibility}
-          canManage={file.canManage}
-          canInherit={!!file.channelName}
-          contentType={contentType}
-          onVisibilityChange={async (v) => {
-            await workspaceApi.updateFileVisibility(file.id, v);
-            await refreshFiles();
-          }}
+        <FilePreviewActions
+          file={file}
+          kind={kind}
+          editable={kind === 'markdown' && content !== null}
+          editing={draft !== null}
+          saving={saving}
+          dirty={dirty}
+          onEdit={() => setDraft(content)}
+          onCancelEdit={cancelEdit}
+          onSave={handleSave}
+          hasInfoPanel={hasInfoPanel}
+          infoOpen={infoOpen}
+          onToggleInfo={() => setInfoOpen((open) => !open)}
+          onOpenInNewTab={() => window.open(blobUrl || sourceUrl, '_blank')}
+          onDownload={handleDownload}
+          onDelete={handleDelete}
         />
-        {/* Only the stages that have a metadata column get the switch, and only
-            at the width where that column exists — a toggle for something the
-            viewport has already hidden is a button that does nothing. */}
-        {hasInfoPanel && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => setInfoOpen((open) => !open)}
-                aria-label={infoOpen ? t('files.hideFileInfo') : t('files.showFileInfo')}
-                aria-pressed={infoOpen}
-                className={cn(
-                  'hidden xl:inline-flex',
-                  infoOpen ? 'text-foreground' : 'text-muted-foreground',
-                )}
-              >
-                <PanelRight className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{infoOpen ? t('files.hideFileInfo') : t('files.showFileInfo')}</TooltipContent>
-          </Tooltip>
-        )}
-        {/* Media and PDFs are worth a full window; the pane is narrow. */}
-        {(kind === 'image' || kind === 'pdf' || kind === 'video' || kind === 'web') && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={() => window.open(blobUrl || sourceUrl, '_blank')}
-                aria-label={t('files.openInNewTab')}
-                className="text-muted-foreground"
-              >
-                <ExternalLink className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('files.openInNewTab')}</TooltipContent>
-          </Tooltip>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleDownload}
-              aria-label={t('common.download')}
-              className="text-muted-foreground"
-            >
-              <Download className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('common.download')}</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={handleDelete}
-              aria-label={t('common.delete')}
-              className="text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('common.delete')}</TooltipContent>
-        </Tooltip>
       </DetailHeader>
 
       {/* Content — image/video/PDF stages manage their own scrolling. */}
@@ -708,7 +167,16 @@ export function FilePreview() {
             : 'overflow-auto',
         )}
       >
-        {renderBody()}
+        <FilePreviewBody
+          file={file}
+          kind={kind}
+          strategy={strategy}
+          sourceUrl={sourceUrl}
+          media={media}
+          preview={preview}
+          infoOpen={infoOpen}
+          onDownload={handleDownload}
+        />
       </div>
     </div>
   );

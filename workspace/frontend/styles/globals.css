@@ -133,6 +133,9 @@
 
 /** Theme Setup **/
 @theme inline {
+  /** Extra-wide screens (2100px), for grids that keep adding columns. **/
+  --breakpoint-3xl: 131.25rem;
+
   /** Base Colors **/
   --color-background: var(--background);
   --color-foreground: var(--foreground);

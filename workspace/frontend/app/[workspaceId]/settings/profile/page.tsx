@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { Camera, Check, LogIn, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
@@ -81,13 +82,13 @@ export default function ProfileSettingsPage() {
     return (
       <div className="flex flex-col gap-8">
         <SectionHeader title={t('profile.title')} description={t('profile.description')} />
-        <div className="flex flex-col items-start gap-3 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex flex-col items-start gap-3">
           <p className="text-sm text-muted-foreground">{t('profile.signInPrompt')}</p>
           <Button size="sm" onClick={() => goToCentralLogin(signIn)}>
             <LogIn className="size-4" />
             {t('userMenu.signIn')}
           </Button>
-        </div>
+        </CardContent></Card>
       </div>
     );
   }
@@ -144,7 +145,7 @@ export default function ProfileSettingsPage() {
     <div className="flex flex-col gap-8">
       <SectionHeader title={t('profile.title')} description={t('profile.description')} />
 
-      <div className="flex items-start gap-5 rounded-lg border p-4">
+      <Card size="sm"><CardContent className="flex items-start gap-5">
         <div className="relative">
           {shownAvatar ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -158,14 +159,14 @@ export default function ProfileSettingsPage() {
               {initial}
             </div>
           )}
-          <button
+          <Button
             type="button"
             onClick={() => fileInput.current?.click()}
             title={t('profile.changePhoto')}
-            className="absolute -bottom-1 -right-1 flex size-7 items-center justify-center rounded-full border bg-background shadow-sm transition-colors hover:bg-muted"
+            variant="outline" size="icon-sm" className="absolute -right-1 -bottom-1 rounded-full shadow-sm"
           >
             <Camera className="size-3.5" />
-          </button>
+          </Button>
           <input
             ref={fileInput}
             type="file"
@@ -194,7 +195,7 @@ export default function ProfileSettingsPage() {
             </Button>
           )}
         </div>
-      </div>
+      </CardContent></Card>
 
       <div className="flex justify-end">
         {/* Solid only while there is something to save; a faded solid button

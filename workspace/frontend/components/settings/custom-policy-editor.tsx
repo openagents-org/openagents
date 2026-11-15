@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { workspaceApi } from '@/lib/api';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -40,7 +41,7 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
     onChange(value.map((rule) => rule.kind === kind ? { ...rule, ...patch } : rule));
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border p-4">
+    <Card size="sm"><CardContent className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">{t('approvals.customTitle')}</h3>
@@ -62,7 +63,7 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
         </div>
       </div>
       {value.length === 0 && <p className="text-sm text-muted-foreground">{t('approvals.noCustomPolicies')}</p>}
-      <div className="max-h-[440px] flex flex-col gap-3 overflow-y-auto">
+      <div className="flex max-h-110 flex-col gap-3 overflow-y-auto">
         {value.map((rule, index) => (
           <div key={rule.kind} className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3">
             <div className="flex items-center justify-between gap-2">
@@ -110,6 +111,6 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">{t('approvals.customEvaluation')}</p>
-    </div>
+    </CardContent></Card>
   );
 }

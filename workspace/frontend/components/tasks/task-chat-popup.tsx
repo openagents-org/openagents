@@ -4,6 +4,7 @@ import { useCallback, useState } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/responsive-dialog';
@@ -82,15 +83,13 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
             {assignee && <AgentAvatar name={assignee} size={20} />}
             <span className="truncate">{taskTitle}</span>
           </DialogTitle>
-          {subtitle && (
-            <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
-          )}
+          {subtitle && <DialogDescription className="truncate text-xs">{subtitle}</DialogDescription>}
         </DialogHeader>
 
         {/* ChatMessages' root is `flex-1 min-h-0`, so it must be a DIRECT child
             of this flex column to get a bounded height and scroll — wrapping it
             in a plain div collapses that and the list overflows the dialog. */}
-        <div className="flex flex-col h-[60vh] min-h-0">
+        <div className="flex h-[60vh] min-h-0 flex-col">
           <ChatMessages
             messages={messages}
             agents={agents}
@@ -101,7 +100,7 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
             loadingOlder={loadingOlder}
             className="h-full overflow-y-auto px-4 py-3"
           />
-          <div className="border-t border-border p-3">
+          <div className="border-t p-3">
             <ChatInput conversationId={sessionId} onSend={handleSend} agents={agents} />
           </div>
         </div>

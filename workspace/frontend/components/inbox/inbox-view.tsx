@@ -1,275 +1,21 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { cn } from '@/lib/utils';
-import { Inbox, CheckCheck, RefreshCw, X, ExternalLink, ArrowRight, ChevronDown, ChevronUp } from 'lucide-react';
-import { useWorkspace } from '@/lib/workspace-context';
-import { useMe } from '@/hooks/use-me';
-import { useFormatters, useT } from '@/lib/i18n';
+import { CheckCheck, Inbox, RefreshCw } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { ApprovalCard } from '@/components/chat/approval-card';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
+import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { useMe } from '@/hooks/use-me';
 import { workspaceApi } from '@/lib/api';
-import { agentLabel } from '@/lib/helpers';
-import { groupInboxRows, inboxActionKind, type InboxActionKind } from '@/lib/inbox';
-import { useOpenNotification } from './use-open-notification';
-import { useHumanNames } from '@/hooks/use-team-roster';
-import { humanColor } from '@/lib/human-color';
-import { User } from 'lucide-react';
+import { useT } from '@/lib/i18n';
+import { groupInboxRows, inboxActionKind } from '@/lib/inbox';
 import type { ApprovalRequest, NotificationItem } from '@/lib/types';
+import { useWorkspace } from '@/lib/workspace-context';
+import { NotificationSection, type ActionState } from './notification-section';
+import { useOpenNotification } from './use-open-notification';
 
-/** Unread marker: red for high priority, blue otherwise. Once read it is
- *  hidden but keeps its slot, so the avatar column does not shift. */
-function UnreadDot({ unread, priority }: { unread: boolean; priority: NotificationItem['priority'] }) {
-  return (
-    <span
-      aria-hidden
-      data-testid="inbox-unread-dot"
-      className={cn(
-        'size-2 rounded-full shrink-0 mt-1.5',
-        !unread ? 'invisible' : priority === 'high' ? 'bg-destructive' : 'bg-info',
-      )}
-    />
-  );
-}
-
-/** What the row is asking of the reader — or that it is done. */
-function KindChip({ kind, resolved }: { kind: InboxActionKind; resolved: boolean }) {
-  const t = useT();
-  if (resolved) {
-    return <Badge variant="secondary" className="shrink-0">{t('inbox.chipDone')}</Badge>;
-  }
-  return <Badge variant="warning" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
-}
-
-/** Per-id cache of the live approval records behind actionable rows. */
-interface ActionState {
-  cards: Record<string, ApprovalRequest>;
-  loading: Record<string, boolean>;
-  failed: Record<string, boolean>;
-}
-
-export function NotificationCard({
-  notification,
-  onRead,
-  onDismiss,
-  onNavigate,
-  expanded = false,
-  onToggle,
-  resolved = false,
-}: {
-  notification: NotificationItem;
-  onRead: (id: string) => void;
-  onDismiss: (id: string) => void;
-  onNavigate: (notification: NotificationItem) => void;
-  /** Actionable rows only: the card below is open. */
-  expanded?: boolean;
-  /** Actionable rows only: click toggles the card instead of navigating. */
-  onToggle?: (notification: NotificationItem) => void;
-  /** The request behind this row is already decided. */
-  resolved?: boolean;
-}) {
-  const t = useT();
-  const { timeAgoShort: timeAgo } = useFormatters();
-  const { agents, sessions } = useWorkspace();
-  const sourceThread = sessions.find(session => session.sessionId === notification.channelName);
-  const humanNames = useHumanNames();
-  const fromPerson = notification.createdBy.startsWith('human:');
-  const agentName = notification.createdBy.replace(/^(openagents:|system:|human:)/, '');
-  const senderAgent = agents.find((a) => a.agentName === agentName);
-  const senderLabel = senderAgent
-    ? agentLabel(senderAgent)
-    : (fromPerson ? (humanNames[agentName.toLowerCase()] ?? agentName) : agentName);
-  resolved = resolved || Boolean(notification.approvalStatus && notification.approvalStatus !== 'pending');
-  const actionKind = inboxActionKind(notification);
-  const actionable = actionKind !== null && Boolean(onToggle);
-
-  const handleClick = () => {
-    if (actionable) {
-      if (!notification.isRead) onRead(notification.id);
-      onToggle?.(notification);
-      return;
-    }
-    onNavigate(notification);
-  };
-
-  return (
-    <div
-      className={cn(
-        'px-3 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors',
-        !notification.isRead
-          ? 'bg-accent/60 dark:bg-accent/25 hover:bg-accent dark:hover:bg-accent/40'
-          : 'hover:bg-muted',
-      )}
-      onClick={handleClick}
-      data-testid="inbox-row"
-      data-action-kind={actionKind ?? undefined}
-    >
-      <UnreadDot unread={!notification.isRead} priority={notification.priority} />
-      {fromPerson ? (
-        <span
-          className="flex size-5 shrink-0 items-center justify-center rounded-full"
-          style={{ backgroundColor: humanColor(agentName) }}
-        >
-          <User className="size-3 text-foreground" />
-        </span>
-      ) : (
-        <AgentAvatar name={agentName} size={20} />
-      )}
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className={cn('text-sm font-medium leading-snug', !notification.isRead && 'font-semibold')}>
-            {notification.title}
-          </span>
-          {actionKind && <KindChip kind={actionKind} resolved={resolved} />}
-          {notification.priority === 'high' && !actionKind && (
-            <span className="text-xs px-1 py-0.5 rounded bg-destructive/10 text-destructive font-medium shrink-0">
-              High
-            </span>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-          {resolved && notification.approvalStatus ? t('notifications.resolvedRequest') : notification.message}
-        </p>
-        {sourceThread && <p className="mt-1 truncate text-xs text-muted-foreground" title={sourceThread.title}>
-          {t('inbox.sourceThread', { title: sourceThread.title })}
-        </p>}
-        <div className="flex items-center gap-2 mt-1">
-          <span className="text-xs text-muted-foreground">{senderLabel}</span>
-          <span className="text-xs text-muted-foreground">{timeAgo(notification.createdAt)}</span>
-          {notification.channelName && (actionable ? (
-            <button
-              type="button"
-              className="text-xs text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onNavigate(notification); }}
-            >
-              <ArrowRight className="size-2.5" />
-              {t('inbox.goToThread')}
-            </button>
-          ) : (
-            <span className="text-xs text-foreground/70 flex items-center gap-0.5">
-              <ArrowRight className="size-2.5" />
-              {t('inbox.goToThread')}
-            </span>
-          ))}
-          {notification.linkUrl && (
-            <a
-              href={notification.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <ExternalLink className="size-2.5" />
-              Link
-            </a>
-          )}
-        </div>
-      </div>
-      {actionable && (
-        <span className="p-1 text-muted-foreground shrink-0" title={expanded ? t('inbox.collapse') : t('inbox.expand')}>
-          {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-        </span>
-      )}
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss(notification.id);
-        }}
-        className="p-1 rounded-md hover:bg-muted text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-        title={t('inbox.dismiss')}
-      >
-        <X className="size-3" />
-      </button>
-    </div>
-  );
-}
-
-function ExpandedCard({
-  notification,
-  state,
-  onResolved,
-}: {
-  notification: NotificationItem;
-  state: ActionState;
-  onResolved: (notification: NotificationItem, approval: ApprovalRequest) => void;
-}) {
-  const t = useT();
-  const ref = notification.actionRef!;
-  const card = state.cards[ref];
-  if (card) {
-    return (
-      <div className="px-3 pb-3 pl-[52px]" onClick={(e) => e.stopPropagation()}>
-        <ApprovalCard approval={card} onResolved={(a) => onResolved(notification, a)} />
-      </div>
-    );
-  }
-  if (state.failed[ref]) {
-    return <p className="px-3 pb-3 pl-[52px] text-xs text-muted-foreground">{t('inbox.loadFailed')}</p>;
-  }
-  return (
-    <div className="px-3 pb-3 pl-[52px] flex flex-col gap-2" data-testid="inbox-card-skeleton">
-      <Skeleton className="h-7 w-full max-w-xl rounded-md" />
-      <Skeleton className="h-14 w-full max-w-xl rounded-md" />
-    </div>
-  );
-}
-
-function NotificationSection({
-  title,
-  items,
-  onRead,
-  onDismiss,
-  onNavigate,
-  expandedIds,
-  onToggle,
-  actionState,
-  resolvedRefs,
-  onResolved,
-}: {
-  title: string;
-  items: NotificationItem[];
-  onRead: (id: string) => void;
-  onDismiss: (id: string) => void;
-  onNavigate: (notification: NotificationItem) => void;
-  expandedIds: Record<string, boolean>;
-  onToggle: (notification: NotificationItem) => void;
-  actionState: ActionState;
-  resolvedRefs: ReadonlySet<string>;
-  onResolved: (notification: NotificationItem, approval: ApprovalRequest) => void;
-}) {
-  if (items.length === 0) return null;
-
-  return (
-    <div>
-      <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2 px-1">
-        {title} ({items.length})
-      </h3>
-      <div className="rounded-lg border border-border bg-card overflow-hidden divide-y divide-border">
-        {items.map((n) => {
-          const actionable = inboxActionKind(n) !== null;
-          const expanded = actionable && Boolean(expandedIds[n.id]);
-          return (
-            <div key={n.id} className="group">
-              <NotificationCard
-                notification={n}
-                onRead={onRead}
-                onDismiss={onDismiss}
-                onNavigate={onNavigate}
-                expanded={expanded}
-                onToggle={actionable ? onToggle : undefined}
-                resolved={Boolean(n.actionRef && resolvedRefs.has(n.actionRef))}
-              />
-              {expanded && <ExpandedCard notification={n} state={actionState} onResolved={onResolved} />}
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
+// The notifications menu renders inbox rows too.
+export { NotificationCard } from './notification-card';
 
 export function InboxView() {
   const t = useT();
@@ -366,7 +112,7 @@ export function InboxView() {
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       {/* Header — title in the app header, actions in its toolbar */}
       <DetailHeader
         title={<>
@@ -374,41 +120,49 @@ export function InboxView() {
           <h2 className="text-sm font-semibold">{t('inbox.title')}</h2>
         </>}
       >
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-0.5 text-muted-foreground">
           {unreadNotificationCount > 0 && (
-            <span className="mr-1 text-xs text-muted-foreground">
-              {unreadNotificationCount} unread
-            </span>
+            <>
+              <span className="me-1 text-xs">
+                {t('notifications.unreadCount', { count: unreadNotificationCount })}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={markAllNotificationsRead}
+                title={t('inbox.markAllRead')}
+                aria-label={t('inbox.markAllRead')}
+              >
+                <CheckCheck />
+              </Button>
+            </>
           )}
-          {unreadNotificationCount > 0 && (
-            <button
-              onClick={markAllNotificationsRead}
-              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
-              title={t('inbox.markAllRead')}
-            >
-              <CheckCheck className="size-3.5" />
-            </button>
-          )}
-          <button
+          <Button
+            variant="ghost"
+            size="icon-sm"
             onClick={refreshNotifications}
-            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title={t('common.refresh')}
+            aria-label={t('common.refresh')}
           >
-            <RefreshCw className="size-3.5" />
-          </button>
+            <RefreshCw />
+          </Button>
         </div>
       </DetailHeader>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto">
         {notifications.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <Inbox className="size-8 opacity-30" />
-            <p className="text-sm">{t('inbox.emptyTitle')}</p>
-            <p className="text-xs opacity-60">{t('inbox.emptyBody')}</p>
-          </div>
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Inbox />
+              </EmptyMedia>
+              <EmptyTitle>{t('inbox.emptyTitle')}</EmptyTitle>
+              <EmptyDescription>{t('inbox.emptyBody')}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
-          <div className="p-4 flex flex-col gap-6">
+          <div className="flex flex-col gap-6 p-4">
             <NotificationSection title={t('inbox.needsYou')} items={needsYou} {...sectionProps} />
             <NotificationSection title={t('inbox.updates')} items={updates} {...sectionProps} />
           </div>

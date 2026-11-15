@@ -2,10 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowLeft, BookOpen, Check, Copy, Pencil, Share2 } from 'lucide-react';
+import { Separator } from '@/components/ui/separator';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { workspaceApi } from '@/lib/api';
@@ -95,10 +97,16 @@ export function KnowledgeView() {
 
   if (!entry) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-        <BookOpen className="size-8 opacity-30" />
-        <p className="text-sm">{selectedKnowledgeId ? t('resourceLinks.unavailable') : t('knowledge.selectEntry')}</p>
-      </div>
+      <Empty className="h-full">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <BookOpen />
+          </EmptyMedia>
+          <EmptyDescription>
+            {selectedKnowledgeId ? t('resourceLinks.unavailable') : t('knowledge.selectEntry')}
+          </EmptyDescription>
+        </EmptyHeader>
+      </Empty>
     );
   }
 
@@ -108,13 +116,15 @@ export function KnowledgeView() {
         titleInHeader
         title={<>
           {isMobile && (
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon-sm"
               onClick={openMobileList}
-              className="p-1 -ml-1 rounded hover:bg-muted"
+              aria-label={t('common.back')}
+              className="-ms-1"
             >
-              <ArrowLeft className="size-4" />
-            </button>
+              <ArrowLeft />
+            </Button>
           )}
           <BookOpen className="size-4 shrink-0 text-muted-foreground" />
           <h2 className="min-w-0 truncate text-sm font-medium text-muted-foreground" title={entry.path || `/${[entry.folderPath, entry.slug].filter(Boolean).join('/')}`}>
@@ -140,7 +150,7 @@ export function KnowledgeView() {
               title={t('artifactAccess.share')}
               className="text-muted-foreground"
             >
-              <Share2 className="size-3.5" />
+              <Share2 />
             </Button>
           }
         />
@@ -151,7 +161,7 @@ export function KnowledgeView() {
           onClick={handleEdit}
           className="text-muted-foreground"
         >
-          <Pencil className="size-3.5" />
+          <Pencil />
         </Button>
       </DetailHeader>
 
@@ -184,20 +194,17 @@ export function KnowledgeView() {
                 <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 <AccessExplainer compact resourceKind="knowledge" resourceId={entry.id} />
               </div>
-              <button
-                type="button"
+              <Button
+                variant="outline"
+                size="xs"
                 onClick={handleCopyMention}
                 aria-label={t('knowledge.copyMention')}
                 title={`@knowledge:${entry.slug}`}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="text-muted-foreground"
               >
-                {copied ? (
-                  <Check className="size-3 text-success" />
-                ) : (
-                  <Copy className="size-3" />
-                )}
+                {copied ? <Check data-icon="inline-start" className="text-success" /> : <Copy data-icon="inline-start" />}
                 {t('knowledge.copyMention')}
-              </button>
+              </Button>
             </div>
           </header>
 
@@ -205,7 +212,8 @@ export function KnowledgeView() {
               the body waits — the title no longer blinks in after a fetch.
               No `prose` wrapper on the body: MarkdownContent styles every
               element itself, and `prose-sm` would pin it back to 14px. */}
-          <div className="mt-6 border-t border-border/60 pt-7">
+          <Separator className="mt-6 mb-7" />
+          <div>
             {loading ? (
               <div className="flex items-center justify-center py-16">
                 <Spinner className="size-6 text-muted-foreground" />

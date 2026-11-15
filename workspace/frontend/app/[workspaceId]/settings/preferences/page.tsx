@@ -5,7 +5,8 @@ import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { playNotificationSound } from '@/lib/notification-audio';
 import { Label } from '@/components/ui/label';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from '@/components/ui/field';
+import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { SectionHeader } from '@/components/settings/section-chrome';
 import { useT } from '@/lib/i18n';
@@ -61,34 +62,36 @@ export default function PreferencesSettingsPage() {
       <Button variant="outline" onClick={async () => {
         if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
       }}>{t('settings.testSound')}</Button>
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <Field>
-          <FieldLabel>{t('settings.notificationSound')}</FieldLabel>
-          <FieldDescription>{t('settings.notificationSoundHint')}</FieldDescription>
+      <FieldLabel htmlFor="pref-sound">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>{t('settings.notificationSound')}</FieldTitle>
+            <FieldDescription>{t('settings.notificationSoundHint')}</FieldDescription>
+          </FieldContent>
+          <Switch id="pref-sound" checked={sound} onCheckedChange={toggleSound} size="sm" />
         </Field>
-        <Switch checked={sound} onCheckedChange={toggleSound} size="sm" />
-      </div>
+      </FieldLabel>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <Field>
-          <FieldLabel>{t('slackSignals.soundLabel')}</FieldLabel>
-          <FieldDescription>{t('slackSignals.soundHint')}</FieldDescription>
+      <FieldLabel htmlFor="pref-signal-sound">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>{t('slackSignals.soundLabel')}</FieldTitle>
+            <FieldDescription>{t('slackSignals.soundHint')}</FieldDescription>
+          </FieldContent>
+          <Switch id="pref-signal-sound" checked={signalSound} onCheckedChange={toggleSignalSound} size="sm" />
         </Field>
-        <Switch checked={signalSound} onCheckedChange={toggleSignalSound} size="sm" />
-      </div>
+      </FieldLabel>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2">
-            <Label>{t('settings.splitBrowser')}</Label>
-            <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning">
-              {t('settings.experimental')}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('settings.splitBrowserHint')}</p>
-        </div>
-        <Switch checked={split} onCheckedChange={toggleSplit} size="sm" />
-      </div>
+      <FieldLabel htmlFor="pref-split-browser">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>{t('settings.splitBrowser')}
+              <Badge variant="warning">{t('settings.experimental')}</Badge></FieldTitle>
+            <FieldDescription>{t('settings.splitBrowserHint')}</FieldDescription>
+          </FieldContent>
+          <Switch id="pref-split-browser" checked={split} onCheckedChange={toggleSplit} size="sm" />
+        </Field>
+      </FieldLabel>
     </div>
   );
 }

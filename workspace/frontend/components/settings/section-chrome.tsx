@@ -1,6 +1,7 @@
 'use client';
 
 import { Lock } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { useT } from '@/lib/i18n';
 import { useAdminSettings } from './admin-context';
 import { roleLabel } from '@/lib/roles';
@@ -9,7 +10,7 @@ import { roleLabel } from '@/lib/roles';
 export function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
     <div className="flex flex-col gap-1 border-b pb-4">
-      <h2 className="text-lg font-semibold">{title}</h2>
+      <h2 className="font-heading text-lg font-medium">{title}</h2>
       <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );
@@ -22,11 +23,13 @@ export function ReadOnlyBanner() {
   const t = useT();
   const { me } = useAdminSettings();
   return (
-    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning">
-      <Lock className="size-3.5 shrink-0" />
-      {t('admin.readOnlyBanner', {
-        role: roleLabel(t, me.effectiveRole ?? me.role) || '?',
-      })}
-    </div>
+    <Alert>
+      <Lock className="text-warning" />
+      <AlertDescription>
+        {t('admin.readOnlyBanner', {
+          role: roleLabel(t, me.effectiveRole ?? me.role) || '?',
+        })}
+      </AlertDescription>
+    </Alert>
   );
 }

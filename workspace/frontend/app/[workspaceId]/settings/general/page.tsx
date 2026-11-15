@@ -6,7 +6,8 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Field, FieldLabel } from '@/components/ui/field';
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from '@/components/ui/field';
+import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
@@ -110,18 +111,16 @@ export default function GeneralSettingsPage() {
         </div>
       </Field>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-2">
-            <Label>{t('settings.monitorMode')}</Label>
-            <span className="rounded-full bg-warning/10 px-1.5 py-0.5 text-xs font-medium text-warning">
-              {t('settings.experimental')}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('settings.monitorModeHint')}</p>
-        </div>
-        <Switch checked={monitorMode} onCheckedChange={setMonitorMode} size="sm" disabled={!editable} />
-      </div>
+      <FieldLabel htmlFor="general-monitor-mode">
+        <Field orientation="horizontal">
+          <FieldContent>
+            <FieldTitle>{t('settings.monitorMode')}
+              <Badge variant="warning">{t('settings.experimental')}</Badge></FieldTitle>
+            <FieldDescription>{t('settings.monitorModeHint')}</FieldDescription>
+          </FieldContent>
+          <Switch id="general-monitor-mode" checked={monitorMode} onCheckedChange={setMonitorMode} disabled={!editable} size="sm" />
+        </Field>
+      </FieldLabel>
 
       {editable && (
         <div className="flex justify-end">

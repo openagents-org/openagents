@@ -9,113 +9,24 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown, Copy, Gift } from 'lucide-react';
+import { Gift } from 'lucide-react';
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
+import { SectionHeader } from '@/components/settings/section-chrome';
+import { CampaignHowtoCard } from '@/components/settings/api-credits/campaign-howto-card';
+import { CampaignKeyCard, CampaignUsageCard } from '@/components/settings/api-credits/campaign-key-usage';
+import { CampaignLadder } from '@/components/settings/api-credits/campaign-ladder';
+import { fmtUsd } from '@/components/settings/api-credits/format';
+import { VerifyEmailGate } from '@/components/settings/api-credits/verify-email-gate';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { getCampaignStatus, getCampaignModels, resendVerificationEmail, type CampaignStatus } from '@/lib/account-api';
-import { SectionHeader } from '@/components/settings/section-chrome';
-
-/** 1234 → "1.2K", 5_600_000 → "5.6M" — token counts don't need precision. */
-function compactNum(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(n >= 10_000_000 ? 0 : 1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}K`;
-  return String(n);
-}
-
-const MISSION_LABEL_KEYS: Record<string, string> = {
-  signup: 'campaign.msSignup',
-  first_agent: 'campaign.msFirstAgent',
-  first_conversation: 'campaign.msFirstConversation',
-  second_agent: 'campaign.msSecondAgent',
-  second_agent_response: 'campaign.msSecondAgentResponse',
-};
-
-function CopyBtn({ value, title }: { value: string; title: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
-    <button
-      onClick={() => {
-        navigator.clipboard.writeText(value);
-        setCopied(true);
-        setTimeout(() => setCopied(false), 2000);
-      }}
-      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background transition-colors hover:bg-accent"
-      title={title}
-    >
-      {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
-    </button>
-  );
-}
-
-/** Verified-email gate: no key, no missions until the address is confirmed. */
-function VerifyEmailGate({ email, idToken, allowance, cap }: { email: string; idToken: string | null; allowance?: number; cap?: number }) {
-  const t = useT();
-  const [state, setState] = useState<'idle' | 'sending' | 'sent' | 'already' | 'failed'>('idle');
-  const resend = async () => {
-    if (!idToken) { setState('failed'); return; }
-    setState('sending');
-    try {
-      const r = await resendVerificationEmail(idToken);
-      setState(r.alreadyVerified ? 'already' : r.sent ? 'sent' : 'failed');
-    } catch {
-      setState('failed');
-    }
-  };
-  return (
-    <div className="rounded-xl border border-warning/30 bg-warning/10 p-5">
-      <h3 className="text-sm font-semibold text-warning">{t('campaign.verifyTitle')}</h3>
-      <p className="mt-1.5 text-sm text-warning/90">
-        {allowance && allowance > 0
-          ? t('campaign.verifyBodyAllowance', { email, allowance, cap: cap ?? 100 })
-          : t('campaign.verifyBody', { email })}
-      </p>
-      <div className="mt-3 flex flex-wrap items-center gap-3">
-        <button
-          onClick={resend}
-          disabled={state === 'sending' || state === 'sent'}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-warning bg-white px-3 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-60 dark:bg-transparent"
-        >
-          {state === 'sending' ? <Spinner className="size-3.5" /> : <Gift className="size-3.5" />}
-          {t('campaign.verifyResend')}
-        </button>
-        {state === 'sent' && <span className="text-xs text-success">{t('campaign.verifySent')}</span>}
-        {state === 'already' && <span className="text-xs text-success">{t('campaign.verifyAlready')}</span>}
-        {state === 'failed' && <span className="text-xs text-warning">{t('campaign.verifyFailed')}</span>}
-      </div>
-    </div>
-  );
-}
+import { getCampaignStatus, type CampaignStatus } from '@/lib/account-api';
 
 export default function ApiCreditsSettingsPage() {
   const t = useT();
   const { idToken } = useOpenAgentsAuth();
   const [status, setStatus] = useState<CampaignStatus | null>(null);
   const [loading, setLoading] = useState(true);
-  const [keyRevealed, setKeyRevealed] = useState(false);
-  const [modelsOpen, setModelsOpen] = useState(false);
-  const [models, setModels] = useState<string[] | null>(null);
-  const [copiedModel, setCopiedModel] = useState<string | null>(null);
-
-  const toggleModels = () => setModelsOpen((open) => !open);
-
-  // Loaded up front: the hint under the Base URL names what the gateway serves
-  // right now. It used to be a fixed list, and when the gateway narrowed to one
-  // model people kept configuring the ones the page still recommended.
-  useEffect(() => {
-    if (!idToken) return;
-    let cancelled = false;
-    getCampaignModels(idToken)
-      .then((r) => { if (!cancelled) setModels(r.models); })
-      .catch(() => { if (!cancelled) setModels([]); });
-    return () => { cancelled = true; };
-  }, [idToken]);
-
-  const copyModel = (id: string) => {
-    navigator.clipboard.writeText(id);
-    setCopiedModel(id);
-    setTimeout(() => setCopiedModel(null), 1500);
-  };
 
   useEffect(() => {
     if (!idToken) { setLoading(false); return; }
@@ -139,36 +50,30 @@ export default function ApiCreditsSettingsPage() {
   const ended = !status?.enabled && !!status?.ended;
   if (!status || (!status.enabled && !ended)) {
     return (
-      <div>
+      <div className="flex flex-col gap-6">
         <SectionHeader title={t('campaign.pageTitle')} description={t('campaign.pageDescription')} />
-        <p className="mt-6 text-sm text-muted-foreground">{t('campaign.notAvailable')}</p>
+        <p className="text-sm text-muted-foreground">{t('campaign.notAvailable')}</p>
       </div>
     );
   }
 
   const cap = status.capUsd ?? 100;
   const total = status.totalGrantedUsd ?? 0;
-  const pct = Math.min(100, Math.round((total / cap) * 100));
-  const missions = status.milestones || [];
-  const allDone = missions.length > 0 && missions.every((m) => m.grantedAt);
-  const key = status.apiKey || '';
-  const maskedKey = key ? `${key.slice(0, 12)}…${key.slice(-4)}` : '';
-  const used = status.usage?.costUsdUsed ?? null;
-  const limit = status.usage?.costLimitUsd ?? null;
-  const fmt = (n: number) => (n % 1 ? n.toFixed(2) : String(n));
 
   return (
     <div className="flex flex-col gap-8">
       <SectionHeader title={t('campaign.pageTitle')} description={t(ended ? 'campaign.endedDescription' : 'campaign.pageDescription')} />
 
       {ended && (
-        <div className="rounded-xl border bg-background p-5">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            <Gift className="size-4 text-success" />
-            {t('campaign.endedTitle', { total: fmt(status.grandTotalUsd ?? total) })}
-          </span>
-          <p className="mt-1.5 text-sm text-muted-foreground">{t('campaign.endedBody')}</p>
-        </div>
+        <Card size="sm">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Gift className="size-4 text-success" />
+              {t('campaign.endedTitle', { total: fmtUsd(status.grandTotalUsd ?? total) })}
+            </CardTitle>
+            <CardDescription>{t('campaign.endedBody')}</CardDescription>
+          </CardHeader>
+        </Card>
       )}
 
       {/* Unverified: the key and the first rewards are already here; the rest
@@ -178,192 +83,16 @@ export default function ApiCreditsSettingsPage() {
       )}
 
       {/* Overall progress, missions and daily bonus only while the campaign runs */}
-      {!ended && <>
-      <div className="rounded-xl border bg-background p-5">
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2 text-sm font-semibold">
-            <Gift className="size-4 text-success" />
-            {t('campaign.unlocked', { total: fmt(total), cap: fmt(cap) })}
-          </span>
-          {allDone && <span className="text-xs text-muted-foreground">{t('campaign.complete')}</span>}
-        </div>
-        <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted">
-          <div
-            className="h-full rounded-full bg-success transition-all duration-500"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-        {/* Pilot Program credits stack on top of the ladder — say so, or the
-            bar reads as if the $300 were missing. */}
-        {status.pilot && (
-          <p className="mt-3 text-xs text-muted-foreground">
-            🚀 {t('campaign.pilotBonus', {
-              amount: fmt(status.pilot.amountUsd),
-              total: fmt(status.grandTotalUsd ?? total + status.pilot.amountUsd),
-            })}
-          </p>
-        )}
-      </div>
+      {!ended && <CampaignLadder status={status} />}
 
-      {/* Missions */}
-      <div>
-        <h3 className="text-sm font-semibold">{t('campaign.missionsTitle')}</h3>
-        <ul className="mt-3 flex flex-col gap-2">
-          {missions.map((m) => {
-            const done = !!m.grantedAt;
-            return (
-              <li key={m.key} className="flex items-center gap-3 rounded-lg border bg-background px-3.5 py-2.5 text-sm">
-                <span
-                  className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${done ? 'border-success bg-success text-white' : 'text-transparent'}`}
-                >
-                  <Check className="size-3" strokeWidth={3.5} />
-                </span>
-                <span className={done ? 'font-medium' : 'text-muted-foreground'}>
-                  {t(MISSION_LABEL_KEYS[m.key] as Parameters<typeof t>[0]) || m.key}
-                </span>
-                <span className={`ml-auto font-semibold tabular-nums ${done ? 'text-success' : 'text-muted-foreground'}`}>
-                  +${m.amountUsd}
-                </span>
-              </li>
-            );
-          })}
-        </ul>
-      </div>
+      {status.apiKey && <CampaignKeyCard apiKey={status.apiKey} />}
 
-      {/* Daily bonus */}
-      <div className="rounded-xl border bg-background p-5">
-        <h3 className="text-sm font-semibold">{t('campaign.dailyTitle')}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('campaign.dailyBody', { amount: status.daily?.grantUsd ?? 10, cap: fmt(cap) })}
-        </p>
-        {(status.daily?.daysGranted ?? 0) > 0 && (
-          <p className="mt-1.5 text-xs text-muted-foreground">
-            {t('campaign.dailyProgress', { days: status.daily?.daysGranted ?? 0 })}
-          </p>
-        )}
-      </div>
-      </>}
-
-      {/* API key + usage */}
-      {key && (
-        <div className="rounded-xl border bg-background p-5">
-          <h3 className="text-sm font-semibold">{t('campaign.keyTitle')}</h3>
-          <div className="mt-2.5 flex items-center gap-2">
-            <button
-              onClick={() => setKeyRevealed((v) => !v)}
-              className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 text-left font-mono text-sm hover:bg-muted"
-            >
-              {keyRevealed ? key : maskedKey}
-            </button>
-            <CopyBtn value={key} title={t('campaign.keyTitle')} />
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground">{t('campaign.keyHint')}</p>
-        </div>
+      {/* A key minted but not yet metered reports nulls — no meter until it has numbers. */}
+      {status.usage && status.usage.costUsdUsed != null && status.usage.costLimitUsd != null && (
+        <CampaignUsageCard usage={status.usage} />
       )}
 
-      {/* Usage meter — how much of the unlocked credit this key has consumed */}
-      {used !== null && limit !== null && (
-        <div className="rounded-xl border bg-background p-5">
-          <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <h3 className="text-sm font-semibold">{t('campaign.usageTitle')}</h3>
-            <span className="text-xs text-muted-foreground">
-              {t('campaign.usageOf', {
-                used: fmt(Math.round(used * 100) / 100),
-                limit: fmt(Math.round(limit * 100) / 100),
-              })}
-            </span>
-          </div>
-          <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted">
-            <div
-              className={`h-full rounded-full transition-all duration-500 ${
-                used / Math.max(limit, 0.01) > 0.85 ? 'bg-warning' : 'bg-info'
-              }`}
-              style={{ width: `${Math.min(100, Math.round((used / Math.max(limit, 0.01)) * 100))}%` }}
-            />
-          </div>
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-            <span>
-              {t('campaign.usageBody', {
-                used: fmt(Math.round(used * 100) / 100),
-                remaining: fmt(Math.round((limit - used) * 100) / 100),
-              })}
-            </span>
-            {(status.usage?.inputTokens ?? null) !== null && (
-              <span className="tabular-nums">
-                {t('campaign.usageTokens', {
-                  input: compactNum(status.usage?.inputTokens ?? 0),
-                  output: compactNum(status.usage?.outputTokens ?? 0),
-                })}
-              </span>
-            )}
-          </div>
-          {status.usage?.isActive === false && (
-            <p className="mt-2 text-xs font-medium text-warning">
-              {t('campaign.usageExhausted')}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* How to use */}
-      <div className="rounded-xl border bg-background p-5">
-        <h3 className="text-sm font-semibold">{t('campaign.howtoTitle')}</h3>
-        <p className="mt-1 text-sm text-muted-foreground">{t('campaign.howtoBody')}</p>
-        <div className="mt-3 flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm">
-            {status.gatewayUrl}/v1
-          </code>
-          <CopyBtn value={`${status.gatewayUrl}/v1`} title={t('campaign.howtoBaseUrl')} />
-        </div>
-        {models && models.length > 0 && (
-          <p className="mt-2.5 text-xs text-muted-foreground">
-            {t('campaign.howtoModels', { models: models.slice(0, 5).join(', ') })}
-          </p>
-        )}
-
-        {/* Full model catalog, on demand */}
-        <button
-          onClick={toggleModels}
-          className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-        >
-          <ChevronDown className={`size-3.5 transition-transform ${modelsOpen ? 'rotate-180' : ''}`} />
-          {modelsOpen ? t('campaign.hideModels') : t('campaign.showAllModels')}
-        </button>
-        {modelsOpen && (
-          <div className="mt-3 rounded-lg border bg-muted/30 p-3">
-            {models === null ? (
-              <div className="flex items-center justify-center py-4 text-muted-foreground">
-                <Spinner />
-              </div>
-            ) : models.length === 0 ? (
-              <p className="text-xs text-muted-foreground">—</p>
-            ) : (
-              <>
-                <p className="mb-2 text-xs text-muted-foreground">
-                  {t('campaign.modelsCount', { count: models.length })}
-                </p>
-                <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
-                  {models.map((id) => (
-                    <button
-                      key={id}
-                      onClick={() => copyModel(id)}
-                      className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-xs transition-colors hover:bg-accent"
-                      title={id}
-                    >
-                      {copiedModel === id ? (
-                        <Check className="size-3 shrink-0 text-success" />
-                      ) : (
-                        <Copy className="size-3 shrink-0 text-muted-foreground/50" />
-                      )}
-                      <span className="truncate">{id}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+      <CampaignHowtoCard gatewayUrl={status.gatewayUrl} idToken={idToken} />
     </div>
   );
 }

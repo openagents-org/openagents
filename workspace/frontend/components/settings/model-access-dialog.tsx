@@ -18,10 +18,19 @@ import { CheckCircle2, ExternalLink, Plus, Zap } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/responsive-dialog';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Field, FieldLabel } from '@/components/ui/field';
 import { ProviderIcon } from '@/components/icons/agent-icons';
+import { ModelAccessProviderList, type ProviderGroup } from './model-access-provider-list';
 import { workspaceApi } from '@/lib/api';
 import type { CloudAgentProvider, ModelAccessEntry } from '@/lib/types';
 import { useI18n, useT } from '@/lib/i18n';
@@ -70,9 +79,9 @@ export function AddModelAccessDialog({
   );
 
   // Groups in display order; catalog additions nobody placed yet go to "More".
-  const groups = useMemo(() => {
+  const groups = useMemo<ProviderGroup[]>(() => {
     const placed = new Set(GROUPS.flatMap((g) => g.names));
-    const out = GROUPS.map((g) => ({
+    const out: ProviderGroup[] = GROUPS.map((g) => ({
       key: g.key,
       items: g.names.map((n) => options.find((p) => p.name === n)).filter(Boolean) as CloudAgentProvider[],
     }));
@@ -153,156 +162,122 @@ export function AddModelAccessDialog({
     }
   };
 
-  const ListItem = ({ name, icon }: { name: string; icon: string }) => (
-    <button
-      type="button"
-      onClick={() => choose(name)}
-      aria-pressed={provider === name}
-      className={cn(
-        'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-        provider === name
-          ? 'bg-foreground text-background'
-          : 'hover:bg-muted',
-      )}
-    >
-      <span className="flex size-[18px] shrink-0 items-center justify-center">
-        <ProviderIcon name={icon} size={18} />
-      </span>
-      <span className="truncate">{providerLabel(name)}</span>
-    </button>
-  );
+  const resetCheck = () => setCheck({ state: 'idle' });
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="flex max-h-[min(40rem,calc(100vh-2rem))] w-full max-w-3xl flex-col rounded-2xl border bg-background shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="border-b px-6 pb-4 pt-5">
-          <h3 className="text-sm font-semibold">{t('admin.modelAccessAdd')}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('admin.modelAccessAddBody')}</p>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-3xl md:h-160">
+        <DialogHeader>
+          <DialogTitle>{t('admin.modelAccessAdd')}</DialogTitle>
+          <DialogDescription>{t('admin.modelAccessAddBody')}</DialogDescription>
+        </DialogHeader>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-[14rem_1fr]">
-          {/* Provider list */}
-          <nav
-            aria-label={t('admin.modelAccessProvider')}
-            className="max-h-44 overflow-y-auto border-b px-3 py-3 md:max-h-none md:border-b-0 md:border-r"
-          >
-            {groups.map((g) => (
-              <div key={g.key} className="mb-2">
-                <div className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  {t(g.key)}
-                </div>
-                {g.items.map((p) => <ListItem key={p.name} name={p.name} icon={p.name} />)}
-              </div>
-            ))}
-            <div>
-              <div className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                {t('admin.modelAccessGroupCustom')}
-              </div>
-              {CUSTOM_KINDS.map((k) => <ListItem key={k} name={k} icon="custom" />)}
-            </div>
-          </nav>
+        {/* Two panes, each scrolling on its own on desktop: the provider list
+            is long and the form beside it should stay in view while picking. */}
+        <DialogBody className="grid grid-cols-1 gap-0 border-t px-0 pb-0 md:grid-cols-[14rem_1fr] md:grid-rows-[minmax(0,1fr)] md:overflow-hidden">
+          <div className="no-scrollbar max-h-44 overflow-y-auto border-b p-3 md:max-h-none md:border-e md:border-b-0">
+            <ModelAccessProviderList
+              groups={groups}
+              customKinds={CUSTOM_KINDS}
+              selected={provider}
+              providerLabel={providerLabel}
+              onSelect={choose}
+            />
+          </div>
 
           {/* Chosen provider + key form */}
-          <div className="min-w-0 flex flex-col gap-4 overflow-y-auto px-6 py-5">
+          <div className="no-scrollbar flex min-w-0 flex-col gap-5 overflow-y-auto p-5">
             <div className="flex items-center gap-3">
               <ProviderIcon name={custom ? 'custom' : provider} size={48} />
               <div className="min-w-0">
-                <div className="truncate text-base font-semibold">{providerLabel(provider)}</div>
+                <div className="truncate font-heading text-base font-medium">{providerLabel(provider)}</div>
                 <div className="truncate text-xs text-muted-foreground">
                   {description ? `${description} · ${modelsMeta}` : modelsMeta}
                 </div>
               </div>
             </div>
 
-            {custom && (
-              <Field>
-                <FieldLabel>{t('admin.modelAccessBaseUrl')}</FieldLabel>
-                <Input
-                  value={baseUrl}
-                  onChange={(e) => { setBaseUrl(e.target.value); setCheck({ state: 'idle' }); }}
-                  placeholder={t('connect.byokBaseUrlPlaceholder')}
-                  className="h-10 font-mono text-sm"
-                />
-                {provider === 'custom-anthropic' && (
-                  <p className="text-xs text-muted-foreground">{t('admin.modelAccessAnthropicCompatHint')}</p>
-                )}
-              </Field>
-            )}
-
-            <div className="flex flex-col gap-1.5">
-              <div className="flex items-center justify-between gap-2">
-                <Label className="text-xs font-medium">{t('admin.modelAccessKey')}</Label>
-                {info?.key_url && (
-                  <a
-                    href={info.key_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-                  >
-                    {t('admin.modelAccessGetKey')}
-                    <ExternalLink className="size-3" />
-                  </a>
-                )}
-              </div>
-              <Input
-                value={apiKey}
-                onChange={(e) => { setApiKey(e.target.value); setCheck({ state: 'idle' }); }}
-                type="password"
-                autoComplete="off"
-                placeholder={t('connect.byokApiKeyPlaceholder')}
-                className="h-10 text-sm"
-              />
-              {provider === 'tokenpay' && (
-                <p className="text-xs text-muted-foreground">{t('connect.tokenpayKeyHint')}</p>
+            <FieldGroup className="gap-4">
+              {custom && (
+                <Field>
+                  <FieldLabel htmlFor="model-access-base-url">{t('admin.modelAccessBaseUrl')}</FieldLabel>
+                  <Input
+                    id="model-access-base-url"
+                    value={baseUrl}
+                    onChange={(e) => { setBaseUrl(e.target.value); resetCheck(); }}
+                    placeholder={t('connect.byokBaseUrlPlaceholder')}
+                    className="font-mono"
+                  />
+                  {provider === 'custom-anthropic' && (
+                    <FieldDescription>{t('admin.modelAccessAnthropicCompatHint')}</FieldDescription>
+                  )}
+                </Field>
               )}
-            </div>
 
-            <Field>
-              <FieldLabel>{t('admin.modelAccessLabel')}</FieldLabel>
-              <Input
-                value={label}
-                onChange={(e) => setLabel(e.target.value)}
-                placeholder={providerLabel(provider)}
-                className="h-10 text-sm"
-              />
-            </Field>
+              <Field data-invalid={check.state === 'fail' || undefined}>
+                <div className="flex items-center justify-between gap-2">
+                  <FieldLabel htmlFor="model-access-key">{t('admin.modelAccessKey')}</FieldLabel>
+                  {info?.key_url && (
+                    <Button variant="link" size="xs" className="h-auto px-0" asChild>
+                      <a href={info.key_url} target="_blank" rel="noopener noreferrer">
+                        {t('admin.modelAccessGetKey')}
+                        <ExternalLink data-icon="inline-end" />
+                      </a>
+                    </Button>
+                  )}
+                </div>
+                <Input
+                  id="model-access-key"
+                  value={apiKey}
+                  onChange={(e) => { setApiKey(e.target.value); resetCheck(); }}
+                  type="password"
+                  autoComplete="off"
+                  aria-invalid={check.state === 'fail' || undefined}
+                  placeholder={t('connect.byokApiKeyPlaceholder')}
+                />
+                {provider === 'tokenpay' && <FieldDescription>{t('connect.tokenpayKeyHint')}</FieldDescription>}
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="model-access-label">{t('admin.modelAccessLabel')}</FieldLabel>
+                <Input
+                  id="model-access-label"
+                  value={label}
+                  onChange={(e) => setLabel(e.target.value)}
+                  placeholder={providerLabel(provider)}
+                />
+              </Field>
+            </FieldGroup>
 
             <div className="flex items-start gap-2">
               <Button size="sm" variant="outline" onClick={verify} disabled={!canSubmit || check.state === 'checking'} className="shrink-0">
-                {check.state === 'checking'
-                  ? (<><Spinner data-icon="inline-start" />{t('connect.byokTesting')}</>)
-                  : (<><Zap className="size-3.5 mr-1.5" />{t('admin.modelAccessVerify')}</>)}
+                {check.state === 'checking' ? <Spinner data-icon="inline-start" /> : <Zap data-icon="inline-start" />}
+                {check.state === 'checking' ? t('connect.byokTesting') : t('admin.modelAccessVerify')}
               </Button>
-              {check.state === 'ok' && (
-                <span className="inline-flex items-center gap-1 pt-1.5 text-xs text-success">
-                  <CheckCircle2 className="size-3.5" />{check.detail}
-                </span>
-              )}
-              {check.state === 'warn' && (
-                <span className="pt-1.5 text-xs text-warning">{check.detail}</span>
-              )}
-              {check.state === 'fail' && (
-                <span className="pt-1.5 text-xs text-destructive">{check.detail}</span>
-              )}
+              <p
+                role="status"
+                className={cn(
+                  'flex min-w-0 items-center gap-1 pt-1.5 text-xs',
+                  check.state === 'ok' && 'text-success',
+                  check.state === 'warn' && 'text-warning',
+                  check.state === 'fail' && 'text-destructive',
+                )}
+              >
+                {check.state === 'ok' && <CheckCircle2 className="size-3.5 shrink-0" />}
+                {check.state !== 'idle' && check.state !== 'checking' && check.detail}
+              </p>
             </div>
           </div>
-        </div>
+        </DialogBody>
 
-        <div className="flex justify-end gap-2 border-t px-6 py-4">
-          <Button variant="ghost" onClick={onClose} disabled={saving}>{t('connect.nodeCancel')}</Button>
-          <Button
-            onClick={save}
-            disabled={!canSubmit || saving}
-            className={cn(check.state === 'fail' && 'opacity-80')}
-          >
-            {saving ? <Spinner data-icon="inline-start" /> : <Plus className="size-4 mr-1.5" />}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>{t('connect.nodeCancel')}</Button>
+          <Button onClick={save} disabled={!canSubmit || saving}>
+            {saving ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
             {t('admin.modelAccessSave')}
           </Button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

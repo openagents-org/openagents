@@ -1,8 +1,10 @@
 'use client';
 import { threadPath } from '@/lib/thread-link';
+import { Card } from '@/components/ui/card';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ExternalLink, Lock, X } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { CustomPolicyEditor, type CustomPolicy } from '@/components/settings/custom-policy-editor';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -110,14 +112,12 @@ export default function ApprovalsSettingsPage() {
   return (
     <div className="flex flex-col gap-8">
       <div className="flex flex-col gap-3 border-b pb-4">
-        <h2 className="text-lg font-semibold">{t('admin.approvalsTitle')}</h2>
-        <div role="note" className="flex items-start gap-2 rounded-lg border border-warning/30 bg-warning/10 px-3 py-3 text-sm text-warning">
-          <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <div className="flex flex-col gap-1">
-            <p className="font-medium">{t('approvals.advisoryWarning')}</p>
-            <p>{t('admin.approvalsDescription')}</p>
-          </div>
-        </div>
+        <h2 className="font-heading text-lg font-medium">{t('admin.approvalsTitle')}</h2>
+        <Alert role="note">
+          <AlertTriangle aria-hidden="true" className="text-warning" />
+          <AlertTitle>{t('approvals.advisoryWarning')}</AlertTitle>
+          <AlertDescription>{t('admin.approvalsDescription')}</AlertDescription>
+        </Alert>
       </div>
       {!editable && <ReadOnlyBanner />}
 
@@ -135,7 +135,7 @@ export default function ApprovalsSettingsPage() {
             </span>
           )}
         </h2>
-        <div className="divide-y rounded-lg border">
+        <Card className="gap-0 divide-y py-0">
           {pending === null ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">{t('admin.loading')}</p>
           ) : pending.length === 0 ? (
@@ -160,7 +160,7 @@ export default function ApprovalsSettingsPage() {
                   )}
                   {!!a.policyRequirements?.approved_by.length && <p className="mt-1 text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: a.policyRequirements.approved_by.join(', ') })}</p>}
                   {a.note && <p className="mt-1 text-xs text-muted-foreground">{a.note}</p>}
-                  <button
+                  <Button
                     type="button"
                     onClick={async () => {
                       try {
@@ -168,10 +168,10 @@ export default function ApprovalsSettingsPage() {
                         window.location.assign(`${threadPath(workspaceId, link.id)}${query}`);
                       } catch { toast.error(t('share.threadUnavailable')); }
                     }}
-                    className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    variant="link" size="xs" className="mt-1 h-auto self-start px-0 text-muted-foreground"
                   >
                     {t('approvals.openThread')} <ExternalLink className="size-3" />
-                  </button>
+                  </Button>
                 </div>
                 {allowed && (
                   <div className="flex shrink-0 items-center gap-2">
@@ -186,7 +186,7 @@ export default function ApprovalsSettingsPage() {
               </div>
             );
           })}
-        </div>
+        </Card>
       </TabsContent>
 
       <TabsContent value="policy" className="flex flex-col gap-3 pt-4">

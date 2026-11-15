@@ -44,7 +44,7 @@ export function KnowledgeExport({ entry }: { entry: KnowledgeEntry }) {
     finally { setBusy(false); }
   };
   return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" disabled={busy} aria-label={t('knowledge.export')} title={t('knowledge.export')}>
-    {busy ? <Spinner className="size-3.5" /> : <Download className="size-3.5" />}<span className="hidden sm:inline">{t('knowledge.export')}</span>
+    {busy ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}<span className="hidden sm:inline">{t('knowledge.export')}</span>
   </Button></DropdownMenuTrigger><DropdownMenuContent align="end">
     <DropdownMenuGroup><DropdownMenuItem onSelect={() => void run('md')}>Markdown (.md)</DropdownMenuItem>
     <DropdownMenuItem onSelect={() => void run('txt')}>{t('knowledge.exportText')} (.txt)</DropdownMenuItem>

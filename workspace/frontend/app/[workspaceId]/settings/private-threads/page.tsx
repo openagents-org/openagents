@@ -10,6 +10,8 @@ import { ArrowRightLeft, Lock } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -92,48 +94,48 @@ export default function PrivateThreadsSettingsPage() {
       ) : sorted.length === 0 ? (
         <p className="py-4 text-sm text-muted-foreground">{t('adminThreads.empty')}</p>
       ) : (
-        <div className="overflow-x-auto rounded-lg border">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-              <tr>
-                <th className="px-3 py-2 text-left font-medium">{t('adminThreads.colTitle')}</th>
-                <th className="px-3 py-2 text-left font-medium">{t('adminThreads.colOwner')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('adminThreads.colParticipants')}</th>
-                <th className="px-3 py-2 text-right font-medium">{t('adminThreads.colMessages')}</th>
-                <th className="px-3 py-2 text-left font-medium">{t('adminThreads.colLastActivity')}</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
+        <Card className="py-0">
+          <Table>
+            <TableHeader className="bg-muted">
+              <TableRow>
+                <TableHead>{t('adminThreads.colTitle')}</TableHead>
+                <TableHead>{t('adminThreads.colOwner')}</TableHead>
+                <TableHead className="text-right">{t('adminThreads.colParticipants')}</TableHead>
+                <TableHead className="text-right">{t('adminThreads.colMessages')}</TableHead>
+                <TableHead>{t('adminThreads.colLastActivity')}</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {sorted.map((th) => (
-                <tr key={th.name} className="hover:bg-muted/30">
-                  <td className="max-w-[18rem] px-3 py-2">
+                <TableRow key={th.name}>
+                  <TableCell className="max-w-72">
                     <p className="flex items-center gap-1.5 truncate font-medium">
                       <Lock className="size-3 shrink-0 text-muted-foreground" />
                       <span className="truncate">{th.title?.trim() || t('adminThreads.untitled')}</span>
                     </p>
                     <p className="truncate font-mono text-xs text-muted-foreground" title={th.name}>{th.name}</p>
-                  </td>
-                  <td className="max-w-[14rem] px-3 py-2">
+                  </TableCell>
+                  <TableCell className="max-w-56">
                     <p className="truncate">{memberName(th.owner_email)}</p>
                     {th.owner_email && <p className="truncate text-xs text-muted-foreground">{th.owner_email}</p>}
-                  </td>
-                  <td className="px-3 py-2 text-right tabular-nums">{th.participant_count}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{th.message_count}</td>
-                  <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums">{th.participant_count}</TableCell>
+                  <TableCell className="text-right tabular-nums">{th.message_count}</TableCell>
+                  <TableCell className="text-muted-foreground">
                     {th.last_activity_at ? timeAgo(th.last_activity_at) : t('adminThreads.never')}
-                  </td>
-                  <td className="px-3 py-2 text-right">
+                  </TableCell>
+                  <TableCell className="text-right">
                     <Button variant="outline" size="sm" onClick={() => setTransferring(th)}>
-                      <ArrowRightLeft className="size-3.5" />
+                      <ArrowRightLeft data-icon="inline-start" />
                       {t('adminThreads.transfer')}
                     </Button>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {transferring && (

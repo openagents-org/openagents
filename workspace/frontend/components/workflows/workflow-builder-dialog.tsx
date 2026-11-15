@@ -11,17 +11,12 @@ import {
   DialogTitle,
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-import { cn } from '@/lib/utils';
-import { Plus, Trash2, ArrowRight, User, RotateCcw, CornerDownRight, BookOpen } from 'lucide-react';
-import { useWorkspace } from '@/lib/workspace-context';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { Workflow, WorkflowStep } from '@/lib/types';
-import { agentLabel } from '@/lib/helpers';
+import { WorkflowStepCanvas } from './workflow-step-canvas';
+import { WorkflowStepEditor } from './workflow-step-editor';
 
 interface Props {
   open: boolean;
@@ -31,10 +26,6 @@ interface Props {
   template?: { name: string; description: string; steps: WorkflowStep[] } | null;
   onSave: (input: { name: string; description: string; steps: WorkflowStep[]; maxIterations: number }) => void;
 }
-
-// Radix Select reserves "" for "nothing selected"; the no-context choice
-// needs its own value, unwrapped back to undefined on change.
-const NO_KNOWLEDGE = '__none__';
 
 function newId(): string {
   try { return crypto.randomUUID(); } catch { return `step-${Math.floor(performance.now() * 1000)}`; }
@@ -46,7 +37,6 @@ function blankStep(): WorkflowStep {
 
 export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, onSave }: Props) {
   const t = useT();
-  const { agents, knowledge } = useWorkspace();
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -113,216 +103,56 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl">
         <DialogHeader>
-          <DialogTitle className="text-xl">
+          <DialogTitle>
             {workflow ? t('workflows.editTitle') : t('workflows.createTitle')}
           </DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="flex flex-col gap-4">
-          {/* Meta */}
-          <div className="flex flex-col sm:flex-row gap-3">
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('workflows.namePlaceholder')} autoFocus className="flex-1" />
-            <div className="flex items-center gap-2 shrink-0">
-              <label className="text-xs font-medium text-muted-foreground whitespace-nowrap">{t('workflows.maxIterations')}</label>
+        <DialogBody>
+          <FieldGroup className="gap-4">
+            {/* Meta */}
+            <div className="flex flex-col gap-3 sm:flex-row">
               <Input
-                type="number" min={1} max={50} value={maxIterations}
-                onChange={(e) => setMaxIterations(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                className="w-16 h-8"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('workflows.namePlaceholder')}
+                aria-label={t('workflows.namePlaceholder')}
+                autoFocus
+                className="flex-1"
               />
-            </div>
-          </div>
-          <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('workflows.descriptionPlaceholder')} rows={2} />
-
-          {/* ── Diagram canvas: steps flow left → right ── */}
-          <div className="rounded-lg border border-border/60 bg-muted/20 p-4 overflow-x-auto">
-            <div className="flex items-stretch gap-1 min-w-max">
-              {steps.map((step, i) => {
-                const isSel = step.id === selectedId;
-                const isAgent = step.assignee.kind === 'agent';
-                const gateTargetIdx = step.gate ? stepIndex(step.gate.target) : -1;
-                const isLoop = gateTargetIdx > -1 && gateTargetIdx <= i;
-                return (
-                  <div key={step.id} className="flex items-center gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setSelectedId(step.id)}
-                      className={cn(
-                        'relative w-40 shrink-0 rounded-lg border bg-card p-2.5 text-left transition-colors',
-                        isSel ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-foreground/30',
-                      )}
-                    >
-                      <div className="flex items-center gap-1.5">
-                        <span className="flex size-4 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">{i + 1}</span>
-                        <span className="text-xs font-medium truncate">{step.name || t('workflows.stepFallbackName', { n: i + 1 })}</span>
-                        {step.knowledge_id && (
-                          <BookOpen className="size-3 shrink-0 text-muted-foreground" aria-label={t('workflows.stepContext')} />
-                        )}
-                      </div>
-                      <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-                        {isAgent ? (
-                          step.assignee.agent ? <AgentAvatar name={step.assignee.agent} size={16} /> : <User className="size-3.5 opacity-40" />
-                        ) : (
-                          <User className="size-3.5" />
-                        )}
-                        <span className="truncate">
-                          {isAgent ? (step.assignee.agent || t('workflows.pickAgent')) : (step.assignee.human || t('workflows.human'))}
-                        </span>
-                      </div>
-                      {step.gate && gateTargetIdx > -1 && (
-                        <span
-                          className={cn(
-                            'mt-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium',
-                            isLoop ? 'bg-warning/10 text-warning' : 'bg-info/10 text-info',
-                          )}
-                          title={step.gate.condition}
-                        >
-                          {isLoop ? <RotateCcw className="size-2.5" /> : <CornerDownRight className="size-2.5" />}
-                          {t('workflows.gateTarget')} #{gateTargetIdx + 1}
-                        </span>
-                      )}
-                    </button>
-                    {i < steps.length - 1 && <ArrowRight className="size-4 text-muted-foreground/40 shrink-0" />}
-                  </div>
-                );
-              })}
-              {/* Add-step node */}
-              <div className="flex items-center gap-1">
-                <ArrowRight className="size-4 text-muted-foreground/40 shrink-0" />
-                <button
-                  type="button"
-                  onClick={addStep}
-                  className="flex h-full min-h-[76px] w-28 shrink-0 flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border/60 text-xs text-muted-foreground/60 hover:border-border hover:text-muted-foreground transition-colors"
-                >
-                  <Plus className="size-4" />
-                  {t('workflows.addStep')}
-                </button>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Selected step editor ── */}
-          {selected && (
-            <div className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2.5">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                  {t('workflows.stepFallbackName', { n: stepIndex(selected.id) + 1 })}
-                </span>
-                <button
-                  onClick={() => removeStep(selected.id)}
-                  disabled={steps.length <= 1}
-                  className="text-muted-foreground hover:text-rose-500 disabled:opacity-30 transition-colors"
-                  title={t('workflows.deleteStep')}
-                >
-                  <Trash2 className="size-3.5" />
-                </button>
-              </div>
-
-              <Input
-                value={selected.name}
-                onChange={(e) => patchStep(selected.id, { name: e.target.value })}
-                placeholder={t('workflows.stepName')}
-                className="h-8"
-              />
-              <Textarea
-                value={selected.instruction}
-                onChange={(e) => patchStep(selected.id, { instruction: e.target.value })}
-                placeholder={t('workflows.stepInstructionPlaceholder')}
-                rows={2}
-              />
-
-              {/* Assignee */}
-              <div className="flex items-center gap-2">
-                <div className="flex rounded-md border border-input overflow-hidden text-xs">
-                  {(['agent', 'human'] as const).map((k) => (
-                    <button
-                      key={k}
-                      type="button"
-                      onClick={() => patchAssignee(selected.id, { kind: k })}
-                      className={cn('px-2.5 py-1 transition-colors',
-                        selected.assignee.kind === k ? 'bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted/50')}
-                    >
-                      {t(`workflows.${k}`)}
-                    </button>
-                  ))}
-                </div>
-                {selected.assignee.kind === 'agent' ? (
-                  <Select value={selected.assignee.agent || ''} onValueChange={(v) => patchAssignee(selected.id, { agent: v })}>
-                    <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t('workflows.pickAgent')} /></SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>{agents.map((a) => <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>)}</SelectGroup>
-                    </SelectContent>
-                  </Select>
-                ) : (
-                  <Input
-                    value={selected.assignee.human || ''}
-                    onChange={(e) => patchAssignee(selected.id, { human: e.target.value })}
-                    placeholder={t('workflows.humanNamePlaceholder')}
-                    className="h-8 flex-1"
-                  />
-                )}
-              </div>
-
-              {/* Per-step context: one shared-knowledge entry, cited as
-                  @knowledge:<slug> when the engine delivers this step. */}
-              {knowledge.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <BookOpen className="size-3.5 shrink-0 text-muted-foreground" />
-                  <Select
-                    value={selected.knowledge_id || NO_KNOWLEDGE}
-                    onValueChange={(v) =>
-                      patchStep(selected.id, { knowledge_id: v === NO_KNOWLEDGE ? undefined : v })
-                    }
-                  >
-                    <SelectTrigger className="h-8 flex-1">
-                      <SelectValue placeholder={t('workflows.stepContext')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup><SelectItem value={NO_KNOWLEDGE}>{t('workflows.stepContextNone')}</SelectItem>
-                      {knowledge.map((entry) => (
-                        <SelectItem key={entry.id} value={entry.id}>{entry.title}</SelectItem>
-                      ))}</SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-
-              {/* Gate */}
-              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={!!selected.gate}
-                  onChange={(e) =>
-                    patchStep(selected.id, e.target.checked
-                      ? { gate: { condition: '', target: steps[0].id } }
-                      : { gate: undefined })
-                  }
+              <Field orientation="horizontal" className="w-auto shrink-0">
+                <FieldLabel htmlFor="workflow-max-iterations" className="text-xs whitespace-nowrap text-muted-foreground">
+                  {t('workflows.maxIterations')}
+                </FieldLabel>
+                <Input
+                  id="workflow-max-iterations"
+                  type="number" min={1} max={50} value={maxIterations}
+                  onChange={(e) => setMaxIterations(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
+                  className="w-16"
                 />
-                {t('workflows.gateEnable')}
-              </label>
-              {selected.gate && (
-                <div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
-                  <p className="text-xs text-muted-foreground/70">{t('workflows.gateHint')}</p>
-                  <Input
-                    value={selected.gate.condition}
-                    onChange={(e) => patchStep(selected.id, { gate: { ...selected.gate!, condition: e.target.value } })}
-                    placeholder={t('workflows.gateConditionPlaceholder')}
-                    className="h-8"
-                  />
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs text-muted-foreground">{t('workflows.gateTarget')}</span>
-                    <Select value={selected.gate.target} onValueChange={(v) => patchStep(selected.id, { gate: { ...selected.gate!, target: v } })}>
-                      <SelectTrigger className="h-8 flex-1"><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectGroup>{steps.map((s, si) => (
-                          <SelectItem key={s.id} value={s.id}>#{si + 1} {s.name || t('workflows.stepFallbackName', { n: si + 1 })}</SelectItem>
-                        ))}</SelectGroup>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-              )}
+              </Field>
             </div>
-          )}
+            <Textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={t('workflows.descriptionPlaceholder')}
+              aria-label={t('workflows.descriptionPlaceholder')}
+              rows={2}
+            />
+
+            <WorkflowStepCanvas steps={steps} selectedId={selectedId} onSelect={setSelectedId} onAdd={addStep} />
+
+            {selected && (
+              <WorkflowStepEditor
+                step={selected}
+                index={stepIndex(selected.id)}
+                steps={steps}
+                onPatch={(patch) => patchStep(selected.id, patch)}
+                onPatchAssignee={(patch) => patchAssignee(selected.id, patch)}
+                onRemove={() => removeStep(selected.id)}
+              />
+            )}
+          </FieldGroup>
         </DialogBody>
 
         <DialogFooter>
