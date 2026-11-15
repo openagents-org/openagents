@@ -80,7 +80,7 @@ export function ArtifactOwner({ owner, ownerLabel, compact = false, size = 16, c
       <AgentAvatar name={display.id} size={size} />
     ) : (
       <Avatar className="shrink-0" style={{ width: size, height: size }}>
-        <AvatarFallback className="text-[9px] uppercase">{display.label.charAt(0) || '?'}</AvatarFallback>
+        <AvatarFallback className="text-xs uppercase">{display.label.charAt(0) || '?'}</AvatarFallback>
       </Avatar>
     );
   if (compact) {

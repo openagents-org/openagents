@@ -93,14 +93,14 @@ export function RoutinesView() {
         <div className="flex items-center gap-0.5">
           <button
             onClick={openCreateDialog}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title={t('routines.createShort')}
           >
             <Plus className="size-3.5" />
           </button>
           <button
             onClick={refreshRoutines}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
           >
             <RefreshCw className="size-3.5" />
           </button>
@@ -116,7 +116,7 @@ export function RoutinesView() {
             <p className="text-xs opacity-60">{t('routines.emptyBody')}</p>
           </div>
         ) : (
-          <div className="p-4 space-y-3">
+          <div className="p-4 flex flex-col gap-3">
             {visibleRoutines.map((routine) => {
               const agentName = routine.createdBy.replace('openagents:', '');
               const creator = agents.find((a) => a.agentName === agentName);
@@ -140,7 +140,7 @@ export function RoutinesView() {
                           {routine.name}
                         </span>
                         {isPaused && (
-                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                          <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                             {t('routines.paused')}
                           </span>
                         )}
@@ -152,11 +152,11 @@ export function RoutinesView() {
                         {routine.message}
                       </div>
                       {routine.context && (
-                        <div className="text-[11px] text-muted-foreground/60 mt-1 line-clamp-2">
+                        <div className="text-xs text-muted-foreground/60 mt-1 line-clamp-2">
                           {routine.context}
                         </div>
                       )}
-                      <div className="flex items-center gap-3 mt-1.5 text-[10px] text-muted-foreground/70">
+                      <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground/70">
                         <span>{creatorLabel}</span>
                         <span>·</span>
                         <span className="truncate">{channelTitle}</span>
@@ -189,7 +189,7 @@ export function RoutinesView() {
                       </button>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleCancel(routine.id); }}
-                        className="p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors"
+                        className="p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                         title={t('routines.cancel')}
                       >
                         <Trash2 className="size-3.5" />

@@ -15,7 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -51,7 +51,7 @@ export function KnowledgeContextPicker({
     onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
 
   return (
-    <div className="space-y-1.5">
+    <div className="flex flex-col gap-1.5">
       <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         <BookOpen className="size-3.5" />
         {t('tasks.fieldContext')}
@@ -85,14 +85,14 @@ export function KnowledgeContextPicker({
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-xs font-medium">{entry.title}</span>
                 {entry.description && (
-                  <span className="block truncate text-[10px] text-muted-foreground">{entry.description}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{entry.description}</span>
                 )}
               </span>
             </button>
           );
         })}
       </div>
-      <p className="text-[11px] text-muted-foreground/70">{t('tasks.contextHint')}</p>
+      <p className="text-xs text-muted-foreground/70">{t('tasks.contextHint')}</p>
     </div>
   );
 }
@@ -186,7 +186,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-4">
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldDescription')}</label>
             <Textarea
               autoFocus
@@ -200,7 +200,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
             />
           </div>
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-muted-foreground">
               {t('tasks.fieldTitle')}{' '}
               <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
@@ -215,7 +215,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
           <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
           <AttachmentPicker value={fileIds} onChange={setFileIds} />
 
-          <div className="space-y-1.5">
+          <div className="flex flex-col gap-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('tasks.runWith')}</label>
             <div className="flex gap-2">
               {(['agent', 'workflow'] as const).map((k) => (
@@ -239,7 +239,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
               <Select value={assignee} onValueChange={setAssignee}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
+                  <SelectGroup><SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
                   {onlineAgents.map((a) => (
                     <SelectItem key={a.agentName} value={a.agentName}>
                       <span className="flex items-center gap-2">
@@ -247,24 +247,24 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
                         <span className="truncate">{agentLabel(a)}</span>
                       </span>
                     </SelectItem>
-                  ))}
+                  ))}</SelectGroup>
                 </SelectContent>
               </Select>
             ) : (
               <Select value={workflowId} onValueChange={setWorkflowId}>
                 <SelectTrigger className="w-full"><SelectValue placeholder={t('tasks.pickWorkflow')} /></SelectTrigger>
                 <SelectContent>
-                  {workflows.length === 0 ? (
+                  <SelectGroup>{workflows.length === 0 ? (
                     <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noWorkflows')}</div>
                   ) : (
                     workflows.map((w) => (
                       <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
                     ))
-                  )}
+                  )}</SelectGroup>
                 </SelectContent>
               </Select>
             )}
-            <p className="text-[11px] text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
+            <p className="text-xs text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
           </div>
         </DialogBody>
 

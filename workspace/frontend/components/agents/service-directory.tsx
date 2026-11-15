@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogBody, DialogFooter, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
 
 export function ServiceDirectory() {
@@ -54,9 +55,9 @@ export function ServiceDirectory() {
       <h2 className="truncate text-sm font-semibold">{t('services.title')}</h2>
       {owned.length > 0 && <Button size="sm" className="ml-1 shrink-0 gap-1.5 font-semibold" onClick={() => setEdit('new')}><Plus className="size-3.5" />{t('services.create')}</Button>}
     </div>} />
-    <div className="space-y-3 border-b px-5 py-3">
+    <div className="flex flex-col gap-3 border-b px-5 py-3">
       <p className="text-sm text-muted-foreground">{t('services.subtitle')}</p>
-      <p className="flex items-center gap-2 text-xs text-amber-600 dark:text-amber-400"><FlaskConical className="size-3.5" />{t('services.experimental')}</p>
+      <p className="flex items-center gap-2 text-xs text-warning"><FlaskConical className="size-3.5" />{t('services.experimental')}</p>
       <div className="relative max-w-sm"><Search className="absolute left-2.5 top-2.5 size-3.5 text-muted-foreground" /><Input className="pl-8" aria-label={t('services.search')} placeholder={t('services.search')} value={search} onChange={event => setSearch(event.target.value)} /></div>
     </div>
     <div className="overflow-y-auto p-5">
@@ -93,11 +94,11 @@ function ServiceEditor({ service, agents, team, onClose, onSaved }: {
   return <Dialog open onOpenChange={value => { if (!busy && !value) onClose(); }}>
     <DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{t(service ? 'services.edit' : 'services.create')}</DialogTitle></DialogHeader>
       <DialogBody className="flex flex-col gap-4">
-        <div className="space-y-1.5"><Label htmlFor="service-agent">{t('services.agent')}</Label><select id="service-agent" className="h-9 w-full rounded border bg-background px-2 text-sm" disabled={!!service || busy} value={draft.agent_name} onChange={e => setDraft({ ...draft, agent_name: e.target.value })}>{agents.map(agent => <option key={agent.name} value={agent.name}>{agent.label}</option>)}</select></div>
-        <div className="space-y-1.5"><Label htmlFor="service-name">{t('services.name')}</Label><Input id="service-name" value={draft.name} maxLength={120} onChange={e => setDraft({ ...draft, name: e.target.value })} /></div>
-        {(['description', 'instructions', 'required_inputs'] as const).map(key => <div key={key} className="space-y-1.5"><Label htmlFor={`service-${key}`}>{t(key === 'required_inputs' ? 'services.inputs' : key === 'description' ? 'services.description' : 'services.instructions')}</Label><Textarea id={`service-${key}`} value={draft[key] || ''} onChange={e => setDraft({ ...draft, [key]: e.target.value })} /></div>)}
-        <div className="space-y-1.5"><Label htmlFor="service-examples">{t('services.examples')}</Label><Textarea id="service-examples" value={examples} onChange={e => setExamples(e.target.value)} /></div>
-        <div className="space-y-1.5"><Label htmlFor="service-reviewer">{t('services.approver')}</Label><select id="service-reviewer" className="h-9 w-full rounded border bg-background px-2 text-sm" value={draft.request_approver_email || ''} onChange={e => setDraft({ ...draft, request_approver_email: e.target.value || null })}><option value="">{t('services.noApproval')}</option>{team.map(person => <option key={person.email} value={person.email}>{person.displayName || person.email}</option>)}</select></div>
+        <Field><FieldLabel htmlFor="service-agent">{t('services.agent')}</FieldLabel><select id="service-agent" className="h-9 w-full rounded border bg-background px-2 text-sm" disabled={!!service || busy} value={draft.agent_name} onChange={e => setDraft({ ...draft, agent_name: e.target.value })}>{agents.map(agent => <option key={agent.name} value={agent.name}>{agent.label}</option>)}</select></Field>
+        <Field><FieldLabel htmlFor="service-name">{t('services.name')}</FieldLabel><Input id="service-name" value={draft.name} maxLength={120} onChange={e => setDraft({ ...draft, name: e.target.value })} /></Field>
+        {(['description', 'instructions', 'required_inputs'] as const).map(key => <div key={key} className="flex flex-col gap-1.5"><Label htmlFor={`service-${key}`}>{t(key === 'required_inputs' ? 'services.inputs' : key === 'description' ? 'services.description' : 'services.instructions')}</Label><Textarea id={`service-${key}`} value={draft[key] || ''} onChange={e => setDraft({ ...draft, [key]: e.target.value })} /></div>)}
+        <Field><FieldLabel htmlFor="service-examples">{t('services.examples')}</FieldLabel><Textarea id="service-examples" value={examples} onChange={e => setExamples(e.target.value)} /></Field>
+        <Field><FieldLabel htmlFor="service-reviewer">{t('services.approver')}</FieldLabel><select id="service-reviewer" className="h-9 w-full rounded border bg-background px-2 text-sm" value={draft.request_approver_email || ''} onChange={e => setDraft({ ...draft, request_approver_email: e.target.value || null })}><option value="">{t('services.noApproval')}</option>{team.map(person => <option key={person.email} value={person.email}>{person.displayName || person.email}</option>)}</select></Field>
         {service && <div className="border-t pt-4"><AgentAccessSection resourceKind="service" agentName={service.id} displayName={service.name} /></div>}
       </DialogBody>
       <DialogFooter><Button variant="outline" disabled={busy} onClick={onClose}>{t('common.done')}</Button><Button disabled={busy || !draft.name.trim() || !draft.agent_name} onClick={() => void save()}>{t('services.save')}</Button></DialogFooter>

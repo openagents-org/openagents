@@ -24,11 +24,11 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
       ) : (
         <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
           {item.file.type.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-          <span className="w-full truncate text-center text-[10px] text-muted-foreground">{item.file.name}</span>
+          <span className="w-full truncate text-center text-xs text-muted-foreground">{item.file.name}</span>
         </div>
       )}
       {failed ? (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-rose-600/90 px-1.5 py-0.5 text-[10px] text-white">
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-rose-600/90 px-1.5 py-0.5 text-xs text-white">
           <span className="truncate" role="alert">
             {t(item.error === 'tooLarge' ? 'tasks.attachTooLarge' : 'tasks.attachFailed', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}
           </span>
@@ -41,7 +41,7 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
       ) : (
         <div className="absolute inset-x-0 bottom-0" role="progressbar" aria-label={item.file.name}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
-          <div className="mx-1 mb-0.5 text-right text-[10px] font-medium tabular-nums text-foreground">
+          <div className="mx-1 mb-0.5 text-right text-xs font-medium tabular-nums text-foreground">
             {percent === null ? t('tasks.attachUploading') : `${percent}%`}
           </div>
           <div className="h-1 bg-black/10">
@@ -127,7 +127,7 @@ export function AttachmentPicker({
 
   return (
     <div
-      className={cn('space-y-1.5 rounded-md transition-colors', dragging && !disabled && 'bg-primary/5 outline outline-2 outline-primary/50 outline-offset-4')}
+      className={cn('flex flex-col gap-1.5 rounded-md transition-colors', dragging && !disabled && 'bg-primary/5 outline outline-2 outline-primary/50 outline-offset-4')}
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
@@ -176,7 +176,7 @@ export function AttachmentPicker({
                 ) : (
                   <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
                     {f?.contentType.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-                    <span className="w-full truncate text-center text-[10px] text-muted-foreground">
+                    <span className="w-full truncate text-center text-xs text-muted-foreground">
                       {f?.filename ?? t('tasks.attachedFile')}
                     </span>
                   </div>
@@ -223,7 +223,7 @@ export function AttachmentPicker({
           e.target.value = '';
         }}
       />
-      {!compact && <p className="text-[11px] text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
+      {!compact && <p className="text-xs text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
     </div>
   );
 }

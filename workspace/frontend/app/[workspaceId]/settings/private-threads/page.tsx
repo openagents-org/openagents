@@ -6,7 +6,8 @@
 // one action is "Transfer owner" (PATCH owner_email), for when someone leaves.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowRightLeft, Loader2, Lock } from 'lucide-react';
+import { ArrowRightLeft, Lock } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -20,7 +21,7 @@ import {
   DialogTitle,
 } from '@/components/ui/responsive-dialog';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -73,7 +74,7 @@ export default function PrivateThreadsSettingsPage() {
   }), [threads]);
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('adminThreads.title')} description={t('adminThreads.description')} />
       {!editable && <ReadOnlyBanner />}
 
@@ -81,7 +82,7 @@ export default function PrivateThreadsSettingsPage() {
         <p className="text-sm text-muted-foreground">{t('adminThreads.adminOnly')}</p>
       ) : threads === null ? (
         <div className="flex items-center justify-center py-10">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <Spinner className="size-5 text-muted-foreground" />
         </div>
       ) : failed ? (
         <div className="flex items-center gap-3">
@@ -111,7 +112,7 @@ export default function PrivateThreadsSettingsPage() {
                       <Lock className="size-3 shrink-0 text-muted-foreground" />
                       <span className="truncate">{th.title?.trim() || t('adminThreads.untitled')}</span>
                     </p>
-                    <p className="truncate font-mono text-[11px] text-muted-foreground" title={th.name}>{th.name}</p>
+                    <p className="truncate font-mono text-xs text-muted-foreground" title={th.name}>{th.name}</p>
                   </td>
                   <td className="max-w-[14rem] px-3 py-2">
                     <p className="truncate">{memberName(th.owner_email)}</p>
@@ -188,7 +189,7 @@ function TransferOwnerDialog({
           <DialogTitle className="text-xl">
             {t('adminThreads.transferTitle', { title: thread.title?.trim() || t('adminThreads.untitled') })}
           </DialogTitle>
-          <DialogDescription className="text-[15px] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             {t('adminThreads.transferDescription')}
           </DialogDescription>
         </DialogHeader>
@@ -197,11 +198,11 @@ function TransferOwnerDialog({
           <Select value={email} onValueChange={setEmail}>
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {candidates.map((m) => (
+              <SelectGroup>{candidates.map((m) => (
                 <SelectItem key={m.email} value={m.email}>
                   {m.displayName ? `${m.displayName} · ${m.email}` : m.email}
                 </SelectItem>
-              ))}
+              ))}</SelectGroup>
             </SelectContent>
           </Select>
         </DialogBody>
@@ -210,7 +211,7 @@ function TransferOwnerDialog({
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={transfer} disabled={busy || !email}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <ArrowRightLeft className="size-4" />}
+            {busy ? <Spinner /> : <ArrowRightLeft className="size-4" />}
             {t('adminThreads.transferConfirm')}
           </Button>
         </DialogFooter>

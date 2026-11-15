@@ -17,7 +17,7 @@ export function AgentStatusIndicator({ agents }: AgentStatusIndicatorProps) {
       <span
         className={cn(
           'size-2 rounded-full',
-          onlineCount > 0 ? 'bg-green-500' : 'bg-zinc-400'
+          onlineCount > 0 ? 'bg-success' : 'bg-muted-foreground/60'
         )}
       />
       <span>

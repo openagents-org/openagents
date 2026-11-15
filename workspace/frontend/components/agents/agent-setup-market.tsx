@@ -5,9 +5,11 @@ import { ArrowRight, ChevronRight, Plus, RefreshCw, Search, Sparkles } from 'luc
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import type { AgentCatalogEntry } from '@/lib/types';
-import { CatalogStateNotice, MarketLogo, MarketStatusBadge, marketStatusMeta, type CatalogState, type GalleryStatus } from './agent-setup';
+import { MarketLogo, type CatalogState } from './agent-setup';
+import { CatalogStateNotice, MarketStatusBadge, marketStatusMeta, type GalleryStatus } from './agent-setup-status';
 
 /** Listed first, under "Popular", in this order. */
 const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
@@ -160,7 +162,7 @@ export function MarketGallery({
   const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
 
   const section = (title: string, entries: AgentCatalogEntry[]) => entries.length > 0 && (
-    <div className="space-y-2.5">
+    <div className="flex flex-col gap-2.5">
       <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {entries.map((entry) => (
@@ -172,7 +174,7 @@ export function MarketGallery({
   );
 
   return (
-    <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
+    <div className="p-6 flex flex-col gap-4 max-w-4xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start gap-2">
         <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={onBack} title={t('connect.nodeBack')}>
@@ -233,14 +235,16 @@ export function MarketGallery({
       {catalog.length === 0 && catalogState && catalogState.status !== 'ready' ? (
         <CatalogStateNotice state={catalogState} />
       ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-          {q ? t('connect.marketNoMatch', { query: q }) : t('connect.marketNoneInCategory')}{' '}
-          <button className="font-medium text-foreground underline-offset-4 hover:underline" onClick={() => { onQuery(''); onCategory('all'); }}>
-            {t('connect.marketReset')}
-          </button>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyDescription>{q ? t('connect.marketNoMatch', { query: q }) : t('connect.marketNoneInCategory')}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" size="sm" onClick={() => { onQuery(''); onCategory('all'); }}>{t('connect.marketReset')}</Button>
+          </EmptyContent>
+        </Empty>
       ) : (
-        <div className="space-y-5">
+        <div className="flex flex-col gap-5">
           {section(t('connect.marketPopular'), popular)}
           {section(t('connect.marketOthers'), others)}
         </div>

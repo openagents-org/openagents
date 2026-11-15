@@ -88,7 +88,7 @@ export function StatusIcon({
         status === 'open'
           ? 'text-muted-foreground'
           : status === 'in_progress'
-            ? 'text-amber-600 dark:text-amber-400'
+            ? 'text-warning'
             : 'text-violet-600 dark:text-violet-400',
         className,
       )}
@@ -137,7 +137,7 @@ export function IssueAvatar({
     <span
       title={name}
       aria-hidden
-      className="inline-flex shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted text-[10px] font-medium text-foreground/70"
+      className="inline-flex shrink-0 items-center justify-center rounded-full border border-border/60 bg-muted text-xs font-medium text-foreground/70"
       style={{ width: size, height: size }}
     >
       {initials}
@@ -151,13 +151,13 @@ export function IssueSkeleton({ detail = false }: { detail?: boolean }) {
       aria-hidden
       className={cn(
         'animate-pulse motion-reduce:animate-none',
-        detail ? 'space-y-6 py-8' : 'divide-y divide-border/60',
+        detail ? 'flex flex-col gap-6 py-8' : 'divide-y divide-border/60',
       )}
     >
       {Array.from({ length: detail ? 3 : 5 }, (_, index) => (
         <div key={index} className={cn('flex gap-3', !detail && 'px-6 py-5')}>
           <div className="mt-1 size-5 rounded-full bg-muted" />
-          <div className="flex-1 space-y-3">
+          <div className="flex-1 flex flex-col gap-3">
             <div
               className={cn(
                 'h-3 rounded bg-muted',

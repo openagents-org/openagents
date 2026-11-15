@@ -28,7 +28,7 @@ export function MessageArtifacts({ content, attachedIds }: { content: string; at
     cards.push({ artifact, tab, title: projectDisplayName(filename,file?.contentType), project, Icon: artifact.kind === 'browser' ? Globe : project ? Folder : html ? FileCode2 : FileText });
   }
   if (!cards.length) return null;
-  return <div className="mt-2 space-y-2">
+  return <div className="mt-2 flex flex-col gap-2">
     {cards.map(({ artifact, tab, title, project, Icon }) => <button
       key={`${artifact.kind}:${artifact.id}`}
       type="button"

@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { UserPlus, Copy, Check, Clock, CheckCircle, XCircle } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
@@ -75,9 +75,9 @@ export function InvitationDialog() {
   const statusIcon = (status: string) => {
     switch (status) {
       case 'pending':
-        return <Clock className="size-3.5 text-amber-500" />;
+        return <Clock className="size-3.5 text-warning" />;
       case 'accepted':
-        return <CheckCircle className="size-3.5 text-green-500" />;
+        return <CheckCircle className="size-3.5 text-success" />;
       case 'rejected':
         return <XCircle className="size-3.5 text-destructive" />;
       case 'expired':
@@ -104,8 +104,8 @@ export function InvitationDialog() {
 
         <DialogBody className="flex flex-col gap-4">
           {/* Create invitation */}
-          <div className="space-y-2">
-            <Label>{t('invitations.agentName')}</Label>
+          <Field>
+            <FieldLabel>{t('invitations.agentName')}</FieldLabel>
             <div className="flex items-center gap-2">
               <Input
                 value={agentName}
@@ -119,10 +119,10 @@ export function InvitationDialog() {
                 {creating ? t('invitations.inviting') : t('invitations.invite')}
               </Button>
             </div>
-            <p className="text-xs text-muted-foreground">
+            <FieldDescription>
               {t('invitations.hint')}
-            </p>
-          </div>
+            </FieldDescription>
+          </Field>
 
           {/* Invitations list */}
           {loading && invitations.length === 0 && (
@@ -130,10 +130,10 @@ export function InvitationDialog() {
           )}
 
           {invitations.length > 0 && (
-            <div className="space-y-2">
-              <Label className="font-normal">{t('invitations.listTitle')}</Label>
+            <Field>
+              <FieldLabel>{t('invitations.listTitle')}</FieldLabel>
               {/* No inner scroll region — DialogBody is the only scroll area. */}
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 {invitations.map((inv) => (
                   <div
                     key={inv.invitationId}
@@ -163,7 +163,7 @@ export function InvitationDialog() {
                   </div>
                 ))}
               </div>
-            </div>
+            </Field>
           )}
         </DialogBody>
 

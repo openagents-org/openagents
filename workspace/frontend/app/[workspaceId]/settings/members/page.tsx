@@ -1,15 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Link2, Loader2, Mail, Trash2, X } from 'lucide-react';
+import { Link2, Mail, Trash2, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -154,7 +156,7 @@ export default function MembersSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('admin.membersTitle')} description={t('admin.membersDescription')} />
       {!editable && <ReadOnlyBanner />}
 
@@ -164,11 +166,11 @@ export default function MembersSettingsPage() {
         <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
         <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
       </TabsList>
-      <TabsContent value="people" className="min-w-0 w-full space-y-8">
+      <TabsContent value="people" className="min-w-0 w-full flex flex-col gap-8">
 
       {editable && (
-        <div className="space-y-3 rounded-lg border p-4">
-          <Label>{t('admin.inviteTitle')}</Label>
+        <Field className="rounded-lg border p-4">
+          <FieldLabel>{t('admin.inviteTitle')}</FieldLabel>
           <div className="flex flex-wrap items-center gap-2">
             <Input
               type="email"
@@ -186,30 +188,30 @@ export default function MembersSettingsPage() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {INVITE_ROLES.map((r) => (
+                <SelectGroup>{INVITE_ROLES.map((r) => (
                   <SelectItem key={r} value={r}>
                     {roleLabel(t, r)}
                   </SelectItem>
-                ))}
+                ))}</SelectGroup>
               </SelectContent>
             </Select>
             <Button onClick={sendInvite} disabled={busy || !inviteEmail.trim()}>
-              {busy ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+              {busy ? <Spinner /> : <Mail className="size-4" />}
               <span className="hidden sm:inline">{t('admin.inviteSend')}</span>
             </Button>
           </div>
-          <p className="text-xs text-muted-foreground">{t('admin.inviteHint')}</p>
+          <FieldDescription>{t('admin.inviteHint')}</FieldDescription>
           <Button variant="outline" size="sm" onClick={createLink} disabled={linkBusy}>
-            {linkBusy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+            {linkBusy ? <Spinner className="size-3.5" /> : <Link2 className="size-3.5" />}
             {t('admin.createInviteLink')}
           </Button>
-          <p className="text-xs text-muted-foreground">{t('admin.inviteLinkHint')}</p>
-        </div>
+          <FieldDescription>{t('admin.inviteLinkHint')}</FieldDescription>
+        </Field>
       )}
 
       {editable && pendingInvites.length > 0 && (
-        <div className="space-y-2">
-          <Label className="font-normal">{t('admin.pendingInvites')}</Label>
+        <Field>
+          <FieldLabel>{t('admin.pendingInvites')}</FieldLabel>
           <div className="divide-y rounded-lg border">
             {pendingInvites.map((inv) => (
               <div key={inv.inviteId} className="flex items-center gap-3 px-4 py-2.5">
@@ -243,7 +245,7 @@ export default function MembersSettingsPage() {
               </div>
             ))}
           </div>
-        </div>
+        </Field>
       )}
 
       {/* v1.1 M1: unified roster — people first, agents below */}
@@ -251,7 +253,7 @@ export default function MembersSettingsPage() {
 
       {loading ? (
         <div className="flex items-center justify-center py-10">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <Spinner className="size-5 text-muted-foreground" />
         </div>
       ) : members.length === 0 ? (
         <p className="py-4 text-sm text-muted-foreground">{t('admin.noMembers')}</p>
@@ -292,11 +294,11 @@ export default function MembersSettingsPage() {
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        {ROLES.map((r) => (
+                        <SelectGroup>{ROLES.map((r) => (
                           <SelectItem key={r} value={r}>
                             {roleLabel(t, r)}
                           </SelectItem>
-                        ))}
+                        ))}</SelectGroup>
                       </SelectContent>
                     </Select>
                     <Button

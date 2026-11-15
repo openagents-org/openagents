@@ -14,11 +14,13 @@
  */
 
 import { useMemo, useState } from 'react';
-import { CheckCircle2, ExternalLink, Loader2, Plus, Zap } from 'lucide-react';
+import { CheckCircle2, ExternalLink, Plus, Zap } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { ProviderIcon } from '@/components/icons/agent-icons';
 import { workspaceApi } from '@/lib/api';
 import type { CloudAgentProvider, ModelAccessEntry } from '@/lib/types';
@@ -189,14 +191,14 @@ export function AddModelAccessDialog({
           >
             {groups.map((g) => (
               <div key={g.key} className="mb-2">
-                <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                <div className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   {t(g.key)}
                 </div>
                 {g.items.map((p) => <ListItem key={p.name} name={p.name} icon={p.name} />)}
               </div>
             ))}
             <div>
-              <div className="px-2 pb-1 pt-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+              <div className="px-2 pb-1 pt-1 text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t('admin.modelAccessGroupCustom')}
               </div>
               {CUSTOM_KINDS.map((k) => <ListItem key={k} name={k} icon="custom" />)}
@@ -204,7 +206,7 @@ export function AddModelAccessDialog({
           </nav>
 
           {/* Chosen provider + key form */}
-          <div className="min-w-0 space-y-4 overflow-y-auto px-6 py-5">
+          <div className="min-w-0 flex flex-col gap-4 overflow-y-auto px-6 py-5">
             <div className="flex items-center gap-3">
               <ProviderIcon name={custom ? 'custom' : provider} size={48} />
               <div className="min-w-0">
@@ -216,8 +218,8 @@ export function AddModelAccessDialog({
             </div>
 
             {custom && (
-              <div className="space-y-1.5">
-                <Label className="text-xs font-medium">{t('admin.modelAccessBaseUrl')}</Label>
+              <Field>
+                <FieldLabel>{t('admin.modelAccessBaseUrl')}</FieldLabel>
                 <Input
                   value={baseUrl}
                   onChange={(e) => { setBaseUrl(e.target.value); setCheck({ state: 'idle' }); }}
@@ -225,12 +227,12 @@ export function AddModelAccessDialog({
                   className="h-10 font-mono text-sm"
                 />
                 {provider === 'custom-anthropic' && (
-                  <p className="text-[11px] text-muted-foreground">{t('admin.modelAccessAnthropicCompatHint')}</p>
+                  <p className="text-xs text-muted-foreground">{t('admin.modelAccessAnthropicCompatHint')}</p>
                 )}
-              </div>
+              </Field>
             )}
 
-            <div className="space-y-1.5">
+            <div className="flex flex-col gap-1.5">
               <div className="flex items-center justify-between gap-2">
                 <Label className="text-xs font-medium">{t('admin.modelAccessKey')}</Label>
                 {info?.key_url && (
@@ -238,7 +240,7 @@ export function AddModelAccessDialog({
                     href={info.key_url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                    className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                   >
                     {t('admin.modelAccessGetKey')}
                     <ExternalLink className="size-3" />
@@ -254,36 +256,36 @@ export function AddModelAccessDialog({
                 className="h-10 text-sm"
               />
               {provider === 'tokenpay' && (
-                <p className="text-[11px] text-muted-foreground">{t('connect.tokenpayKeyHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('connect.tokenpayKeyHint')}</p>
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('admin.modelAccessLabel')}</Label>
+            <Field>
+              <FieldLabel>{t('admin.modelAccessLabel')}</FieldLabel>
               <Input
                 value={label}
                 onChange={(e) => setLabel(e.target.value)}
                 placeholder={providerLabel(provider)}
                 className="h-10 text-sm"
               />
-            </div>
+            </Field>
 
             <div className="flex items-start gap-2">
               <Button size="sm" variant="outline" onClick={verify} disabled={!canSubmit || check.state === 'checking'} className="shrink-0">
                 {check.state === 'checking'
-                  ? (<><Loader2 className="size-3.5 mr-1.5 animate-spin" />{t('connect.byokTesting')}</>)
+                  ? (<><Spinner data-icon="inline-start" />{t('connect.byokTesting')}</>)
                   : (<><Zap className="size-3.5 mr-1.5" />{t('admin.modelAccessVerify')}</>)}
               </Button>
               {check.state === 'ok' && (
-                <span className="inline-flex items-center gap-1 pt-1.5 text-[11px] text-emerald-600 dark:text-emerald-400">
+                <span className="inline-flex items-center gap-1 pt-1.5 text-xs text-success">
                   <CheckCircle2 className="size-3.5" />{check.detail}
                 </span>
               )}
               {check.state === 'warn' && (
-                <span className="pt-1.5 text-[11px] text-amber-600 dark:text-amber-400">{check.detail}</span>
+                <span className="pt-1.5 text-xs text-warning">{check.detail}</span>
               )}
               {check.state === 'fail' && (
-                <span className="pt-1.5 text-[11px] text-red-600 dark:text-red-400">{check.detail}</span>
+                <span className="pt-1.5 text-xs text-destructive">{check.detail}</span>
               )}
             </div>
           </div>
@@ -296,7 +298,7 @@ export function AddModelAccessDialog({
             disabled={!canSubmit || saving}
             className={cn(check.state === 'fail' && 'opacity-80')}
           >
-            {saving ? <Loader2 className="size-4 animate-spin mr-1.5" /> : <Plus className="size-4 mr-1.5" />}
+            {saving ? <Spinner data-icon="inline-start" /> : <Plus className="size-4 mr-1.5" />}
             {t('admin.modelAccessSave')}
           </Button>
         </div>

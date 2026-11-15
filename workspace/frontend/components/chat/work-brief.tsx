@@ -167,7 +167,7 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
   if (!expanded) {
     return (
       <div className={shell} data-work-brief="collapsed">
-        <div className={cn(inner, 'flex items-center gap-2 py-1.5 text-[12px] text-muted-foreground')}>
+        <div className={cn(inner, 'flex items-center gap-2 py-1.5 text-xs text-muted-foreground')}>
           <button
             type="button"
             onClick={() => setManual(true)}
@@ -180,7 +180,7 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
             </span>
             {directorName && (
               <span className="hidden items-center gap-1 sm:inline-flex">
-                <Crown className="size-3 text-amber-500" />
+                <Crown className="size-3 text-warning" />
                 {t('brief.directedBy', { name: directorName })}
               </span>
             )}
@@ -189,7 +189,7 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
             <button
               type="button"
               onClick={startEditing}
-              className="shrink-0 rounded-md border px-2 py-0.5 text-[11px] font-medium hover:bg-muted"
+              className="shrink-0 rounded-md border px-2 py-0.5 text-xs font-medium hover:bg-muted"
             >
               {t('brief.start')}
             </button>
@@ -204,8 +204,8 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
 
   const field = (label: string, value: string | null, mono = false) => (
     <div className="min-w-0">
-      <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={cn('mt-0.5 whitespace-pre-wrap break-words text-[13px] leading-snug', !value && 'text-muted-foreground/60', mono && 'font-mono text-[12px]')}>
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={cn('mt-0.5 whitespace-pre-wrap break-words text-sm leading-snug', !value && 'text-muted-foreground/60', mono && 'font-mono text-xs')}>
         {value || t('brief.none')}
       </div>
     </div>
@@ -216,9 +216,9 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
       <div className={cn(inner, 'py-2.5')}>
         <div className="flex items-center gap-2">
           <ClipboardList className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="text-[12px] font-semibold">{t('brief.title')}</span>
+          <span className="text-xs font-semibold">{t('brief.title')}</span>
           {directorName && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+            <span className="inline-flex items-center gap-1 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">
               <Crown className="size-2.5" />
               {t('brief.directedBy', { name: directorName })}
             </span>
@@ -237,25 +237,25 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
 
         {editing ? (
           <div className="mt-2 grid gap-2 sm:grid-cols-2">
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground sm:col-span-2">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground sm:col-span-2">
               {t('brief.objective')}
-              <Textarea rows={2} value={draft.objective} onChange={(e) => setDraft({ ...draft, objective: e.target.value })} className="mt-1 text-[13px]" />
+              <Textarea rows={2} value={draft.objective} onChange={(e) => setDraft({ ...draft, objective: e.target.value })} className="mt-1 text-sm" />
             </label>
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('brief.latestResult')}
-              <Textarea rows={2} value={draft.latestResult} onChange={(e) => setDraft({ ...draft, latestResult: e.target.value })} className="mt-1 text-[13px]" />
+              <Textarea rows={2} value={draft.latestResult} onChange={(e) => setDraft({ ...draft, latestResult: e.target.value })} className="mt-1 text-sm" />
             </label>
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('brief.nextStep')}
-              <Textarea rows={2} value={draft.nextStep} onChange={(e) => setDraft({ ...draft, nextStep: e.target.value })} className="mt-1 text-[13px]" />
+              <Textarea rows={2} value={draft.nextStep} onChange={(e) => setDraft({ ...draft, nextStep: e.target.value })} className="mt-1 text-sm" />
             </label>
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('brief.openQuestions')}
-              <Textarea rows={3} value={draft.openQuestions} placeholder={t('brief.openQuestionsHint')} onChange={(e) => setDraft({ ...draft, openQuestions: e.target.value })} className="mt-1 text-[13px]" />
+              <Textarea rows={3} value={draft.openQuestions} placeholder={t('brief.openQuestionsHint')} onChange={(e) => setDraft({ ...draft, openQuestions: e.target.value })} className="mt-1 text-sm" />
             </label>
-            <label className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            <label className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
               {t('brief.owner')}
-              <Input value={draft.owner} placeholder={t('brief.ownerPlaceholder')} onChange={(e) => setDraft({ ...draft, owner: e.target.value })} className="mt-1 font-mono text-[12px]" />
+              <Input value={draft.owner} placeholder={t('brief.ownerPlaceholder')} onChange={(e) => setDraft({ ...draft, owner: e.target.value })} className="mt-1 font-mono text-xs" />
             </label>
             <div className="flex items-center justify-end gap-2 sm:col-span-2">
               <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setEditing(false)} disabled={saving}>
@@ -267,18 +267,18 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
             </div>
           </div>
         ) : empty ? (
-          <p className="mt-1.5 text-[12px] text-muted-foreground">{t('brief.empty')}</p>
+          <p className="mt-1.5 text-xs text-muted-foreground">{t('brief.empty')}</p>
         ) : (
           <div className="mt-2 grid gap-x-6 gap-y-2 sm:grid-cols-2">
             <div className="sm:col-span-2">{field(t('brief.objective'), brief.objective)}</div>
             {field(t('brief.latestResult'), brief.latestResult)}
             {field(t('brief.nextStep'), brief.nextStep)}
             <div className="min-w-0">
-              <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">{t('brief.openQuestions')}</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('brief.openQuestions')}</div>
               {brief.openQuestions.length === 0 ? (
-                <div className="mt-0.5 text-[13px] text-muted-foreground/60">{t('brief.none')}</div>
+                <div className="mt-0.5 text-sm text-muted-foreground/60">{t('brief.none')}</div>
               ) : (
-                <ul className="mt-0.5 list-disc space-y-0.5 pl-4 text-[13px] leading-snug">
+                <ul className="mt-0.5 list-disc flex flex-col gap-0.5 pl-4 text-sm leading-snug">
                   {brief.openQuestions.map((q, i) => <li key={i} className="break-words">{q}</li>)}
                 </ul>
               )}
@@ -288,7 +288,7 @@ export function WorkBrief({ brief, onSave, agents = [], currentUserEmail = '' }:
         )}
 
         {!editing && updatedLine && (
-          <div className="mt-2 text-[10px] text-muted-foreground">{updatedLine}</div>
+          <div className="mt-2 text-xs text-muted-foreground">{updatedLine}</div>
         )}
       </div>
     </div>

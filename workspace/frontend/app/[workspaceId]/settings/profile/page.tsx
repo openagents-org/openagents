@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Camera, Check, Loader2, LogIn, X } from 'lucide-react';
+import { Camera, Check, LogIn, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { SectionHeader } from '@/components/settings/section-chrome';
 import {
   getAccountProfile, updateAccountProfile, type AccountProfile,
@@ -78,7 +79,7 @@ export default function ProfileSettingsPage() {
 
   if (!authLoading && !user) {
     return (
-      <div className="space-y-8">
+      <div className="flex flex-col gap-8">
         <SectionHeader title={t('profile.title')} description={t('profile.description')} />
         <div className="flex flex-col items-start gap-3 rounded-lg border p-4">
           <p className="text-sm text-muted-foreground">{t('profile.signInPrompt')}</p>
@@ -94,7 +95,7 @@ export default function ProfileSettingsPage() {
   if (!profile) {
     return (
       <div className="flex items-center justify-center py-16">
-        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <Spinner className="size-5 text-muted-foreground" />
       </div>
     );
   }
@@ -140,7 +141,7 @@ export default function ProfileSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('profile.title')} description={t('profile.description')} />
 
       <div className="flex items-start gap-5 rounded-lg border p-4">
@@ -174,17 +175,17 @@ export default function ProfileSettingsPage() {
           />
         </div>
 
-        <div className="min-w-0 flex-1 space-y-3">
-          <div className="space-y-1">
-            <Label>{t('profile.displayName')}</Label>
+        <div className="min-w-0 flex-1 flex flex-col gap-3">
+          <Field>
+            <FieldLabel>{t('profile.displayName')}</FieldLabel>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder={t('profile.displayNamePlaceholder')}
               maxLength={120}
             />
-            <p className="text-xs text-muted-foreground">{t('profile.displayNameHint')}</p>
-          </div>
+            <FieldDescription>{t('profile.displayNameHint')}</FieldDescription>
+          </Field>
           <p className="text-xs text-muted-foreground">{profile.email}</p>
           {((profile.avatarUrl && profile.avatarUrl !== user?.photoURL) || avatarDraft) && (
             <Button variant="ghost" size="sm" onClick={() => setAvatarDraft('')}>
@@ -204,7 +205,7 @@ export default function ProfileSettingsPage() {
           disabled={saving || !dirty || !name.trim()}
         >
           {saving ? (
-            <><Loader2 className="size-4 animate-spin" />{t('common.saving')}</>
+            <><Spinner />{t('common.saving')}</>
           ) : justSaved && !dirty ? (
             <><Check className="size-4" />{t('common.saved')}</>
           ) : (

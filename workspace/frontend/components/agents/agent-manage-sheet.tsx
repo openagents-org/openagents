@@ -8,7 +8,8 @@
 // may use the agent) with add / revoke.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpen, Check, CheckSquare, Loader2, Play, Square } from 'lucide-react';
+import { BookOpen, Check, CheckSquare, Play, Square } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import {
   Sheet,
@@ -20,10 +21,10 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -200,38 +201,38 @@ export function AgentManageSheet({
           <SheetDescription>{t('collab.manageDescription')}</SheetDescription>
         </SheetHeader>
 
-        <SheetBody className="flex-1 space-y-6 overflow-y-auto px-5 py-4">
+        <SheetBody className="flex-1 flex flex-col gap-6 overflow-y-auto px-5 py-4">
           {/* Profile */}
-          <section className="space-y-3">
+          <section className="flex flex-col gap-3">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('collab.profileSection')}</h4>
-            <div className="space-y-1.5">
-              <Label>{t('collab.purposeLabel')}</Label>
+            <Field>
+              <FieldLabel>{t('collab.purposeLabel')}</FieldLabel>
               <Textarea rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} placeholder={t('collab.purposePlaceholder')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('collab.exampleRequestsLabel')}</Label>
+            </Field>
+            <Field>
+              <FieldLabel>{t('collab.exampleRequestsLabel')}</FieldLabel>
               <Textarea rows={3} value={examples} onChange={(e) => setExamples(e.target.value)} placeholder={t('collab.exampleRequestsPlaceholder')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>{t('collab.requiredInputsLabel')}</Label>
+            </Field>
+            <Field>
+              <FieldLabel>{t('collab.requiredInputsLabel')}</FieldLabel>
               <Textarea rows={2} value={requiredInputs} onChange={(e) => setRequiredInputs(e.target.value)} placeholder={t('collab.requiredInputsPlaceholder')} />
-            </div>
+            </Field>
 
             {/* v1.1 M4: the scope teammates' requests run under */}
             {canEditScope && (
               <>
-                <div className="space-y-1.5">
-                  <Label>{t('collab.sharedInstructionsLabel')}</Label>
+                <Field>
+                  <FieldLabel>{t('collab.sharedInstructionsLabel')}</FieldLabel>
                   <Textarea
                     rows={4}
                     value={sharedInstructions}
                     onChange={(e) => setSharedInstructions(e.target.value)}
                     placeholder={t('collab.sharedInstructionsPlaceholder')}
                   />
-                  <p className="text-[11px] text-muted-foreground">{t('collab.sharedInstructionsHint')}</p>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>{t('collab.allowedKnowledgeLabel')}</Label>
+                  <FieldDescription>{t('collab.sharedInstructionsHint')}</FieldDescription>
+                </Field>
+                <Field>
+                  <FieldLabel>{t('collab.allowedKnowledgeLabel')}</FieldLabel>
                   {knowledgeOptions.length === 0 ? (
                     <p className="text-sm text-muted-foreground">{t('collab.allowedKnowledgeEmpty')}</p>
                   ) : (
@@ -254,51 +255,51 @@ export function AgentManageSheet({
                                 ? <CheckSquare className="size-4 shrink-0 text-primary" />
                                 : <Square className="size-4 shrink-0 text-muted-foreground" />}
                               <span className="min-w-0 flex-1 truncate">{k.title}</span>
-                              <span className="shrink-0 font-mono text-[10px] text-muted-foreground">{k.slug}</span>
+                              <span className="shrink-0 font-mono text-xs text-muted-foreground">{k.slug}</span>
                             </button>
                           </li>
                         );
                       })}
                     </ul>
                   )}
-                  <p className="text-[11px] text-muted-foreground">
+                  <FieldDescription>
                     {t('collab.allowedKnowledgeHint')}
                     {knowledgeOptions.length > 0 && ` · ${t('collab.allowedKnowledgeSelected', { count: allowedKnowledge.length })}`}
-                  </p>
-                </div>
+                  </FieldDescription>
+                </Field>
               </>
             )}
 
             <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label>{t('collab.costOwnerLabel')}</Label>
+              <Field>
+                <FieldLabel>{t('collab.costOwnerLabel')}</FieldLabel>
                 <Select value={costOwner} onValueChange={(v) => setCostOwner(v as CostOwner)}>
                   <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="owner">{t('collab.costOwnerOptionOwner')}</SelectItem>
+                    <SelectGroup><SelectItem value="owner">{t('collab.costOwnerOptionOwner')}</SelectItem>
                     <SelectItem value="workspace">{t('collab.costOwnerOptionWorkspace')}</SelectItem>
-                    <SelectItem value="requester">{t('collab.costOwnerOptionRequester')}</SelectItem>
+                    <SelectItem value="requester">{t('collab.costOwnerOptionRequester')}</SelectItem></SelectGroup>
                   </SelectContent>
                 </Select>
-              </div>
+              </Field>
             </div>
-            <div className="space-y-1.5">
-              <Label>{t('collab.ownerLabel')}</Label>
+            <Field>
+              <FieldLabel>{t('collab.ownerLabel')}</FieldLabel>
               <Select value={owner} onValueChange={setOwner}>
                 <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={NO_OWNER}>{t('collab.ownerNone')}</SelectItem>
+                  <SelectGroup><SelectItem value={NO_OWNER}>{t('collab.ownerNone')}</SelectItem>
                   {ownerOptions.map((email) => (
                     <SelectItem key={email} value={email}>
                       {ownerName(email)}{ownerName(email) !== email && <span className="ms-1.5 text-xs text-muted-foreground">{email}</span>}
                     </SelectItem>
-                  ))}
+                  ))}</SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
-            {canEditScope && <div className="space-y-2 rounded-md border p-3">
-              <Label htmlFor="service-request-reviewer">{t('collab.requestApprovalTitle')}</Label>
-              <p className="text-xs text-muted-foreground">{t('collab.requestApprovalHint')}</p>
+            </Field>
+            {canEditScope && <Field className="rounded-md border p-3">
+              <FieldLabel htmlFor="service-request-reviewer">{t('collab.requestApprovalTitle')}</FieldLabel>
+              <FieldDescription>{t('collab.requestApprovalHint')}</FieldDescription>
               <select id="service-request-reviewer" className="h-9 w-full rounded-md border bg-background px-3 text-sm"
                 value={requestApprover} onChange={(e) => setRequestApprover(e.target.value)} disabled={members === null}>
                 <option value="">{t('collab.requestApprovalOff')}</option>
@@ -307,21 +308,21 @@ export function AgentManageSheet({
                 ))}
                 {requestApprover && !(members || []).some((m) => m.email === requestApprover) && <option value={requestApprover}>{requestApprover}</option>}
               </select>
-            </div>}
+            </Field>}
             <Button size="sm" onClick={saveProfile} disabled={saving}>
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Check className="size-3.5" />}
+              {saving ? <Spinner className="size-3.5" /> : <Check className="size-3.5" />}
               {t('collab.saveProfile')}
             </Button>
           </section>
 
           {/* v1.1 M4: what teammates see + test request */}
           {canEditScope && (
-            <section className="space-y-3">
+            <section className="flex flex-col gap-3">
               <div>
                 <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('collab.teammatePreviewTitle')}</h4>
-                <p className="text-[11px] text-muted-foreground">{t('collab.teammatePreviewHint')}</p>
+                <p className="text-xs text-muted-foreground">{t('collab.teammatePreviewHint')}</p>
               </div>
-              <div className="space-y-2.5 rounded-md border bg-muted/40 p-3 text-sm">
+              <div className="flex flex-col gap-2.5 rounded-md border bg-muted/40 p-3 text-sm">
                 <div className="flex items-center gap-2">
                   <AgentAvatar name={entry.agent_name} size={24} />
                   <span className="min-w-0 truncate font-medium">{name}</span>
@@ -332,8 +333,8 @@ export function AgentManageSheet({
                 </p>
                 {previewExamples.length > 0 && (
                   <div>
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.exampleRequests')}</p>
-                    <ul className="mt-0.5 space-y-0.5">
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('collab.exampleRequests')}</p>
+                    <ul className="mt-0.5 flex flex-col gap-0.5">
                       {previewExamples.map((ex) => (
                         <li key={ex} className="truncate text-muted-foreground">“{ex}”</li>
                       ))}
@@ -342,12 +343,12 @@ export function AgentManageSheet({
                 )}
                 {requiredInputs.trim() && (
                   <div>
-                    <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.requiredInputs')}</p>
+                    <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('collab.requiredInputs')}</p>
                     <p className="text-muted-foreground">{requiredInputs.trim()}</p>
                   </div>
                 )}
                 <div>
-                  <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.teammatePreviewInstructions')}</p>
+                  <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('collab.teammatePreviewInstructions')}</p>
                   <p className={cn('whitespace-pre-wrap text-muted-foreground', !instructionsSummary && 'italic')}>
                     {instructionsSummary || t('collab.teammatePreviewNoInstructions')}
                   </p>
@@ -359,12 +360,12 @@ export function AgentManageSheet({
                     : t('collab.teammatePreviewNoKnowledge')}
                 </p>
               </div>
-              <div className="space-y-1">
+              <div className="flex flex-col gap-1">
                 <Button size="sm" variant="outline" onClick={runTestRequest} disabled={!firstExample}>
                   <Play className="size-3.5" />
                   {t('collab.runTestRequest')}
                 </Button>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   {firstExample ? t('collab.runTestRequestHint', { agent: name }) : t('collab.runTestRequestNeedsExample')}
                 </p>
               </div>

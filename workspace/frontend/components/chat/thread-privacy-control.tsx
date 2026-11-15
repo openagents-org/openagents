@@ -8,10 +8,11 @@
 // 'workspace' visibility reads as Public (permission-model-v1.md §2).
 
 import { useCallback, useEffect, useState } from 'react';
-import { ChevronDown, Globe, Loader2, Lock, LogIn } from 'lucide-react';
+import { ChevronDown, Globe, Lock, LogIn } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import {
-  DropdownMenu,
+  DropdownMenuGroup, DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -127,24 +128,24 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
       title={isPrivate ? t('threadAccess.privateHint') : t('threadAccess.publicHint')}
       className={cn(
         'inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 transition-colors',
-        manage && 'hover:bg-zinc-200 dark:hover:bg-zinc-700',
+        manage && 'hover:bg-muted',
         'disabled:opacity-100 disabled:cursor-default',
         isPrivate && 'text-foreground/80',
       )}
     >
       {isPrivate ? <Lock className="size-3" /> : <Globe className="size-3" />}
       <span>{label}</span>
-      {manage && (busy ? <Loader2 className="size-3 animate-spin opacity-60" /> : <ChevronDown className="size-3 opacity-60" />)}
+      {manage && (busy ? <Spinner className="size-3 opacity-60" /> : <ChevronDown className="size-3 opacity-60" />)}
     </button>
   );
 
   return (
-    <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground', className)}>
+    <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground', className)}>
       {!joinOnly && (manage ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
           <DropdownMenuContent align="start" className={inDialog ? "z-70 w-72" : "w-72"}>
-            <DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start gap-2.5 py-2">
+            <DropdownMenuGroup><DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start gap-2.5 py-2">
               <Globe className="mt-0.5 size-4 shrink-0" />
               <div className="min-w-0">
                 <div className="text-sm">{isPrivate ? t('threadAccess.makePublic') : t('threadAccess.public')}</div>
@@ -157,7 +158,7 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
                 <div className="text-sm">{isPrivate ? t('threadAccess.private') : t('threadAccess.makePrivate')}</div>
                 <div className="text-xs text-muted-foreground">{t('threadAccess.privateHint')}</div>
               </div>
-            </DropdownMenuItem>
+            </DropdownMenuItem></DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : trigger)}
@@ -177,7 +178,7 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
           title={t('threadAccess.notJoinedHint')}
           className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
         >
-          {joining ? <Loader2 className="size-3 animate-spin" /> : <LogIn className="size-3" />}
+          {joining ? <Spinner className="size-3" /> : <LogIn className="size-3" />}
           {joining ? t('threadAccess.joining') : t('threadAccess.join')}
         </button>
       )}

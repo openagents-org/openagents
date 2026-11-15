@@ -1,7 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, Laptop, Loader2, Monitor, Server } from 'lucide-react';
+import { AlertCircle, ArrowRight, CheckCircle2, Laptop, Monitor, Server } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
@@ -122,7 +125,7 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
     : phase === 'ready' && editable ? t('onboarding.computerStatus.notJoined', { workspace: workspaceName })
     : null;
   return (
-    <div className="space-y-8" data-testid="desktop-computer-onboarding">
+    <div className="flex flex-col gap-8" data-testid="desktop-computer-onboarding">
       <div className="text-center">
         <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
           <Laptop className="size-7" />
@@ -133,24 +136,32 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
       {/* Stacked, never side by side: this computer is the main path, so its
           button is the first thing under the title wherever this renders. */}
       <div className="grid gap-5">
-        <div className="flex min-w-0 flex-col gap-5 rounded-2xl border bg-card p-6">
-          <div className="flex items-center gap-4">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted"><Monitor className="size-6" /></div>
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold">{t('onboarding.thisComputer')}</h2>
-              <p className="mt-1 truncate text-xs text-muted-foreground" title={computer?.hostname}>{computer?.hostname || t('onboarding.appReady')}</p>
-            </div>
-          </div>
-          <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 shrink-0 text-emerald-500" />{t('onboarding.appReady')}</p>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Monitor className="size-5" /></span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                {t('onboarding.thisComputer')}
+                <span className="truncate text-xs font-normal text-muted-foreground" title={computer?.hostname}>{computer?.hostname || t('onboarding.appReady')}</span>
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col gap-4">
+          <p className="flex items-center gap-1.5 text-xs text-muted-foreground"><CheckCircle2 className="size-3.5 shrink-0 text-success" />{t('onboarding.appReady')}</p>
           <p className="text-sm leading-relaxed text-muted-foreground">{t('onboarding.computerPermission')}</p>
           {status && <p role="status" data-testid="desktop-computer-status" className="text-sm font-medium">{status}</p>}
 
-          {error && <p role="alert" className="text-sm text-destructive">{t(`onboarding.computerError.${error}`)}</p>}
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>{t(`onboarding.computerError.${error}`)}</AlertDescription>
+            </Alert>
+          )}
           {!editable && phase === 'ready' && <p className="text-sm text-muted-foreground">{t('onboarding.computerAdminRequired')}</p>}
 
           <div className="mt-auto pt-1">
             {phase === 'loading' ? (
-              <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('onboarding.checkingComputer')}</div>
+              <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner />{t('onboarding.checkingComputer')}</div>
             ) : error === 'load' || error === 'offline' ? (
               <div className="flex flex-wrap gap-2">
                 {/* Offline goes back through connect: the desktop app then
@@ -161,28 +172,33 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
               </div>
             ) : (
               <Button className="min-h-11 w-full whitespace-normal" onClick={connect} disabled={!editable || working}>
-                {working ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Laptop className="size-4 shrink-0" />}
+                {working ? <Spinner className="shrink-0" /> : <Laptop className="size-4 shrink-0" />}
                 {t(phase === 'connecting' ? 'onboarding.connectingComputer' : phase === 'waiting' ? 'onboarding.waitingComputer' : 'onboarding.connectComputerToWorkspace')}
                 {!working && <ArrowRight className="size-4 shrink-0" />}
               </Button>
             )}
           </div>
-        </div>
-        <div className="flex min-w-0 flex-col gap-5 rounded-2xl border bg-card p-6">
-          <div className="flex items-center gap-4">
-            <div className="flex size-12 shrink-0 items-center justify-center rounded-xl bg-muted"><Server className="size-6" /></div>
-            <div className="min-w-0">
-              <h2 className="text-base font-semibold">{t('onboarding.otherDevice')}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{t('onboarding.otherDeviceTypes')}</p>
-            </div>
-          </div>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-3">
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-muted"><Server className="size-5" /></span>
+              <span className="flex min-w-0 flex-col gap-0.5">
+                {t('onboarding.otherDevice')}
+                <span className="text-xs font-normal text-muted-foreground">{t('onboarding.otherDeviceTypes')}</span>
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-1 flex-col gap-4">
           <p className="text-sm leading-relaxed text-muted-foreground">{t('onboarding.otherDeviceBody')}</p>
           {/* Secondary on purpose: connecting the computer in use is the main
               path, so only that card carries a filled button. */}
           <Button variant="outline" className="mt-auto min-h-11 w-full whitespace-normal" onClick={onOtherDevice} disabled={working}>
             <Server className="size-4 shrink-0" />{t('onboarding.connectOtherDevice')}<ArrowRight className="size-4 shrink-0" />
           </Button>
-        </div>
+          </CardContent>
+        </Card>
       </div>
       <p className="text-center text-xs text-muted-foreground">{t('onboarding.computerNext')}</p>
     </div>

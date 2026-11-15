@@ -28,7 +28,7 @@ export function IssueContextPicker({ value, onChange, disabled }: {
     setQuery('');
     setActive(0);
   };
-  return <div className="space-y-2" onBlur={event => {
+  return <div className="flex flex-col gap-2" onBlur={event => {
     if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
   }}>
     <label htmlFor={id} className="flex items-center gap-1.5 text-xs font-medium"><BookOpen className="size-3.5" />{t('issueWork.context')}</label>

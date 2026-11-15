@@ -152,7 +152,7 @@ export function IssueMentionInput({
               : 'absolute bottom-full left-0 mb-2',
           )}
         >
-          <div className="border-b border-border/60 px-3 py-2 text-[11px] font-medium text-muted-foreground">
+          <div className="border-b border-border/60 px-3 py-2 text-xs font-medium text-muted-foreground">
             {t('issues.mentionPeopleAndAgents')}
           </div>
           <div
@@ -187,12 +187,12 @@ export function IssueMentionInput({
                     {option.name}
                   </span>
                   {(option.kind === 'agent' || option.token.includes('@')) && (
-                    <span className="block truncate text-[11px] text-muted-foreground">
+                    <span className="block truncate text-xs text-muted-foreground">
                       {option.token}
                     </span>
                   )}
                 </span>
-                <span className="text-[10px] text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {t(
                     option.kind === 'human'
                       ? 'issues.mentionPerson'

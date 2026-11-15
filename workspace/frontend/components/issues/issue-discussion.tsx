@@ -261,7 +261,7 @@ export function IssueDiscussion({
                     <ChevronDown className="pointer-events-none absolute right-2 size-3 text-muted-foreground" />
                   </div>
                 </div>
-                <h1 className="max-w-[32ch] break-words text-[24px] font-semibold leading-[1.35] tracking-[-0.025em] sm:text-[27px]">
+                <h1 className="max-w-[32ch] break-words text-2xl font-semibold leading-[1.35] tracking-[-0.025em] sm:text-3xl">
                   {issue.title}
                   {issue.number != null && <span className="ml-2 font-normal text-muted-foreground">#{issue.number}</span>}
                 </h1>
@@ -282,10 +282,10 @@ export function IssueDiscussion({
                     {issueTime.label(issue.created_at)}
                   </time>
                 </div>
-                <div className="mt-3 space-y-2 border-y border-border/60 py-2">
+                <div className="mt-3 flex flex-col gap-2 border-y border-border/60 py-2">
                   <div className="grid grid-cols-1 items-center gap-x-5 gap-y-1 sm:grid-cols-2">
                     <IssueProperties issue={issue} busy={busy} update={values => void mutate(() => workspaceApi.updateIssue(id, { ...values, ...identity }))} />
-                    <label className="flex min-w-0 items-center gap-2 text-[11px] font-medium text-muted-foreground">
+                    <label className="flex min-w-0 items-center gap-2 text-xs font-medium text-muted-foreground">
                       <span className="shrink-0">{t('threadSettings.shareMyAgents')}</span>
                       <select className={cn(selectClass, 'h-8 min-w-0 flex-1 border-transparent bg-transparent px-1.5 text-xs font-normal hover:border-border')} aria-label={t('threadSettings.shareMyAgents')}
                         value={issue.agent_sharing_mode || 'no'} disabled={busy}
@@ -374,7 +374,7 @@ export function IssueDiscussion({
               {/* Issue text is typed in a plain textarea, where Enter means a new
                   line; Markdown would fold a single newline into a space. Only
                   paragraphs keep them, so lists and code blocks are untouched. */}
-              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-[13px] leading-7 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
+              <article className="mb-10 min-w-0 [overflow-wrap:anywhere] text-sm leading-7 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line [&_.markdown-content>p]:leading-7 [&_.markdown-content>ul]:leading-7 [&_.markdown-content>*:first-child]:mt-0">
                 {issue.description ? (
                   <MarkdownContent
                     content={issue.description}
@@ -401,16 +401,16 @@ export function IssueDiscussion({
                   <h2 className="text-xs font-semibold">
                     {t('issues.discussion')}
                   </h2>
-                  <span className="ml-1 text-[11px] tabular-nums text-muted-foreground">
+                  <span className="ml-1 text-xs tabular-nums text-muted-foreground">
                     {issue.comments.filter((c) => c.kind !== 'status').length}
                   </span>
                 </div>
                 {issue.comments.length === 0 && (
-                  <p className="mb-7 text-[13px] leading-6 text-muted-foreground">
+                  <p className="mb-7 text-sm leading-6 text-muted-foreground">
                     {t('issues.noComments')}
                   </p>
                 )}
-                <div className="relative space-y-6 before:absolute before:bottom-4 before:left-[13px] before:top-3 before:w-px before:bg-border/60">
+                <div className="relative flex flex-col gap-6 before:absolute before:bottom-4 before:left-[13px] before:top-3 before:w-px before:bg-border/60">
                   {issue.comments.map((c) => {
                     if (c.approval) return <ApprovalCard key={c.id} approval={c.approval} onResolved={() => void refresh()} />;
                     const name = c.author_name || authorName(c.author);
@@ -446,7 +446,7 @@ export function IssueDiscussion({
                                   ),
                                 })
                               : c.kind === 'due_date' ? (c.content ? t('issues.dueDateSet', { date: c.content }) : t('issues.dueDateRemoved')) : t('issues.workStarted')}
-                            <span className="ml-2 whitespace-nowrap text-[11px] text-muted-foreground/70">
+                            <span className="ml-2 whitespace-nowrap text-xs text-muted-foreground/70">
                               {timeAgo(c.created_at)}
                             </span>
                             {c.kind === 'activity' && (
@@ -472,23 +472,23 @@ export function IssueDiscussion({
                           <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
                             <span className="font-medium">{name}</span>
                             {c.kind === 'result' && (
-                              <span className="rounded border border-border/60 px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                              <span className="rounded border border-border/60 px-1.5 py-0.5 text-xs text-muted-foreground">
                                 {t('issues.agentResult')}
                               </span>
                             )}
                             <time
                               dateTime={c.created_at}
-                              className="text-[11px] text-muted-foreground"
+                              className="text-xs text-muted-foreground"
                             >
                               {timeAgo(c.created_at)}
                             </time>
                             {c.kind === 'result' && (c.reply_channel_name || c.channel_name) && <button type="button"
-                              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-[11px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                              className="ml-auto inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                               onClick={() => { setCurrentSessionId(c.reply_channel_name || c.channel_name!); openView('threads'); }}>
                               {t('issues.openInThread')}<ArrowUpRight className="size-3" />
                             </button>}
                           </div>
-                          <div className="text-[13px] leading-6 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line">
+                          <div className="text-sm leading-6 text-foreground/85 [&_.markdown-content_p]:whitespace-pre-line">
                             {c.content && <MarkdownContent
                               content={c.content}
                               agentNames={agentNames}
@@ -573,7 +573,7 @@ export function IssueDiscussion({
                       mentions={mentions.filter((m) => m.kind === 'human' || people.has(m.source) || usableAgents.has(m.source))}
                       readOnly={busy}
                       id={`issue-comment-${id}`}
-                      className="min-h-24 resize-y rounded-none border-0 px-4 py-3 text-[13px] shadow-none focus-visible:ring-0"
+                      className="min-h-24 resize-y rounded-none border-0 px-4 py-3 text-sm shadow-none focus-visible:ring-0"
                       value={comment}
                       maxLength={50000}
                       onValueChange={setComment}

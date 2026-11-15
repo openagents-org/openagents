@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import {
-  Loader2,
   Maximize,
   Minimize,
   Pause,
@@ -14,6 +13,7 @@ import {
   Volume2,
   VolumeX,
 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -721,7 +721,7 @@ export function AudioStage({
             </div>
           </div>
 
-          <div className="w-full max-w-2xl shrink-0 space-y-3">
+          <div className="w-full max-w-2xl shrink-0 flex flex-col gap-3">
             {waveform === 'analysing' ? (
               <WaveformPlaceholder />
             ) : peaks ? (
@@ -773,7 +773,7 @@ export function AudioStage({
               style={{ background: color }}
             >
               {locked ? (
-                <Loader2 className="size-6 animate-spin" />
+                <Spinner className="size-6" />
               ) : player.playing ? (
                 <Pause className="size-6" />
               ) : (
@@ -952,7 +952,7 @@ export function VideoStage({
                 style={locked || player.buffering ? undefined : { background: color }}
               >
                 {locked || player.buffering ? (
-                  <Loader2 className="size-8 animate-spin text-white" />
+                  <Spinner className="size-8 text-white" />
                 ) : (
                   <Play className="size-9 translate-x-1 text-white" />
                 )}

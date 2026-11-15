@@ -12,7 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/responsive-dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { ArtifactVisibility, KnowledgeEntry } from '@/lib/types';
@@ -93,24 +93,24 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-4">
-          <div className="space-y-2"><Label htmlFor="kb-folder">{t('knowledge.folder')}</Label>
+          <Field><FieldLabel htmlFor="kb-folder">{t('knowledge.folder')}</FieldLabel>
             <select id="kb-folder" value={folderPath} onChange={event => setFolderPath(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
               <option value="">{t('knowledge.rootFolder')}</option>
               {folders.map(path => <option key={path} value={path}>/{path}</option>)}
             </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="kb-title">{t('knowledge.fieldTitle')}</Label>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="kb-title">{t('knowledge.fieldTitle')}</FieldLabel>
             <Input
               id="kb-title"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder={t('knowledge.fieldTitlePlaceholder')}
             />
-          </div>
+          </Field>
 
-          <div className="space-y-2">
-            <Label>{t('artifactAccess.visibility')}</Label>
+          <Field>
+            <FieldLabel>{t('artifactAccess.visibility')}</FieldLabel>
             <div className="flex gap-1.5" role="radiogroup" aria-label={t('artifactAccess.visibility')}>
               {(['private', 'public'] as const).map((v) => (
                 <button
@@ -129,14 +129,14 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
                 </button>
               ))}
             </div>
-            <p className="text-xs text-muted-foreground">
+            <FieldDescription>
               {visibility === 'private' ? t('artifactAccess.privateHint') : t('artifactAccess.publicHint')}
               {!isEditing && ` ${t('artifactAccess.newEntryVisibilityHint')}`}
-            </p>
-          </div>
+            </FieldDescription>
+          </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="kb-content">{t('knowledge.fieldContent')}</Label>
+          <Field>
+            <FieldLabel htmlFor="kb-content">{t('knowledge.fieldContent')}</FieldLabel>
             <textarea
               id="kb-content"
               value={content}
@@ -144,7 +144,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
               placeholder={t('knowledge.fieldContentPlaceholder')}
               className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             />
-          </div>
+          </Field>
         </DialogBody>
 
         <DialogFooter>

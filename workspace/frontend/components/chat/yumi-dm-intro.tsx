@@ -16,7 +16,7 @@ export function YumiDmIntro({ agentLabel, onQuick }: {
         <div className="flex items-start gap-3">
           <img src="/yumi-avatar.png" alt="" className="size-8 shrink-0 rounded-full object-cover mt-0.5" draggable={false} />
           <div className="min-w-0 flex-1">
-            <div className="text-[13px] font-semibold leading-tight">{agentLabel}</div>
+            <div className="text-sm font-semibold leading-tight">{agentLabel}</div>
             <p className="mt-1.5 text-sm leading-relaxed">{t('yumiOnboarding.greeting')}</p>
             <YumiAgentLocation />
             <div className="mt-3 flex flex-wrap gap-1.5">

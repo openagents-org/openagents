@@ -255,7 +255,7 @@ export function FileTypeTile({
     >
       <Icon className="size-7 -translate-y-1" style={{ color }} />
       <span
-        className="absolute inset-x-1.5 bottom-1.5 truncate rounded-sm bg-background/70 px-1 py-px text-center text-[9px] leading-tight font-semibold tracking-wide"
+        className="absolute inset-x-1.5 bottom-1.5 truncate rounded-sm bg-background/70 px-1 py-px text-center text-xs leading-tight font-semibold tracking-wide"
         style={{ color }}
       >
         {extension}

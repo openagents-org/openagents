@@ -7,7 +7,8 @@
 // are admin-only; everyone else sees the lists.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, Pencil, Plus, Trash2, UsersRound, X } from 'lucide-react';
+import { Pencil, Plus, Trash2, UsersRound, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -125,7 +126,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
   };
 
   return (
-    <div className="space-y-4">
+    <div className="flex flex-col gap-4">
       <div>
         <Label className="font-normal">{t('groups.title')}</Label>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('groups.description')}</p>
@@ -143,7 +144,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
             className="flex-1"
           />
           <Button onClick={create} disabled={creating || !newName.trim()}>
-            {creating ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            {creating ? <Spinner /> : <Plus className="size-4" />}
             {t('groups.create')}
           </Button>
         </div>
@@ -151,7 +152,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
 
       {groups === null ? (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <Spinner className="size-5 text-muted-foreground" />
         </div>
       ) : loadFailed ? (
         <p className="py-3 text-sm text-destructive">{t('groups.loadFailed')}</p>
@@ -191,7 +192,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
                   {editable && !builtin && (
                     <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
                       {busyId === g.id ? (
-                        <Loader2 className="size-3.5 animate-spin text-muted-foreground" />
+                        <Spinner className="size-3.5 text-muted-foreground" />
                       ) : (
                         <>
                           <Button variant="ghost" size="icon" className="size-7" onClick={() => rename(g)} title={t('groups.rename')}>
@@ -311,7 +312,7 @@ function GroupMembers({
   };
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-3">
       <div>
         <p className="text-sm font-medium">{title}</p>
         {derived && <p className="mt-0.5 text-xs text-muted-foreground">{t('groups.derivedMembership')}</p>}
@@ -319,7 +320,7 @@ function GroupMembers({
 
       {list === null ? (
         <div className="flex items-center justify-center py-6">
-          <Loader2 className="size-4 animate-spin text-muted-foreground" />
+          <Spinner className="text-muted-foreground" />
         </div>
       ) : failed ? (
         <p className="text-sm text-destructive">{t('groups.membersLoadFailed')}</p>
@@ -335,7 +336,7 @@ function GroupMembers({
                 {isAgent ? (
                   <AgentAvatar name={m.principal_id} size={24} />
                 ) : (
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[11px] font-semibold text-primary">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
                     {name[0]?.toUpperCase()}
                   </span>
                 )}
@@ -363,7 +364,7 @@ function GroupMembers({
       )}
 
       {editable && (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           <GranteePicker
             value={picked}
             onChange={setPicked}
@@ -373,7 +374,7 @@ function GroupMembers({
           />
           {picked.length > 0 && (
             <Button size="sm" onClick={add} disabled={adding}>
-              {adding ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+              {adding ? <Spinner className="size-3.5" /> : <Plus className="size-3.5" />}
               {t('groups.addMembers')}
             </Button>
           )}

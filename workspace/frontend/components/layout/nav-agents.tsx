@@ -140,7 +140,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         />
                       </span>
                       <span className="min-w-0 truncate" data-truncatable>{agentLabel(agent)}</span>
-                      {!isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
+                      {!isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-xs text-muted-foreground group-data-[collapsible=icon]:hidden" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
                       {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />

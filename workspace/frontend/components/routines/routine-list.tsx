@@ -145,8 +145,8 @@ export function RoutineList() {
                   className={cn(
                     'group w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors border-b border-border/50',
                     isSelected
-                      ? 'bg-zinc-100 dark:bg-zinc-800'
-                      : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                      ? 'bg-muted'
+                      : 'hover:bg-muted'
                   )}
                   onClick={() => handleSelect(routine.channelName)}
                 >
@@ -155,9 +155,9 @@ export function RoutineList() {
                     <div className={cn('text-sm font-medium truncate', isPaused && 'text-muted-foreground')}>
                       {routine.name}
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{formatSchedule(routine)}</div>
-                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">{routine.message}</div>
-                    <div className="text-[10px] text-muted-foreground/60 mt-1">
+                    <div className="text-xs text-muted-foreground mt-0.5">{formatSchedule(routine)}</div>
+                    <div className="text-xs text-muted-foreground truncate mt-0.5">{routine.message}</div>
+                    <div className="text-xs text-muted-foreground/60 mt-1">
                       {isPaused
                         ? t('routines.paused')
                         : t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
@@ -182,7 +182,7 @@ export function RoutineList() {
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleCancel(routine.id); }}
-                      className="md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors"
+                      className="md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
                       title={t('routines.cancel')}
                     >
                       <Trash2 className="size-3" />

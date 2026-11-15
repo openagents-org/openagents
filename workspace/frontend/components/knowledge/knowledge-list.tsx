@@ -224,7 +224,7 @@ export function KnowledgeList() {
                   </p>
                 )}
                 <div className="mt-2 flex min-h-6 items-center gap-2 pr-20">
-                  <span className="truncate text-[11px] text-muted-foreground">
+                  <span className="truncate text-xs text-muted-foreground">
                     {timeAgo(entry.updatedAt || entry.createdAt)}
                   </span>
                   <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />

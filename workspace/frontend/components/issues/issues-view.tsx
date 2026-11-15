@@ -236,9 +236,9 @@ function IssueWorkspace() {
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
-        isSelected && 'relative bg-blue-50 hover:bg-blue-50 dark:bg-blue-950/40 dark:hover:bg-blue-950/40 ring-1 ring-inset ring-blue-300 dark:ring-blue-700 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-blue-500',
+        isSelected && 'relative bg-info/10 hover:bg-info/10 ring-1 ring-inset ring-info/30 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-info',
         working && !isSelected && 'thread-wip',
-        finished && !isSelected && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
+        finished && !isSelected && 'bg-warning/10 ring-1 ring-inset ring-warning/30 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       <StatusIcon
@@ -253,13 +253,13 @@ function IssueWorkspace() {
           {issue.number != null && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{issue.number}</span>}
           <span
             className={cn(
-              'min-w-0 text-[13px] font-medium leading-5 text-foreground',
+              'min-w-0 text-sm font-medium leading-5 text-foreground',
               asCard ? 'line-clamp-3' : 'truncate',
             )}
           >
             {issue.title}
           </span>
-          {!!unreadByIssue[issue.id] && <span aria-label={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} title={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium tabular-nums text-white">{unreadByIssue[issue.id] > 99 ? '99+' : unreadByIssue[issue.id]}</span>}
+          {!!unreadByIssue[issue.id] && <span aria-label={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} title={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium tabular-nums text-white">{unreadByIssue[issue.id] > 99 ? '99+' : unreadByIssue[issue.id]}</span>}
           {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
           </div>
           {!asCard && (
@@ -268,9 +268,9 @@ function IssueWorkspace() {
             </span>
           )}
         </div>
-        {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-[11px] text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
+        {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-xs text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
         {(working || finished) && <span role="status" className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          {working ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span> : <Check aria-hidden="true" className="size-3 text-amber-600 dark:text-amber-400" />}
+          {working ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span> : <Check aria-hidden="true" className="size-3 text-warning" />}
           {workingAgents.length > 0 && <span className="inline-flex items-center -space-x-1" aria-hidden="true">{workingAgents.map(agent => <AgentAvatar key={agent.agentName} name={agent.agentName} size={16} />)}</span>}
           {workingAgents.length ? t('issueWork.working', { agents: workingAgents.map(agentLabel).join(', ') }) : t(working ? 'chat.agentWorking' : 'issueWork.finished')}
         </span>}
@@ -286,7 +286,7 @@ function IssueWorkspace() {
         )}
         <div
           className={cn(
-            'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-[11px] text-muted-foreground',
+            'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground',
             asCard ? 'mt-4' : 'mt-2',
             'pr-14',
           )}
@@ -502,7 +502,7 @@ function IssueWorkspace() {
                   : 'issues.emptyTitle',
               )}
             </h2>
-            <p className="mt-2 text-[13px] leading-6 text-muted-foreground">
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
               {t(
                 query || assignee || status !== 'all'
                   ? 'issues.noMatchesHint'
@@ -534,7 +534,7 @@ function IssueWorkspace() {
                     {issues.filter((issue) => issue.status === value).length}
                   </span>
                 </div>
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   {issues
                     .filter((issue) => issue.status === value)
                     .map((issue) => row(issue, true))}

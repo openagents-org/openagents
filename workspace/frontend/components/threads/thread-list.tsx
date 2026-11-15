@@ -3,10 +3,11 @@
 import { toast } from 'sonner';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Loader2, Lock,
+  Archive, ArchiveRestore, ArrowDownAZ, ArrowDownWideNarrow, CheckCircle2, Hash, Lock,
   GitFork, MessageCircle, MessageSquare, MessageSquarePlus, MoreVertical, Pencil, Pin, PinOff, Plus, RefreshCw, Search,
   SlidersHorizontal, Star, Trash2, User, Users, Bot, Wrench, X,
 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { channelSessions, isIssueWorkSession, isRoutineSession, mergeConversationRows } from '@/lib/conversation-list';
 import { agentLabel } from '@/lib/helpers';
@@ -30,6 +31,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
+  DropdownMenuGroup,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -109,7 +111,7 @@ function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; s
         </div>
       ))}
       {extra > 0 && (
-        <div className="flex size-4.5 items-center justify-center rounded-full bg-muted text-[7px] font-medium text-muted-foreground ring-2 ring-background">
+        <div className="flex size-4.5 items-center justify-center rounded-full bg-muted text-xs font-medium text-muted-foreground ring-2 ring-background">
           +{extra}
         </div>
       )}
@@ -130,7 +132,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="rounded-sm bg-amber-200 px-0.5 text-foreground dark:bg-amber-800">
+      <mark className="rounded-sm bg-warning/20 px-0.5 text-foreground">
         {text.slice(idx, idx + query.length)}
       </mark>
       {text.slice(idx + query.length)}
@@ -145,7 +147,7 @@ function MentionPill({ count }: { count: number }) {
   const t = useT();
   return (
     <span
-      className="inline-flex h-4 shrink-0 items-center gap-px rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1.5 text-[10px] leading-none font-semibold text-white tabular-nums"
+      className="inline-flex h-4 shrink-0 items-center gap-px rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1.5 text-xs leading-none font-semibold text-white tabular-nums"
       aria-label={t('slackSignals.mentionCount', { count })}
       title={t('slackSignals.mentionCount', { count })}
     >
@@ -159,7 +161,7 @@ function DmUnreadMarker({ count }: { count: number }) {
   const t = useT();
   return (
     <span
-      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1 text-[10px] leading-none font-semibold text-white tabular-nums"
+      className="inline-flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--color-info-accent,var(--color-violet-500))] px-1 text-xs leading-none font-semibold text-white tabular-nums"
       aria-label={t('slackSignals.dmUnreadCount', { count })}
     >
       {count > 99 ? '99+' : count}
@@ -225,7 +227,7 @@ function ThreadRow({
         // pre-ThreadRow-refactor styling, where it was lost; only the check
         // icon survived). Selection styling wins while the row is open.
         isCompleted && !isSelected &&
-          'rounded-md border-transparent bg-amber-50 dark:bg-amber-900/20 ring-1 ring-inset ring-amber-200/60 dark:ring-amber-700/40 animate-[glow_2s_ease-in-out_infinite]',
+          'rounded-md border-transparent bg-warning/10 ring-1 ring-inset ring-warning/30 animate-[glow_2s_ease-in-out_infinite]',
         muted && 'opacity-60',
       )}
     >
@@ -250,7 +252,7 @@ function ThreadRow({
             {session.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t('threads.channel')} />}
             {session.pinned && <Pin className="size-3 shrink-0 text-muted-foreground" aria-label={t('threads.pinned')} />}
             {session.starred && (
-              <Star className="size-3 shrink-0 fill-amber-400 text-amber-400" />
+              <Star className="size-3 shrink-0 fill-warning text-warning" />
             )}
             {/* v1.1 M1: private thread — only invited people see it */}
             {session.visibility === 'private' && (
@@ -278,18 +280,18 @@ function ThreadRow({
               <MentionPill count={mentionCount} />
             )}
             {isCompleted && !isSelected && (
-              <CheckCircle2 className="size-3 shrink-0 text-amber-500" aria-label={t('threads.finished')} />
+              <CheckCircle2 className="size-3 shrink-0 text-warning" aria-label={t('threads.finished')} />
             )}
             <span
               className={cn(
-                'text-[11px] whitespace-nowrap tabular-nums',
+                'text-xs whitespace-nowrap tabular-nums',
                 isUnread ? 'font-medium text-foreground/70' : 'text-muted-foreground/70',
               )}
             >
               {displayTime}
             </span>
             {shortcutKey && (
-              <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">
+              <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-xs font-medium text-muted-foreground">
                 {shortcutKey}
               </kbd>
             )}
@@ -563,7 +565,7 @@ export function ThreadList() {
       return {
         node: (
           <span className="flex items-center gap-1">
-            {prefix}<Loader2 className="size-3 shrink-0 animate-spin" /> thinking...
+            {prefix}<Spinner className="size-3 shrink-0" /> thinking...
           </span>
         ),
         isStatus: true,
@@ -590,7 +592,7 @@ export function ThreadList() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
-        <DropdownMenuItem
+        <DropdownMenuGroup><DropdownMenuItem
           onClick={async (e) => {
             e.stopPropagation();
             const next = await prompt({
@@ -650,7 +652,7 @@ export function ThreadList() {
             updateSession(session.sessionId, { starred: !session.starred });
           }}
         >
-          <Star className={cn('size-4', session.starred && 'fill-amber-400 text-amber-400')} />
+          <Star className={cn('size-4', session.starred && 'fill-warning text-warning')} />
           <span>{session.starred ? t('threads.unstar') : t('threads.star')}</span>
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -664,9 +666,9 @@ export function ThreadList() {
           {session.status === 'archived'
             ? <><ArchiveRestore className="size-4" /><span>{t('threads.unarchive')}</span></>
             : <><Archive className="size-4" /><span>{t('threads.archive')}</span></>}
-        </DropdownMenuItem>
+        </DropdownMenuItem></DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem
+        <DropdownMenuGroup><DropdownMenuItem
           className="text-destructive focus:text-destructive"
           onClick={(e) => {
             e.stopPropagation();
@@ -675,7 +677,7 @@ export function ThreadList() {
         >
           <Trash2 className="size-4" />
           <span>{t('common.delete')}</span>
-        </DropdownMenuItem>
+        </DropdownMenuItem></DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -777,7 +779,7 @@ export function ThreadList() {
                       className="flex size-4 shrink-0 items-center justify-center rounded-full"
                       style={{ backgroundColor: humanColor(p.email) }}
                     >
-                      <User className="size-2.5 text-zinc-700" />
+                      <User className="size-2.5 text-foreground" />
                     </span>
                     <span className="truncate">{p.name}</span>
                   </DropdownMenuItem>
@@ -858,7 +860,7 @@ export function ThreadList() {
               className="relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full"
             >
               <HumanAvatar email={counterpart ? addressName(counterpart) : rawTitle} />
-              {counterpart && (counterpart === me || onlinePeople.has(addressName(counterpart).toLowerCase())) && <span className="absolute bottom-0 right-0 size-2 rounded-full bg-emerald-500 ring-2 ring-background" aria-label={t('agents.online')} title={t('agents.online')} />}
+              {counterpart && (counterpart === me || onlinePeople.has(addressName(counterpart).toLowerCase())) && <span className="absolute bottom-0 right-0 size-2 rounded-full bg-success ring-2 ring-background" aria-label={t('agents.online')} title={t('agents.online')} />}
             </div>
           ) : (
             <div className="mt-0.5 shrink-0">
@@ -869,17 +871,17 @@ export function ThreadList() {
             <div className="mb-0.5 flex items-center justify-between gap-1">
               <span className={cn('truncate text-sm leading-tight text-foreground', isUnread ? 'font-semibold' : 'font-medium')}>
                 {convo.pinned && <Pin className="mr-1 inline size-3 text-muted-foreground" aria-label={t('threads.pin')} />}
-                {convo.starred && <Star className="mr-1 inline size-3 fill-amber-400 text-amber-400" aria-label={t('threads.star')} />}
+                {convo.starred && <Star className="mr-1 inline size-3 fill-warning text-warning" aria-label={t('threads.star')} />}
                 {title}
               </span>
               <div className="flex shrink-0 items-center gap-1">
-                <span className={cn('text-[11px] tabular-nums', isUnread ? 'font-medium text-foreground/70' : 'text-muted-foreground/70')}>
+                <span className={cn('text-xs tabular-nums', isUnread ? 'font-medium text-foreground/70' : 'text-muted-foreground/70')}>
                   {convo.lastMessage.timestamp
                     ? timeAgo(new Date(convo.lastMessage.timestamp).toISOString())
                     : ''}
                 </span>
                 {signalCount > 0 && <DmUnreadMarker count={signalCount} />}
-                {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
+                {!isSearching && idx + offset < 9 && <kbd className="flex size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-xs font-medium text-muted-foreground">{idx + offset + 1}</kbd>}
               </div>
             </div>
             <p className={cn('truncate text-xs leading-snug', isUnread ? 'text-foreground/80' : 'text-muted-foreground')}>
@@ -901,8 +903,8 @@ export function ThreadList() {
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" onClick={e => e.stopPropagation()} onKeyDown={e => e.stopPropagation()}>
-                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
-                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem>
+                <DropdownMenuGroup><DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { pinned: !convo.pinned })}><Pin className="size-4" />{t(convo.pinned ? 'threads.unpin' : 'threads.pin')}</DropdownMenuItem>
+                <DropdownMenuItem disabled={!!pendingDm} onSelect={() => void changeDMPreference(dmId, { starred: !convo.starred })}><Star className="size-4" />{t(convo.starred ? 'threads.unstar' : 'threads.star')}</DropdownMenuItem></DropdownMenuGroup>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

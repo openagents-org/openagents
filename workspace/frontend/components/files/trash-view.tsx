@@ -180,7 +180,7 @@ export function TrashView() {
             return (
               <div
                 key={entry.trashId}
-                className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+                className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
               >
                 {entry.kind === 'folder' ? (
                   <FolderRowIcon />
@@ -250,7 +250,7 @@ export function TrashView() {
                         onClick={() => handleDelete(entry)}
                         disabled={busy}
                         aria-label={t('trash.deleteItemPermanently', { name: entry.name })}
-                        className="size-6 text-muted-foreground hover:text-red-500"
+                        className="size-6 text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 className="size-3.5" />
                       </Button>

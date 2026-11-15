@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Globe, Loader2, RotateCcw, ExternalLink } from 'lucide-react';
+import { Globe, RotateCcw, ExternalLink } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { BrowserView } from '@/components/browser/browser-view';
 import { Button } from '@/components/ui/button';
 import { workspaceApi } from '@/lib/api';
@@ -34,7 +35,7 @@ function LinkedBrowserPreview({ liveUrl }: { liveUrl: string }) {
     return () => { cancelled = true; };
   }, [liveUrl, active?.id, workspace?.workspaceId]);
   if (active || closed) return <SavedBrowserPreview key={(active || closed)!.id} tabId={(active || closed)!.id} />;
-  if (checking) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin" /></div>;
+  if (checking) return <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>;
   return <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-8 text-center">
     <Globe className="size-6 text-muted-foreground" />
     <h3 className="text-sm font-semibold">{t('artifactPanel.unlinkedBrowser')}</h3>
@@ -77,7 +78,7 @@ function SavedBrowserPreview({ tabId }: { tabId: string }) {
     }
   };
 
-  if (loading) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+  if (loading) return <div className="flex h-full items-center justify-center"><Spinner className="size-5 text-muted-foreground" /></div>;
   if (saved?.status === 'closed') return (
     <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
       <div className="mb-4 rounded-full bg-muted p-3"><Globe className="size-6 text-muted-foreground" /></div>
@@ -89,7 +90,7 @@ function SavedBrowserPreview({ tabId }: { tabId: string }) {
       </div>
       {error && <p role="alert" className="mt-3 text-sm text-destructive">{t('artifactPanel.reopenFailed')}</p>}
       <Button className="mt-5 gap-2" size="sm" disabled={reopening} onClick={() => void reopen()}>
-        {reopening ? <Loader2 className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+        {reopening ? <Spinner className="size-3.5" /> : <RotateCcw className="size-3.5" />}
         {t('artifactPanel.reopenBrowser')}
       </Button>
     </div>

@@ -58,8 +58,8 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
               className={cn(
                 'font-medium rounded px-0.5',
                 selfMention && name === selfMention
-                  ? 'bg-amber-200/80 text-amber-950 dark:bg-amber-400/25 dark:text-amber-100'
-                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'text-blue-600 dark:text-blue-400 bg-blue-500/10' : color.text,
+                  ? 'bg-warning/20 text-warning'
+                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'text-info bg-info/10' : color.text,
               )}
             >
               @{humanNames[name] || agentLabels?.[name] || name}
@@ -109,24 +109,24 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       <h2 className="text-base font-bold mt-3 mb-1.5 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h2>
     ),
     h3: ({ children }) => (
-      <h3 className="font-semibold text-[15px] mt-3 mb-1 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h3>
+      <h3 className="font-semibold text-sm mt-3 mb-1 first:mt-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</h3>
     ),
     p: ({ children }) => (
       <p className="leading-relaxed mb-2 last:mb-0">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</p>
     ),
     blockquote: ({ children }) => (
-      <blockquote className="border-l-2 border-zinc-300 dark:border-zinc-600 pl-3 my-2 text-muted-foreground italic">
+      <blockquote className="border-l-2 border-border pl-3 my-2 text-muted-foreground italic">
         {children}
       </blockquote>
     ),
-    hr: () => <hr className="my-3 border-zinc-200 dark:border-zinc-700" />,
+    hr: () => <hr className="my-3 border-border" />,
 
     // Lists
     ul: ({ children }) => (
-      <ul className="my-2 ml-4 space-y-0.5 list-disc">{children}</ul>
+      <ul className="my-2 ml-4 flex flex-col gap-0.5 list-disc">{children}</ul>
     ),
     ol: ({ children }) => (
-      <ol className="my-2 ml-4 space-y-0.5 list-decimal">{children}</ol>
+      <ol className="my-2 ml-4 flex flex-col gap-0.5 list-decimal">{children}</ol>
     ),
     li: ({ children }) => (
       <li className="leading-relaxed">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</li>
@@ -134,16 +134,16 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 
     // Tables
     table: ({ children }) => (
-      <div className="my-3 overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700">
+      <div className="my-3 overflow-x-auto rounded-md border border-border">
         <table className="min-w-full text-sm">{children}</table>
       </div>
     ),
     thead: ({ children }) => (
-      <thead className="bg-zinc-50 dark:bg-zinc-800/50">{children}</thead>
+      <thead className="bg-muted">{children}</thead>
     ),
     tbody: ({ children }) => <tbody>{children}</tbody>,
     tr: ({ children }) => (
-      <tr className="border-b border-zinc-200 dark:border-zinc-700 last:border-0">
+      <tr className="border-b border-border last:border-0">
         {children}
       </tr>
     ),
@@ -161,13 +161,13 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
       const isBlock = className?.startsWith('language-') || className?.startsWith('hljs');
       if (isBlock) {
         return (
-          <code className={cn('text-[13px]', className)} {...props}>
+          <code className={cn('text-sm', className)} {...props}>
             {children}
           </code>
         );
       }
       return (
-        <code className="text-[13px] px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 font-mono">
+        <code className="text-sm px-1.5 py-0.5 rounded bg-muted font-mono">
           {children}
         </code>
       );
@@ -183,7 +183,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
         );
       }
       return (
-        <pre className="my-2 rounded-md bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 p-3 overflow-x-auto text-[13px] leading-relaxed font-mono">
+        <pre className="my-2 rounded-md bg-muted border border-border p-3 overflow-x-auto text-sm leading-relaxed font-mono">
           {children}
         </pre>
       );

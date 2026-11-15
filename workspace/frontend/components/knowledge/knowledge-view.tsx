@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowLeft, BookOpen, Check, Copy, Loader2, Pencil, Share2 } from 'lucide-react';
+import { ArrowLeft, BookOpen, Check, Copy, Pencil, Share2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { Button } from '@/components/ui/button';
@@ -110,7 +111,7 @@ export function KnowledgeView() {
             <button
               type="button"
               onClick={openMobileList}
-              className="p-1 -ml-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              className="p-1 -ml-1 rounded hover:bg-muted"
             >
               <ArrowLeft className="size-4" />
             </button>
@@ -162,11 +163,11 @@ export function KnowledgeView() {
       <div className="flex-1 overflow-y-auto">
         <article className="w-full px-5 py-7 sm:px-8 sm:py-9">
           <header className="max-w-[70ch]">
-            <h1 className="text-2xl leading-snug font-semibold tracking-tight text-foreground sm:text-[28px]">
+            <h1 className="text-2xl leading-snug font-semibold tracking-tight text-foreground sm:text-3xl">
               {knowledgeTitle(entry.title, sessions)}
             </h1>
             {entry.description && (
-              <p className="mt-2.5 text-[15px] leading-relaxed text-muted-foreground">
+              <p className="mt-2.5 text-sm leading-relaxed text-muted-foreground">
                 {entry.description}
               </p>
             )}
@@ -191,7 +192,7 @@ export function KnowledgeView() {
                 className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-2 py-1 transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {copied ? (
-                  <Check className="size-3 text-green-600 dark:text-green-400" />
+                  <Check className="size-3 text-success" />
                 ) : (
                   <Copy className="size-3" />
                 )}
@@ -207,12 +208,12 @@ export function KnowledgeView() {
           <div className="mt-6 border-t border-border/60 pt-7">
             {loading ? (
               <div className="flex items-center justify-center py-16">
-                <Loader2 className="size-6 animate-spin text-muted-foreground" />
+                <Spinner className="size-6 text-muted-foreground" />
               </div>
             ) : (
               <div
                 className={cn(
-                  'text-[15px] leading-7',
+                  'text-sm leading-7',
                   // Text is held to a readable measure; code blocks, tables and
                   // diagrams (the `div` wrappers MarkdownContent emits) bleed
                   // out to the full column so long curl lines don't need a

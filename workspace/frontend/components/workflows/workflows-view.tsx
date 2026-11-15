@@ -22,6 +22,7 @@ import {
   DialogTitle,
 } from '@/components/ui/responsive-dialog';
 import {
+  DropdownMenuGroup,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -37,7 +38,7 @@ import { AttachmentPicker, KnowledgeContextPicker } from '@/components/tasks/new
 function StepPill({ step }: { step: Workflow['steps'][number] }) {
   const isAgent = step.assignee.kind === 'agent';
   return (
-    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-[11px]">
+    <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-1.5 py-0.5 text-xs">
       {isAgent && step.assignee.agent ? (
         <AgentAvatar name={step.assignee.agent} size={14} />
       ) : (
@@ -45,7 +46,7 @@ function StepPill({ step }: { step: Workflow['steps'][number] }) {
       )}
       <span className="max-w-28 truncate">{step.name}</span>
       {step.knowledge_id && <BookOpen className="size-3 text-muted-foreground" />}
-      {step.gate && <span className="text-amber-500" title={step.gate.condition}>↺</span>}
+      {step.gate && <span className="text-warning" title={step.gate.condition}>↺</span>}
     </span>
   );
 }
@@ -245,9 +246,9 @@ export function WorkflowsView() {
       {templates.map(({ key, loop, tpl }) => (
         <DropdownMenuItem key={key} onClick={() => openTemplate(tpl)} className="flex flex-col items-start gap-0.5">
           <span className="text-xs font-medium">
-            {tpl.name} {loop && <span className="text-amber-500">↺</span>}
+            {tpl.name} {loop && <span className="text-warning">↺</span>}
           </span>
-          <span className="text-[10px] text-muted-foreground">{tpl.steps.map((s) => s.name).join(' → ')}</span>
+          <span className="text-xs text-muted-foreground">{tpl.steps.map((s) => s.name).join(' → ')}</span>
         </DropdownMenuItem>
       ))}
     </>
@@ -271,11 +272,11 @@ export function WorkflowsView() {
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuItem onClick={openCreate} className="text-xs font-medium">
+              <DropdownMenuGroup><DropdownMenuItem onClick={openCreate} className="text-xs font-medium">
                 {t('workflows.blank')}
-              </DropdownMenuItem>
+              </DropdownMenuItem></DropdownMenuGroup>
               <DropdownMenuSeparator />
-              {templateMenuItems}
+              <DropdownMenuGroup>{templateMenuItems}</DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>}
@@ -285,7 +286,7 @@ export function WorkflowsView() {
             <button
               onClick={refreshWorkflows}
               aria-label={t('common.refresh')}
-              className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             >
               <RefreshCw className="size-3.5" />
             </button>
@@ -294,7 +295,7 @@ export function WorkflowsView() {
         </Tooltip>
       </DetailHeader>
 
-      <div role="note" className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+      <div role="note" className="border-b border-warning/30 bg-warning/10 px-4 py-2 text-xs text-warning">
         <span className="font-semibold">{t('workflows.experimentalTitle')}</span>{' '}{t('workflows.experimentalBody')}
       </div>
       <FeatureTourBanner feature="workflows" />
@@ -306,7 +307,7 @@ export function WorkflowsView() {
             <p className="text-sm text-muted-foreground">{t('workflows.emptyTitle')}</p>
             <p className="text-xs text-muted-foreground/60">{t('workflows.emptyBody')}</p>
 
-            <p className="mt-5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+            <p className="mt-5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70">
               {t('workflows.tpl.heading')}
             </p>
             <div className="grid w-full max-w-2xl gap-2.5 sm:grid-cols-3">
@@ -318,10 +319,10 @@ export function WorkflowsView() {
                 >
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs font-semibold leading-snug">{tpl.name}</span>
-                    {loop && <span className="text-amber-500 text-[11px]" title={t('workflows.gateEnable')}>↺</span>}
+                    {loop && <span className="text-warning text-xs" title={t('workflows.gateEnable')}>↺</span>}
                   </div>
-                  <p className="mt-1 text-[11px] text-muted-foreground leading-snug">{tpl.description}</p>
-                  <p className="mt-2 text-[10px] text-muted-foreground/60">
+                  <p className="mt-1 text-xs text-muted-foreground leading-snug">{tpl.description}</p>
+                  <p className="mt-2 text-xs text-muted-foreground/60">
                     {tpl.steps.map((s) => s.name).join(' → ')}
                   </p>
                 </button>
@@ -363,11 +364,11 @@ export function WorkflowsView() {
                   </div>
 
                   {/* Usage + freshness: how much work runs through this template. */}
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground/60">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground/60">
                     <span>{t('workflows.stepCount', { count: wf.steps.length })}</span>
                     {u && u.total > 0 && <span>· {t('workflows.usedCount', { count: u.total })}</span>}
                     {u && u.running > 0 && (
-                      <span className="text-amber-600 dark:text-amber-400">· {t('workflows.runningCount', { count: u.running })}</span>
+                      <span className="text-warning">· {t('workflows.runningCount', { count: u.running })}</span>
                     )}
                     {u && u.blocked > 0 && (
                       <span className="text-rose-600 dark:text-rose-400">· {t('workflows.blockedCount', { count: u.blocked })}</span>

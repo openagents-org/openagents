@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink, Pencil, Cpu } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -21,7 +23,7 @@ import type { CloudAgentConfig, AgentCatalogModel, NodeCommand, WorkspaceNode } 
 import { useT } from '@/lib/i18n';
 import { Input } from '@/components/ui/input';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -443,13 +445,13 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
       )}>
         {/* Close button */}
         <div className="flex items-center justify-end px-3 pt-3">
-          <button
+          <Button
             onClick={() => setSelectedAgentName(null)}
-            className="size-7 flex items-center justify-center rounded-md hover:bg-zinc-200/60 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            variant="ghost" size="icon-sm" className="text-muted-foreground"
             title={t('common.close')}
           >
             <X className="size-4" />
-          </button>
+          </Button>
         </div>
 
         {/* Profile header */}
@@ -469,20 +471,20 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                     }}
                     placeholder={agent.agentName}
                     maxLength={64}
-                    className="min-w-0 flex-1 rounded border bg-transparent px-1.5 py-0.5 text-[15px] font-semibold outline-none focus:ring-1 focus:ring-foreground/20"
+                    className="min-w-0 flex-1 rounded border bg-transparent px-1.5 py-0.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-foreground/20"
                     autoFocus
                   />
-                  <button
+                  <Button
                     onClick={handleSaveDisplayName}
                     disabled={savingName}
-                    className="shrink-0 rounded bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                    size="xs" className="shrink-0"
                   >
                     {savingName ? t('common.saving') : t('common.save')}
-                  </button>
+                  </Button>
                 </div>
               ) : (
                 <div className="group/name flex items-center gap-1.5 min-w-0">
-                  <h3 className="text-[15px] font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
+                  <h3 className="text-sm font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
                   {canManage && <button
                     onClick={() => setEditingName(true)}
                     className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/name:opacity-100"
@@ -493,14 +495,14 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 </div>
               )}
               {agent.displayName && agent.displayName !== agent.agentName && (
-                <p className="mt-0.5 truncate text-[11px] text-muted-foreground">@{agent.agentName}</p>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">@{agent.agentName}</p>
               )}
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 <span className={cn(
-                  'inline-flex items-center gap-1 text-[11px] px-1.5 py-px rounded font-medium',
-                  isOnline ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400' : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                  'inline-flex items-center gap-1 text-xs px-1.5 py-px rounded font-medium',
+                  isOnline ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
                 )}>
-                  <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-green-500' : 'bg-zinc-400')} />
+                  <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-success' : 'bg-muted-foreground/60')} />
                   {agent.status}
                 </span>
                 {/* Permission model v1.1: who can use it (replaces the personal badge) */}
@@ -513,27 +515,29 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         </div>
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-3.5 space-y-3">
+        <div className="flex-1 overflow-y-auto px-3.5 flex flex-col gap-3">
           <AgentSharingButton agentName={agent.agentName} />
           {/* Description */}
-          <div className="rounded-lg border overflow-hidden">
-            <div className="px-3.5 py-2.5 border-b flex items-center justify-between gap-2">
+          <Card size="sm" className="gap-0 py-0">
+            <CardHeader className="border-b flex items-center justify-between gap-2 py-2.5">
               <span className="text-xs font-medium">{t('agents.description')}</span>
-              {canManage && <button
+              {canManage && <Button
+                variant="ghost"
+                size="xs"
                 onClick={handleGenerateDescription}
                 disabled={generatingDesc}
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground disabled:opacity-50 transition-colors shrink-0"
+                className="shrink-0 text-muted-foreground"
                 title={t('agents.autoGenerateHint')}
               >
                 {generatingDesc
-                  ? <RefreshCw className="size-3 animate-spin" />
-                  : <Sparkles className="size-3 text-amber-500" />}
+                  ? <RefreshCw data-icon="inline-start" className="animate-spin" />
+                  : <Sparkles data-icon="inline-start" className="text-warning" />}
                 {generatingDesc ? 'Generating…' : t('agents.autoGenerate')}
-              </button>}
-            </div>
-            <div className="p-3">
+              </Button>}
+            </CardHeader>
+            <CardContent className="py-3">
               <textarea
-                className="w-full text-[13px] leading-relaxed bg-transparent resize-none outline-none placeholder:text-muted-foreground/50 min-h-[60px]"
+                className="w-full text-sm leading-relaxed bg-transparent resize-none outline-none placeholder:text-muted-foreground/50 min-h-16"
                 placeholder={t('agents.descriptionPlaceholder', { agent: agent.agentName })}
                 value={description}
                 onChange={(e) => {
@@ -544,27 +548,23 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 readOnly={!canManage}
                 rows={3}
               />
-              <p className="text-[11px] text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
+              <p className="text-xs text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
               {descDirty && (
                 <div className="flex justify-end mt-1.5">
-                  <button
-                    onClick={handleSaveDescription}
-                    disabled={saving}
-                    className="text-[11px] px-2.5 py-1 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium transition-colors"
-                  >
+                  <Button size="xs" onClick={handleSaveDescription} disabled={saving}>
                     {saving ? t('common.saving') : t('common.save')}
-                  </button>
+                  </Button>
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Connection Details */}
-          <div className="rounded-lg border overflow-hidden">
-            <div className="px-3.5 py-2.5 border-b">
+          <Card size="sm" className="gap-0 py-0">
+            <CardHeader className="border-b py-2.5">
               <span className="text-xs font-medium">{t('agents.connectionDetails')}</span>
-            </div>
-            <div className="divide-y">
+            </CardHeader>
+            <CardContent className="divide-y py-3">
               {infoItems.map((item) => (
                 <div key={item.label} className="flex items-start gap-3 px-3.5 py-3">
                   <div className="flex items-center gap-1.5 shrink-0 w-[80px] pt-px">
@@ -573,25 +573,25 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   </div>
                   <div className="flex-1 min-w-0 flex items-start gap-1">
                     <span className={cn(
-                      'text-[13px] break-all leading-snug',
+                      'text-sm break-all leading-snug',
                       item.label !== 'Type' ? 'font-mono' : 'font-medium capitalize'
                     )}>
                       {item.value}
                     </span>
                     {item.copyable && (
-                      <button
-                        className="size-6 shrink-0 flex items-center justify-center rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors mt-px"
+                      <Button
+                        variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground"
                         title={t('agents.copyField', { field: item.label })}
                         onClick={() => copyToClipboard(item.value)}
                       >
                         {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                      </button>
+                      </Button>
                     )}
                   </div>
                 </div>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
           {/* Model — picker fed by the agent/provider catalog, by the list a
               signed-in agent's CLI reports for its account, or by the
@@ -599,26 +599,26 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               free-form ids stay selectable (prepended when not listed).
               The built-in assistant shows its server-set model read-only. */}
           {modelReadOnly ? (
-            <div className="rounded-lg border overflow-hidden">
-              <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
+            <Card size="sm" className="gap-0 py-0">
+              <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
                 <Cpu className="size-3 text-muted-foreground" />
                 <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-              </div>
-              <div className="p-3 space-y-1.5">
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1.5 py-3">
                 <div className="text-xs font-mono">{currentModel || '—'}</div>
-                <p className="text-[11px] text-muted-foreground leading-relaxed">{t(isManaged ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
-              </div>
-            </div>
+                <p className="text-xs text-muted-foreground leading-relaxed">{t(isManaged ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="rounded-lg border overflow-hidden">
-              <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
+            <Card size="sm" className="gap-0 py-0">
+              <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
                 <Cpu className="size-3 text-muted-foreground" />
                 <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
                 {(savingModel || modelLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
-              </div>
-              <div className="p-3 space-y-1.5">
+              </CardHeader>
+              <CardContent className="flex flex-col gap-1.5 py-3">
                 {modelLoading ? (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
                 ) : !modelApplies ? (
                   <>
                     {/* Only the way back to the default is offered: a model
@@ -633,12 +633,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value={DEFAULT_MODEL}>{t('agents.modelDefault')}</SelectItem>
-                          <SelectItem value={currentModel}>{currentModel}</SelectItem>
+                          <SelectGroup><SelectItem value={DEFAULT_MODEL}>{t('agents.modelDefault')}</SelectItem>
+                          <SelectItem value={currentModel}>{currentModel}</SelectItem></SelectGroup>
                         </SelectContent>
                       </Select>
                     )}
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelNotApplied')}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelNotApplied')}</p>
                   </>
                 ) : typeModel ? (
                   <>
@@ -656,13 +656,13 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                       className="h-9 text-sm font-mono"
                     />
                     {liveModels?.length ? (
-                      <button
+                      <Button
                         type="button"
                         onClick={() => { setManualEntry(false); setModelDraft(currentModel); }}
-                        className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                        variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
                       >
                         {t('agents.modelPickFromList')}
-                      </button>
+                      </Button>
                     ) : null}
                   </>
                 ) : (
@@ -678,7 +678,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {!isCloud && (
+                      <SelectGroup>{!isCloud && (
                         <SelectItem value={DEFAULT_MODEL}>
                           {t('agents.modelDefault')}
                         </SelectItem>
@@ -697,12 +697,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                       ))}
                       {!catalogFits && (
                         <SelectItem value={CUSTOM_MODEL}>{t('agents.modelEnterCustom')}</SelectItem>
-                      )}
+                      )}</SelectGroup>
                     </SelectContent>
                   </Select>
                 )}
                 {modelApplies && !catalogFits && endpointHost && (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
                     {liveLoading
                       ? t('agents.modelLiveLoading', { host: endpointHost })
                       : typeModel
@@ -711,56 +711,56 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                   </p>
                 )}
                 {modelApplies && !typeModel && !modelLoading && catalogFits && accountModels?.length ? (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                  <p className="text-xs text-muted-foreground leading-relaxed">
                     {t('agents.modelAccountHint')}
                   </p>
                 ) : null}
                 {modelApplies && typeModel && !liveLoading && liveError && (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                  <p className="text-xs text-muted-foreground leading-relaxed break-words">
                     {t('agents.modelLiveFailed', { error: liveError })}
                   </p>
                 )}
                 {modelLoadError && (
-                  <div className="space-y-1.5">
-                    <p className="text-[11px] text-muted-foreground leading-relaxed break-words">
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-xs text-muted-foreground leading-relaxed break-words">
                       {t('agents.modelLiveFailed', { error: modelLoadError })}
                     </p>
-                    <button
+                    <Button
                       type="button"
                       onClick={() => setModelReload((value) => value + 1)}
-                      className="text-[11px] text-muted-foreground hover:text-foreground underline underline-offset-2"
+                      variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
                     >
                       {t('agents.modelRetry')}
-                    </button>
+                    </Button>
                   </div>
                 )}
                 {!isCloud && modelApplies && (
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
+                  <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
                 )}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}
           {isCloud && cloudConfig && !isManaged && canManage && (
-            <div className="rounded-lg border overflow-hidden">
-              <div className="px-3.5 py-2.5 border-b">
+            <Card size="sm" className="gap-0 py-0">
+              <CardHeader className="border-b py-2.5">
                 <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>
-              </div>
-              <div className="p-3 space-y-3">
+              </CardHeader>
+              <CardContent className="flex flex-col gap-3 py-3">
                 {/* API Key */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[11px] text-muted-foreground">{t('agents.fieldApiKey')}</span>
+                    <span className="text-xs text-muted-foreground">{t('agents.fieldApiKey')}</span>
                     {!editingKey && (
-                      <button
+                      <Button
                         onClick={() => setEditingKey(true)}
-                        className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors"
+                        variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
                       >
                         <KeyRound className="size-2.5" />
                         {t('agents.apiKeyUpdate')}
-                      </button>
+                      </Button>
                     )}
                   </div>
                   {editingKey ? (
@@ -773,19 +773,19 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                         className="flex-1 min-w-0 px-2 py-1.5 text-xs font-mono rounded border bg-transparent outline-none focus:ring-1 focus:ring-foreground/20"
                         autoFocus
                       />
-                      <button
+                      <Button
                         onClick={handleUpdateApiKey}
                         disabled={savingKey || !newApiKey}
-                        className="px-2 py-1.5 text-[10px] font-medium rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 transition-colors"
+                        size="xs"
                       >
                         {savingKey ? <RefreshCw className="size-2.5 animate-spin" /> : 'Save'}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         onClick={() => { setEditingKey(false); setNewApiKey(''); }}
-                        className="px-2 py-1.5 text-[10px] font-medium rounded border hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                        variant="outline" size="xs"
                       >
                         {t('common.cancel')}
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <span className="text-xs font-mono text-muted-foreground">{cloudConfig.apiKeyMasked}</span>
@@ -795,12 +795,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                 {/* System prompt (if set) */}
                 {cloudConfig.systemPrompt && (
                   <div>
-                    <span className="text-[11px] text-muted-foreground">{t('agents.systemPrompt')}</span>
+                    <span className="text-xs text-muted-foreground">{t('agents.systemPrompt')}</span>
                     <p className="text-xs text-foreground mt-1 whitespace-pre-wrap line-clamp-3">{cloudConfig.systemPrompt}</p>
                   </div>
                 )}
-              </div>
-            </div>
+              </CardContent>
+            </Card>
           )}
 
           {/* Installed Skills */}
@@ -852,13 +852,13 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
               'sn-md-to-html-report': { name: 'SenseNova HTML Report', logo: 'https://avatars.githubusercontent.com/u/215225587' },
             };
             return (
-              <div className="rounded-lg border overflow-hidden">
-                <div className="px-3.5 py-2.5 border-b flex items-center gap-1.5">
-                  <Sparkles className="size-3 text-amber-500" />
+              <Card size="sm" className="gap-0 py-0">
+                <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
+                  <Sparkles className="size-3 text-warning" />
                   <span className="text-xs font-medium">{t('agents.installedSkills')}</span>
-                  <span className="text-[10px] text-muted-foreground ml-auto">{installed.length}</span>
-                </div>
-                <div className="divide-y">
+                  <span className="text-xs text-muted-foreground ml-auto">{installed.length}</span>
+                </CardHeader>
+                <CardContent className="divide-y py-3">
                   {installed.map(skillId => {
                     const info = SKILL_LOGOS[skillId];
                     return (
@@ -867,7 +867,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           {info ? <img src={info.logo} alt="" className="h-3.5 w-3.5 object-contain dark:invert" /> : <Sparkles className="size-3 text-muted-foreground" />}
                         </div>
-                        <span className="text-[13px] font-medium flex-1 truncate">{info?.name || skillId}</span>
+                        <span className="text-sm font-medium flex-1 truncate">{info?.name || skillId}</span>
                         <a
                           href={`https://github.com/${skillId.includes('-') ? 'TerminalSkills/skills/tree/main/skills/' : 'anthropics/skills/tree/main/skills/'}${skillId}`}
                           target="_blank"
@@ -879,29 +879,26 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
                       </div>
                     );
                   })}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             );
           })()}
 
           {/* Danger zone — remove this agent from the workspace (node/local
               agents; cloud agents use the footer Remove button). */}
           {!isCloud && canManage && (
-            <div className="rounded-lg border border-red-200 dark:border-red-900/50 overflow-hidden">
-              <div className="px-3.5 py-2.5 border-b border-red-200 dark:border-red-900/50">
-                <span className="text-xs font-medium text-red-600 dark:text-red-400">{t('agents.dangerZone')}</span>
-              </div>
-              <div className="p-3 flex items-center justify-between gap-3">
-                <p className="text-[11px] text-muted-foreground leading-relaxed">{t('agents.removeAgentHint')}</p>
-                <button
-                  onClick={handleRemoveAgent}
-                  className="shrink-0 flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                >
-                  <Trash2 className="size-3.5" />
+            <Card size="sm" className="gap-0 py-0 ring-destructive/30">
+              <CardHeader className="border-b py-2.5">
+                <span className="text-xs font-medium text-destructive">{t('agents.dangerZone')}</span>
+              </CardHeader>
+              <CardContent className="flex items-center justify-between gap-3 py-3">
+                <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.removeAgentHint')}</p>
+                <Button variant="destructive" size="sm" className="shrink-0" onClick={handleRemoveAgent}>
+                  <Trash2 data-icon="inline-start" />
                   {t('agents.remove')}
-                </button>
-              </div>
-            </div>
+                </Button>
+              </CardContent>
+            </Card>
           )}
 
         </div>
@@ -909,22 +906,15 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
         {/* Footer actions */}
         <div className="px-3.5 py-3 border-t">
           <div className="flex gap-2">
-            <button
-              onClick={handleStartThread}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border bg-background hover:bg-zinc-50 dark:hover:bg-zinc-800 transition-colors"
-            >
-              <Plus className="size-3" />
+            <Button variant="outline" className="flex-1" onClick={handleStartThread}>
+              <Plus data-icon="inline-start" />
               {t('agents.startThread')}
-            </button>
+            </Button>
             {isCloud && canManage && (
-              <button
-                onClick={handleRemoveCloudAgent}
-                className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium rounded-lg border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
-                title={t('agents.removeCloud')}
-              >
-                <Trash2 className="size-3" />
+              <Button variant="destructive" onClick={handleRemoveCloudAgent} title={t('agents.removeCloud')}>
+                <Trash2 data-icon="inline-start" />
                 {t('agents.remove')}
-              </button>
+              </Button>
             )}
           </div>
         </div>

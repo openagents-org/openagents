@@ -12,7 +12,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
@@ -23,7 +23,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import type { RoutineDraft, RoutineItem, WorkspaceAgent } from '@/lib/types';
 import { agentLabel } from '@/lib/helpers';
 import { useFormatters, useT } from '@/lib/i18n';
@@ -218,15 +218,15 @@ export function RoutineDialog({
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-xl">{t(isEdit ? 'routines.edit' : 'routines.create')}</DialogTitle>
-          <DialogDescription className="text-[15px] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             {t(isEdit ? 'routines.editDescription' : 'routines.dialogDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-5">
           {/* Task description */}
-          <div className="space-y-2">
-            <Label className="font-normal">{t('routines.taskLabel')}</Label>
+          <Field>
+            <FieldLabel>{t('routines.taskLabel')}</FieldLabel>
             <Textarea
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
@@ -235,23 +235,23 @@ export function RoutineDialog({
               disabled={submitting}
               className="resize-none"
             />
-          </div>
+          </Field>
 
           {/* Routine name */}
-          <div className="space-y-2">
-            <Label className="font-normal">{t('routines.nameLabel')}</Label>
+          <Field>
+            <FieldLabel>{t('routines.nameLabel')}</FieldLabel>
             <Input
               value={name}
               onChange={(e) => { setName(e.target.value); setNameManual(true); }}
               placeholder={t('routines.namePlaceholder')}
               disabled={submitting}
             />
-          </div>
+          </Field>
 
           {/* Agent selector */}
           {agentOptions.length > 1 && (
-            <div className="space-y-2">
-              <Label className="font-normal">{t('routines.agentLabel')}</Label>
+            <Field>
+              <FieldLabel>{t('routines.agentLabel')}</FieldLabel>
               <Select value={source} onValueChange={setSource} disabled={submitting}>
                 <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                   <SelectValue />
@@ -264,12 +264,12 @@ export function RoutineDialog({
                   </SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           )}
 
           {/* Schedule type toggle */}
-          <div className="space-y-2">
-            <Label className="font-normal">{t('routines.scheduleLabel')}</Label>
+          <Field>
+            <FieldLabel>{t('routines.scheduleLabel')}</FieldLabel>
             <div className="flex gap-1 rounded-md bg-muted p-0.5">
               {(['daily', 'interval'] as const).map((type) => (
                 <button
@@ -291,14 +291,14 @@ export function RoutineDialog({
                 </button>
               ))}
             </div>
-          </div>
+          </Field>
 
           {/* Daily schedule config */}
           {scheduleType === 'daily' && (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <div className="flex gap-3">
-                <div className="flex-1 space-y-2">
-                  <Label className="font-normal">{t('routines.hourLabel')}</Label>
+                <Field className="flex-1">
+                  <FieldLabel>{t('routines.hourLabel')}</FieldLabel>
                   <Select
                     value={String(hour)}
                     onValueChange={(v) => setHour(Number(v))}
@@ -315,9 +315,9 @@ export function RoutineDialog({
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="flex-1 space-y-2">
-                  <Label className="font-normal">{t('routines.minuteLabel')}</Label>
+                </Field>
+                <Field className="flex-1">
+                  <FieldLabel>{t('routines.minuteLabel')}</FieldLabel>
                   <Select
                     value={String(minute)}
                     onValueChange={(v) => setMinute(Number(v))}
@@ -339,10 +339,10 @@ export function RoutineDialog({
                       </SelectGroup>
                     </SelectContent>
                   </Select>
-                </div>
+                </Field>
               </div>
-              <div className="space-y-2">
-                <Label className="font-normal">{t('routines.daysLabel')}</Label>
+              <Field>
+                <FieldLabel>{t('routines.daysLabel')}</FieldLabel>
                 <div className="flex gap-1.5">
                   {dayLabels.map((label, i) => (
                     <button
@@ -357,13 +357,13 @@ export function RoutineDialog({
                     </button>
                   ))}
                 </div>
-              </div>
+              </Field>
             </div>
           )}
 
           {/* Interval schedule config */}
           {scheduleType === 'interval' && (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               <div className="flex gap-1.5">
                 {INTERVAL_PRESETS.map((preset) => (
                   <button
@@ -407,7 +407,7 @@ export function RoutineDialog({
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleSubmit} disabled={!isValid || submitting}>
-            {submitting && <Loader2 className="animate-spin" />}
+            {submitting && <Spinner />}
             {isEdit
               ? t(submitting ? 'common.saving' : 'common.save')
               : t(submitting ? 'common.creating' : 'routines.create')}

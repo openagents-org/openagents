@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+  SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
 import { Plus, Trash2, ArrowRight, User, RotateCcw, CornerDownRight, BookOpen } from 'lucide-react';
@@ -152,13 +152,13 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                       )}
                     >
                       <div className="flex items-center gap-1.5">
-                        <span className="flex size-4 items-center justify-center rounded-full bg-muted text-[10px] font-semibold text-muted-foreground">{i + 1}</span>
+                        <span className="flex size-4 items-center justify-center rounded-full bg-muted text-xs font-semibold text-muted-foreground">{i + 1}</span>
                         <span className="text-xs font-medium truncate">{step.name || t('workflows.stepFallbackName', { n: i + 1 })}</span>
                         {step.knowledge_id && (
                           <BookOpen className="size-3 shrink-0 text-muted-foreground" aria-label={t('workflows.stepContext')} />
                         )}
                       </div>
-                      <div className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+                      <div className="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
                         {isAgent ? (
                           step.assignee.agent ? <AgentAvatar name={step.assignee.agent} size={16} /> : <User className="size-3.5 opacity-40" />
                         ) : (
@@ -171,8 +171,8 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                       {step.gate && gateTargetIdx > -1 && (
                         <span
                           className={cn(
-                            'mt-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium',
-                            isLoop ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400' : 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+                            'mt-2 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium',
+                            isLoop ? 'bg-warning/10 text-warning' : 'bg-info/10 text-info',
                           )}
                           title={step.gate.condition}
                         >
@@ -202,7 +202,7 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
 
           {/* ── Selected step editor ── */}
           {selected && (
-            <div className="rounded-lg border border-border bg-card p-3 space-y-2.5">
+            <div className="rounded-lg border border-border bg-card p-3 flex flex-col gap-2.5">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   {t('workflows.stepFallbackName', { n: stepIndex(selected.id) + 1 })}
@@ -249,7 +249,7 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                   <Select value={selected.assignee.agent || ''} onValueChange={(v) => patchAssignee(selected.id, { agent: v })}>
                     <SelectTrigger className="h-8 flex-1"><SelectValue placeholder={t('workflows.pickAgent')} /></SelectTrigger>
                     <SelectContent>
-                      {agents.map((a) => <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>)}
+                      <SelectGroup>{agents.map((a) => <SelectItem key={a.agentName} value={a.agentName}>{agentLabel(a)}</SelectItem>)}</SelectGroup>
                     </SelectContent>
                   </Select>
                 ) : (
@@ -277,17 +277,17 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                       <SelectValue placeholder={t('workflows.stepContext')} />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value={NO_KNOWLEDGE}>{t('workflows.stepContextNone')}</SelectItem>
+                      <SelectGroup><SelectItem value={NO_KNOWLEDGE}>{t('workflows.stepContextNone')}</SelectItem>
                       {knowledge.map((entry) => (
                         <SelectItem key={entry.id} value={entry.id}>{entry.title}</SelectItem>
-                      ))}
+                      ))}</SelectGroup>
                     </SelectContent>
                   </Select>
                 </div>
               )}
 
               {/* Gate */}
-              <label className="flex items-center gap-2 text-[11px] text-muted-foreground cursor-pointer">
+              <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
                 <input
                   type="checkbox"
                   checked={!!selected.gate}
@@ -300,8 +300,8 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                 {t('workflows.gateEnable')}
               </label>
               {selected.gate && (
-                <div className="space-y-2 rounded-md bg-muted/40 p-2">
-                  <p className="text-[11px] text-muted-foreground/70">{t('workflows.gateHint')}</p>
+                <div className="flex flex-col gap-2 rounded-md bg-muted/40 p-2">
+                  <p className="text-xs text-muted-foreground/70">{t('workflows.gateHint')}</p>
                   <Input
                     value={selected.gate.condition}
                     onChange={(e) => patchStep(selected.id, { gate: { ...selected.gate!, condition: e.target.value } })}
@@ -309,13 +309,13 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
                     className="h-8"
                   />
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] text-muted-foreground">{t('workflows.gateTarget')}</span>
+                    <span className="text-xs text-muted-foreground">{t('workflows.gateTarget')}</span>
                     <Select value={selected.gate.target} onValueChange={(v) => patchStep(selected.id, { gate: { ...selected.gate!, target: v } })}>
                       <SelectTrigger className="h-8 flex-1"><SelectValue /></SelectTrigger>
                       <SelectContent>
-                        {steps.map((s, si) => (
+                        <SelectGroup>{steps.map((s, si) => (
                           <SelectItem key={s.id} value={s.id}>#{si + 1} {s.name || t('workflows.stepFallbackName', { n: si + 1 })}</SelectItem>
-                        ))}
+                        ))}</SelectGroup>
                       </SelectContent>
                     </Select>
                   </div>

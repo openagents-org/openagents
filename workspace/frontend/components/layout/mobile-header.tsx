@@ -74,7 +74,7 @@ export function MobileHeader() {
                 </Button>
               </SheetTrigger>
               <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
-                <SheetHeader className="p-0 space-y-0">
+                <SheetHeader className="p-0 flex flex-col gap-0">
                   <SheetTitle className="sr-only">{t('nav.navigation')}</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="grow flex flex-col min-h-0 p-0">
@@ -136,7 +136,7 @@ export function MobileHeader() {
               )}
             >
               <Icon className="size-5" />
-              <span className="text-[10px] font-medium">{label}</span>
+              <span className="text-xs font-medium">{label}</span>
             </button>
           ))}
         </div>

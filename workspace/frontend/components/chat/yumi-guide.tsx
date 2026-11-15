@@ -45,7 +45,7 @@ export function YumiGuide() {
     return (
       <button
         onClick={toggle}
-        className="w-full flex items-center gap-2 px-4 lg:px-8 py-1.5 text-[12px] text-muted-foreground hover:text-foreground bg-primary/[0.03] hover:bg-primary/[0.06] border-b border-border/50 transition-colors"
+        className="w-full flex items-center gap-2 px-4 lg:px-8 py-1.5 text-xs text-muted-foreground hover:text-foreground bg-primary/[0.03] hover:bg-primary/[0.06] border-b border-border/50 transition-colors"
       >
         <img src="/yumi-avatar.png" alt="" className="size-4 rounded-full object-cover" draggable={false} />
         <span className="truncate">{t('yumiGuide.collapsedHint')}</span>
@@ -65,20 +65,20 @@ export function YumiGuide() {
             draggable={false}
           />
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold leading-tight">{t('yumiGuide.title')}</div>
-            <ul className="mt-1.5 space-y-0.5 text-[12px] text-muted-foreground list-disc pl-4">
+            <div className="text-sm font-semibold leading-tight">{t('yumiGuide.title')}</div>
+            <ul className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground list-disc pl-4">
               <li>{t('yumiGuide.itemConnect')}</li>
               <li>{t('yumiGuide.itemAgents')}</li>
               <li>{t('yumiGuide.itemManage')}</li>
               <li>{t('yumiGuide.itemDebug')}</li>
             </ul>
-            <div className="mt-1.5 text-[12px] text-muted-foreground/80 italic">
+            <div className="mt-1.5 text-xs text-muted-foreground/80 italic">
               {t('yumiGuide.hint')}
             </div>
           </div>
           <button
             onClick={toggle}
-            className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-accent transition-colors"
+            className="shrink-0 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-accent transition-colors"
             title={t('yumiGuide.minimize')}
           >
             {t('yumiGuide.minimize')}

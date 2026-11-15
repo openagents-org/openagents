@@ -28,7 +28,7 @@ export function IssueDueDate({ issue, busy, canEdit, update }: {
   // to the previous day for people west of Greenwich.
   const label = issue.due_date || t('issues.noDueDate');
   return <section className="flex min-w-0 items-center gap-2">
-    <h3 id={`issue-due-date-heading-${issue.id}`} className="shrink-0 text-[11px] font-medium text-muted-foreground">{t('issues.dueDate')}</h3>
+    <h3 id={`issue-due-date-heading-${issue.id}`} className="shrink-0 text-xs font-medium text-muted-foreground">{t('issues.dueDate')}</h3>
     {canEdit ? <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <button type="button" disabled={busy} aria-label={`${t('issues.dueDate')}: ${label}`} className="group flex min-h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md border border-transparent px-1.5 py-1 text-left text-xs transition-colors hover:border-border hover:bg-muted/40 disabled:opacity-50">

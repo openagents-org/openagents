@@ -2,7 +2,7 @@
 
 import { Button } from '@/components/ui/button';
 import {
-  DropdownMenu,
+  DropdownMenuGroup, DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -90,7 +90,7 @@ function SessionItem({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-48">
-          <DropdownMenuItem
+          <DropdownMenuGroup><DropdownMenuItem
             onClick={(e) => {
               e.stopPropagation();
               setRenameValue(session.title);
@@ -99,7 +99,7 @@ function SessionItem({
           >
             <Pencil className="size-4" />
             <span>{t('common.rename')}</span>
-          </DropdownMenuItem>
+          </DropdownMenuItem></DropdownMenuGroup>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
@@ -109,9 +109,9 @@ function SessionItem({
 export function SessionList({ sessions, selectedSessionId, onSessionSelect, onSessionRename }: SessionListProps) {
   const t = useT();
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       <SectionHeader label={t('sessions.label')} />
-      <div className="space-y-0.5">
+      <div className="flex flex-col gap-0.5">
         {sessions.length === 0 ? (
           <p className="text-xs text-muted-foreground px-2 py-2">{t('sessions.empty')}</p>
         ) : (

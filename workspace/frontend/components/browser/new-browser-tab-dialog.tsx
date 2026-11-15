@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Globe, Loader2 } from 'lucide-react';
+import { Globe } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import {
   Dialog,
   DialogBody,
@@ -13,7 +14,7 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
@@ -67,14 +68,14 @@ export function NewBrowserTabDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-lg">{t('browser.openTabTitle')}</DialogTitle>
-          <DialogDescription className="text-[13px] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             {t('browser.openTabDescription')}
           </DialogDescription>
         </DialogHeader>
 
         <DialogBody className="flex flex-col gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="new-tab-url">{t('browser.urlLabel')}</Label>
+          <Field>
+            <FieldLabel htmlFor="new-tab-url">{t('browser.urlLabel')}</FieldLabel>
             <Input
               id="new-tab-url"
               value={url}
@@ -86,9 +87,9 @@ export function NewBrowserTabDialog({
               autoFocus
               autoComplete="off"
               spellCheck={false}
-              className="font-mono text-[13px]"
+              className="font-mono text-sm"
             />
-          </div>
+          </Field>
 
           <p className="text-xs text-muted-foreground/80">{t('browser.sessionCapacityHint')}
             {browserTabLimits && <> {t('browser.workspaceActiveSessions', { count: browserTabLimits.concurrent.used })}</>}
@@ -101,7 +102,7 @@ export function NewBrowserTabDialog({
             {t('common.cancel')}
           </Button>
           <Button onClick={submit} disabled={busy}>
-            {busy ? <Loader2 className="size-4 animate-spin" /> : <Globe className="size-4" />}
+            {busy ? <Spinner /> : <Globe className="size-4" />}
             {busy ? t('browser.opening') : t('browser.open')}
           </Button>
         </DialogFooter>

@@ -38,7 +38,7 @@ export function ParticipantPicker({ options, value, onChange, disabled, onToggle
   const counts = { all: options.length, human: options.filter((p) => p.kind === 'human').length, agent: options.filter((p) => p.kind === 'agent').length, selected: value.length };
   const labels = { all: t('newThread.all'), human: t('newThread.teammates'), agent: t('newThread.agents'), selected: t('newThread.selected') };
 
-  return <div className="space-y-3">
+  return <div className="flex flex-col gap-3">
     <div className="relative">
       <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
       <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled}

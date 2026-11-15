@@ -363,7 +363,7 @@ export function NavRail() {
                     {/* Collapsed, the badge sits inside the button's corner: the button
                         (and the scrolling rail) clip overflow, so a negative
                         offset cut it in half. */}
-                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-[10px] font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-xs font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
 
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -441,7 +441,7 @@ export function NavRail() {
                           className="[&_svg]:size-full!"
                         />
                         {showLabels && <span className="truncate" data-truncatable>{agentLabel(agent)}</span>}
-                        {showLabels && !isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
+                        {showLabels && !isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-xs text-muted-foreground" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
                         {/* v1.1 M1: Personal badge + "device offline" marker (labelled rail only) */}
                         {showLabels && isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                         <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} compact={!showLabels} />

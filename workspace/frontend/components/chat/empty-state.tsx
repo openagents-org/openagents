@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { MessageCircle, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, Loader2, ArrowLeft } from 'lucide-react';
+import { MessageCircle, Copy, Check, ChevronRight, Key, Cloud, ExternalLink, ArrowLeft } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { capture } from '@/lib/analytics';
 import { useLayout } from '@/components/layout/layout-context';
@@ -19,7 +20,7 @@ export function EmptyConversation({ name, human = false, self = false }: { name?
       <div className="rounded-full bg-muted p-4">
         <MessageCircle className="size-8 text-muted-foreground" />
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <h3 className="text-lg font-semibold">{self ? t('peopleMessaging.selfDmTitle') : name ? t('onboarding.conversationWith', { name }) : t('onboarding.allSetTitle')}</h3>
         <p className="max-w-sm text-sm text-muted-foreground">{t(self ? 'peopleMessaging.selfDmBody' : human ? 'onboarding.humanConversationBody' : 'onboarding.allSetBody')}</p>
       </div>
@@ -79,7 +80,7 @@ export function EmptyState() {
 
   return (
     <div className="flex flex-col items-center h-full overflow-y-auto p-6 sm:p-8">
-      <div className="w-full max-w-2xl space-y-6 py-8">
+      <div className="w-full max-w-2xl flex flex-col gap-6 py-8">
         {/* Back to the agent picker — shown once an agent is selected so the
             install instructions can take over the view without scrolling. */}
         {selectedEntry && (
@@ -94,7 +95,7 @@ export function EmptyState() {
 
         {/* Header */}
         {!selectedEntry && (
-          <div className="text-center space-y-2">
+          <div className="text-center flex flex-col gap-2">
             <h2 className="text-2xl font-bold tracking-tight">{t('onboarding.title')}</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto">
               {t('onboarding.subtitle')}
@@ -105,7 +106,7 @@ export function EmptyState() {
         {/* Agent catalog grid */}
         {!selectedEntry && (loading ? (
           <div className="flex items-center justify-center py-12 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin mr-2" />
+            <Spinner data-icon="inline-start" />
             <span className="text-sm">{t('onboarding.loadingAgents')}</span>
           </div>
         ) : (
@@ -120,7 +121,7 @@ export function EmptyState() {
                     'flex flex-col items-center gap-2 px-3 py-4 rounded-xl border text-center transition-all',
                     isSelected
                       ? 'border-primary/30 bg-primary/[0.04] ring-1 ring-primary/10 shadow-sm'
-                      : 'border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 hover:bg-zinc-50/50 dark:hover:bg-zinc-800/30',
+                      : 'border-border hover:border-border hover:bg-muted',
                   )}
                 >
                   <div className="size-10 flex items-center justify-center">
@@ -128,7 +129,7 @@ export function EmptyState() {
                   </div>
                   <div className="min-w-0 w-full">
                     <div className="text-sm font-medium leading-tight truncate">{entry.label}</div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5 truncate">
+                    <div className="text-xs text-muted-foreground mt-0.5 truncate">
                       {entry.tags?.[0] || t('onboarding.agentTagFallback')}
                     </div>
                   </div>
@@ -166,14 +167,14 @@ export function EmptyState() {
               </div>
             </div>
 
-            <div className="p-5 space-y-5">
+            <div className="p-5 flex flex-col gap-5">
               {/* Option A: Desktop App */}
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <span className="text-xs font-semibold">{t('onboarding.optionA')}</span>
                   <span className="text-xs text-muted-foreground">{t('onboarding.optionADesktop')}</span>
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2.5">
+                <p className="text-xs text-muted-foreground mb-2.5">
                   {t('onboarding.optionADescription')}
                 </p>
                 <div className="flex gap-2">
@@ -202,7 +203,7 @@ export function EmptyState() {
 
               <div className="flex items-center gap-3">
                 <div className="flex-1 border-t" />
-                <span className="text-[10px] text-muted-foreground">{t('onboarding.or')}</span>
+                <span className="text-xs text-muted-foreground">{t('onboarding.or')}</span>
                 <div className="flex-1 border-t" />
               </div>
 
@@ -212,7 +213,7 @@ export function EmptyState() {
                   <span className="text-xs font-semibold">{t('onboarding.optionB')}</span>
                   <span className="text-xs text-muted-foreground">{t('onboarding.optionBCli')}</span>
                 </div>
-                <div className="space-y-3">
+                <div className="flex flex-col gap-3">
                   <CliStep
                     step="1"
                     label={t('onboarding.stepInstallCli')}
@@ -267,7 +268,7 @@ export function EmptyState() {
                   </div>
                   <button
                     onClick={handleCopyToken}
-                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-background hover:border-zinc-300 dark:hover:border-zinc-600 transition-colors group"
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border bg-background hover:border-border transition-colors group"
                   >
                     <span className="flex-1 text-left font-mono text-xs text-muted-foreground truncate">
                       {token.length > 16
@@ -275,8 +276,8 @@ export function EmptyState() {
                         : token}
                     </span>
                     <span className={cn(
-                      'flex items-center gap-1 text-[11px] font-medium shrink-0 transition-colors',
-                      tokenCopied ? 'text-emerald-600' : 'text-muted-foreground group-hover:text-foreground',
+                      'flex items-center gap-1 text-xs font-medium shrink-0 transition-colors',
+                      tokenCopied ? 'text-success' : 'text-muted-foreground group-hover:text-foreground',
                     )}>
                       {tokenCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
                       {tokenCopied ? t('common.copied') : t('common.copy')}
@@ -290,10 +291,10 @@ export function EmptyState() {
 
         {/* Cloud agents fallback */}
         {!selectedEntry && (
-        <div className="text-center space-y-2 pt-2">
+        <div className="text-center flex flex-col gap-2 pt-2">
           <div className="flex items-center gap-3 justify-center">
             <div className="w-16 border-t" />
-            <span className="text-[11px] text-muted-foreground">{t('onboarding.or')}</span>
+            <span className="text-xs text-muted-foreground">{t('onboarding.or')}</span>
             <div className="w-16 border-t" />
           </div>
           <button
@@ -329,14 +330,14 @@ function CliStep({
 }) {
   return (
     <div>
-      <span className="text-[11px] text-muted-foreground">{step ? `${step}. ` : ''}{label}</span>
+      <span className="text-xs text-muted-foreground">{step ? `${step}. ` : ''}{label}</span>
       <div className="relative group mt-1">
         <pre className="bg-zinc-900 text-zinc-100 rounded-lg px-3.5 py-2.5 text-xs font-mono leading-relaxed overflow-x-auto">
-          <span className="text-zinc-500">$ </span>
-          <span className="text-emerald-400">{command}</span>
+          <span className="text-muted-foreground">$ </span>
+          <span className="text-success">{command}</span>
         </pre>
         <button
-          className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-zinc-300 hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
+          className="absolute top-1.5 right-1.5 size-6 flex items-center justify-center rounded bg-zinc-700/80 hover:bg-zinc-600 text-muted-foreground hover:text-white opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-opacity"
           onClick={() => onCopy(copyCommand || command)}
         >
           {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}

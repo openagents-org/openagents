@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, UserPlus } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -109,17 +110,17 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
           </DialogHeader>
           <DialogBody className="flex flex-col gap-3">
             {loadFailed ? (
-              <div className="space-y-2 text-sm text-muted-foreground">
+              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
                 <p>{t('collab.participantsLoadFailed')}</p>
                 <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>{t('common.retry')}</Button>
               </div>
-            ) : !participants ? <Loader2 className="size-4 animate-spin text-muted-foreground" /> : !mayAdd ? (
+            ) : !participants ? <Spinner className="text-muted-foreground" /> : !mayAdd ? (
               <p className="text-sm text-muted-foreground">{t('threadAccess.addForbidden')}</p>
             ) : (
               <ParticipantPicker options={available} value={allowedPicks} onChange={setPicks} disabled={saving} />
             )}
             {invites.map((invite) => (
-              <div key={invite.email} className="space-y-1">
+              <div key={invite.email} className="flex flex-col gap-1">
                 <p className="text-sm">{t('collab.inviteLinkReady', { email: invite.email })}</p>
                 <Input readOnly value={invite.url} onFocus={(e) => e.target.select()} />
               </div>
@@ -128,7 +129,7 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
           <DialogFooter>
             <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
             <Button disabled={!mayAdd || !participants || loadFailed || !allowedPicks.length || saving} onClick={add}>
-              {saving ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+              {saving ? <Spinner /> : <UserPlus className="size-4" />}
               {saving ? t('threadAccess.addingParticipants') : t('threadAccess.addParticipantsButton')}
             </Button>
           </DialogFooter>

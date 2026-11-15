@@ -6,13 +6,14 @@
 // their device connection owner; sharing is managed through Services.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Cloud, Loader2, Monitor, UserRoundPlus } from 'lucide-react';
+import { Cloud, Monitor, UserRoundPlus } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -90,7 +91,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
   };
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       <div>
         <Label className="font-normal">{t('collab.agentsSection')}</Label>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('collab.agentsSectionDescription')}</p>
@@ -98,7 +99,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
 
       {agents === null ? (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          <Spinner className="size-5 text-muted-foreground" />
         </div>
       ) : agents.length === 0 ? (
         <p className="py-3 text-sm text-muted-foreground">{t('collab.noAgentsYet')}</p>
@@ -150,10 +151,10 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value={NO_OWNER}>{t('collab.ownerNone')}</SelectItem>
+                        <SelectGroup><SelectItem value={NO_OWNER}>{t('collab.ownerNone')}</SelectItem>
                         {ownerOptions.map((email) => (
                           <SelectItem key={email} value={email}>{memberName(email) || email}</SelectItem>
-                        ))}
+                        ))}</SelectGroup>
                       </SelectContent>
                     </Select>
                   ) : claim ? (
@@ -177,7 +178,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                   >
                     {agent.visibility === 'personal' ? t('collab.visibilityPersonal') : t('collab.visibilityTeam')}
                   </Badge>
-                  {busy && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                  {busy && <Spinner className="size-3.5 text-muted-foreground" />}
                 </div>
               </div>
             );

@@ -66,7 +66,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
       <SidebarGroupContent id="rail-member-list" className={cn(showLabels && !membersOpen && 'hidden')}><SidebarMenu className="gap-0.5">
         {members.map(person => <SidebarMenuItem key={person.email}>
           <SidebarMenuButton className={cn(!showLabels && 'justify-center!')} aria-label={memberLabel(person.email, person.name)} tooltip={{ children: memberLabel(person.email, person.name), hidden: showLabels && truncatedMember !== person.email }} onPointerEnter={(e) => setTruncatedMember(hasTruncatedLabel(e.currentTarget) ? person.email : null)} isActive={currentSessionId === dmSessionId(me, `human:${person.email}`)} onClick={() => startDM(person.email)}>
-            <span className="relative shrink-0"><HumanAvatar email={person.email} />{person.online && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-sidebar" />}</span>
+            <span className="relative shrink-0"><HumanAvatar email={person.email} />{person.online && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-success ring-1 ring-sidebar" />}</span>
             {showLabels && <span className="flex min-w-0 items-center gap-1"><span className="truncate" data-truncatable>{person.name}</span>{person.email === currentUser.id.toLowerCase() && <span className="shrink-0 text-xs text-muted-foreground">({t('threads.you')})</span>}</span>}
             <DmUnreadBadge count={person.unread} compact={!showLabels} />
           </SidebarMenuButton>
@@ -100,7 +100,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
         <Input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={t('nav.searchMembers')} />
         <div className="max-h-80 overflow-y-auto">
           {candidates.map(person => <button key={person.email} className="flex w-full items-center gap-3 rounded-md p-2 text-left hover:bg-muted" onClick={() => startDM(person.email)}>
-            <span className="relative shrink-0"><HumanAvatar email={person.email} />{(online.has(person.email.toLowerCase()) || person.email.toLowerCase() === currentUser.id.toLowerCase()) && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-emerald-500 ring-1 ring-background" aria-label={t('agents.online')} />}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{memberLabel(person.email, person.displayName || (person.email.toLowerCase() === currentUser.id.toLowerCase() ? currentUser.name : '') || person.email)}</span>{person.displayName && <span className="block truncate text-xs text-muted-foreground">{person.email}</span>}</span>
+            <span className="relative shrink-0"><HumanAvatar email={person.email} />{(online.has(person.email.toLowerCase()) || person.email.toLowerCase() === currentUser.id.toLowerCase()) && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-success ring-1 ring-background" aria-label={t('agents.online')} />}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{memberLabel(person.email, person.displayName || (person.email.toLowerCase() === currentUser.id.toLowerCase() ? currentUser.name : '') || person.email)}</span>{person.displayName && <span className="block truncate text-xs text-muted-foreground">{person.email}</span>}</span>
           </button>)}
           {!candidates.length && <p className="p-2 text-sm text-muted-foreground">{t('nav.noMembersFound')}</p>}
         </div>

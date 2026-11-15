@@ -39,13 +39,13 @@ async function dotFor(over: Partial<NotificationItem>) {
 
 it('shows a red dot for an unread high-priority notification', async () => {
   const cls = await dotFor({ priority: 'high', isRead: false });
-  expect(cls).toContain('bg-red-500');
+  expect(cls).toContain('bg-destructive');
   expect(cls).not.toContain('invisible');
 });
 
 it.each(['normal', 'low'] as const)('shows a blue dot for an unread %s notification', async (priority) => {
   const cls = await dotFor({ priority, isRead: false });
-  expect(cls).toContain('bg-blue-500');
+  expect(cls).toContain('bg-info');
   expect(cls).not.toContain('invisible');
 });
 

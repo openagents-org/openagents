@@ -499,7 +499,7 @@ export function FileGrid() {
         />
       </DetailHeader>
 
-      <div className="shrink-0 space-y-3 border-b border-border/60 bg-muted/10 px-4 py-3">
+      <div className="shrink-0 flex flex-col gap-3 border-b border-border/60 bg-muted/10 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <span className="text-xs text-muted-foreground">{t('files.filterByType')}</span>
           {searchField}
@@ -514,7 +514,7 @@ export function FileGrid() {
               'flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               typeFilter === category.id ? 'border-foreground/15 bg-foreground text-background' : 'border-border/60 bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
             )}>
-              {category.label}<span className="text-[10px] tabular-nums opacity-65">{category.count}</span>
+              {category.label}<span className="text-xs tabular-nums opacity-65">{category.count}</span>
             </button>
           ))}
         </div>
@@ -609,7 +609,7 @@ export function FileGrid() {
             <div
               key={folder.path}
               onClick={() => openFolder(folder.path)}
-              className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+              className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
             >
               <FolderRowIcon />
               <span className="flex-1 truncate text-sm font-medium" title={folder.path}>
@@ -637,7 +637,7 @@ export function FileGrid() {
                   'group flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors',
                   isSelected
                     ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                    : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60',
+                    : 'hover:bg-muted',
                 )}
               >
                 <FileRowIcon file={file} />
@@ -680,7 +680,7 @@ export function FileGrid() {
                   size="icon-sm"
                   onClick={(e) => handleDelete(e, file.id, file.filename)}
                   aria-label={t('files.deleteItem', { name: displayName })}
-                  className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
+                  className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
                 >
                   <Trash2 className="size-3.5" />
                 </Button>
@@ -711,7 +711,7 @@ export function FileGrid() {
               <div
                 key={folder.path}
                 onClick={() => openFolder(folder.path)}
-                className="group flex cursor-pointer flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+                className="group flex cursor-pointer flex-col items-center gap-1.5 rounded-xl p-3 text-center transition-colors hover:bg-muted"
               >
                 <div className="flex h-19 items-center justify-center">
                   <FolderTile className="group-hover:-translate-y-0.5" />
@@ -719,7 +719,7 @@ export function FileGrid() {
                 <span className="w-full truncate text-xs leading-tight font-medium" title={folder.path}>
                   {folder.name}
                 </span>
-                <span className="w-full truncate text-[10px] leading-tight text-muted-foreground">
+                <span className="w-full truncate text-xs leading-tight text-muted-foreground">
                   {describeFolder(folder, t)}
                 </span>
               </div>
@@ -736,7 +736,7 @@ export function FileGrid() {
                     'relative flex flex-col items-center gap-1.5 p-3 rounded-xl text-center transition-colors cursor-pointer group',
                     isSelected
                       ? 'bg-primary/10 ring-2 ring-primary/30'
-                      : 'hover:bg-zinc-100 dark:hover:bg-zinc-800/60'
+                      : 'hover:bg-muted'
                   )}
                   onClick={() => {
                     // Opening a file leaves the folder selection alone: the
@@ -762,7 +762,7 @@ export function FileGrid() {
                   </span>
 
                   {/* Metadata */}
-                  <span className="w-full truncate text-[10px] text-muted-foreground leading-tight">
+                  <span className="w-full truncate text-xs text-muted-foreground leading-tight">
                     {!hasFolder && dirname(file.filename)
                       ? dirname(file.filename)
                       : `${formatFileSize(file.size)}${file.createdAt ? ` · ${timeAgo(file.createdAt)}` : ''}`}
@@ -790,7 +790,7 @@ export function FileGrid() {
                     size="icon-sm"
                     onClick={(e) => handleDelete(e, file.id, file.filename)}
                     aria-label={t('files.deleteItem', { name: displayName })}
-                    className="absolute top-1.5 right-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100"
+                    className="absolute top-1.5 right-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-destructive group-hover:opacity-100"
                   >
                     <Trash2 className="size-3" />
                   </Button>
@@ -980,7 +980,7 @@ function UploadActions({
         size="icon-sm"
         onClick={onCancel}
         aria-label={failed ? t('files.dismissItem', { name: upload.name }) : t('files.cancelUploadItem', { name: upload.name })}
-        className="size-6 bg-background/80 text-muted-foreground shadow-sm hover:text-red-500"
+        className="size-6 bg-background/80 text-muted-foreground shadow-sm hover:text-destructive"
       >
         <X className="size-3" />
       </Button>
@@ -1033,7 +1033,7 @@ function UploadTile({
       </span>
       <span
         className={cn(
-          'w-full truncate text-[10px] leading-tight',
+          'w-full truncate text-xs leading-tight',
           failed ? 'text-destructive' : 'text-muted-foreground',
         )}
         title={failed ? upload.error : undefined}

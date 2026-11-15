@@ -70,7 +70,7 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
   const files = fixedItems.filter((a) => !a.contentType?.startsWith('image/') && !isHtmlAttachment(a.contentType, a.filename));
 
   return (
-    <div className="mt-2 space-y-2">
+    <div className="mt-2 flex flex-col gap-2">
       {images.length > 0 && (
         <div className="flex flex-wrap gap-2">
           {images.map((img) => (
@@ -91,7 +91,7 @@ function Attachments({ items, senderAgentName = null }: { items: Attachment[]; s
         </div>
       )}
       {htmlFiles.length > 0 && (
-        <div className="space-y-2">
+        <div className="flex flex-col gap-2">
           {htmlFiles.map((file) => (
             <HtmlArtifactPreview
               key={file.fileId}
@@ -252,12 +252,12 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                 </button>
               ) : <span className="text-sm font-semibold text-foreground">{displayName}</span>}
               {timestamp && (
-                <span className="text-[11px] text-muted-foreground">{timestamp}</span>
+                <span className="text-xs text-muted-foreground">{timestamp}</span>
               )}
               {/* v1.1 M5 — information vs execution in directed threads */}
               {message.metadata?.informational === true && (
                 <span
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-info/10 text-info"
                   title={t('brief.infoTagHint')}
                 >
                   {t('brief.infoTag')}
@@ -265,7 +265,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
               )}
               {message.metadata?.from_non_director === true && (
                 <span
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[10px] font-medium bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400"
+                  className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium bg-muted text-muted-foreground"
                   title={t('brief.nonDirectorHint')}
                 >
                   {t('brief.nonDirectorTag')}
@@ -307,7 +307,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
             </span>
             {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
-              <span className="text-[11px] text-muted-foreground">{timestamp}</span>
+              <span className="text-xs text-muted-foreground">{timestamp}</span>
             )}
           </div>
           <div className="mt-0.5 text-sm leading-relaxed">
@@ -344,7 +344,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
                   <button
                     key={s}
                     onClick={() => onSuggestion(s)}
-                    className="rounded-full border border-primary/30 bg-primary/[0.04] px-3.5 py-2 text-[13px] font-medium text-primary hover:bg-primary/10 active:scale-[0.98] transition"
+                    className="rounded-full border border-primary/30 bg-primary/[0.04] px-3.5 py-2 text-sm font-medium text-primary hover:bg-primary/10 active:scale-[0.98] transition"
                   >
                     {s}
                   </button>
@@ -393,8 +393,8 @@ function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
   return (
     <div className="overflow-hidden rounded-lg border border-border bg-muted/30">
       <div className="flex min-w-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2">
-        <ArrowRightLeft className="size-3.5 shrink-0 text-sky-500" />
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        <ArrowRightLeft className="size-3.5 shrink-0 text-info" />
+        <span className="shrink-0 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t('collab.handoff.title')}
         </span>
         <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
@@ -405,15 +405,15 @@ function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
           <span className="truncate">{label(handoff.to)}</span>
         </span>
       </div>
-      <div className="space-y-2 px-3 py-2">
+      <div className="flex flex-col gap-2 px-3 py-2">
         <div>
-          <p className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">{t('collab.handoff.request')}</p>
+          <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('collab.handoff.request')}</p>
           <MarkdownContent content={handoff.request} agentNames={agentNames} agentLabels={agentLabels} />
         </div>
         {handoff.context && <HandoffSection title={t('collab.handoff.context')} body={handoff.context} />}
         {handoff.output && <HandoffSection title={t('collab.handoff.output')} body={handoff.output} />}
       </div>
-      <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-[11px] text-muted-foreground">
+      <div className="flex items-center gap-1.5 border-t border-border/60 px-3 py-1.5 text-xs text-muted-foreground">
         <AgentAvatar name={handoff.nextOwner} size={14} />
         <span className="truncate">{t('collab.handoff.nextOwner', { owner: label(handoff.nextOwner) })}</span>
       </div>
@@ -430,7 +430,7 @@ function HandoffSection({ title, body }: { title: string; body: string }) {
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
+        className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-muted-foreground transition-colors hover:text-foreground"
       >
         <ChevronRight className={cn('size-3 transition-transform', open && 'rotate-90')} />
         {title}

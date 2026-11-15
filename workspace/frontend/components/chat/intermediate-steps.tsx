@@ -196,7 +196,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
           <ListTodo className="size-3.5 shrink-0 text-foreground/80" />
           <span className="font-medium">{t('chat.todoList')}</span>
         </div>
-        <div className="ml-[22px] space-y-0.5">
+        <div className="ml-[22px] flex flex-col gap-0.5">
           {todos.map((todo, i) => (
             <div key={i} className="flex items-center gap-1.5 text-xs">
               <span className="shrink-0">{todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : todo.status === 'cancelled' ? '⊘' : '⬜'}</span>
@@ -204,7 +204,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
                 (todo.status === 'completed' || todo.status === 'cancelled') && 'line-through text-muted-foreground'
               )}>{todo.content}</span>
               {todo.assignee && (
-                <span className="text-muted-foreground/50 text-[10px]">→ {todo.assignee}</span>
+                <span className="text-muted-foreground/50 text-xs">→ {todo.assignee}</span>
               )}
             </div>
           ))}
@@ -229,8 +229,8 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
     return (
       <div className="py-0.5">
         <div className="flex items-start gap-2 text-xs text-muted-foreground">
-          <Icon className="size-3.5 shrink-0 mt-0.5 text-amber-500" />
-          <span className="italic text-[11px]">{t('chat.thinking')}</span>
+          <Icon className="size-3.5 shrink-0 mt-0.5 text-warning" />
+          <span className="italic text-xs">{t('chat.thinking')}</span>
         </div>
         <div className="text-xs leading-relaxed text-foreground/60 ml-[22px] mt-0.5 mb-1 whitespace-pre-wrap">
           {parsed.text}
@@ -246,7 +246,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
         className={cn(
           'flex items-center gap-2 text-xs py-0.5 w-full text-left rounded transition-colors',
           hasDetail
-            ? 'cursor-pointer hover:bg-zinc-100 dark:hover:bg-zinc-800/50 -ml-1 pl-1 pr-1'
+            ? 'cursor-pointer hover:bg-muted -ml-1 pl-1 pr-1'
             : 'cursor-default',
           'text-muted-foreground'
         )}
@@ -256,10 +256,10 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
         <Icon
           className={cn(
             'size-3.5 shrink-0',
-            parsed.type === 'thinking' && 'text-amber-500 animate-pulse',
+            parsed.type === 'thinking' && 'text-warning animate-pulse',
             parsed.type === 'compacting' && 'text-violet-500 animate-spin',
             parsed.type === 'tool_call' && 'text-foreground/80',
-            parsed.type === 'status' && 'text-emerald-500'
+            parsed.type === 'status' && 'text-success'
           )}
         />
 
@@ -296,7 +296,7 @@ const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage
       </button>
 
       {expanded && parsed.args && (
-        <pre className="text-[11px] leading-relaxed bg-zinc-50 dark:bg-zinc-900 border border-zinc-100 dark:border-zinc-800 rounded-md p-2.5 ml-[22px] mt-1 mb-1.5 overflow-x-auto max-h-48 text-zinc-600 dark:text-zinc-400 whitespace-pre-wrap break-all">
+        <pre className="text-xs leading-relaxed bg-muted border border-border rounded-md p-2.5 ml-[22px] mt-1 mb-1.5 overflow-x-auto max-h-48 text-muted-foreground whitespace-pre-wrap break-all">
           {parsed.args}
         </pre>
       )}
@@ -375,13 +375,13 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
         <div className="flex items-start gap-3 py-1">
           {/* Spacer matching avatar width for alignment with chat messages */}
           <div className="size-7 shrink-0" />
-          <div className="border-l-2 border-zinc-200 dark:border-zinc-700 pl-3 py-0.5 min-w-0 flex-1">
+          <div className="border-l-2 border-border pl-3 py-0.5 min-w-0 flex-1">
             {senderGroups.map((group, gi) => (
               <div key={`${group.sender}-${gi}`}>
                 {hasMultipleAgents && (
                   <div className="flex items-center gap-1.5 mb-0.5 mt-1 first:mt-0">
                     <AgentAvatar name={group.sender} size={14} />
-                    <span className="text-[10px] font-medium text-muted-foreground/70">
+                    <span className="text-xs font-medium text-muted-foreground/70">
                       {(() => {
                         const a = agents?.find((x) => x.agentName === group.sender);
                         return a ? agentLabel(a) : group.sender;

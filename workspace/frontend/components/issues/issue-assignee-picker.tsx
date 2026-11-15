@@ -39,7 +39,7 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
       <button type="button" disabled={disabled} aria-label={t(agentsOnly ? 'newThread.agent' : 'issues.assignee')} className="flex min-h-11 w-full items-center gap-2.5 rounded-lg border border-input bg-background px-3 py-2 text-left text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
         <Avatar id={value} />
         <span className={`min-w-0 flex-1 truncate ${value ? 'font-medium' : 'text-muted-foreground'}`}>{selected?.name || value || t(agentsOnly ? 'issues.chooseAgent' : 'issues.unassigned')}</span>
-        {value.startsWith('openagents:') && <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">{t('newThread.agent')}</span>}
+        {value.startsWith('openagents:') && <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">{t('newThread.agent')}</span>}
         <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
       </button>
     </PopoverTrigger>
@@ -54,7 +54,7 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
               <Avatar id={choice.id} />
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">{choice.name}</span>
-                {kind === 'human' && choice.name !== choice.id.slice(6) && <span className="block truncate text-[11px] text-muted-foreground">{choice.id.slice(6)}</span>}
+                {kind === 'human' && choice.name !== choice.id.slice(6) && <span className="block truncate text-xs text-muted-foreground">{choice.id.slice(6)}</span>}
               </span>
             </CommandItem>)}
           </CommandGroup>)}

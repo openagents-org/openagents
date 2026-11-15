@@ -19,12 +19,12 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
   return (
     <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[var(--oa-scene-border)] bg-[var(--oa-scene-bg)] px-6 pb-7 pt-10 text-[var(--oa-scene-text)] sm:px-10" aria-labelledby="onboarding-connection-title">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_55%,#2f6bff12,transparent_55%),radial-gradient(ellipse_at_15%_15%,#14b8a60d,transparent_50%)]" />
-      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-blue-100/60 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-blue-900/30 dark:hover:text-slate-100 sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
+      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-info/10 hover:text-foreground sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
 
       <div className="relative z-10 w-full sm:w-[56%]">
-        <p className="mb-2 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
-        <h1 id="onboarding-connection-title" className="oa-scene-title max-w-lg text-2xl font-medium leading-[1.15] tracking-[-0.035em] text-balance sm:text-[28px]">{t('onboarding.connectionTitle')}</h1>
-        <p className="oa-scene-intro mt-3 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300">{t('onboarding.visualIntro')}</p>
+        <p className="mb-2 inline-flex items-center gap-2 text-xs font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
+        <h1 id="onboarding-connection-title" className="oa-scene-title max-w-lg text-2xl font-medium leading-[1.15] tracking-[-0.035em] text-balance sm:text-3xl">{t('onboarding.connectionTitle')}</h1>
+        <p className="oa-scene-intro mt-3 max-w-md text-xs leading-5 text-muted-foreground">{t('onboarding.visualIntro')}</p>
         <button type="button" onClick={openSetup} className="group mt-3 inline-flex items-center gap-2 text-xs font-medium text-[var(--oa-scene-accent)] transition hover:text-[var(--oa-scene-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--oa-scene-accent)]">
           {t('onboarding.visualSetupCta')}<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none" />
         </button>
@@ -91,7 +91,7 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
           <image href="/logo-white.png" x="708" y="212" width="68" height="68" className="hidden dark:block" />
           <circle cx="830" cy="197" r="5" fill="#14b8a6" />
           <circle cx="657" cy="284" r="3" fill="#14b8a6" opacity=".6" />
-          <foreignObject x="612" y="350" width="260" height="64"><div className="text-center"><p className="truncate text-base font-medium text-slate-800 dark:text-slate-100" title={workspaceName}>{workspaceName}</p><p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">{t('onboarding.diagramWorkspace')}</p></div></foreignObject>
+          <foreignObject x="612" y="350" width="260" height="64"><div className="text-center"><p className="truncate text-base font-medium text-foreground" title={workspaceName}>{workspaceName}</p><p className="mt-1 text-xs text-muted-foreground">{t('onboarding.diagramWorkspace')}</p></div></foreignObject>
         </svg>
       </div>
 

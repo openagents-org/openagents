@@ -122,11 +122,11 @@ export function MermaidBlock({
 
 	if (error) {
 		return (
-			<div className="my-2 rounded-md border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-3">
-				<p className="mb-2 text-xs font-medium text-red-700 dark:text-red-300">
+			<div className="my-2 rounded-md border border-destructive/30 bg-destructive/10 p-3">
+				<p className="mb-2 text-xs font-medium text-destructive">
 					Unable to render Mermaid diagram: {error}
 				</p>
-				<pre className="overflow-x-auto text-[13px] leading-relaxed font-mono text-red-950 dark:text-red-100">
+				<pre className="overflow-x-auto text-sm leading-relaxed font-mono text-destructive">
 					<code>{chart}</code>
 				</pre>
 			</div>
@@ -135,7 +135,7 @@ export function MermaidBlock({
 
 	if (!svg) {
 		return (
-			<div className="my-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3 text-xs text-muted-foreground">
+			<div className="my-2 rounded-md border border-border bg-muted p-3 text-xs text-muted-foreground">
 				{t("chat.renderingDiagram")}
 			</div>
 		);
@@ -144,7 +144,7 @@ export function MermaidBlock({
 	return (
 		<div
 			ref={containerRef}
-			className="my-2 overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 [&_svg]:mx-auto [&_svg]:max-w-full"
+			className="my-2 overflow-x-auto rounded-md border border-border bg-white p-3 [&_svg]:mx-auto [&_svg]:max-w-full"
 		/>
 	);
 }

@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 
 // An opaque sandbox and CSP keep document links, scripts and remote resources
 // away from the app's credentials. Embedded images remain local data URLs.
@@ -35,6 +35,6 @@ export function DocxStage({ fileId, filename, size, onDownload }: { fileId: stri
     return () => abort.abort();
   }, [fileId, size]);
   if (failed) return <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t('files.loadFailed')}</p><button className="rounded-md border px-3 py-1.5 text-foreground" onClick={onDownload}>{t('files.downloadFile')}</button></div>;
-  if (!html) return <div className="flex h-full items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  if (!html) return <div className="flex h-full items-center justify-center"><Spinner className="size-6 text-muted-foreground" /></div>;
   return <iframe title={filename} sandbox="" referrerPolicy="no-referrer" srcDoc={html} className="h-full w-full border-0 bg-white" />;
 }

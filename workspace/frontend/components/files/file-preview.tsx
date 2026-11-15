@@ -10,12 +10,12 @@ import {
   ChevronRight,
   Download,
   ExternalLink,
-  Loader2,
   PanelRight,
   Pencil,
   Save,
   Trash2,
 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -134,7 +134,7 @@ function UnsupportedStage({
       >
         {getFileIconLarge(contentType, filename)}
       </div>
-      <div className="space-y-1">
+      <div className="flex flex-col gap-1">
         <p className="text-sm font-medium">{t(labelKey)}</p>
         <p className="max-w-sm text-xs text-muted-foreground">
           {reason ?? t('files.cannotPreview')}
@@ -397,7 +397,7 @@ export function FilePreview() {
     if (loading || (strategy === 'url' && !media.url && !media.failed)) {
       return (
         <div className="flex h-full items-center justify-center">
-          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          <Spinner className="size-6 text-muted-foreground" />
         </div>
       );
     }
@@ -609,7 +609,7 @@ export function FilePreview() {
               {t('common.cancel')}
             </Button>
             <Button size="sm" onClick={handleSave} disabled={saving || !dirty}>
-              {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Save className="size-3.5" />}
+              {saving ? <Spinner className="size-3.5" /> : <Save className="size-3.5" />}
               {t('common.save')}
             </Button>
           </>
@@ -690,7 +690,7 @@ export function FilePreview() {
               size="icon-sm"
               onClick={handleDelete}
               aria-label={t('common.delete')}
-              className="text-muted-foreground hover:text-red-500"
+              className="text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-4" />
             </Button>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Search, ExternalLink, Star, ArrowRight, Check, Plus, Loader2, AlertCircle, Upload, Package, GitFork, Globe2, EyeOff, Trophy } from 'lucide-react';
+import { Search, ExternalLink, Star, ArrowRight, Check, Plus, AlertCircle, Upload, Package, GitFork, Globe2, EyeOff, Trophy } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
@@ -312,7 +313,7 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
           <div className="flex items-center gap-1.5">
             <h3 className="text-sm font-semibold leading-tight truncate">{skill.name}</h3>
             {skill.author === 'Anthropic' && (
-              <span className="shrink-0 text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">
+              <span className="shrink-0 text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">
                 {t('skills.official')}
               </span>
             )}
@@ -327,7 +328,7 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
       {/* Tags — aligned with the text column, past the logo */}
       <div className="flex flex-wrap gap-1.5 mt-3 ml-14.5">
         {skill.tags.map(tag => (
-          <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+          <span key={tag} className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
             {tag}
           </span>
         ))}
@@ -335,10 +336,10 @@ function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => 
 
       {/* Footer */}
       <div className="flex items-center justify-between mt-3 ml-14.5">
-        <span className="text-[10px] text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {skill.sourceRepo ? skill.sourceRepo.split('/')[0] : (skill.author || t('skills.customSource'))}
         </span>
-        <span className="text-[11px] text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
+        <span className="text-xs text-primary font-medium opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5">
           {t('skills.view')} <ArrowRight className="size-3" />
         </span>
       </div>
@@ -397,7 +398,7 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
   return (
     <div>
       <div className="flex flex-wrap items-center gap-2 mb-2.5">
-        <Trophy className="size-3.5 text-amber-500" />
+        <Trophy className="size-3.5 text-warning" />
         <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
           {t('skills.leaderboard')}
         </h3>
@@ -407,7 +408,7 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
               key={item}
               onClick={() => setBoard(item)}
               className={cn(
-                'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                'rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
                 board === item ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
               )}
             >
@@ -420,7 +421,7 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
               key={days}
               onClick={() => setWindow(days)}
               className={cn(
-                'rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors',
+                'rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors',
                 window_ === days ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted',
               )}
             >
@@ -432,7 +433,7 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
 
       {entries === null ? (
         <div className="flex items-center gap-2 rounded-lg border border-border p-3.5 text-xs text-muted-foreground">
-          <Loader2 className="size-3.5 animate-spin" /> {t('common.loading')}
+          <Spinner className="size-3.5" /> {t('common.loading')}
         </div>
       ) : entries.length === 0 ? (
         <div className="rounded-lg border border-border p-3.5 text-xs text-muted-foreground">
@@ -448,15 +449,15 @@ function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
             >
               <span className={cn(
                 'w-5 shrink-0 text-center text-xs font-semibold tabular-nums',
-                entry.rank <= 3 ? 'text-amber-500' : 'text-muted-foreground',
+                entry.rank <= 3 ? 'text-warning' : 'text-muted-foreground',
               )}>
                 {entry.rank}
               </span>
               <span className="min-w-0 flex-1 truncate text-sm font-medium">{entry.name}</span>
-              <span className="hidden shrink-0 text-[11px] text-muted-foreground sm:inline">
+              <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                 {entry.namespaceName || entry.namespace}
               </span>
-              <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
+              <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                 {t('skills.leaderboardStats', {
                   installs: String(entry.windowInstalls),
                   forks: String(entry.windowForks),
@@ -707,19 +708,19 @@ function SkillDetail({
                 <Package className="h-7 w-7 text-muted-foreground" />
               )}
             </div>
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 flex flex-col gap-2">
               <div className="flex items-center gap-2">
                 <DialogTitle className="text-xl">{skill.name}</DialogTitle>
                 {skill.author === 'Anthropic' && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">{t('skills.official')}</span>
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-semibold uppercase">{t('skills.official')}</span>
                 )}
               </div>
-              <DialogDescription className="text-[15px] leading-relaxed">
+              <DialogDescription className="text-sm leading-relaxed">
                 {skillDescription(t, skill)}
               </DialogDescription>
               <div className="flex flex-wrap gap-1.5">
                 {skill.tags.map(tag => (
-                  <span key={tag} className="text-[11px] px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium">{tag}</span>
+                  <span key={tag} className="text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground font-medium">{tag}</span>
                 ))}
               </div>
             </div>
@@ -728,17 +729,17 @@ function SkillDetail({
 
         <DialogBody className="flex flex-col gap-3">
           {skill.unavailable && (
-            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
+            <div className="rounded-lg border border-warning/30 bg-warning/10 p-3 text-sm text-warning">
               {t('skills.backingFileUnavailable')}
             </div>
           )}
           {/* Add to Agent */}
           <div className="rounded-lg border border-primary/20 bg-primary/5 p-3.5">
-            <div className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-2.5">{t('skills.addToAgent')}</div>
+            <div className="text-xs font-semibold text-primary uppercase tracking-wider mb-2.5">{t('skills.addToAgent')}</div>
             {onlineAgents.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('skills.noOnlineAgents')}</p>
             ) : (
-              <div className="space-y-1.5">
+              <div className="flex flex-col gap-1.5">
                 {onlineAgents.map(agent => {
                   const serverState = getSkillState(agent.agentName);
                   // Optimistic local state wins until the next discovery refresh
@@ -753,7 +754,7 @@ function SkillDetail({
                         <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleUninstall(agent.agentName)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-green-500/10 text-green-600 dark:text-green-400 hover:bg-red-500/10 hover:text-red-600 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-success/10 text-success hover:bg-destructive/10 hover:text-destructive transition-colors"
                         >
                           <Check className="size-3" />
                           {t('skills.installed')}
@@ -768,9 +769,9 @@ function SkillDetail({
                         <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           disabled
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-muted text-muted-foreground disabled:opacity-70"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-muted text-muted-foreground disabled:opacity-70"
                         >
-                          <Loader2 className="size-3 animate-spin" />
+                          <Spinner className="size-3" />
                           {t('skills.installing')}
                         </button>
                       </div>
@@ -778,12 +779,12 @@ function SkillDetail({
                   }
                   if (state === 'failed') {
                     return (
-                      <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-red-500/30 px-3.5 py-2.5">
+                      <div key={agent.agentName} className="flex items-center gap-2.5 rounded-md bg-background border border-destructive/30 px-3.5 py-2.5">
                         <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
                         <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                         <button
                           onClick={() => handleInstall(agent.agentName)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500/20 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors"
                           title={t('skills.failedRetryHint')}
                         >
                           <AlertCircle className="size-3" />
@@ -798,7 +799,7 @@ function SkillDetail({
                       <span className="flex-1 text-sm font-medium truncate">{agentLabel(agent)}</span>
                       <button
                         onClick={() => handleInstall(agent.agentName)}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[10px] font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
                       >
                         <Plus className="size-3" />
                         {t('skills.add')}
@@ -812,11 +813,11 @@ function SkillDetail({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg border border-border p-3.5">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.category')}</div>
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.category')}</div>
               <div className="text-sm font-medium">{categoryLabel(t, skill.category)}</div>
             </div>
             <div className="rounded-lg border border-border p-3.5">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.author')}</div>
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.author')}</div>
               <div className="text-sm font-medium">{skill.author || t('skills.customAuthor')}</div>
             </div>
           </div>
@@ -824,11 +825,11 @@ function SkillDetail({
           {isRegistry && (
             <div className="grid grid-cols-2 gap-3">
               <div className="rounded-lg border border-border p-3.5">
-                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.namespaceVersion')}</div>
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.namespaceVersion')}</div>
                 <div className="text-sm font-medium truncate">{skill.namespace}/{skill.slug} · {skill.version || 'upstream'}</div>
               </div>
               <div className="rounded-lg border border-border p-3.5">
-                <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.license')}</div>
+                <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.license')}</div>
                 <div className="text-sm font-medium">{skill.license || 'LicenseRef-Upstream'}</div>
               </div>
             </div>
@@ -836,8 +837,8 @@ function SkillDetail({
 
           {isRegistry && registryDetail?.versions && registryDetail.versions.length > 0 && (
             <div className="rounded-lg border border-border p-3.5">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.versionHistory')}</div>
-              <div className="space-y-2">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.versionHistory')}</div>
+              <div className="flex flex-col gap-2">
                 {registryDetail.versions.map((version, index) => (
                   <div key={version.id} className="flex items-start gap-3 text-sm">
                     <div className="mt-1 size-2 rounded-full bg-primary shrink-0" />
@@ -850,7 +851,7 @@ function SkillDetail({
                       {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
                     </div>
                     {version.publishedAt && (
-                      <span className="text-[10px] text-muted-foreground shrink-0">
+                      <span className="text-xs text-muted-foreground shrink-0">
                         {new Date(version.publishedAt).toLocaleDateString()}
                       </span>
                     )}
@@ -858,7 +859,7 @@ function SkillDetail({
                       <Button
                         variant="ghost" size="sm" disabled={acting}
                         onClick={() => handleYank(version.id, version.version)}
-                        className="h-6 shrink-0 px-2 text-[11px] text-muted-foreground hover:text-red-500"
+                        className="h-6 shrink-0 px-2 text-xs text-muted-foreground hover:text-destructive"
                       >
                         {t('skills.yankVersion')}
                       </Button>
@@ -873,10 +874,10 @@ function SkillDetail({
               after publishing; this one is what an author iterates on. */}
           {isCustom && privateVersions.length > 0 && (
             <div className="rounded-lg border border-border p-3.5">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">
                 {t('skills.privateVersionHistory')}
               </div>
-              <div className="space-y-2">
+              <div className="flex flex-col gap-2">
                 {privateVersions.map((version, index) => (
                   <div key={version.versionId} className="flex items-start gap-3 text-sm">
                     <div className="mt-1 size-2 rounded-full bg-primary shrink-0" />
@@ -888,7 +889,7 @@ function SkillDetail({
                       {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
                     </div>
                     {version.createdAt && (
-                      <span className="text-[10px] text-muted-foreground shrink-0">
+                      <span className="text-xs text-muted-foreground shrink-0">
                         {new Date(version.createdAt).toLocaleDateString()}
                       </span>
                     )}
@@ -899,8 +900,8 @@ function SkillDetail({
           )}
 
           {isCustom && workspaceSkillId && (
-            <div className="rounded-lg border border-border p-3.5 space-y-3">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            <div className="rounded-lg border border-border p-3.5 flex flex-col gap-3">
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 {t('skills.newVersionTitle')}
               </div>
               <p className="text-xs text-muted-foreground">{t('skills.newVersionHint')}</p>
@@ -918,16 +919,16 @@ function SkillDetail({
                 className="h-9"
               />
               <Button size="sm" disabled={!newVersionFile || acting} onClick={handleNewVersion}>
-                {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+                {acting ? <Spinner className="size-3.5" /> : <Upload className="size-3.5" />}
                 {t('skills.newVersionSubmit')}
               </Button>
             </div>
           )}
 
           {isCustom && showPublishForm && (
-            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5 space-y-3">
+            <div className="rounded-lg border border-primary/30 bg-primary/5 p-3.5 flex flex-col gap-3">
               <div>
-                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                   {t('skills.publishLicenseLabel')}
                 </label>
                 <select
@@ -941,11 +942,11 @@ function SkillDetail({
                   <option value="CC-BY-4.0">CC-BY-4.0</option>
                   <option value="CC-BY-SA-4.0">CC-BY-SA-4.0</option>
                 </select>
-                <p className="mt-1 text-[11px] text-muted-foreground">{t('skills.publishLicenseHint')}</p>
+                <p className="mt-1 text-xs text-muted-foreground">{t('skills.publishLicenseHint')}</p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     {t('skills.publishVersionLabel')}
                   </label>
                   <Input
@@ -957,7 +958,7 @@ function SkillDetail({
                   />
                 </div>
                 <div>
-                  <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
                     {t('skills.publishChangelogLabel')}
                   </label>
                   <Input
@@ -976,11 +977,11 @@ function SkillDetail({
               GitHub source / CLI install command. */}
           {isCustom ? (
             <div className="rounded-lg border border-border p-3.5">
-              <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5">{t('skills.uploadedPackage')}</div>
+              <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1.5">{t('skills.uploadedPackage')}</div>
               <div className="flex items-center gap-2">
                 <Package className="size-4 text-muted-foreground shrink-0" />
                 <span className="text-sm font-medium truncate">{skill.filename || `${skill.id}.${skill.packageType || 'md'}`}</span>
-                <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase shrink-0">
+                <span className="text-xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium uppercase shrink-0">
                   {skill.packageType || 'md'}
                 </span>
               </div>
@@ -989,7 +990,7 @@ function SkillDetail({
             <>
               {skill.sourceRepo && (
                 <div className="rounded-lg border border-border p-3.5">
-                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.source')}</div>
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-1">{t('skills.source')}</div>
                   <a href={ghUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline flex items-center gap-1.5">
                     {skill.sourceRepo}/{skill.sourcePath} <ExternalLink className="size-3" />
                   </a>
@@ -998,7 +999,7 @@ function SkillDetail({
 
               {skill.sourceRepo && (
                 <div className="rounded-lg border border-border p-3.5 bg-muted/30">
-                  <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.cliInstall')}</div>
+                  <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.cliInstall')}</div>
                   <code className="text-xs font-mono block bg-background rounded-md p-3 border border-border select-all break-all">
                     npx @anthropic-ai/skills install {skill.sourceRepo}/{skill.sourcePath}
                   </code>
@@ -1008,15 +1009,15 @@ function SkillDetail({
           )}
 
           <div className="rounded-lg border border-border p-3.5">
-            <div className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.compatibleWith')}</div>
+            <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">{t('skills.compatibleWith')}</div>
             <div className="flex flex-wrap gap-1.5">
               {(isRegistry && skill.sourceMode === 'mirrored'
                 ? ['Claude Code', 'Codex', 'Cursor']
                 : ['Claude Code', 'Codex', 'Cursor', 'Gemini CLI', 'OpenCode', 'VS Code', 'Roo Code']).map(a => (
-                <span key={a} className="text-[11px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">{a}</span>
+                <span key={a} className="text-xs px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">{a}</span>
               ))}
               {(!isRegistry || skill.sourceMode === 'upstream_pointer') && (
-                <span className="text-[11px] text-muted-foreground self-center">{t('skills.moreCompatible')}</span>
+                <span className="text-xs text-muted-foreground self-center">{t('skills.moreCompatible')}</span>
               )}
             </div>
           </div>
@@ -1035,7 +1036,7 @@ function SkillDetail({
                 : undefined}
               className="min-w-24"
             >
-              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <Globe2 className="size-3.5" />}
+              {acting ? <Spinner className="size-3.5" /> : <Globe2 className="size-3.5" />}
               {!identityUser
                 ? t(isOpenAgentsDomain ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
                 : showPublishForm ? t('skills.publishConfirm') : t('skills.publishPublic')}
@@ -1051,13 +1052,13 @@ function SkillDetail({
               onClick={() => handleVisibility(skill.visibility === 'unlisted' ? 'public' : 'unlisted')}
               className="min-w-24"
             >
-              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <EyeOff className="size-3.5" />}
+              {acting ? <Spinner className="size-3.5" /> : <EyeOff className="size-3.5" />}
               {t(skill.visibility === 'unlisted' ? 'skills.relistPublic' : 'skills.unlistPublic')}
             </Button>
           )}
           {isRegistry && skill.sourceMode === 'mirrored' && (
             <Button onClick={handleFork} disabled={acting} className="min-w-24">
-              {acting ? <Loader2 className="size-3.5 animate-spin" /> : <GitFork className="size-3.5" />}
+              {acting ? <Spinner className="size-3.5" /> : <GitFork className="size-3.5" />}
               {t('skills.forkToWorkspace')}
             </Button>
           )}
@@ -1206,7 +1207,7 @@ export function SkillsView() {
       </DetailHeader>
 
       {/* Filters */}
-      <div className="shrink-0 px-5 py-2 border-b border-border space-y-2 md:space-y-0">
+      <div className="shrink-0 px-5 py-2 border-b border-border flex flex-col gap-2">
         {/* Narrow screens keep the search here — the mobile header has no room */}
         <div className="relative md:hidden">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
@@ -1226,7 +1227,7 @@ export function SkillsView() {
               key={cat.id}
               onClick={() => setActiveCategory(cat.id)}
               className={cn(
-                'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-[11px] font-medium transition-colors',
+                'shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors',
                 activeCategory === cat.id
                   ? 'bg-primary/10 text-primary'
                   : 'hover:bg-muted text-muted-foreground hover:text-foreground',
@@ -1248,7 +1249,7 @@ export function SkillsView() {
             <button onClick={() => { setSearch(''); setActiveCategory('all'); }} className="text-xs text-primary hover:underline">{t('skills.clearFilters')}</button>
           </div>
         ) : (
-          <div className="p-4 space-y-5">
+          <div className="p-4 flex flex-col gap-5">
             {activeCategory === 'all' && !search && (
               <LeaderboardPanel onSelect={setSelectedSkill} />
             )}
@@ -1257,7 +1258,7 @@ export function SkillsView() {
             {activeCategory === 'all' && !search && (
               <div>
                 <div className="flex items-center gap-2 mb-2.5">
-                  <Star className="size-3.5 text-amber-500 fill-amber-500" />
+                  <Star className="size-3.5 text-warning fill-warning" />
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('skills.featured')}</h3>
                 </div>
                 <div className={GRID_CLASS}>
@@ -1273,7 +1274,7 @@ export function SkillsView() {
               {activeCategory === 'all' && !search && (
                 <div className="flex items-center gap-2 mb-2.5">
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{t('skills.all')}</h3>
-                  <span className="text-[10px] text-muted-foreground">({categoryCounts.all})</span>
+                  <span className="text-xs text-muted-foreground">({categoryCounts.all})</span>
                 </div>
               )}
               <div className={GRID_CLASS}>
@@ -1373,7 +1374,7 @@ function UploadSkillDialog({
         <DialogBody className="flex flex-col gap-3">
           {/* File picker */}
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
               {t('skills.uploadPackageLabel')}
             </label>
             <label className="mt-1 flex items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors">
@@ -1382,7 +1383,7 @@ function UploadSkillDialog({
                 {file ? file.name : t('skills.uploadChooseFile')}
               </span>
               {file && (
-                <span className="text-[10px] text-muted-foreground shrink-0">
+                <span className="text-xs text-muted-foreground shrink-0">
                   {(file.size / 1024).toFixed(1)} KB
                 </span>
               )}
@@ -1394,16 +1395,16 @@ function UploadSkillDialog({
               />
             </label>
             {file && !extOk && (
-              <p className="mt-1 text-[11px] text-red-500">{t('skills.uploadExtError')}</p>
+              <p className="mt-1 text-xs text-destructive">{t('skills.uploadExtError')}</p>
             )}
-            <p className="mt-1 text-[10px] text-muted-foreground">
+            <p className="mt-1 text-xs text-muted-foreground">
               {t('skills.uploadZipHint')}
             </p>
           </div>
 
           {/* Skill id */}
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadIdLabel')}</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadIdLabel')}</label>
             <input
               type="text"
               value={id}
@@ -1412,7 +1413,7 @@ function UploadSkillDialog({
               className="mt-1 w-full px-3 py-2 text-sm rounded-lg bg-muted/50 border border-input focus:outline-none focus:ring-1 focus:ring-primary"
             />
             {id !== '' && !idValid && (
-              <p className="mt-1 text-[11px] text-red-500">
+              <p className="mt-1 text-xs text-destructive">
                 {t('skills.uploadIdError')}
               </p>
             )}
@@ -1420,7 +1421,7 @@ function UploadSkillDialog({
 
           {/* Name */}
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadNameLabel')}</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadNameLabel')}</label>
             <input
               type="text"
               value={name}
@@ -1432,7 +1433,7 @@ function UploadSkillDialog({
 
           {/* Description */}
           <div>
-            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadDescriptionLabel')}</label>
+            <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">{t('skills.uploadDescriptionLabel')}</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -1443,9 +1444,9 @@ function UploadSkillDialog({
           </div>
 
           {error && (
-            <div className="flex items-start gap-2 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2">
-              <AlertCircle className="size-3.5 text-red-500 shrink-0 mt-0.5" />
-              <p className="text-[11px] text-red-600 dark:text-red-400">{error}</p>
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-2">
+              <AlertCircle className="size-3.5 text-destructive shrink-0 mt-0.5" />
+              <p className="text-xs text-destructive">{error}</p>
             </div>
           )}
         </DialogBody>
@@ -1462,7 +1463,7 @@ function UploadSkillDialog({
             disabled={!canSubmit}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:bg-primary/90 disabled:opacity-50"
           >
-            {submitting ? <Loader2 className="size-3.5 animate-spin" /> : <Upload className="size-3.5" />}
+            {submitting ? <Spinner className="size-3.5" /> : <Upload className="size-3.5" />}
             {submitting ? t('skills.uploading') : t('skills.uploadSubmit')}
           </button>
         </DialogFooter>

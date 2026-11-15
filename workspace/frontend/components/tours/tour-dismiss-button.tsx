@@ -44,7 +44,7 @@ export function TourDismissButton({
         <button
           aria-label={t('featureTours.dismiss')}
           className={cn(
-            'flex shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-black/5 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-200',
+            'flex shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10',
             className,
           )}
         >

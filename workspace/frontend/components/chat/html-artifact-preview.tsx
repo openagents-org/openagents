@@ -29,7 +29,7 @@ export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenF
       <div className="flex items-center gap-2 px-3 py-2">
         <FileCode2 className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate text-sm font-medium" title={filename}>{filename}</span>
-        <span className="hidden rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 sm:inline dark:bg-zinc-800 dark:text-zinc-400">
+        <span className="hidden rounded bg-muted px-1.5 py-0.5 text-xs font-semibold text-muted-foreground sm:inline">
           {t('artifact.html')}
         </span>
         <button

@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { AtSign, Check, ChevronDown, Loader2, Sparkles, Waypoints } from 'lucide-react';
+import { AtSign, Check, ChevronDown, Sparkles, Waypoints } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel } from '@/components/ui/dropdown-menu';
@@ -33,7 +34,7 @@ export function ResponseModeControl({ session, onChange }: { session: WorkspaceS
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" disabled={saving} className="h-7 gap-1.5 text-xs" title={t('responseMode.label')} aria-label={`${t('responseMode.label')}: ${label}`}>
-          {saving ? <Loader2 className="size-3.5 animate-spin" /> : <Icon className="size-3.5" />}
+          {saving ? <Spinner className="size-3.5" /> : <Icon className="size-3.5" />}
           <span className="max-w-32 truncate">{label}</span><ChevronDown className="size-3" />
         </Button>
       </DropdownMenuTrigger>

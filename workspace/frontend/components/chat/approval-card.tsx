@@ -128,8 +128,8 @@ export function ApprovalCard({
 
   const isPending = approval.status === 'pending';
   const verdictTone = approval.status === 'approved'
-    ? 'text-emerald-700 dark:text-emerald-400'
-    : approval.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground';
+    ? 'text-success'
+    : approval.status === 'rejected' ? 'text-destructive' : 'text-muted-foreground';
 
   // ---- Header ----------------------------------------------------------------
   const headerText = `${t('approvals.requested')} · ${approval.action}`;
@@ -159,7 +159,7 @@ export function ApprovalCard({
     <div
       className={cn(
         'mt-1.5 max-w-xl overflow-hidden rounded-xl border bg-card text-sm shadow-sm',
-        isPending ? 'border-amber-300/70 dark:border-amber-500/40' : 'border-border',
+        isPending ? 'border-warning/70' : 'border-border',
       )}
       data-testid="approval-card"
       data-kind-class="approval"
@@ -167,22 +167,22 @@ export function ApprovalCard({
       {/* Header */}
       <div className={cn(
         'flex items-center gap-2 px-3.5 py-2 text-xs font-semibold',
-        isPending ? 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-muted/60 text-foreground',
+        isPending ? 'bg-warning/10 text-warning' : 'bg-muted/60 text-foreground',
       )}>
         <Lock className="size-3.5 shrink-0" />
         <span className="truncate">{headerText}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          <span className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          <span className="rounded bg-background/70 px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             {kindLabel}
           </span>
           {approval.risk && (
             <span className={cn(
-              'rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
+              'rounded px-1.5 py-0.5 text-xs font-medium uppercase tracking-wide',
               approval.risk === 'high'
-                ? 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300'
+                ? 'bg-destructive/10 text-destructive'
                 : approval.risk === 'medium'
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'
-                  : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
+                  ? 'bg-warning/10 text-warning'
+                  : 'bg-muted text-muted-foreground',
             )}>
               {approval.risk} {t('approvals.risk')}
             </span>
@@ -191,10 +191,10 @@ export function ApprovalCard({
       </div>
 
       {/* Body */}
-      <div className="space-y-2.5 px-3.5 py-3">
+      <div className="flex flex-col gap-2.5 px-3.5 py-3">
         {approval.details && (
           <pre className={cn(
-            'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed',
+            'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted px-2.5 py-2 font-mono text-xs leading-relaxed',
             'text-foreground/90',
           )}>
             {approval.details}
@@ -224,7 +224,7 @@ export function ApprovalCard({
         {!!requirements?.approved_by.length && <p className="text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: requirements.approved_by.map(personName).join(', ') })}</p>}
         {/* Decision */}
         {isPending && canDecide && (
-          <div className="space-y-2 pt-0.5">
+          <div className="flex flex-col gap-2 pt-0.5">
             {showNote && (
               <Textarea
                 value={note}

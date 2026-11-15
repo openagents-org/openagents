@@ -137,7 +137,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
               <DropdownMenuLabel className="flex flex-col gap-0.5">
                 <span className="truncate text-sm font-medium">{user.email}</span>
                 {isOwnedByUser && (
-                  <span className="flex items-center gap-1 text-[11px] font-normal text-emerald-600">
+                  <span className="flex items-center gap-1 text-xs font-normal text-success">
                     <Shield className="size-3" /> {t('userMenu.ownsWorkspace')}
                   </span>
                 )}

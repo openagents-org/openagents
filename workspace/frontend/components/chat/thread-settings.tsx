@@ -4,7 +4,8 @@ import { useEffect, useState } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
 import { ThreadPrivacyControl } from './thread-privacy-control';
-import { Loader2, Settings, X } from 'lucide-react';
+import { Settings, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -108,7 +109,7 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
           </DialogHeader>
           <DialogBody className="flex flex-col gap-5">
               <p className="truncate text-sm font-medium">{session.title}</p>
-              {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <div className="space-y-2">
+              {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <div className="flex flex-col gap-2">
                 <label className="text-sm font-medium" htmlFor="thread-icon">{t('threadSettings.icon')}</label>
                 <div className="flex flex-wrap gap-1">{['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'].map(icon => <button type="button" key={icon} disabled={busy} aria-label={icon} aria-pressed={session.icon === icon} onClick={() => void saveIcon(icon)} className="rounded-md border p-2 text-lg hover:bg-muted aria-pressed:bg-muted">{icon}</button>)}</div>
                 <div className="flex gap-2"><input id="thread-icon" aria-label={t('threadSettings.icon')} maxLength={32} value={iconDraft} onChange={e => setIconDraft(e.target.value)} className="min-w-0 flex-1 rounded-md border bg-background px-2 text-sm" /><Button size="sm" disabled={busy || !iconDraft.trim()} onClick={() => void saveIcon(iconDraft.trim())}>{t('common.save')}</Button><Button size="sm" variant="outline" disabled={busy || !session.icon} onClick={() => void saveIcon(null)}>{t('threadSettings.resetIcon')}</Button></div>
@@ -124,7 +125,7 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
                 <span className="text-sm">{t('threadSettings.visibility')}</span>
                 <ThreadPrivacyControl channelName={session.sessionId} inDialog />
               </div>
-              {manage && <div className="space-y-4 border-t pt-4">
+              {manage && <div className="flex flex-col gap-4 border-t pt-4">
                 <label className="flex items-center justify-between gap-4">
                   <span className="text-sm">{t('threadAccess.participantsCanInvite')}</span>
                   <Switch checked={!!participants?.participants_can_invite} disabled={busy} onCheckedChange={value => void changePermission('people', value)} />
@@ -142,16 +143,16 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
                   <option value="approval">{t('threadSettings.sharingApproval')}</option>
                 </select>
               </label>}
-              {loadFailed ? <div className="space-y-2 text-sm text-muted-foreground"><p>{t('collab.participantsLoadFailed')}</p><Button variant="outline" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button></div>
-                : !participants ? <Loader2 className="size-4 animate-spin" /> : <div className="space-y-4 border-t pt-4">
-                  <div className="space-y-2">
+              {loadFailed ? <div className="flex flex-col gap-2 text-sm text-muted-foreground"><p>{t('collab.participantsLoadFailed')}</p><Button variant="outline" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button></div>
+                : !participants ? <Spinner /> : <div className="flex flex-col gap-4 border-t pt-4">
+                  <div className="flex flex-col gap-2">
                     <h4 className="text-sm font-medium">{t('threadSettings.people')}</h4>
                     {participants.humans.map(human => <div key={human.email} className="flex items-center gap-2 text-sm">
                       <HumanAvatar email={human.email} /><span className="min-w-0 flex-1 truncate" title={human.email}>{human.display_name || human.email}</span>
                       {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <Button variant="ghost" size="sm" disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X className="size-4" /></Button>}
                     </div>)}
                   </div>
-                  <div className="space-y-2">
+                  <div className="flex flex-col gap-2">
                     <h4 className="text-sm font-medium">{t('threadSettings.agents')}</h4>
                     {participants.agents.map(agent => <div key={agent.agent_name} className="flex items-center gap-2 text-sm">
                       <AgentAvatar name={agent.agent_name} size={28} /><div className="min-w-0 flex-1"><p className="truncate">{agent.display_name || agent.agent_name}</p>{agent.owner_email && <p className="truncate text-xs text-muted-foreground">{agent.owner_email}</p>}</div>

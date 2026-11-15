@@ -782,7 +782,7 @@ export function ChatView() {
           {isMobile && (
             <button
               onClick={openMobileList}
-              className="size-8 flex items-center justify-center rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors shrink-0 -ml-1"
+              className="size-8 flex items-center justify-center rounded-lg hover:bg-muted text-muted-foreground transition-colors shrink-0 -ml-1"
             >
               <ChevronLeft className="size-5" />
             </button>
@@ -795,7 +795,7 @@ export function ChatView() {
                 else if (dmCounterpart?.startsWith('human:')) setProfileEmail(dmCounterpart.slice('human:'.length));
               }}>{dmTitle}</button>
               {!dmWritable && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium">
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">
                   {t('header.readOnly')}
                 </span>
               )}
@@ -835,7 +835,7 @@ export function ChatView() {
             return (
               <>
                 {sessionAgents.length > 1 && (
-                  <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium shrink-0">
+                  <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground font-medium shrink-0">
                     {t('chat.groupBadge')}
                   </span>
                 )}
@@ -856,7 +856,7 @@ export function ChatView() {
             if (!modelAgent?.model) return null;
             return (
               <span
-                className="hidden sm:inline-flex items-center gap-1 max-w-[180px] text-[10px] px-2 py-1 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400 font-medium shrink-0"
+                className="hidden sm:inline-flex items-center gap-1 max-w-[180px] text-xs px-2 py-1 rounded-full bg-muted text-muted-foreground font-medium shrink-0"
                 title={t('chat.modelBadgeTitle', { agent: agentLabel(modelAgent) })}
               >
                 <Cpu className="size-2.5 shrink-0" />
@@ -870,7 +870,7 @@ export function ChatView() {
             <button
               onClick={() => stopAllAgents(currentSessionId!)}
               disabled={stoppingSessionIds.has(currentSessionId)}
-              className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
+              className="flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-destructive/10 text-destructive hover:bg-destructive/20 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
             >
               <Square className="size-3 fill-current" />
               {stoppingSessionIds.has(currentSessionId) ? t('chat.stopping') : t('chat.stop')}
@@ -968,9 +968,9 @@ export function ChatView() {
         if (offline.length === 0) return null;
         const allOffline = offline.length === participants.length;
         return (
-          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-amber-50 dark:bg-amber-900/15 text-amber-800 dark:text-amber-300">
+          <div className="flex items-center gap-2 px-2 lg:px-4 py-1.5 border-b shrink-0 overflow-x-auto bg-warning/10 text-warning">
             <AlertTriangle className="size-3.5 shrink-0" />
-            <span className="text-[11px] leading-snug shrink-0">
+            <span className="text-xs leading-snug shrink-0">
               {allOffline
                 ? t('chat.offlineAllAgents')
                 : t('chat.offlineSomeAgents')}
@@ -980,7 +980,7 @@ export function ChatView() {
               return (
                 <span
                   key={name}
-                  className="inline-flex items-center gap-1 text-[11px] font-medium px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 shrink-0"
+                  className="inline-flex items-center gap-1 text-xs font-medium px-1.5 py-0.5 rounded bg-warning/10 shrink-0"
                 >
                   <AgentAvatar name={name} size={14} />
                   {member ? agentLabel(member) : name}
@@ -1005,11 +1005,11 @@ export function ChatView() {
           .filter(({ name, entry }) => !dismissedProbes.has(probeKey(name, entry.nodeId, entry.probe.at)));
         if (failing.length === 0) return null;
         return (
-          <div className="px-2 lg:px-4 py-2 border-b shrink-0 bg-red-50 dark:bg-red-950/25 text-red-800 dark:text-red-300 space-y-1.5">
+          <div className="px-2 lg:px-4 py-2 border-b shrink-0 bg-destructive/10 text-destructive flex flex-col gap-1.5">
             {failing.map(({ name, entry }) => {
               const busy = retesting.has(name);
               return (
-                <div key={name} className="text-[11px] leading-snug">
+                <div key={name} className="text-xs leading-snug">
                   <div className="flex items-center gap-1.5 font-medium">
                     <AlertTriangle className="size-3.5 shrink-0" />
                     <span className="min-w-0 break-words">
@@ -1019,7 +1019,7 @@ export function ChatView() {
                     <button
                       onClick={() => retestAgent(name, entry.nodeId, entry.probe.at)}
                       disabled={busy}
-                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-red-300 dark:border-red-800 bg-white dark:bg-red-950/40 px-2 py-0.5 text-[11px] font-medium text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40 disabled:opacity-60"
+                      className="ml-auto inline-flex shrink-0 items-center gap-1 rounded-md border border-destructive/30 bg-white px-2 py-0.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-60"
                       title={t('chat.probeRetest')}
                     >
                       <RefreshCw className={`size-3 ${busy ? 'animate-spin' : ''}`} />
@@ -1028,7 +1028,7 @@ export function ChatView() {
                     <button
                       type="button"
                       onClick={() => setDismissedProbes((previous) => new Set(previous).add(probeKey(name, entry.nodeId, entry.probe.at)))}
-                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-red-700 dark:text-red-300 transition-colors hover:bg-red-100 dark:hover:bg-red-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500"
+                      className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-destructive transition-colors hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/30"
                       aria-label={t('common.close')}
                       title={t('common.close')}
                     >
@@ -1036,7 +1036,7 @@ export function ChatView() {
                     </button>
                   </div>
                   {(entry.probe.guidance || []).slice(0, 3).map((line, i) => (
-                    <div key={i} className="pl-5 text-red-700/90 dark:text-red-300/80">→ {line}</div>
+                    <div key={i} className="pl-5 text-destructive/90">→ {line}</div>
                   ))}
                 </div>
               );

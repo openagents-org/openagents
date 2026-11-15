@@ -41,9 +41,9 @@ export function AgentAvatar({ name, size = 28, status, showStatus = false, class
           size >= 28 ? 'size-2.5' : 'size-2',
           // Same dots for everyone: green online, amber waiting for a person
           // (a pending approval), grey offline.
-          status === 'online' ? 'bg-green-500'
-            : status === 'waiting' ? 'bg-amber-400 ring-2 ring-amber-400/30'
-            : 'bg-zinc-300 dark:bg-zinc-600'
+          status === 'online' ? 'bg-success'
+            : status === 'waiting' ? 'bg-warning ring-2 ring-warning/30'
+            : 'bg-muted-foreground/40'
         )} />
       )}
     </div>

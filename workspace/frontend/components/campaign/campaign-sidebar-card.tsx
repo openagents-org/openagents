@@ -88,7 +88,7 @@ export function CampaignSidebarCard() {
       title={t('campaign.sidebarCta')}
     >
       <div className="flex items-center gap-1.5">
-        <Gift className="size-3.5 shrink-0 text-emerald-600 dark:text-emerald-400" />
+        <Gift className="size-3.5 shrink-0 text-success" />
         <span className="min-w-0 flex-1 truncate text-xs font-semibold">
           {t('campaign.sidebarTitle')}
         </span>
@@ -110,11 +110,11 @@ export function CampaignSidebarCard() {
       </div>
       <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
         <div
-          className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+          className="h-full rounded-full bg-success transition-all duration-500"
           style={{ width: `${pct}%` }}
         />
       </div>
-      <div className="mt-1.5 text-[11px] text-muted-foreground">
+      <div className="mt-1.5 text-xs text-muted-foreground">
         {t('campaign.sidebarProgress', { done, total: missions.length })}
         {allMissionsDone && <>{' · '}{t('campaign.sidebarDaily')}</>}
       </div>

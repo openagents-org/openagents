@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { ArrowUp, Users, Paperclip, X, FileIcon, ImageIcon, Plus, CalendarClock } from 'lucide-react';
 import {
-  DropdownMenu,
+  DropdownMenuGroup, DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -420,7 +420,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
             <>
               {(filteredAgents.length > 0 || filteredKnowledge.length > 0) && (
                 <div className={cn(
-                  'px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-border',
+                  'px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider border-border',
                   'border-b',
                 )}>{t('peopleMessaging.mentionPeople')}</div>
               )}
@@ -443,7 +443,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                     {person.name !== person.email && (
                       <span className="text-xs text-muted-foreground truncate">{person.email}</span>
                     )}
-                    <span className="ml-auto shrink-0 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+                    <span className="ml-auto shrink-0 rounded-full bg-info/10 px-1.5 py-0.5 text-xs text-info">
                       {t('peopleMessaging.personTag')}
                     </span>
                   </button>
@@ -452,7 +452,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
             </>
           )}
           {filteredAgents.length > 0 && (filteredKnowledge.length > 0 || filteredPeople.length > 0) && (
-            <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-y border-border">{t('chatInput.mentionAgents')}</div>
+            <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider border-y border-border">{t('chatInput.mentionAgents')}</div>
           )}
           {filteredAgents.map((agent) => {
             const idx = mentionItems.findIndex((m) => m.type === 'agent' && m.agent.agentName === agent.agentName);
@@ -483,15 +483,15 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                   <span className="text-xs text-muted-foreground truncate">@{agent.agentName}</span>
                 )}
                 <span className={cn(
-                  'text-[10px] px-1.5 py-0.5 rounded-full ml-auto shrink-0',
+                  'text-xs px-1.5 py-0.5 rounded-full ml-auto shrink-0',
                   agent.role === 'master'
-                    ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400'
+                    ? 'bg-warning/10 text-warning'
+                    : 'bg-muted text-muted-foreground'
                 )}>
                   {agent.role}
                 </span>
                 {availability !== 'waiting' && <span className={cn(
-                  'inline-flex shrink-0 items-center gap-1.5 text-[11px] lowercase',
+                  'inline-flex shrink-0 items-center gap-1.5 text-xs lowercase',
                   unreachable ? 'text-muted-foreground/70' : 'text-muted-foreground'
                 )}>
                   <span className={cn('size-2 rounded-full', availabilityDotClass(availability))} />
@@ -503,7 +503,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
           {filteredKnowledge.length > 0 && (
             <>
               {(filteredAgents.length > 0 || filteredPeople.length > 0) && (
-                <div className="px-3 py-1.5 text-[10px] font-medium text-muted-foreground uppercase tracking-wider border-t border-border">{t('chatInput.mentionKnowledge')}</div>
+                <div className="px-3 py-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider border-t border-border">{t('chatInput.mentionKnowledge')}</div>
               )}
               {filteredKnowledge.map((entry) => {
                 const idx = mentionItems.findIndex((m) => m.type === 'knowledge' && m.entry.id === entry.id);
@@ -519,11 +519,11 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                       insertMention(`knowledge:${entry.slug}`);
                     }}
                   >
-                    <div className="size-6 rounded-md bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
-                      <BookOpen className="size-3.5 text-amber-600 dark:text-amber-400" />
+                    <div className="size-6 rounded-md bg-warning/10 flex items-center justify-center shrink-0">
+                      <BookOpen className="size-3.5 text-warning" />
                     </div>
                     <span className="font-medium truncate">{knowledgeTitle(entry.title, sessions)}</span>
-                    <span className="text-[10px] text-muted-foreground ml-auto font-mono shrink-0">@knowledge:{entry.slug}</span>
+                    <span className="text-xs text-muted-foreground ml-auto font-mono shrink-0">@knowledge:{entry.slug}</span>
                   </button>
                 );
               })}
@@ -549,7 +549,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
 
         {/* Pending file previews */}
         {hint && (
-          <div className="px-2 pb-1 text-[11px] text-muted-foreground" data-composer-hint>
+          <div className="px-2 pb-1 text-xs text-muted-foreground" data-composer-hint>
             {hint}
           </div>
         )}
@@ -569,7 +569,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                 ) : (
                   <div className="h-20 w-24 flex flex-col items-center justify-center gap-1 px-2">
                     <FileIcon className="size-5 text-muted-foreground" />
-                    <span className="text-[10px] text-muted-foreground truncate w-full text-center">
+                    <span className="text-xs text-muted-foreground truncate w-full text-center">
                       {pf.file.name}
                     </span>
                   </div>
@@ -608,7 +608,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
               </button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start" side="top" className="min-w-50">
-              <DropdownMenuItem onSelect={() => openFilePicker()}>
+              <DropdownMenuGroup><DropdownMenuItem onSelect={() => openFilePicker()}>
                 <Paperclip className="size-4" />
                 {t('chatInput.attachFile')}
               </DropdownMenuItem>
@@ -621,7 +621,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
                   <CalendarClock className="size-4" />
                   {t('chatInput.createRoutine')}
                 </DropdownMenuItem>
-              )}
+              )}</DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
 
@@ -643,14 +643,14 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
           {/* Keyboard affordance for the global 'type anywhere' shortcut */}
           {isFocused ? (
             <kbd
-              className="pointer-events-none mb-2.5 hidden h-4 shrink-0 items-center justify-center rounded border border-input bg-muted px-1 font-mono text-[9px] font-medium text-muted-foreground sm:flex"
+              className="pointer-events-none mb-2.5 hidden h-4 shrink-0 items-center justify-center rounded border border-input bg-muted px-1 font-mono text-xs font-medium text-muted-foreground sm:flex"
               title={t('chatInput.escHint')}
             >
               esc
             </kbd>
           ) : !message ? (
             <kbd
-              className="pointer-events-none mb-2.5 hidden size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-[9px] font-medium text-muted-foreground sm:flex"
+              className="pointer-events-none mb-2.5 hidden size-4 shrink-0 items-center justify-center rounded border border-input bg-muted font-mono text-xs font-medium text-muted-foreground sm:flex"
               title={t('chatInput.typeHint')}
             >
               i

@@ -6,7 +6,7 @@ import { agentLabel } from '@/lib/helpers';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceAgent } from '@/lib/types';
 
-export const routingBadgeClass = 'inline-flex h-[23px] max-w-full items-center gap-1.5 rounded-md border border-violet-200/60 bg-violet-50/50 px-1.5 text-[10px] leading-none text-violet-700/75 dark:border-violet-400/20 dark:bg-violet-400/5 dark:text-violet-300/80';
+export const routingBadgeClass = 'inline-flex h-[23px] max-w-full items-center gap-1.5 rounded-md border border-violet-200/60 bg-violet-50/50 px-1.5 text-xs leading-none text-violet-700/75 dark:border-violet-400/20 dark:bg-violet-400/5 dark:text-violet-300/80';
 const neutralRoutingBadgeClass = `${routingBadgeClass} !border-border !bg-muted/25 !text-muted-foreground`;
 
 export function RoutingPendingBadge() {

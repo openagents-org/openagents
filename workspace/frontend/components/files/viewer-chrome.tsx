@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
 
@@ -39,10 +39,10 @@ export function InfoSection({
   children?: ReactNode;
 }) {
   return (
-    <section className="space-y-3 border-b border-border pb-5 last:border-0 last:pb-0">
+    <section className="flex flex-col gap-3 border-b border-border pb-5 last:border-0 last:pb-0">
       <h3 className="text-sm font-semibold">{title}</h3>
       {rows && (
-        <dl className="space-y-2 text-[13px]">
+        <dl className="flex flex-col gap-2 text-sm">
           {rows.map(([term, value]) => (
             <div key={term} className="flex items-baseline justify-between gap-3">
               <dt className="shrink-0 text-muted-foreground">{term}</dt>
@@ -60,7 +60,7 @@ export function InfoSection({
 export function PendingValue({ label }: { label: string }) {
   return (
     <span className="flex items-center gap-1.5 font-normal text-muted-foreground">
-      <Loader2 className="size-3 shrink-0 animate-spin" />
+      <Spinner className="size-3 shrink-0" />
       {label}
     </span>
   );

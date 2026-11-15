@@ -29,7 +29,7 @@ function UnreadDot({ unread, priority }: { unread: boolean; priority: Notificati
       data-testid="inbox-unread-dot"
       className={cn(
         'size-2 rounded-full shrink-0 mt-1.5',
-        !unread ? 'invisible' : priority === 'high' ? 'bg-red-500' : 'bg-blue-500',
+        !unread ? 'invisible' : priority === 'high' ? 'bg-destructive' : 'bg-info',
       )}
     />
   );
@@ -101,7 +101,7 @@ export function NotificationCard({
         'px-3 py-2.5 flex items-start gap-2.5 cursor-pointer transition-colors',
         !notification.isRead
           ? 'bg-accent/60 dark:bg-accent/25 hover:bg-accent dark:hover:bg-accent/40'
-          : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50',
+          : 'hover:bg-muted',
       )}
       onClick={handleClick}
       data-testid="inbox-row"
@@ -113,7 +113,7 @@ export function NotificationCard({
           className="flex size-5 shrink-0 items-center justify-center rounded-full"
           style={{ backgroundColor: humanColor(agentName) }}
         >
-          <User className="size-3 text-zinc-700" />
+          <User className="size-3 text-foreground" />
         </span>
       ) : (
         <AgentAvatar name={agentName} size={20} />
@@ -125,7 +125,7 @@ export function NotificationCard({
           </span>
           {actionKind && <KindChip kind={actionKind} resolved={resolved} />}
           {notification.priority === 'high' && !actionKind && (
-            <span className="text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 font-medium shrink-0">
+            <span className="text-xs px-1 py-0.5 rounded bg-destructive/10 text-destructive font-medium shrink-0">
               High
             </span>
           )}
@@ -133,23 +133,23 @@ export function NotificationCard({
         <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
           {resolved && notification.approvalStatus ? t('notifications.resolvedRequest') : notification.message}
         </p>
-        {sourceThread && <p className="mt-1 truncate text-[11px] text-muted-foreground" title={sourceThread.title}>
+        {sourceThread && <p className="mt-1 truncate text-xs text-muted-foreground" title={sourceThread.title}>
           {t('inbox.sourceThread', { title: sourceThread.title })}
         </p>}
         <div className="flex items-center gap-2 mt-1">
-          <span className="text-[10px] text-muted-foreground">{senderLabel}</span>
-          <span className="text-[10px] text-muted-foreground">{timeAgo(notification.createdAt)}</span>
+          <span className="text-xs text-muted-foreground">{senderLabel}</span>
+          <span className="text-xs text-muted-foreground">{timeAgo(notification.createdAt)}</span>
           {notification.channelName && (actionable ? (
             <button
               type="button"
-              className="text-[10px] text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
+              className="text-xs text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
               onClick={(e) => { e.stopPropagation(); onNavigate(notification); }}
             >
               <ArrowRight className="size-2.5" />
               {t('inbox.goToThread')}
             </button>
           ) : (
-            <span className="text-[10px] text-foreground/70 flex items-center gap-0.5">
+            <span className="text-xs text-foreground/70 flex items-center gap-0.5">
               <ArrowRight className="size-2.5" />
               {t('inbox.goToThread')}
             </span>
@@ -159,7 +159,7 @@ export function NotificationCard({
               href={notification.linkUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-[10px] text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
+              className="text-xs text-foreground/70 flex items-center gap-0.5 hover:text-foreground"
               onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="size-2.5" />
@@ -178,7 +178,7 @@ export function NotificationCard({
           e.stopPropagation();
           onDismiss(notification.id);
         }}
-        className="p-1 rounded-md hover:bg-zinc-200 dark:hover:bg-zinc-700 text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+        className="p-1 rounded-md hover:bg-muted text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
         title={t('inbox.dismiss')}
       >
         <X className="size-3" />
@@ -210,7 +210,7 @@ function ExpandedCard({
     return <p className="px-3 pb-3 pl-[52px] text-xs text-muted-foreground">{t('inbox.loadFailed')}</p>;
   }
   return (
-    <div className="px-3 pb-3 pl-[52px] space-y-2" data-testid="inbox-card-skeleton">
+    <div className="px-3 pb-3 pl-[52px] flex flex-col gap-2" data-testid="inbox-card-skeleton">
       <Skeleton className="h-7 w-full max-w-xl rounded-md" />
       <Skeleton className="h-14 w-full max-w-xl rounded-md" />
     </div>
@@ -383,7 +383,7 @@ export function InboxView() {
           {unreadNotificationCount > 0 && (
             <button
               onClick={markAllNotificationsRead}
-              className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+              className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
               title={t('inbox.markAllRead')}
             >
               <CheckCheck className="size-3.5" />
@@ -391,7 +391,7 @@ export function InboxView() {
           )}
           <button
             onClick={refreshNotifications}
-            className="p-1.5 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 text-muted-foreground transition-colors"
+            className="p-1.5 rounded-md hover:bg-muted text-muted-foreground transition-colors"
             title={t('common.refresh')}
           >
             <RefreshCw className="size-3.5" />
@@ -408,7 +408,7 @@ export function InboxView() {
             <p className="text-xs opacity-60">{t('inbox.emptyBody')}</p>
           </div>
         ) : (
-          <div className="p-4 space-y-6">
+          <div className="p-4 flex flex-col gap-6">
             <NotificationSection title={t('inbox.needsYou')} items={needsYou} {...sectionProps} />
             <NotificationSection title={t('inbox.updates')} items={updates} {...sectionProps} />
           </div>

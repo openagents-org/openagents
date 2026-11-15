@@ -222,7 +222,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
             })}
           </nav>
           <main className="min-w-0 flex-1 pb-16">{sectionAllowed ? children : (
-            <div className="space-y-3 py-6">
+            <div className="flex flex-col gap-3 py-6">
               <h2 className="text-lg font-semibold">{t('admin.accessDeniedTitle')}</h2>
               <p className="text-sm text-muted-foreground">{t('admin.adminRequired')}</p>
               <Button variant="outline" asChild><Link href={`/${workspaceId}/settings/profile${query}`}>{t('userMenu.personalSettings')}</Link></Button>

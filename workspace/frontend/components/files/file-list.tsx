@@ -7,11 +7,11 @@ import {
   FolderOpen,
   Folder,
   FolderPlus,
-  Loader2,
   MoreVertical,
   Pencil,
   Trash2,
 } from "lucide-react"
+import { Spinner } from "@/components/ui/spinner"
 import { personalFolder } from '@/lib/personal-files'
 import { useTeamRoster } from '@/hooks/use-team-roster'
 import { HumanAvatar } from '@/components/chat/human-avatar'
@@ -22,7 +22,7 @@ import { useConfirm, usePrompt } from "@/components/ui/dialogs-provider"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  DropdownMenu,
+  DropdownMenuGroup, DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
@@ -327,18 +327,18 @@ export function FileList() {
               // right edge up with the folder counts above it.
               "w-full flex items-center gap-2.5 py-2 pl-2 pr-9 rounded-lg text-left transition-colors cursor-pointer",
               isFoldersSection && !currentFilePath && !selectedFileId
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                ? "bg-muted"
+                : "hover:bg-muted",
             )}
           >
             <Files className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate text-[13px] font-medium">
+            <span className="flex-1 truncate text-sm font-medium">
               {t("files.allFiles")}
             </span>
           </button>
         )}
 
-        <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t('files.personalFolders')}</div>
+        <div className="px-2 pb-1 pt-3 text-xs font-medium uppercase tracking-wider text-muted-foreground">{t('files.personalFolders')}</div>
         {team.filter(person => !search || `${person.displayName || ''} ${person.email}`.toLowerCase().includes(search.toLowerCase())).map(person => {
           const path = personalFolder(person.email)
           return <button key={person.email} type="button" onClick={() => openFolder(path)} title={person.email}
@@ -356,7 +356,7 @@ export function FileList() {
             search ? "pt-1" : "mt-3 border-t border-border/60 pt-3",
           )}
         >
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
             {t("folders.sectionLabel")}
           </span>
         </div>
@@ -376,8 +376,8 @@ export function FileList() {
               className={cn(
                 "group flex items-center rounded-lg transition-colors",
                 isActive
-                  ? "bg-zinc-100 dark:bg-zinc-800"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                  ? "bg-muted"
+                  : "hover:bg-muted",
               )}
               style={{ paddingLeft: `${folder.depth * 12}px` }}
             >
@@ -386,22 +386,22 @@ export function FileList() {
                 onClick={() => openFolder(folder.path)}
                 className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2 text-left"
               >
-                <Folder className="size-4 shrink-0 text-amber-500" />
+                <Folder className="size-4 shrink-0 text-warning" />
                 <span
                   className={cn(
-                    "flex-1 truncate text-[13px] font-medium transition-opacity",
+                    "flex-1 truncate text-sm font-medium transition-opacity",
                     pending && "opacity-60",
                   )}
                 >
                   {basename(folder.path)}
                 </span>
                 {pending ? (
-                  <Loader2
-                    className="size-3 shrink-0 animate-spin text-muted-foreground"
+                  <Spinner
+                    className="size-3 shrink-0 text-muted-foreground"
                     aria-label={pending === "create" ? t("common.creating") : t("common.saving")}
                   />
                 ) : (
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
+                  <span className="text-xs text-muted-foreground tabular-nums">
                     {folder.count || ""}
                   </span>
                 )}
@@ -421,7 +421,7 @@ export function FileList() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
+                  <DropdownMenuGroup><DropdownMenuItem
                     onSelect={() => handleCreateFolder(folder.path)}
                   >
                     <FolderPlus className="size-4" />
@@ -441,7 +441,7 @@ export function FileList() {
                   >
                     <Trash2 className="size-4" />
                     {t("common.delete")}
-                  </DropdownMenuItem>
+                  </DropdownMenuItem></DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
@@ -477,7 +477,7 @@ export function FileList() {
         {!search && (
           <>
             <div className="mt-3 border-t border-border/60 px-2 pt-3 pb-1">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                 {t("trash.title")}
               </span>
             </div>
@@ -491,15 +491,15 @@ export function FileList() {
                 // 28px and every count in the panel lines up on one edge.
                 "w-full flex items-center gap-2.5 py-2 pl-2 pr-9 rounded-lg text-left transition-colors cursor-pointer",
                 filesSection === "trash"
-                  ? "bg-zinc-100 dark:bg-zinc-800"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                  ? "bg-muted"
+                  : "hover:bg-muted",
               )}
             >
-              <Trash2 className="size-4 shrink-0 text-muted-foreground text-red-500" />
-              <span className="flex-1 truncate text-[13px] font-medium">
+              <Trash2 className="size-4 shrink-0 text-muted-foreground text-destructive" />
+              <span className="flex-1 truncate text-sm font-medium">
                 {t("trash.recentlyDeleted")}
               </span>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
+              <span className="text-xs text-muted-foreground tabular-nums">
                 {trashCount || ""}
               </span>
             </button>

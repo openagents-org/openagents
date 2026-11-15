@@ -13,11 +13,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, Loader2, Plus, User, Users, X } from 'lucide-react';
+import { Bot, Plus, User, Users, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { GranteePicker } from '@/components/sharing/grantee-picker';
 import type { Grantee, GranteeKind, ResourceGrant, SecurityGroup } from '@/lib/types';
@@ -163,21 +164,21 @@ export function AgentAccessSection({
     : t('agentAccess.expiryNever');
 
   return (
-    <section className="space-y-3">
+    <section className="flex flex-col gap-3">
       <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t(resourceKind === 'service' ? 'services.audience' : 'agentAccess.title')}</h4>
 
       {grants === null ? (
-        <Loader2 className="size-4 animate-spin text-muted-foreground" />
+        <Spinner className="text-muted-foreground" />
       ) : (
         <>
           {/* Everyone switch */}
           <div className="flex items-start justify-between gap-3 rounded-md border px-3 py-2.5">
-            <div className="min-w-0 space-y-0.5">
-              <Label className="text-sm">{t('agentAccess.everyoneSwitch')}</Label>
-              <p className="text-[11px] text-muted-foreground">
+            <Field className="min-w-0">
+              <FieldLabel>{t('agentAccess.everyoneSwitch')}</FieldLabel>
+              <FieldDescription>
                 {everyoneGroup ? t('agentAccess.everyoneHint') : t('agentAccess.everyoneGroupMissing')}
-              </p>
-            </div>
+              </FieldDescription>
+            </Field>
             <Switch
               checked={!!everyoneGrant}
               onCheckedChange={setEveryone}
@@ -217,8 +218,8 @@ export function AgentAccessSection({
 
           {/* Add */}
           {canManage && (
-            <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">{t('agentAccess.addTitle')}</Label>
+            <Field>
+              <FieldLabel>{t('agentAccess.addTitle')}</FieldLabel>
               <GranteePicker value={picked} onChange={setPicked} exclude={exclude} />
               <div className="flex items-center gap-2">
                 <Select value={expiry} onValueChange={(v) => setExpiry(v as ExpiryPreset)}>
@@ -227,17 +228,17 @@ export function AgentAccessSection({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {EXPIRY_PRESETS.map((p) => (
+                    <SelectGroup>{EXPIRY_PRESETS.map((p) => (
                       <SelectItem key={p} value={p}>{expiryLabel(p)}</SelectItem>
-                    ))}
+                    ))}</SelectGroup>
                   </SelectContent>
                 </Select>
                 <Button size="sm" onClick={grant} disabled={granting || picked.length === 0} className="ml-auto">
-                  {granting ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  {granting ? <Spinner className="size-3.5" /> : <Plus className="size-3.5" />}
                   {granting ? t('agentAccess.granting') : t('agentAccess.grant')}
                 </Button>
               </div>
-            </div>
+            </Field>
           )}
         </>
       )}
@@ -269,7 +270,7 @@ export function AgentUsabilityLine({ agentName, className }: { agentName: string
   if (!usableBy) return null;
   return (
     <span
-      className={cn('inline-flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-px text-[11px] font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300', className)}
+      className={cn('inline-flex items-center gap-1 rounded bg-muted px-1.5 py-px text-xs font-medium text-muted-foreground', className)}
       title={t('agentAccess.title')}
     >
       <Users className="size-3" />

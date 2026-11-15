@@ -145,7 +145,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle className="text-xl">{t(asChannel ? 'newThread.channelTitle' : 'newThread.title')}</DialogTitle>
-          <DialogDescription className="text-[15px] leading-relaxed">
+          <DialogDescription className="text-sm leading-relaxed">
             {t('newThread.descriptionMulti')}
           </DialogDescription>
         </DialogHeader>
@@ -157,13 +157,13 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
               setSelected(new Set(next.filter((p) => p.kind === 'agent').map((p) => p.id)));
             }}
             onToggleAllAgents={bulkNames.length ? toggleAll : undefined} allAgentsSelected={isAllSelected} />
-          {offlineAgentCount > 0 && <p className="text-[11px] text-muted-foreground/70">
+          {offlineAgentCount > 0 && <p className="text-xs text-muted-foreground/70">
             {t('newThread.offlineExcluded', { count: offlineAgentCount })}
           </p>}
 
           {/* Optional: named up front, the thread keeps this title; left blank,
               it is still titled from its first message as before. */}
-          <div className="space-y-1.5 pt-1">
+          <div className="flex flex-col gap-1.5 pt-1">
             <label htmlFor="new-thread-title" className="block px-1 text-xs font-medium text-muted-foreground">{t('newThread.titleLabel')}</label>
             <Input
               id="new-thread-title"
@@ -208,7 +208,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
 
           {/* v1.1 permission model: who can see the thread. Private by default;
               Public = everyone in the workspace can see and join. */}
-          <div className="space-y-1.5 pt-1">
+          <div className="flex flex-col gap-1.5 pt-1">
             <p className="px-1 text-xs font-medium text-muted-foreground">{t('threadAccess.newThreadVisibility')}</p>
             <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup">
               {(['private', 'public'] as const).map((v) => {

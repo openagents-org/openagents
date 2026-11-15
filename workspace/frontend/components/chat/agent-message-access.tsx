@@ -75,7 +75,7 @@ export function AgentOwnershipBadge({ agent, compact = false }: { agent: Workspa
   const ownerName = access?.owner_display_name || context.humanNames[owner.toLowerCase()] ||
     (mine && currentUser.name !== owner ? currentUser.name : null) || owner;
   const label = `${ownerName}${mine ? ` (${t('threads.you')})` : ''}`;
-  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
+  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
     {!compact && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
     {status && <span className="rounded bg-muted px-1.5 py-0.5">{status}</span>}
   </span>;

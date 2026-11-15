@@ -1,7 +1,9 @@
 'use client';
-
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { X, ExternalLink, Loader2, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, CornerLeftUp, ArrowRight, CheckCircle2, Zap, HardDrive, Download } from 'lucide-react';
+import { AlertCircle, ExternalLink, Key, ChevronLeft, ChevronRight, RefreshCw, Plus, Folder, ArrowRight, CheckCircle2, TriangleAlert, Zap } from 'lucide-react';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Separator } from '@/components/ui/separator';
+import { Spinner } from '@/components/ui/spinner';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { deviceNameClash, nodeCommandErrorKey } from '@/lib/node-command-error';
@@ -9,16 +11,17 @@ import { defaultAgentNameBase, uniqueAgentName } from '@/lib/agent-name';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldError, FieldLabel } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
 import { AgentIcon } from '@/components/icons/agent-icons';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { AgentCatalogEntry, AgentCatalogDetail, WorkspaceNode, NodeCommand, ModelAccessEntry, ModelProbeResult } from '@/lib/types';
-import { joinNodePath } from '@/lib/node-path';
-import { desktopHost } from '@/lib/desktop-host';
-import { desktopDownloads } from '@/lib/desktop-downloads';
 import { CompactTypePicker } from './agent-setup-compact';
 import { MarketGallery } from './agent-setup-market';
 import { SmokeTestPanel } from './smoke-test-panel';
+import { runtimeStatus } from './agent-setup-status';
+import { FolderPicker } from './agent-setup-folder-picker';
+import { NeedsCredentialsHint } from './agent-setup-credentials-hint';
 
 /** Agents of the chosen type listed before the rest fold behind "Show all". */
 const SAME_TYPE_SHOWN = 3;
@@ -88,31 +91,6 @@ export interface CatalogState {
   retry: () => void;
 }
 
-/**
- * What to show while the catalog is empty because it has not loaded: a
- * spinner, or the failure with a retry. Nothing once it has loaded.
- */
-export function CatalogStateNotice({ state }: { state?: CatalogState }) {
-  const t = useT();
-  if (!state || state.status === 'ready') return null;
-  if (state.status === 'loading') {
-    return (
-      <div className="flex items-center justify-center rounded-2xl border border-dashed py-14 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin mr-2" />
-        {t('connect.marketLoading')}
-      </div>
-    );
-  }
-  return (
-    <div role="alert" className="rounded-2xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-      {t('connect.marketLoadFailed')}{' '}
-      <button className="font-medium text-foreground underline-offset-4 hover:underline" onClick={state.retry}>
-        {t('connect.marketRetry')}
-      </button>
-    </div>
-  );
-}
-
 const NO_ACCESS = '__none__';
 // Editing an agent that runs on a key: keep it as it is. The form cannot pick
 // the saved access it came from, and a key saved on the device (the launcher
@@ -134,41 +112,9 @@ const DETECT_DEADLINE_MS = 45_000;
  *  every other type keeps what this form sends on the agent alone. */
 const SHARED_CONFIG_TYPES = new Set(['hermes']);
 
-/** Derive the per-type detection status shown as a badge in the gallery.
- *  `onKey`: the agent being edited runs on a key of its own. */
-function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined, onKey = false) {
-  if (!rt) return 'unknown' as const;
-  if (!rt.installed) return 'not_installed' as const;
-  // `ready` also counts a key one agent of the type holds, which a new agent,
-  // or one with no key of its own, never gets: the add form said a keyless
-  // DeepSeek was ready, and it failed on its first message. A type with a
-  // sign-in is ready on the sign-in alone, the only choice besides a key the
-  // form offers it. Devices too old to say are judged on `ready`.
-  if (rt.signedIn ?? rt.typeReady ?? rt.ready) return 'ready' as const;
-  if (onKey && rt.reason !== 'version_incompatible') return 'ready' as const;
-  return 'needs_login' as const;
-}
-
-// ── Marketplace building blocks (Add-agent gallery) ─────────────────────────
-// Shared by the gallery (agent-setup-market) and the desktop app's compact
-// picker (agent-setup-compact).
-
-export type GalleryStatus = ReturnType<typeof runtimeStatus>;
-
 /** An agent's app icon at gallery size. */
 export function MarketLogo({ name, size, className }: { name: string; size: number; className?: string }) {
   return <AgentIcon name={name} size={size} className={className} />;
-}
-
-export function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
-  switch (status) {
-    case 'ready':
-      return { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' };
-    case 'needs_login':
-      return { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-500' };
-    default:
-      return { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-zinc-400', text: 'text-muted-foreground' };
-  }
 }
 
 /**
@@ -183,232 +129,6 @@ const HINT_ONLY_SIGN_IN: Record<string, { command: string; note: MessageKey }> =
   // and GitHub Copilot a GitHub one; every other provider only takes a key.
   opencode: { command: 'opencode auth login', note: 'connect.nodeNeedsLoginOpencodeNote' },
 };
-
-const HINT_CODE = 'font-mono whitespace-nowrap bg-amber-500/15 rounded px-1.5 py-0.5';
-const CODE_MARK = '\u0000';
-
-/** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
-function withCode(text: string, codes: string[]): React.ReactNode[] {
-  return text.split(CODE_MARK).flatMap((part, i) =>
-    i < codes.length ? [part, <code key={i} className={HINT_CODE}>{codes[i]}</code>] : [part]);
-}
-
-/**
- * What to do about an agent installed with no credentials: an API key always
- * works; an agent whose CLI signs in to an account (a subscription) can also be
- * signed in on its device — from the desktop app, or for a device paired from
- * the command line, with `command` in a terminal there.
- */
-function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
-  const t = useT();
-  // Already in the desktop app: no point offering to download it.
-  const downloads = desktopHost() ? [] : desktopDownloads(t);
-  // The CLI's own command (a device too old for `agn login`) relies on the
-  // terminal's PATH, which often lacks where the CLI really is — an npm global
-  // folder or OpenAgents' own. `agn runtimes`, which old devices have, prints
-  // that path; PowerShell needs `&` to run a quoted one.
-  const bare = !!command && !command.startsWith('agn ');
-  const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
-  return (
-    <div data-testid="agent-setup-needs-credentials" className="space-y-2">
-      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
-      <div>
-        <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
-        <p>{t('connect.nodeNeedsLoginKeyStep')}</p>
-      </div>
-      {command && (
-        <div>
-          <p className="font-semibold">{t('connect.nodeNeedsLoginSubTitle')}</p>
-          {note && <p className="mb-1">{t(note)}</p>}
-          <ol className="list-decimal space-y-1.5 pl-4">
-            <li>
-              {t('connect.nodeNeedsLoginDesktop', { device, label })}
-              {downloads.length > 0 && (
-                <span className="mt-1.5 flex flex-wrap gap-1.5">
-                  {downloads.map((d) => (
-                    <a
-                      key={d.os}
-                      href={d.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-amber-500/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
-                    >
-                      <Download className="size-3" />{d.os}
-                    </a>
-                  ))}
-                </span>
-              )}
-            </li>
-            <li>
-              {t('connect.nodeNeedsLoginCli')}{' '}
-              <code className={HINT_CODE}>{command}</code>
-              {bare && (
-                <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
-                  {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}
-                </span>
-              )}
-            </li>
-          </ol>
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function MarketStatusBadge({ status, checking, className }: { status: GalleryStatus; checking?: boolean; className?: string }) {
-  const t = useT();
-  if (checking) {
-    return (
-      <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium text-primary whitespace-nowrap', className)}>
-        <Loader2 className="size-2.5 animate-spin" />{t('connect.nodeChecking')}
-      </span>
-    );
-  }
-  const meta = marketStatusMeta(t, status);
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium whitespace-nowrap', meta.text, className)}>
-      <span className={cn('size-1.5 rounded-full', meta.dot)} />
-      {meta.label}
-    </span>
-  );
-}
-
-// Model options come from GET /v1/agent-catalog/{type} — the registry resolves
-// each agent's supported models server-side, so the dropdown is always current
-// with no per-type mapping in the client. Agents whose detail returns an empty
-// model list use their own login/default and show no model field. Cached per
-// type for the page's lifetime (the list only changes on backend deploys).
-
-
-/**
- * Browse folders on the *node's* filesystem to pick a working directory. The
- * home level shows instantly from the node's heartbeat snapshot; drilling
- * deeper runs a list_dir command on the device (a short wait).
- */
-function FolderPicker({
-  api,
-  node,
-  onPick,
-  onClose,
-}: {
-  api: AgentSetupApi;
-  node: WorkspaceNode;
-  onPick: (path: string) => void;
-  onClose: () => void;
-}) {
-  const t = useT();
-  const home = node.fs?.home || null;
-  const roots = node.fs?.roots || [];
-  const [path, setPath] = useState<string | null>(home);
-  const [dirs, setDirs] = useState<string[]>(node.fs?.dirs || []);
-  const [parent, setParent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [unavailable, setUnavailable] = useState(!home);
-  const cancelled = useRef(false);
-  useEffect(() => () => { cancelled.current = true; }, []);
-
-  const browse = async (target: string) => {
-    setLoading(true);
-    try {
-      const cmd = await api.enqueueNodeCommand(node.nodeId, 'list_dir', { path: target });
-      for (let i = 0; i < 20 && !cancelled.current; i++) {
-        await new Promise((r) => setTimeout(r, 1500));
-        const cmds = await api.listNodeCommands(node.nodeId).catch(() => []);
-        const c = cmds.find((x) => x.commandId === cmd.commandId);
-        if (c && (c.status === 'done' || c.status === 'error')) {
-          if (cancelled.current) return;
-          const data = c.result?.data as { path: string; parent: string | null; dirs: string[] } | undefined;
-          if (c.status === 'done' && data) {
-            setPath(data.path); setDirs(data.dirs || []); setParent(data.parent); setUnavailable(false);
-          } else {
-            setUnavailable(true);
-          }
-          setLoading(false);
-          return;
-        }
-      }
-      if (!cancelled.current) setLoading(false);
-    } catch {
-      if (!cancelled.current) { setLoading(false); setUnavailable(true); }
-    }
-  };
-
-  return (
-    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-      <div className="px-3 py-2 border-b flex items-center justify-between gap-2 bg-muted/40">
-        <span className="text-xs font-medium truncate">{t('connect.nodePickerTitle')}</span>
-        <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
-      </div>
-
-      {/* Current path */}
-      <div className="px-3 py-2 border-b bg-zinc-950 dark:bg-black">
-        <code className="text-xs font-mono text-zinc-100 break-all">{path || '—'}</code>
-      </div>
-
-      <div className="max-h-56 overflow-y-auto">
-        {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" /><span className="text-xs">{t('connect.nodePickerLoading')}</span>
-          </div>
-        ) : unavailable ? (
-          <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
-        ) : (
-          <div className="py-1">
-            {roots.length > 0 && (
-              <div className="px-3 py-2 border-b mb-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
-                  {t('connect.nodePickerLocations')}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  {roots.map((root) => (
-                    <button
-                      key={root}
-                      onClick={() => browse(root)}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors hover:bg-muted/60',
-                        path === root && 'bg-muted border-foreground/20',
-                      )}
-                    >
-                      <HardDrive className="size-3.5 text-muted-foreground" />{root}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {parent && (
-              <button
-                onClick={() => browse(parent)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
-              >
-                <CornerLeftUp className="size-4 text-muted-foreground" />{t('connect.nodePickerUp')}
-              </button>
-            )}
-            {dirs.length === 0 && !parent ? (
-              <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
-            ) : (
-              dirs.map((d) => (
-                <button
-                  key={d}
-                  onClick={() => path && browse(joinNodePath(path, d))}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
-                >
-                  <Folder className="size-4 text-blue-500" /><span className="truncate">{d}</span>
-                </button>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-
-      <div className="px-3 py-2 border-t flex items-center justify-end gap-2">
-        <Button size="sm" variant="ghost" onClick={onClose}>{t('connect.nodeCancel')}</Button>
-        <Button size="sm" disabled={!path} onClick={() => { if (path) { onPick(path); onClose(); } }}>
-          {t('connect.nodePickerUseThis')}
-        </Button>
-      </div>
-    </div>
-  );
-}
 
 export function AgentSetup({
   node,
@@ -968,8 +688,8 @@ export function AgentSetup({
   // across the app — not a tinted block.
   const badge = (status: ReturnType<typeof runtimeStatus>) => {
     const map = {
-      ready: { label: t('connect.nodeRuntimeReady'), dot: 'bg-emerald-500', text: 'text-foreground' },
-      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-amber-500', text: 'text-foreground' },
+      ready: { label: t('connect.nodeRuntimeReady'), dot: 'bg-success', text: 'text-foreground' },
+      needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-warning', text: 'text-foreground' },
       not_installed: { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-muted-foreground', text: 'text-muted-foreground' },
       unknown: { label: '', dot: '', text: '' },
     } as const;
@@ -995,15 +715,15 @@ export function AgentSetup({
     );
     const saveButton = (
       <Button data-testid="agent-setup-submit" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
-        {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
+        {busy ? <Spinner data-icon="inline-start" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : signInUnconfirmed && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>
     );
-    const errorText = (className?: string) => <p role="alert" className={cn('text-sm text-destructive', className)}>{error}</p>;
+    const errorText = (className?: string) => <Alert variant="destructive" className={className}><AlertCircle /><AlertDescription>{error}</AlertDescription></Alert>;
     const sameType = node.agents.filter((agent) => agent.type === selected);
     const workingDirectoryField = (
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">{t('connect.nodeWorkingDirOptional')}</Label>
+          <Field>
+            <FieldLabel>{t('connect.nodeWorkingDirOptional')}</FieldLabel>
             <div className="flex gap-2">
               <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 text-sm font-mono flex-1" />
               <Button variant="outline" onClick={() => { if (extensions?.browseFolder) { void extensions.browseFolder(workingDir).then((path) => { if (path) setWorkingDir(path); }).catch((err) => toast.error(String(err))); } else setShowPicker((v) => !v); }} className="h-10 shrink-0">
@@ -1017,14 +737,14 @@ export function AgentSetup({
                 onClose={() => setShowPicker(false)}
               />
             )}
-            <p className="text-xs text-muted-foreground">{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</p>
-          </div>
+            <FieldDescription>{extensions?.workingDirectoryHint || t('connect.nodeWorkingDirHint')}</FieldDescription>
+          </Field>
     );
     // The form itself, shared by both layouts below.
     const formBody = (
       <>
         {!isEdit && onManageAgent && sameType.length > 0 && (
-          <div className="rounded-xl border bg-muted/30 p-4 space-y-2">
+          <div className="rounded-xl border bg-muted/30 p-4 flex flex-col gap-2">
             <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
             {(showAllSameType ? sameType : sameType.slice(0, SAME_TYPE_SHOWN)).map((agent) => (
               <button key={agent.name} disabled={busy} onClick={() => onManageAgent(agent)} className="flex w-full items-center justify-between gap-3 text-sm text-left py-1">
@@ -1041,12 +761,12 @@ export function AgentSetup({
         )}
 
         {/* Config card */}
-        <fieldset disabled={busy} className={extensions?.compact ? 'min-w-0 space-y-5' : 'rounded-2xl border bg-background p-5 space-y-4 min-w-0'}>
+        <fieldset disabled={busy} className={extensions?.compact ? 'flex min-w-0 flex-col gap-5' : 'flex min-w-0 flex-col gap-4 rounded-2xl border bg-background p-5'}>
           {/* Status hint */}
           {!extensions?.configuration && <div className={cn(
             'text-xs rounded-xl px-4 py-3 leading-relaxed',
-            selectedStatus === 'ready' && 'bg-green-500/10 text-green-700 dark:text-green-400',
-            selectedStatus === 'needs_login' && 'bg-amber-500/10 text-amber-700 dark:text-amber-500',
+            selectedStatus === 'ready' && 'bg-success/10 text-success',
+            selectedStatus === 'needs_login' && 'bg-warning/10 text-warning',
             (selectedStatus === 'not_installed' || selectedStatus === 'unknown') && 'bg-muted text-muted-foreground',
           )}>
             {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
@@ -1070,7 +790,7 @@ export function AgentSetup({
               guessing game, and nobody pastes an OpenAI/relay key that can
               never authenticate. */}
           {detail?.provider_locked && selectedStatus !== 'ready' && (
-            <div className="text-xs rounded-xl border px-4 py-3 leading-relaxed space-y-2">
+            <div className="text-xs rounded-xl border px-4 py-3 leading-relaxed flex flex-col gap-2">
               <p className="font-medium">{t('connect.nodeProviderLockedHow', { label: selectedEntry?.label || selected || '' })}</p>
               {detail?.check_ready?.login_command && (
                 <p className="text-muted-foreground">
@@ -1106,23 +826,23 @@ export function AgentSetup({
 
           {/* Display name — the label, editable where the host can rename. */}
           {canRename && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.agentDisplayNameLabel')}</Label>
+            <Field>
+              <FieldLabel>{t('connect.agentDisplayNameLabel')}</FieldLabel>
               <Input aria-label={t('connect.agentDisplayNameLabel')} value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={editAgent!.name} maxLength={64} className="h-10 text-sm" />
-              <p className="text-xs text-muted-foreground">{t('connect.agentDisplayNameHint')}</p>
-            </div>
+              <FieldDescription>{t('connect.agentDisplayNameHint')}</FieldDescription>
+            </Field>
           )}
 
           {/* Name (fixed when editing an existing agent) */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-medium">
+          <Field>
+            <FieldLabel>
               {t('connect.nodeAgentNameLabel')}
               {/* Locked when editing, so only a new agent asks for it. */}
               {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
-            </Label>
+            </FieldLabel>
             <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { setName(e.target.value); setNameError(null); nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
             {nameError || nameClash
-              ? <p role="alert" data-testid="agent-setup-name-error" className="text-xs font-medium text-destructive">{nameError || nameClash}</p>
+              ? <FieldError data-testid="agent-setup-name-error">{nameError || nameClash}</FieldError>
               : !isEdit && <p className="text-xs text-muted-foreground">{t('connect.agentNameUniqueHint')}</p>}
             {/* Always on, not a tooltip: a second agent of a type someone
                 already runs is a different name away, nothing more. */}
@@ -1132,27 +852,28 @@ export function AgentSetup({
               </p>
             )}
             {canRename && <p className="text-xs text-muted-foreground">{t('connect.agentNameFixedHint')}</p>}
-          </div>
+          </Field>
 
           {selected && extensions?.configuration?.({ type: selected, name: editAgent?.name, onChanged,
             workingDirectory: extensions.inlineWorkingDirectory ? { value: workingDir, onChange: setWorkingDir } : undefined })}
 
           {selected && SHARED_CONFIG_TYPES.has(selected) && !extensions?.configuration && (
-            <p data-testid="agent-setup-shared-config" className="text-xs rounded-xl bg-amber-500/10 px-4 py-3 leading-relaxed text-amber-700 dark:text-amber-500">
-              {t('connect.agentSharedConfigHint', { label: selectedEntry.label })}
-            </p>
+            <Alert data-testid="agent-setup-shared-config">
+              <TriangleAlert className="text-warning" />
+              <AlertDescription>{t('connect.agentSharedConfigHint', { label: selectedEntry.label })}</AlertDescription>
+            </Alert>
           )}
 
           {/* Bring-your-own-provider: saved model access → model, live-verified */}
           {byok && (
-            <div className="space-y-3 rounded-xl border bg-muted/30 p-4">
+            <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4">
               <div className="flex items-center justify-between">
                 <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
                   <Key className="size-3.5 text-muted-foreground" />{t('connect.byokTitle')}
                   {keyOnly && <span data-testid="agent-setup-title-required" className="text-destructive">*</span>}
                 </span>
                 {byokTest.state === 'ok' && (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-success">
                     <CheckCircle2 className="size-3.5" />{t('connect.byokVerifiedShort')}
                   </span>
                 )}
@@ -1185,7 +906,7 @@ export function AgentSetup({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {editOnKey && (
+                    <SelectGroup>{editOnKey && (
                       <SelectItem value={KEEP_CURRENT}>
                         {currentKeyDetail
                           ? t('connect.byokKeepCurrent', { detail: currentKeyDetail })
@@ -1206,7 +927,7 @@ export function AgentSetup({
                       <SelectItem key={a.id} value={a.id}>
                         {a.label} · {a.apiKeyMasked}
                       </SelectItem>
-                    ))}
+                    ))}</SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -1223,10 +944,10 @@ export function AgentSetup({
                   {!deviceKeyOffered && selectedStatus !== 'not_installed' && (
                     <>
                       {' '}{t('connect.byokKeyAddedOnDevice')}{' '}
-                      <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
-                        <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                      <Button variant="link" size="xs" className="h-auto px-0" onClick={reDetect} disabled={detecting}>
+                        <RefreshCw data-icon="inline-start" className={cn(detecting && 'animate-spin')} />
                         {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
-                      </button>
+                      </Button>
                     </>
                   )}
                 </p>
@@ -1239,13 +960,13 @@ export function AgentSetup({
                 <p
                   data-testid="agent-setup-not-signed-in"
                   role={credsError ? 'alert' : undefined}
-                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-amber-700 dark:text-amber-500')}
+                  className={cn('text-xs', credsError ? 'font-medium text-destructive' : 'text-warning')}
                 >
                   {t(isEdit ? 'connect.byokNotSignedInHint' : 'connect.byokNotSignedInRequired')}{' '}
-                  <button type="button" onClick={reDetect} disabled={detecting} className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-60">
-                    <RefreshCw className={cn('size-3', detecting && 'animate-spin')} />
+                  <Button variant="link" size="xs" className="h-auto px-0" onClick={reDetect} disabled={detecting}>
+                    <RefreshCw data-icon="inline-start" className={cn(detecting && 'animate-spin')} />
                     {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
-                  </button>
+                  </Button>
                 </p>
               )}
               {onDeviceKey && (
@@ -1264,8 +985,8 @@ export function AgentSetup({
                 </p>
               )}
               {keepCurrent && !byokAccessId && (
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
+                <Field>
+                  <FieldLabel>{t('connect.nodeAgentModelOptional')}</FieldLabel>
                   <Input
                     aria-label={t('connect.nodeModel')}
                     value={model}
@@ -1273,8 +994,8 @@ export function AgentSetup({
                     placeholder={t('connect.nodeAgentModelOptional')}
                     className="h-10 text-sm font-mono"
                   />
-                  <p className="text-xs text-muted-foreground">{t('connect.byokKeepCurrentModelHint')}</p>
-                </div>
+                  <FieldDescription>{t('connect.byokKeepCurrentModelHint')}</FieldDescription>
+                </Field>
               )}
 
               {/* One-click promo credits — OpenAI-protocol agents the campaign
@@ -1295,18 +1016,18 @@ export function AgentSetup({
                 <>
                   {byokLoading && (
                     <p className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                      <Loader2 className="size-3 animate-spin" />{t('connect.byokLoadingModels')}
+                      <Spinner className="size-3" />{t('connect.byokLoadingModels')}
                     </p>
                   )}
                   {byokKeyError && (
-                    <p className="text-xs text-red-600 dark:text-red-400">{byokKeyError}</p>
+                    <p className="text-xs text-destructive">{byokKeyError}</p>
                   )}
 
                   {/* Model — the ones this key can actually use. Marked
                       required up here: the only other word of it was the
                       footer error, out of sight below a tall form. */}
                   {byokModels && (
-                    <div ref={modelFieldRef} className="space-y-1.5">
+                    <div ref={modelFieldRef} className="flex flex-col gap-1.5">
                       <Label className="text-xs font-medium">
                         {t('connect.byokModelLabel')}{' '}
                         <span className="text-destructive">* {t('connect.requiredMark')}</span>
@@ -1323,12 +1044,12 @@ export function AgentSetup({
                           <SelectValue placeholder={t('connect.byokChooseModel')} />
                         </SelectTrigger>
                         <SelectContent>
-                          {byokModels.map((m) => (
+                          <SelectGroup>{byokModels.map((m) => (
                             <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                           ))}
                           <SelectItem value={CUSTOM_MODEL}>
                             {t('connect.byokCustomModel')}
-                          </SelectItem>
+                          </SelectItem></SelectGroup>
                         </SelectContent>
                       </Select>
                       {byokCustomModel && (
@@ -1340,7 +1061,7 @@ export function AgentSetup({
                           className="h-10 text-sm font-mono"
                         />
                       )}
-                      {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                      {modelError && <FieldError data-testid="agent-setup-model-error">{modelError}</FieldError>}
                       <p className="text-xs text-muted-foreground">
                         {!byokModels.length
                           ? t('connect.byokModelsUnavailable')
@@ -1364,16 +1085,16 @@ export function AgentSetup({
                       className="shrink-0"
                     >
                       {byokTest.state === 'testing'
-                        ? (<><Loader2 className="size-3.5 mr-1.5 animate-spin" />{t('connect.byokTesting')}</>)
+                        ? (<><Spinner data-icon="inline-start" />{t('connect.byokTesting')}</>)
                         : (<><Zap className="size-3.5 mr-1.5" />{t('connect.byokTest')}</>)}
                     </Button>
                     {byokTest.state === 'ok' && (
-                      <span className="text-xs leading-relaxed text-emerald-600 dark:text-emerald-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-success pt-1.5">
                         {t('connect.byokTestOk', { model: model.trim(), ms: byokTest.ms ?? 0 })}
                       </span>
                     )}
                     {byokTest.state === 'fail' && (
-                      <span className="text-xs leading-relaxed text-red-600 dark:text-red-400 pt-1.5">
+                      <span className="text-xs leading-relaxed text-destructive pt-1.5">
                         {t('connect.byokTestFail')}{byokTest.error ? ` — ${byokTest.error}` : ''}
                       </span>
                     )}
@@ -1393,27 +1114,27 @@ export function AgentSetup({
           )}
 
           {customCodex && (
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('connect.codexMode')}</Label>
+            <Field>
+              <FieldLabel>{t('connect.codexMode')}</FieldLabel>
               <Select value={codexWireApi} onValueChange={(v) => setCodexWireApi(v as 'responses' | 'chat')}>
                 <SelectTrigger aria-label={t('connect.codexMode')}><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="responses">{t('connect.codexModeResponses')}</SelectItem>
-                  <SelectItem value="chat">{t('connect.codexModeChat')}</SelectItem>
+                  <SelectGroup><SelectItem value="responses">{t('connect.codexModeResponses')}</SelectItem>
+                  <SelectItem value="chat">{t('connect.codexModeChat')}</SelectItem></SelectGroup>
                 </SelectContent>
               </Select>
-              <p className={cn('text-xs', codexWireApi === 'chat' ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground')}>
+              <p className={cn('text-xs', codexWireApi === 'chat' ? 'text-warning' : 'text-muted-foreground')}>
                 {t(codexWireApi === 'chat' ? 'connect.codexModeChatHint' : 'connect.codexModeResponsesHint')}
               </p>
-              {codexWireApi === 'responses' && !supportsCodexMode && <p role="alert" className="text-xs text-destructive">{t('connect.codexModeUpdate')}</p>}
-            </div>
+              {codexWireApi === 'responses' && !supportsCodexMode && <FieldError>{t('connect.codexModeUpdate')}</FieldError>}
+            </Field>
           )}
 
           {/* Model — curated dropdown; hidden while a saved model access is
               driving the list (its live models replace the curated set). */}
           {!extensions?.configuration && pickerModels && !(byok && byokAccessId) && !baseUrl.trim() && !(keepCurrent && byok) && (
-            <div className="space-y-1.5">
-              <Label className="text-xs font-medium">{t('connect.nodeAgentModelOptional')}</Label>
+            <Field>
+              <FieldLabel>{t('connect.nodeAgentModelOptional')}</FieldLabel>
               <Select
                 value={selected === 'pi' && customModel ? CUSTOM_MODEL : model.trim() || AUTO_MODEL}
                 onValueChange={(v) => {
@@ -1426,14 +1147,14 @@ export function AgentSetup({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
+                  <SelectGroup><SelectItem value={AUTO_MODEL}>{t('connect.nodeModelAuto')}</SelectItem>
                   {pickerModels.map((m) => (
                     <SelectItem key={m.id} value={m.id}>{m.label}</SelectItem>
                   ))}
                   {unlistedModel && (
                     <SelectItem value={unlistedModel}>{t('connect.nodeModelUnlisted', { model: unlistedModel })}</SelectItem>
                   )}
-                  {selected === 'pi' && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}
+                  {selected === 'pi' && <SelectItem value={CUSTOM_MODEL}>{t('connect.byokCustomModel')}</SelectItem>}</SelectGroup>
                 </SelectContent>
               </Select>
               {selected === 'pi' && customModel && (
@@ -1451,7 +1172,7 @@ export function AgentSetup({
                   {t(selected === 'pi' ? 'connect.nodeModelDeviceHint' : 'connect.nodeModelAccountHint', { label: selectedEntry?.label || selected || '' })}
                 </p>
               )}
-            </div>
+            </Field>
           )}
 
           {/* Working directory — optional, managed default, with a folder picker.
@@ -1460,9 +1181,9 @@ export function AgentSetup({
 
           {/* Credentials — optional (BYOK agents configure them above instead) */}
           {!extensions?.configuration && !byok && nativeCreds.length > 0 ? (
-            <div className="space-y-3">
+            <div className="flex flex-col gap-3">
               {nativeCreds.map((f) => (
-                <div key={f.name} className="space-y-1.5">
+                <div key={f.name} className="flex flex-col gap-1.5">
                   <Label className="text-xs font-medium font-mono">
                     {f.name}{!isEdit && selectedStatus !== 'ready' && <span className="text-destructive"> *</span>}
                   </Label>
@@ -1483,12 +1204,12 @@ export function AgentSetup({
               )}
             </div>
           ) : extensions?.configuration ? null : byok ? null : !showCreds ? (
-            <button onClick={() => setShowCreds(true)} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1.5">
-              <Key className="size-3.5" />{t('connect.nodeCredsOptional')}
-            </button>
+            <Button variant="link" size="xs" className="h-auto self-start px-0 text-muted-foreground" onClick={() => setShowCreds(true)}>
+              <Key data-icon="inline-start" />{t('connect.nodeCredsOptional')}
+            </Button>
           ) : (
-            <div className="space-y-2">
-              <Label className="text-xs font-medium">{t('connect.nodeCredsOptional')}</Label>
+            <Field>
+              <FieldLabel>{t('connect.nodeCredsOptional')}</FieldLabel>
               <Input
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
@@ -1520,12 +1241,12 @@ export function AgentSetup({
               {/* Custom endpoint set → the curated model ids don't apply; take
                   the endpoint's own model id as free text instead. */}
               {(!pickerModels || !!baseUrl.trim()) && (
-                <div ref={modelFieldRef} className="space-y-1.5">
+                <div ref={modelFieldRef} className="flex flex-col gap-1.5">
                   <Input data-testid="agent-setup-model" aria-label={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} aria-invalid={!!modelError} value={model} onChange={(e) => setModel(e.target.value)} placeholder={baseUrl.trim() ? t('connect.nodeCustomModelRequired') : t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
-                  {modelError && <p role="alert" data-testid="agent-setup-model-error" className="text-xs text-destructive">{modelError}</p>}
+                  {modelError && <FieldError data-testid="agent-setup-model-error">{modelError}</FieldError>}
                 </div>
               )}
-            </div>
+            </Field>
           )}
 
         </fieldset>
@@ -1542,16 +1263,16 @@ export function AgentSetup({
       return (
         <div className="flex h-full min-h-0 flex-col">
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="space-y-6 px-9 pt-6">
+            <div className="flex flex-col gap-6 px-9 pt-6">
               <div>
                 {/* Same lead-in as the type picker before it: an explicit way back,
                     not only the breadcrumb's first step. */}
                 <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <button onClick={leave} disabled={busy} className="inline-flex items-center gap-1 text-primary hover:underline disabled:opacity-50">
-                    <ChevronLeft className="size-4" />{t('connect.nodeBack')}
-                  </button>
-                  <span aria-hidden className="mx-1 h-4 w-px bg-border" />
-                  <button onClick={leave} disabled={busy} className="hover:text-primary hover:underline">
+                  <Button variant="ghost" size="sm" onClick={leave} disabled={busy} className="-ml-2">
+                    <ChevronLeft data-icon="inline-start" />{t('connect.nodeBack')}
+                  </Button>
+                  <Separator orientation="vertical" className="mx-1 data-vertical:h-4" />
+                  <button onClick={leave} disabled={busy} className="hover:text-foreground hover:underline">
                     {extensions.breadcrumbRoot || t('connect.nodeBackToAgents')}
                   </button>
                   <span aria-hidden>/</span>
@@ -1567,7 +1288,7 @@ export function AgentSetup({
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_15rem]">
-                <div className="min-w-0 space-y-5">
+                <div className="min-w-0 flex flex-col gap-5">
                   {formBody}
                   {error && errorText()}
                   {/* The actions close the form, splitting the full width of its
@@ -1594,7 +1315,7 @@ export function AgentSetup({
     return (
       <div className="flex h-full min-h-0 w-full flex-col">
         <header className="shrink-0 border-b">
-          <div className="mx-auto w-full max-w-4xl space-y-3 px-4 py-4 sm:px-6">
+          <div className="mx-auto w-full max-w-4xl flex flex-col gap-3 px-4 py-4 sm:px-6">
             {/* A way back at the top too: the footer's Back sits below a long
                 form, out of sight when the page opens. */}
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -1638,7 +1359,7 @@ export function AgentSetup({
         </header>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-4xl space-y-5 px-4 py-5 sm:px-6">
+        <div className="mx-auto w-full max-w-4xl flex flex-col gap-5 px-4 py-5 sm:px-6">
         {formBody}
         </div>
         </div>

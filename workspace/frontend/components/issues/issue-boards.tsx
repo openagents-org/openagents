@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import type { IssueBoard } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenuGroup, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { errorMessage } from './issue-ui';
 import { issueBoardPath, requestedIssueBoard, withIssueBoard } from '@/lib/issue-board-link';
 import { requestedResource } from '@/lib/resource-link';
@@ -155,11 +155,11 @@ export function IssueBoardTabs({ boards, boardId, workspaceId, onSelect, onChang
                   </button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuItem onClick={() => void copyLink(board.id)}><Link2 className="size-4" /><span>{t('issues.copyBoardLink')}</span></DropdownMenuItem>
+                  <DropdownMenuGroup><DropdownMenuItem onClick={() => void copyLink(board.id)}><Link2 className="size-4" /><span>{t('issues.copyBoardLink')}</span></DropdownMenuItem>
                   {board.can_manage && <>
                     <DropdownMenuItem onClick={() => void rename(board)}><Pencil className="size-4" /><span>{t('issues.renameBoard')}</span></DropdownMenuItem>
                     <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void remove(board)}><Trash2 className="size-4" /><span>{t('issues.deleteBoard')}</span></DropdownMenuItem>
-                  </>}
+                  </>}</DropdownMenuGroup>
                 </DropdownMenuContent>
               </DropdownMenu>
             )}

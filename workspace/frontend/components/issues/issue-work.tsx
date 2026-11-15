@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Loader2 } from 'lucide-react';
+import { Bot } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -79,8 +80,8 @@ export function IssueWork({ issueId, closed, onPosted }: {
         <DialogHeader><DialogTitle>{t('issueWork.assignAgent')}</DialogTitle><DialogDescription>{t('issueWork.assignHint')}</DialogDescription></DialogHeader>
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <DialogBody className="flex flex-col gap-4">
-            {choices ? choices.length ? <IssueAssigneePicker agentsOnly value={agent} onChange={setAgent} choices={choices} disabled={busy} /> : <p className="text-sm text-muted-foreground">{t('issueWork.noAgents')}</p> : !error && <Loader2 className="size-4 animate-spin" />}
-            <label className="block space-y-2 text-xs font-medium">
+            {choices ? choices.length ? <IssueAssigneePicker agentsOnly value={agent} onChange={setAgent} choices={choices} disabled={busy} /> : <p className="text-sm text-muted-foreground">{t('issueWork.noAgents')}</p> : !error && <Spinner />}
+            <label className="flex flex-col gap-2 text-xs font-medium">
               <span>{t('issueWork.instruction')}</span>
               <textarea aria-label={t('issueWork.instruction')} value={instruction} onChange={e => setInstruction(e.target.value)} disabled={busy} maxLength={Math.max(0, 49998 - agent.length)} placeholder={t('issueWork.instructionPlaceholder')} className="min-h-28 w-full resize-y rounded-lg border bg-background p-3 text-sm font-normal focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
             </label>
@@ -90,7 +91,7 @@ export function IssueWork({ issueId, closed, onPosted }: {
           </DialogBody>
           <DialogFooter>
             <Button type="button" variant="ghost" disabled={busy} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
-            <Button type="submit" disabled={busy || closed || !choices?.some(a => a.id === agent)}>{busy && <Loader2 className="size-4 animate-spin" />}{t('issueWork.send')}</Button>
+            <Button type="submit" disabled={busy || closed || !choices?.some(a => a.id === agent)}>{busy && <Spinner />}{t('issueWork.send')}</Button>
           </DialogFooter>
         </form>
       </DialogContent>

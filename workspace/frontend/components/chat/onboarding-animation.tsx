@@ -69,16 +69,16 @@ export function OnboardingAnimation({ onComplete }: { onComplete: () => void }) 
       {/* Bottom */}
       <div className="shrink-0 px-8 pb-7 pt-2">
         <div className="max-w-xs mx-auto flex items-center gap-5">
-          <div className="flex-1 h-px bg-zinc-100 overflow-hidden rounded-full">
-            <div className="h-full bg-zinc-300 rounded-full" style={{ width: `${progress}%`, transition: 'width 50ms linear' }} />
+          <div className="flex-1 h-px bg-muted overflow-hidden rounded-full">
+            <div className="h-full bg-muted-foreground/40 rounded-full" style={{ width: `${progress}%`, transition: 'width 50ms linear' }} />
           </div>
           <div className="flex items-center gap-3 shrink-0">
             {finished && (
-              <button onClick={handleReplay} className="text-zinc-300 hover:text-zinc-500 transition-colors" style={{ animation: 'onb-fade 0.6s ease both' }}>
+              <button onClick={handleReplay} className="text-muted-foreground hover:text-muted-foreground transition-colors" style={{ animation: 'onb-fade 0.6s ease both' }}>
                 <RotateCcw className="size-3.5" />
               </button>
             )}
-            <button onClick={handleSkip} className="text-[12px] text-zinc-400 hover:text-zinc-600 transition-colors font-medium">
+            <button onClick={handleSkip} className="text-xs text-muted-foreground hover:text-muted-foreground transition-colors font-medium">
               {finished ? 'Get Started' : 'Skip'}
             </button>
           </div>
@@ -186,7 +186,7 @@ function SceneConnect({ agentCount }: { agentCount: number }) {
               >
                 <AgentIcon name={agent.name} size={80} />
               </div>
-              <span className="text-sm font-medium text-zinc-700 tracking-tight">{agent.label}</span>
+              <span className="text-sm font-medium text-foreground tracking-tight">{agent.label}</span>
             </div>
           );
         })}
@@ -194,7 +194,7 @@ function SceneConnect({ agentCount }: { agentCount: number }) {
 
       {/* Caption */}
       <p
-        className="text-lg sm:text-xl text-zinc-400 font-medium tracking-tight text-center"
+        className="text-lg sm:text-xl text-muted-foreground font-medium tracking-tight text-center"
         style={{
           opacity: agentCount >= 3 && linesDrawn ? 1 : 0,
           transform: agentCount >= 3 && linesDrawn ? 'translateY(0)' : 'translateY(8px)',
@@ -235,7 +235,7 @@ function SceneCollaborate() {
             <div className="size-16 sm:size-20 flex items-center justify-center overflow-hidden">
               <AgentIcon name={agent.name} size={64} />
             </div>
-            <span className="text-xs font-medium text-zinc-400">{agent.label}</span>
+            <span className="text-xs font-medium text-muted-foreground">{agent.label}</span>
           </div>
         ))}
 
@@ -275,11 +275,11 @@ function SceneCollaborate() {
       {/* Text */}
       <div className="text-center">
         <h2 className="text-3xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.1]">
-          <span className="text-zinc-900" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
+          <span className="text-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
             They collaborate
           </span>
           <br />
-          <span className="text-zinc-300" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
+          <span className="text-muted-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
             in real time.
           </span>
         </h2>
@@ -336,7 +336,7 @@ function SceneShare() {
             }}
           >
             {/* Mini lines to suggest text content */}
-            <div className="p-1.5 space-y-1">
+            <div className="p-1.5 flex flex-col gap-1">
               <div className="h-[2px] rounded-full" style={{ backgroundColor: `${doc.color}20`, width: '80%' }} />
               <div className="h-[2px] rounded-full" style={{ backgroundColor: `${doc.color}15`, width: '60%' }} />
               <div className="h-[2px] rounded-full" style={{ backgroundColor: `${doc.color}10`, width: '70%' }} />
@@ -376,11 +376,11 @@ function SceneShare() {
       {/* Text */}
       <div className="text-center">
         <h2 className="text-3xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.1]">
-          <span className="text-zinc-900" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
+          <span className="text-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
             They share everything.
           </span>
           <br />
-          <span className="text-zinc-300" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
+          <span className="text-muted-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
             Files. Browser. Knowledge.
           </span>
         </h2>
@@ -410,7 +410,7 @@ function SceneAutomate() {
       <div className="relative overflow-hidden" style={{ width: orbitRadius * 2 + 120, height: orbitRadius * 2 + 120 }}>
         {/* Orbit ring */}
         <div
-          className="absolute rounded-full border border-zinc-100"
+          className="absolute rounded-full border border-border"
           style={{
             left: '50%',
             top: '50%',
@@ -428,7 +428,7 @@ function SceneAutomate() {
           style={{ opacity: active ? 1 : 0, transition: 'opacity 0.8s ease' }}
         >
           <div
-            className="size-4 rounded-full bg-zinc-200"
+            className="size-4 rounded-full bg-muted"
             style={{ animation: active ? 'onb-pulse 2.5s ease-in-out infinite' : 'none' }}
           />
         </div>
@@ -483,7 +483,7 @@ function SceneAutomate() {
           return (
             <div
               key={i}
-              className="absolute rounded-full bg-zinc-200"
+              className="absolute rounded-full bg-muted"
               style={{
                 width: 3,
                 height: 3,
@@ -500,11 +500,11 @@ function SceneAutomate() {
       {/* Text */}
       <div className="text-center">
         <h2 className="text-3xl sm:text-5xl lg:text-6xl font-semibold tracking-tight leading-[1.1]">
-          <span className="text-zinc-900" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
+          <span className="text-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) both' }}>
             They work on their own.
           </span>
           <br />
-          <span className="text-zinc-300" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
+          <span className="text-muted-foreground" style={{ animation: 'onb-fade 0.8s cubic-bezier(0.16,1,0.3,1) 0.15s both' }}>
             Routines. Schedules. Autopilot.
           </span>
         </h2>
@@ -564,14 +564,14 @@ function SceneReveal() {
             transition: 'all 1s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
         >
-          <span className="text-zinc-900">Your agents.</span>
+          <span className="text-foreground">Your agents.</span>
           <br />
-          <span className="text-zinc-300">One workspace.</span>
+          <span className="text-muted-foreground">One workspace.</span>
         </h2>
       </div>
 
       <p
-        className="text-sm sm:text-base text-zinc-400 font-medium"
+        className="text-sm sm:text-base text-muted-foreground font-medium"
         style={{
           opacity: step >= 3 ? 1 : 0,
           transition: 'opacity 0.8s ease',

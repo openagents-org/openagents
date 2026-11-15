@@ -324,14 +324,14 @@ export function MonitorGrid() {
                           {session.title || t('monitor.untitled')}
                         </span>
                         {isInGrid && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
+                          <span className="text-xs px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
                             in grid
                           </span>
                         )}
-                        <span className="text-[10px] text-muted-foreground shrink-0">{displayTime}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">{displayTime}</span>
                       </div>
                       {preview?.content && (
-                        <p className="text-[11px] text-muted-foreground truncate">
+                        <p className="text-xs text-muted-foreground truncate">
                           {(() => {
                             const a = agents.find((x) => x.agentName === preview.senderName);
                             return a ? agentLabel(a) : preview.senderName;

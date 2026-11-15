@@ -86,7 +86,7 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
     data-browser-overlay={fullscreen ? 'fullscreen' : 'compact'}
     className={fullscreen ? 'fixed inset-0 z-[70] flex flex-col overflow-hidden bg-background outline-none' : `absolute right-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-lg border bg-background shadow-xl outline-none ${interactive ? 'w-[400px]' : 'w-60'}`}>
     <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
-      <Globe className="size-3.5 shrink-0 text-emerald-500" />
+      <Globe className="size-3.5 shrink-0 text-success" />
       <button type="button" onClick={() => setMinimized(!minimized)} title={t(minimized ? 'threadLiveBrowser.restore' : 'threadLiveBrowser.minimize')} className="min-w-0 flex-1 truncate text-left text-xs font-medium">{tab?.title || tab?.url || label}</button>
       <button type="button" onClick={() => { setMinimized(false); setFullscreen(!fullscreen); }} aria-label={t(fullscreen ? 'threadLiveBrowser.collapse' : 'threadLiveBrowser.expand')} className="rounded p-1 text-muted-foreground hover:bg-muted">{fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</button>
       {!minimized && !fullscreen && <button type="button" onClick={() => setMinimized(true)} aria-label={t('threadLiveBrowser.minimize')} className="rounded p-1 text-muted-foreground hover:bg-muted"><Minus className="size-4" /></button>}
@@ -94,7 +94,7 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
     </div>
     {/* The interactive and fullscreen views embed the browser with its own
         address bar; only the small thumbnail view needs the address here. */}
-    {tab?.url && !minimized && !interactive && !fullscreen && <p className="truncate border-b px-3 py-1 text-[11px] text-muted-foreground" title={tab.url}>{tab.url}</p>}
+    {tab?.url && !minimized && !interactive && !fullscreen && <p className="truncate border-b px-3 py-1 text-xs text-muted-foreground" title={tab.url}>{tab.url}</p>}
     <div className={`${minimized && !fullscreen ? 'hidden' : ''} relative min-h-0 overflow-auto bg-muted/40 ${fullscreen ? 'flex-1' : interactive ? 'h-[320px] max-h-[65vh]' : 'h-[135px]'}`}>
       {interactive ? <BrowserArtifactPreview tabId={id} revision={0} /> : fullscreen ? <BrowserArtifactPreview tabId={id} revision={0} /> : <>
         <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground">{t('threadLiveBrowser.waiting')}</span>
@@ -102,6 +102,6 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
           : <BrowserThumbnail tabId={id} pageUrl={tab!.url} title={tab!.title || tab!.url} enabled refreshMs={2000} className="absolute inset-0 h-full border-0" />}
       </>}
     </div>
-    {!interactive && tab && !minimized && !fullscreen && <button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id })} title={tab.url} className="block w-full truncate px-2 py-1.5 text-left text-[10px] text-muted-foreground hover:text-foreground">{tab.title || tab.url}</button>}
+    {!interactive && tab && !minimized && !fullscreen && <button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id })} title={tab.url} className="block w-full truncate px-2 py-1.5 text-left text-xs text-muted-foreground hover:text-foreground">{tab.title || tab.url}</button>}
   </aside>;
 }

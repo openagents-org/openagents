@@ -6,12 +6,12 @@ import {
   ChevronRight,
   FlipHorizontal,
   ImageOff,
-  Loader2,
   Maximize2,
   RotateCw,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
@@ -247,7 +247,7 @@ export function ImageStage({
 
           {!loaded && !failed && (
             <div className="pointer-events-none absolute inset-0 grid place-items-center">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              <Spinner className="size-6 text-muted-foreground" />
             </div>
           )}
 

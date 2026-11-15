@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -67,11 +68,11 @@ export default function ModelAccessSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('admin.modelAccessTitle')} description={t('admin.modelAccessDescription')} />
       {!editable && <ReadOnlyBanner />}
 
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">{t('admin.modelAccessListTitle')}</span>
           <div className="flex items-center gap-1.5">
@@ -88,7 +89,7 @@ export default function ModelAccessSettingsPage() {
 
         {loading && entries.length === 0 ? (
           <div className="flex items-center justify-center py-10">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <Spinner className="size-5 text-muted-foreground" />
           </div>
         ) : entries.length === 0 ? (
           <div className="rounded-lg border border-dashed px-6 py-10 text-center">

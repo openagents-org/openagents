@@ -27,12 +27,12 @@ export function IssueAgentProgress({ thread, agents }: { thread: IssueThread; ag
   const t = useT();
   const progress = agents.map(agent => ({ agent, ...latestIssueProgress(messages, agent.agentName) })).filter(item => !item.finished);
   if (!progress.length) return null;
-  return <div className="thread-wip mt-6 space-y-2 rounded-xl border border-border/60 px-4 py-3">
+  return <div className="thread-wip mt-6 flex flex-col gap-2 rounded-xl border border-border/60 px-4 py-3">
     {progress.map(({ agent, step }) => <div key={agent.agentName}>
       <WorkingBubble agentName={agent.agentName} agents={agents} status={step?.messageType === 'status' ? step.content : t('chat.agentWorking')} />
-      {step?.messageType === 'thinking' && step.content.trim() && <p className="ml-10 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-[13px] leading-6 text-muted-foreground">{step.content}</p>}
+      {step?.messageType === 'thinking' && step.content.trim() && <p className="ml-10 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{step.content}</p>}
     </div>)}
-    <button type="button" className="ml-10 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+    <button type="button" className="ml-10 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
       onClick={() => { setCurrentSessionId(thread.channel_name); openView('threads'); }}>
       {t('issues.openInThread')}<ArrowUpRight className="size-3" />
     </button>

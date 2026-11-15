@@ -58,7 +58,7 @@ export function DeviceOfflineHint({ agent, withLabel = false, className }: { age
       aria-label={label}
     >
       <MonitorOff className="size-3" />
-      {withLabel && <span className="text-[11px]">{label}</span>}
+      {withLabel && <span className="text-xs">{label}</span>}
     </span>
   );
 }

@@ -10,6 +10,7 @@ import { agentLabel } from '@/lib/helpers';
 import { agentAvailability, availabilityDotClass, availabilityLabel } from '@/lib/collab'; // v1.1 M3
 import { SectionHeader } from '@/components/sessions/section-header';
 import {
+  DropdownMenuGroup,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -75,9 +76,9 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
   };
 
   return (
-    <div className="space-y-2">
+    <div className="flex flex-col gap-2">
       <SectionHeader label={t('agents.label')} />
-      <div className="space-y-1.5">
+      <div className="flex flex-col gap-1.5">
         {agents.map((agent) => {
           const isMaster = agent.role === 'master';
           // v1.1 M3: the same availability vocabulary as the roster/directory
@@ -114,15 +115,15 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
                   )}
                 </p>
                 {busyChannels.length > 0 && (
-                  <p className="truncate text-[11px] text-muted-foreground" title={busyChannels.map(threadName).join(', ')}>
+                  <p className="truncate text-xs text-muted-foreground" title={busyChannels.map(threadName).join(', ')}>
                     {t('collab.presence.workingIn', { threads: busyChannels.map(threadName).join(', ') })}
                   </p>
                 )}
               </div>
               <span className={cn(
-                'text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full font-medium',
+                'text-xs uppercase tracking-wider px-1.5 py-0.5 rounded-full font-medium',
                 isMaster
-                  ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
+                  ? 'bg-warning/10 text-warning'
                   : 'text-muted-foreground'
               )}>
                 {agent.role}
@@ -142,20 +143,20 @@ export function AgentStatusCard({ agents }: AgentStatusCardProps) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    {!isMaster && (
+                    <DropdownMenuGroup>{!isMaster && (
                       <DropdownMenuItem onClick={() => handlePromote(agent.agentName)}>
-                        <Crown className="size-4 text-amber-500" />
+                        <Crown className="size-4 text-warning" />
                         {t('agents.setAsMaster')}
                       </DropdownMenuItem>
-                    )}
+                    )}</DropdownMenuGroup>
                     <DropdownMenuSeparator />
-                    <DropdownMenuItem
+                    <DropdownMenuGroup><DropdownMenuItem
                       variant="destructive"
                       onClick={() => handleRemove(agent.agentName)}
                     >
                       <UserMinus className="size-4" />
                       {t('agents.remove')}
-                    </DropdownMenuItem>
+                    </DropdownMenuItem></DropdownMenuGroup>
                   </DropdownMenuContent>
                 </DropdownMenu>
               )}

@@ -19,7 +19,7 @@ export function YumiAgentLocation() {
             className="group flex items-start gap-2.5 rounded-lg border bg-background p-3 text-left transition-colors hover:border-brand/35 hover:bg-brand/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand">
             <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-brand" />
             <span className="min-w-0 flex-1">
-              <span className="block text-[13px] font-medium">{t(title)}</span>
+              <span className="block text-sm font-medium">{t(title)}</span>
               <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
             </span>
             <ArrowRight aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 text-muted-foreground group-hover:text-brand" />

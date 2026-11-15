@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
 import { ProjectPreview } from './project-preview';
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -50,7 +50,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
   }, [key, file?.contentType, file?.filename]);
   if (artifact.kind === 'browser') return <BrowserArtifactPreview tabId={artifact.id} revision={revision} />;
   if (file?.contentType === WEB_PROJECT_TYPE || (loaded?.key === key && loaded.type === 'project')) return <ProjectPreview id={artifact.id} revision={revision} showDetails={false} />;
-  if (!loaded || loaded.key !== key) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+  if (!loaded || loaded.key !== key) return <div className="flex h-full items-center justify-center"><Spinner className="size-5 text-muted-foreground" /></div>;
   if (loaded.failed) return <p role="alert" className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
   if (loaded.type === 'html') return <iframe title={file?.filename || t('artifactPanel.html')} srcDoc={loaded.text} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full w-full border-0 bg-white" />;
   if (loaded.type === 'markdown') return <article className="h-full overflow-auto p-6"><MarkdownContent content={loaded.text || ''} agentNames={[]} /></article>;

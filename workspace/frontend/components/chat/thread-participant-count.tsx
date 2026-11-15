@@ -76,7 +76,7 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
         <PopoverContent align="start" aria-label={t('header.threadPeople')}>
           <h4 className="px-1 text-sm font-medium">{t('header.threadPeople')}</h4>
           {humans.length ? (
-            <ul className="max-h-72 space-y-1 overflow-y-auto">
+            <ul className="max-h-72 flex flex-col gap-1 overflow-y-auto">
               {humans.map((person) => (
                 <li key={person.email} className="flex items-center gap-2 rounded-md px-1 py-1.5">
                   <HumanAvatar email={person.email} />
@@ -105,7 +105,7 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
         <PopoverContent align="start" aria-label={t('header.threadAgents')}>
           <h4 className="px-1 text-sm font-medium">{t('header.threadAgents')}</h4>
           {agents.length ? (
-            <ul className="max-h-72 space-y-1 overflow-y-auto">
+            <ul className="max-h-72 flex flex-col gap-1 overflow-y-auto">
               {agents.map((agent) => (
                 <li key={agent.agent_name} className="flex items-center gap-2 rounded-md px-1 py-1.5">
                   <AgentAvatar name={agent.agent_name} size={28} />

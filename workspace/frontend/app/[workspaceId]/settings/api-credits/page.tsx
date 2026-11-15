@@ -9,7 +9,8 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Check, ChevronDown, Copy, Gift, Loader2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, Gift } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { getCampaignStatus, getCampaignModels, resendVerificationEmail, type CampaignStatus } from '@/lib/account-api';
@@ -42,7 +43,7 @@ function CopyBtn({ value, title }: { value: string; title: string }) {
       className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border bg-background transition-colors hover:bg-accent"
       title={title}
     >
-      {copied ? <Check className="size-3.5 text-green-600" /> : <Copy className="size-3.5" />}
+      {copied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
     </button>
   );
 }
@@ -62,9 +63,9 @@ function VerifyEmailGate({ email, idToken, allowance, cap }: { email: string; id
     }
   };
   return (
-    <div className="rounded-xl border border-amber-300 bg-amber-50 p-5 dark:border-amber-900 dark:bg-amber-950/40">
-      <h3 className="text-sm font-semibold text-amber-900 dark:text-amber-200">{t('campaign.verifyTitle')}</h3>
-      <p className="mt-1.5 text-sm text-amber-800/90 dark:text-amber-300/90">
+    <div className="rounded-xl border border-warning/30 bg-warning/10 p-5">
+      <h3 className="text-sm font-semibold text-warning">{t('campaign.verifyTitle')}</h3>
+      <p className="mt-1.5 text-sm text-warning/90">
         {allowance && allowance > 0
           ? t('campaign.verifyBodyAllowance', { email, allowance, cap: cap ?? 100 })
           : t('campaign.verifyBody', { email })}
@@ -73,14 +74,14 @@ function VerifyEmailGate({ email, idToken, allowance, cap }: { email: string; id
         <button
           onClick={resend}
           disabled={state === 'sending' || state === 'sent'}
-          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-400 bg-white px-3 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-60 dark:bg-transparent dark:text-amber-200 dark:hover:bg-amber-900/40"
+          className="inline-flex h-8 items-center gap-1.5 rounded-md border border-warning bg-white px-3 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-60 dark:bg-transparent"
         >
-          {state === 'sending' ? <Loader2 className="size-3.5 animate-spin" /> : <Gift className="size-3.5" />}
+          {state === 'sending' ? <Spinner className="size-3.5" /> : <Gift className="size-3.5" />}
           {t('campaign.verifyResend')}
         </button>
-        {state === 'sent' && <span className="text-xs text-emerald-700 dark:text-emerald-400">{t('campaign.verifySent')}</span>}
-        {state === 'already' && <span className="text-xs text-emerald-700 dark:text-emerald-400">{t('campaign.verifyAlready')}</span>}
-        {state === 'failed' && <span className="text-xs text-amber-800 dark:text-amber-300">{t('campaign.verifyFailed')}</span>}
+        {state === 'sent' && <span className="text-xs text-success">{t('campaign.verifySent')}</span>}
+        {state === 'already' && <span className="text-xs text-success">{t('campaign.verifyAlready')}</span>}
+        {state === 'failed' && <span className="text-xs text-warning">{t('campaign.verifyFailed')}</span>}
       </div>
     </div>
   );
@@ -129,7 +130,7 @@ export default function ApiCreditsSettingsPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16 text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" />
+        <Spinner />
       </div>
     );
   }
@@ -157,13 +158,13 @@ export default function ApiCreditsSettingsPage() {
   const fmt = (n: number) => (n % 1 ? n.toFixed(2) : String(n));
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('campaign.pageTitle')} description={t(ended ? 'campaign.endedDescription' : 'campaign.pageDescription')} />
 
       {ended && (
         <div className="rounded-xl border bg-background p-5">
           <span className="flex items-center gap-2 text-sm font-semibold">
-            <Gift className="size-4 text-emerald-600 dark:text-emerald-400" />
+            <Gift className="size-4 text-success" />
             {t('campaign.endedTitle', { total: fmt(status.grandTotalUsd ?? total) })}
           </span>
           <p className="mt-1.5 text-sm text-muted-foreground">{t('campaign.endedBody')}</p>
@@ -181,14 +182,14 @@ export default function ApiCreditsSettingsPage() {
       <div className="rounded-xl border bg-background p-5">
         <div className="flex items-center justify-between">
           <span className="flex items-center gap-2 text-sm font-semibold">
-            <Gift className="size-4 text-emerald-600 dark:text-emerald-400" />
+            <Gift className="size-4 text-success" />
             {t('campaign.unlocked', { total: fmt(total), cap: fmt(cap) })}
           </span>
           {allDone && <span className="text-xs text-muted-foreground">{t('campaign.complete')}</span>}
         </div>
         <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-emerald-500 transition-all duration-500"
+            className="h-full rounded-full bg-success transition-all duration-500"
             style={{ width: `${pct}%` }}
           />
         </div>
@@ -207,20 +208,20 @@ export default function ApiCreditsSettingsPage() {
       {/* Missions */}
       <div>
         <h3 className="text-sm font-semibold">{t('campaign.missionsTitle')}</h3>
-        <ul className="mt-3 space-y-2">
+        <ul className="mt-3 flex flex-col gap-2">
           {missions.map((m) => {
             const done = !!m.grantedAt;
             return (
               <li key={m.key} className="flex items-center gap-3 rounded-lg border bg-background px-3.5 py-2.5 text-sm">
                 <span
-                  className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${done ? 'border-emerald-500 bg-emerald-500 text-white' : 'text-transparent'}`}
+                  className={`flex size-5 shrink-0 items-center justify-center rounded-full border ${done ? 'border-success bg-success text-white' : 'text-transparent'}`}
                 >
                   <Check className="size-3" strokeWidth={3.5} />
                 </span>
                 <span className={done ? 'font-medium' : 'text-muted-foreground'}>
                   {t(MISSION_LABEL_KEYS[m.key] as Parameters<typeof t>[0]) || m.key}
                 </span>
-                <span className={`ml-auto font-semibold tabular-nums ${done ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                <span className={`ml-auto font-semibold tabular-nums ${done ? 'text-success' : 'text-muted-foreground'}`}>
                   +${m.amountUsd}
                 </span>
               </li>
@@ -250,7 +251,7 @@ export default function ApiCreditsSettingsPage() {
           <div className="mt-2.5 flex items-center gap-2">
             <button
               onClick={() => setKeyRevealed((v) => !v)}
-              className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 text-left font-mono text-[13px] hover:bg-muted"
+              className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 text-left font-mono text-sm hover:bg-muted"
             >
               {keyRevealed ? key : maskedKey}
             </button>
@@ -275,7 +276,7 @@ export default function ApiCreditsSettingsPage() {
           <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-muted">
             <div
               className={`h-full rounded-full transition-all duration-500 ${
-                used / Math.max(limit, 0.01) > 0.85 ? 'bg-amber-500' : 'bg-sky-500'
+                used / Math.max(limit, 0.01) > 0.85 ? 'bg-warning' : 'bg-info'
               }`}
               style={{ width: `${Math.min(100, Math.round((used / Math.max(limit, 0.01)) * 100))}%` }}
             />
@@ -297,7 +298,7 @@ export default function ApiCreditsSettingsPage() {
             )}
           </div>
           {status.usage?.isActive === false && (
-            <p className="mt-2 text-xs font-medium text-amber-600 dark:text-amber-500">
+            <p className="mt-2 text-xs font-medium text-warning">
               {t('campaign.usageExhausted')}
             </p>
           )}
@@ -309,7 +310,7 @@ export default function ApiCreditsSettingsPage() {
         <h3 className="text-sm font-semibold">{t('campaign.howtoTitle')}</h3>
         <p className="mt-1 text-sm text-muted-foreground">{t('campaign.howtoBody')}</p>
         <div className="mt-3 flex items-center gap-2">
-          <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 font-mono text-[13px]">
+          <code className="min-w-0 flex-1 truncate rounded-md border bg-muted/50 px-3 py-2 font-mono text-sm">
             {status.gatewayUrl}/v1
           </code>
           <CopyBtn value={`${status.gatewayUrl}/v1`} title={t('campaign.howtoBaseUrl')} />
@@ -332,13 +333,13 @@ export default function ApiCreditsSettingsPage() {
           <div className="mt-3 rounded-lg border bg-muted/30 p-3">
             {models === null ? (
               <div className="flex items-center justify-center py-4 text-muted-foreground">
-                <Loader2 className="size-4 animate-spin" />
+                <Spinner />
               </div>
             ) : models.length === 0 ? (
               <p className="text-xs text-muted-foreground">—</p>
             ) : (
               <>
-                <p className="mb-2 text-[11px] text-muted-foreground">
+                <p className="mb-2 text-xs text-muted-foreground">
                   {t('campaign.modelsCount', { count: models.length })}
                 </p>
                 <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-3">
@@ -346,11 +347,11 @@ export default function ApiCreditsSettingsPage() {
                     <button
                       key={id}
                       onClick={() => copyModel(id)}
-                      className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-[12px] transition-colors hover:bg-accent"
+                      className="flex items-center gap-1.5 truncate rounded-md px-2 py-1 text-left font-mono text-xs transition-colors hover:bg-accent"
                       title={id}
                     >
                       {copiedModel === id ? (
-                        <Check className="size-3 shrink-0 text-green-600" />
+                        <Check className="size-3 shrink-0 text-success" />
                       ) : (
                         <Copy className="size-3 shrink-0 text-muted-foreground/50" />
                       )}

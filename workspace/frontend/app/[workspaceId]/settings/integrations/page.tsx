@@ -1,11 +1,13 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Bot, Copy, Globe, Loader2, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
+import { Bot, Copy, Globe, MessageCircle, Send, Slack, Trash2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
@@ -13,7 +15,7 @@ import { workspaceApi } from '@/lib/api';
 import type { IntegrationBinding, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -200,18 +202,18 @@ export default function IntegrationsSettingsPage() {
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={NO_AGENT}>{t('admin.integrationNoDefaultAgent')}</SelectItem>
+        <SelectGroup><SelectItem value={NO_AGENT}>{t('admin.integrationNoDefaultAgent')}</SelectItem>
         {agents.map((a) => (
           <SelectItem key={a.agentName} value={a.agentName}>
             {a.agentName}
           </SelectItem>
-        ))}
+        ))}</SelectGroup>
       </SelectContent>
     </Select>
   );
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader
         title={t('admin.integrationsTitle')}
         description={t('admin.integrationsDescription')}
@@ -219,8 +221,8 @@ export default function IntegrationsSettingsPage() {
       {!editable && <ReadOnlyBanner />}
 
       {/* ── Chat platforms (Slack / Telegram bridges) ── */}
-      <div className="space-y-3">
-        <div className="space-y-1">
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col gap-1">
           <div className="flex items-center gap-2">
             <MessageCircle className="size-4 text-muted-foreground" />
             <span className="text-sm font-medium">{t('admin.chatPlatformsTitle')}</span>
@@ -238,7 +240,7 @@ export default function IntegrationsSettingsPage() {
               <>
                 <Button size="sm" onClick={startSlackInstall} disabled={connecting}>
                   {connecting ? (
-                    <Loader2 className="size-3.5 animate-spin" />
+                    <Spinner className="size-3.5" />
                   ) : (
                     <Slack className="size-3.5" />
                   )}
@@ -266,7 +268,7 @@ export default function IntegrationsSettingsPage() {
         )}
 
         {openForm && (
-          <div className="space-y-3 rounded-lg border p-4">
+          <div className="flex flex-col gap-3 rounded-lg border p-4">
             <p className="text-xs text-muted-foreground">
               {openForm === 'telegram'
                 ? t('admin.telegramHelp')
@@ -275,24 +277,24 @@ export default function IntegrationsSettingsPage() {
                   : t('admin.larkHelp')}
             </p>
             {openForm === 'lark' && (
-              <div className="space-y-2">
-                <Label>{t('admin.larkAppIdLabel')}</Label>
+              <Field>
+                <FieldLabel>{t('admin.larkAppIdLabel')}</FieldLabel>
                 <Input
                   value={larkAppId}
                   onChange={(e) => setLarkAppId(e.target.value)}
                   placeholder="cli_…"
                   className="font-mono text-xs"
                 />
-              </div>
+              </Field>
             )}
-            <div className="space-y-2">
-              <Label>
+            <Field>
+              <FieldLabel>
                 {openForm === 'telegram'
                   ? t('admin.telegramTokenLabel')
                   : openForm === 'slack'
                     ? t('admin.slackTokenLabel')
                     : t('admin.larkAppSecretLabel')}
-              </Label>
+              </FieldLabel>
               <Input
                 value={botToken}
                 onChange={(e) => setBotToken(e.target.value)}
@@ -305,48 +307,48 @@ export default function IntegrationsSettingsPage() {
                 }
                 className="font-mono text-xs"
               />
-            </div>
+            </Field>
             {openForm === 'slack' && (
-              <div className="space-y-2">
-                <Label>{t('admin.slackSigningSecretLabel')}</Label>
+              <Field>
+                <FieldLabel>{t('admin.slackSigningSecretLabel')}</FieldLabel>
                 <Input
                   value={signingSecret}
                   onChange={(e) => setSigningSecret(e.target.value)}
                   placeholder={t('admin.slackSigningSecretPlaceholder')}
                   className="font-mono text-xs"
                 />
-              </div>
+              </Field>
             )}
             {openForm === 'lark' && (
               <>
-                <div className="space-y-2">
-                  <Label>{t('admin.larkVerificationTokenLabel')}</Label>
+                <Field>
+                  <FieldLabel>{t('admin.larkVerificationTokenLabel')}</FieldLabel>
                   <Input
                     value={larkVerificationToken}
                     onChange={(e) => setLarkVerificationToken(e.target.value)}
                     placeholder={t('admin.larkCredentialsHint')}
                     className="font-mono text-xs"
                   />
-                </div>
-                <div className="space-y-2">
-                  <Label>{t('admin.larkEncryptKeyLabel')}</Label>
+                </Field>
+                <Field>
+                  <FieldLabel>{t('admin.larkEncryptKeyLabel')}</FieldLabel>
                   <Input
                     value={larkEncryptKey}
                     onChange={(e) => setLarkEncryptKey(e.target.value)}
                     placeholder={t('admin.larkEncryptKeyPlaceholder')}
                     className="font-mono text-xs"
                   />
-                </div>
+                </Field>
               </>
             )}
-            <div className="space-y-2">
-              <Label>{t('admin.integrationDefaultAgent')}</Label>
+            <Field>
+              <FieldLabel>{t('admin.integrationDefaultAgent')}</FieldLabel>
               <div>{agentPicker(defaultAgent, setDefaultAgent)}</div>
-            </div>
+            </Field>
             <div className="flex justify-end">
               <Button size="sm" onClick={connect} disabled={connecting || formIncomplete}>
                 {connecting ? (
-                  <Loader2 className="size-4 animate-spin" />
+                  <Spinner />
                 ) : openForm === 'telegram' ? (
                   t('admin.connectTelegram')
                 ) : openForm === 'slack' ? (
@@ -361,14 +363,14 @@ export default function IntegrationsSettingsPage() {
 
         {loading && bindings.length === 0 ? (
           <div className="flex items-center justify-center py-6">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <Spinner className="size-5 text-muted-foreground" />
           </div>
         ) : bindings.length === 0 ? (
           <p className="py-2 text-sm text-muted-foreground">{t('admin.noIntegrations')}</p>
         ) : (
           <div className="divide-y rounded-lg border">
             {bindings.map((b) => (
-              <div key={b.id} className="space-y-2 px-4 py-3">
+              <div key={b.id} className="flex flex-col gap-2 px-4 py-3">
                 <div className="flex items-center gap-3">
                   {b.platform === 'slack' ? (
                     <Slack className="size-5 shrink-0 text-muted-foreground" />
@@ -382,7 +384,7 @@ export default function IntegrationsSettingsPage() {
                       {b.name || b.platform}
                       <span
                         className={`size-2 shrink-0 rounded-full ${
-                          b.status === 'active' && !b.lastError ? 'bg-emerald-500' : 'bg-amber-500'
+                          b.status === 'active' && !b.lastError ? 'bg-success' : 'bg-warning'
                         }`}
                         title={b.status === 'active' ? b.lastError || b.status : t('admin.integrationDisabled')}
                       />
@@ -410,7 +412,7 @@ export default function IntegrationsSettingsPage() {
                   )}
                 </div>
                 {b.platform === 'slack' && b.slackEventsUrl && (
-                  <div className="space-y-1 rounded-md bg-muted/40 p-2">
+                  <div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
                     <p className="text-xs font-medium">{t('admin.slackEventsUrlLabel')}</p>
                     <div className="flex items-center gap-2">
                       <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
@@ -429,7 +431,7 @@ export default function IntegrationsSettingsPage() {
                   </div>
                 )}
                 {b.platform === 'lark' && b.larkEventsUrl && (
-                  <div className="space-y-1 rounded-md bg-muted/40 p-2">
+                  <div className="flex flex-col gap-1 rounded-md bg-muted/40 p-2">
                     <p className="text-xs font-medium">{t('admin.larkEventsUrlLabel')}</p>
                     <div className="flex items-center gap-2">
                       <code className="min-w-0 flex-1 truncate text-xs text-muted-foreground">
@@ -448,7 +450,7 @@ export default function IntegrationsSettingsPage() {
                   </div>
                 )}
                 {b.lastError && (
-                  <p className="truncate text-xs text-amber-600 dark:text-amber-500">
+                  <p className="truncate text-xs text-warning">
                     {t('admin.integrationLastError', { error: b.lastError })}
                   </p>
                 )}
@@ -459,7 +461,7 @@ export default function IntegrationsSettingsPage() {
       </div>
 
       {/* ── BrowserFabric API key ── */}
-      <div className="space-y-2 rounded-lg border p-4">
+      <div className="flex flex-col gap-2 rounded-lg border p-4">
         <div className="flex items-center gap-2">
           <Globe className="size-4 text-muted-foreground" />
           <Label>{t('settings.browserFabricKey')}</Label>

@@ -392,10 +392,10 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
       title={sub ? `${label} — ${sub}` : label}
       className={cn(
-        'group relative flex h-8 min-w-[7.5rem] max-w-[13rem] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-[12px] transition-colors',
+        'group relative flex h-8 min-w-[7.5rem] max-w-[13rem] shrink-0 cursor-pointer select-none items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors',
         active
           ? 'z-10 border-border bg-background text-foreground shadow-[0_1px_0_0_var(--background)]'
-          : 'border-transparent text-muted-foreground hover:bg-zinc-200/60 hover:text-foreground dark:hover:bg-zinc-800/60',
+          : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
         !awake && 'italic',
         busy && 'animate-pulse',
       )}
@@ -406,7 +406,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         <button
           onClick={(e) => { e.stopPropagation(); onClose(); }}
           className={cn(
-            'shrink-0 rounded p-0.5 text-muted-foreground/70 transition-all hover:bg-zinc-300/70 hover:text-foreground dark:hover:bg-zinc-700',
+            'shrink-0 rounded p-0.5 text-muted-foreground/70 transition-all hover:bg-muted hover:text-foreground',
             active ? 'opacity-100' : 'opacity-60 group-hover:opacity-100',
           )}
           title={closeTitle}
@@ -429,7 +429,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="mb-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-[11px] tabular-nums text-muted-foreground transition-colors hover:bg-zinc-200/70 hover:text-foreground dark:hover:bg-zinc-800"
+          className="mb-1 flex h-7 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs tabular-nums text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title={t('browser.allTabs')}
           aria-label={t('browser.allTabsCount', { count: tabCount })}
         >
@@ -444,9 +444,9 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           const awake = !!entry.tab && !entry.tab.asleep;
           return (
             <DropdownMenuItem key={entry.key} onSelect={() => selectEntry(entry)} className="gap-2">
-              {awake ? <Globe className="size-3.5 shrink-0 text-muted-foreground" /> : <Moon className="size-3.5 shrink-0 text-zinc-400" />}
+              {awake ? <Globe className="size-3.5 shrink-0 text-muted-foreground" /> : <Moon className="size-3.5 shrink-0 text-muted-foreground" />}
               <span className={cn('min-w-0 flex-1 truncate', !awake && 'italic')}>{entry.context.name}</span>
-              <span className="shrink-0 text-[10px] text-muted-foreground">{t(awake ? 'browser.live' : 'browser.asleep')}</span>
+              <span className="shrink-0 text-xs text-muted-foreground">{t(awake ? 'browser.live' : 'browser.asleep')}</span>
             </DropdownMenuItem>
           );
         })}
@@ -455,7 +455,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           <DropdownMenuItem key={entry.key} onSelect={() => selectEntry(entry)} className="gap-2">
             <Globe className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="min-w-0 flex-1 truncate">{entry.tab.title || displayUrl(entry.tab.url, 30) || t('browser.untitled')}</span>
-            <span className="shrink-0 text-[10px] text-muted-foreground">{t('browser.kindTemporary')}</span>
+            <span className="shrink-0 text-xs text-muted-foreground">{t('browser.kindTemporary')}</span>
           </DropdownMenuItem>
         ))}
       </DropdownMenuContent>
@@ -463,7 +463,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   );
 
   const tabStrip = (
-    <div className="flex h-10 shrink-0 items-end border-b border-border bg-zinc-100/80 px-2 pt-1.5 dark:bg-zinc-900/80">
+    <div className="flex h-10 shrink-0 items-end border-b border-border bg-muted px-2 pt-1.5">
     <div ref={tabStripRef} className="flex min-w-0 flex-1 items-end gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
       {permanent.map((entry) => {
         const awake = !!entry.tab && !entry.tab.asleep;
@@ -479,7 +479,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             busy={wakingId === entry.context.id}
             icon={awake
               ? <Globe className="size-3.5 text-muted-foreground" />
-              : <Moon className="size-3.5 text-zinc-400" />}
+              : <Moon className="size-3.5 text-muted-foreground" />}
             onSelect={() => {
               if (entry.tab) selectLive(entry.tab);
               else { setSelectedBrowserTabId(null); setSelectedBrowserContextId(entry.context.id); }
@@ -508,7 +508,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       ))}
       <button
         onClick={() => setDialogOpen(true)}
-        className="mb-1 ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-zinc-200/70 hover:text-foreground dark:hover:bg-zinc-800"
+        className="mb-1 ml-0.5 flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         title={t('browser.openNewTab')}
         aria-label={t('browser.openNewTab')}
       >
@@ -517,7 +517,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     </div>
       {browserTabLimits && (
         <span
-          className="mb-1.5 ml-2 inline-flex shrink-0 items-center gap-1 text-[10px] tabular-nums text-muted-foreground"
+          className="mb-1.5 ml-2 inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground"
           title={t('browser.sessionCapacityHint')}
         >
           <Globe className="size-3" />
@@ -546,7 +546,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
       <div
         className={cn(
-          'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-zinc-50 px-3 dark:bg-zinc-900',
+          'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-muted px-3',
           editingUrl && 'border-foreground/40 bg-background',
         )}
       >
@@ -579,14 +579,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {tab.sharedWith.length > 0 && (
         <div className="hidden shrink-0 items-center gap-1 lg:flex" title={tab.sharedWith.join(', ')}>
           <Users className="size-3.5 text-muted-foreground" />
-          <span className="text-[10px] text-muted-foreground">{tab.sharedWith.length}</span>
+          <span className="text-xs text-muted-foreground">{tab.sharedWith.length}</span>
         </div>
       )}
 
       <button
         onClick={toggleControl}
         disabled={controlBusy || sessionDead || sessionAsleep || tab.asleep || reconnecting}
-        className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-accent px-2 text-[11px] font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
+        className="flex h-7 shrink-0 items-center gap-1 rounded-full bg-accent px-2 text-xs font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
         title={controlling ? t('browser.handBack') : t('browser.takeOver')}
       >
         <Hand className="size-3" />
@@ -595,7 +595,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
 
       <button
         onClick={() => handleCloseOrSleep(tab)}
-        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-red-500"
+        className="flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
         title={t('browser.closeTab')}
         aria-label={t('browser.closeTab')}
       >
@@ -609,13 +609,13 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   const viewport = tab && (
     <div
       className={cn(
-        'relative flex flex-1 items-start justify-center overflow-hidden bg-zinc-50 transition-shadow dark:bg-zinc-950',
+        'relative flex flex-1 items-start justify-center overflow-hidden bg-muted transition-shadow',
         activity.active && 'shadow-[inset_0_0_0_2px_rgba(14,165,233,0.55)]',
       )}
     >
       {sessionDead || sessionAsleep || tab.asleep ? (
         <div className="flex h-full items-center justify-center text-muted-foreground">
-          <div className="space-y-3 text-center">
+          <div className="flex flex-col gap-3 text-center">
             <Globe className="mx-auto size-10 opacity-20" />
             <p className="text-sm font-medium">{t(sessionAsleep || tab.asleep ? 'browser.sleepingTitle' : 'browser.unavailableTitle')}</p>
             <p className="text-xs text-muted-foreground" role={recoveryError ? 'alert' : undefined}>{recoveryError || t(sessionAsleep || tab.asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</p>
@@ -695,7 +695,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             ref={screenshotRef}
             src={screenshotUrl}
             alt={t('browser.screenshotOf', { url: tab.url })}
-            className={cn('max-w-full rounded-lg border border-zinc-200 shadow-sm outline-none focus:ring-2 focus:ring-primary dark:border-zinc-700', controlling && 'cursor-pointer')}
+            className={cn('max-w-full rounded-lg border border-border shadow-sm outline-none focus:ring-2 focus:ring-primary', controlling && 'cursor-pointer')}
             draggable={false}
             tabIndex={-1}
             role={controlling ? 'application' : undefined}
@@ -738,12 +738,12 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             }}
           >
             <div className="pointer-events-none flex items-end justify-between gap-3 bg-gradient-to-t from-black/45 to-transparent px-3 pb-3 pt-10">
-              <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-[12px] text-white shadow backdrop-blur">
+              <div className="pointer-events-auto flex min-w-0 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 text-xs text-white shadow backdrop-blur">
                 {activity.active ? (
                   <>
                     <span className="relative flex size-4 items-center justify-center">
-                      <MousePointer2 className="size-4 text-sky-300" />
-                      <span className="absolute inset-0 -m-1 animate-ping rounded-full bg-sky-400/40" />
+                      <MousePointer2 className="size-4 text-info" />
+                      <span className="absolute inset-0 -m-1 animate-ping rounded-full bg-info/40" />
                     </span>
                     <span className="truncate font-medium">{activityLabel}</span>
                   </>
@@ -759,8 +759,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
                 onClick={toggleControl}
                 disabled={controlBusy}
                 className={cn(
-                  'pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-[12px] font-semibold text-zinc-900 shadow transition-transform hover:scale-[1.03] active:scale-100',
-                  nudgeTakeOver && 'scale-110 ring-4 ring-sky-400/70',
+                  'pointer-events-auto inline-flex shrink-0 items-center gap-1.5 rounded-full bg-white px-3.5 py-1.5 text-xs font-semibold text-foreground shadow transition-transform hover:scale-[1.03] active:scale-100',
+                  nudgeTakeOver && 'scale-110 ring-4 ring-info/30',
                 )}
               >
                 <Hand className="size-3.5" />
@@ -770,11 +770,11 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           </div>
         ) : (
           <div className="pointer-events-none absolute inset-x-0 top-2 z-10 flex justify-center gap-2 px-3">
-            <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/60 py-1 pl-3 pr-1 text-[12px] text-white shadow backdrop-blur">
-              <Hand className="size-3.5 text-emerald-300" />
+            <div className="pointer-events-auto flex items-center gap-2 rounded-full bg-black/60 py-1 pl-3 pr-1 text-xs text-white shadow backdrop-blur">
+              <Hand className="size-3.5 text-success" />
               <span className="font-medium">{t('browser.youAreInControl')}</span>
               {activity.active && (
-                <span className="hidden items-center gap-1 text-sky-200 sm:inline-flex">
+                <span className="hidden items-center gap-1 text-info sm:inline-flex">
                   <Bot className="size-3.5" />
                   {activityLabel}
                 </span>
@@ -782,7 +782,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
               <button
                 onClick={toggleControl}
                 disabled={controlBusy}
-                className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium hover:bg-white/25"
+                className="ml-1 rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-medium hover:bg-white/25"
               >
                 {t('browser.handBack')}
               </button>
@@ -796,14 +796,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // ── status bar ────────────────────────────────────────────────────────────
 
   const statusBar = tab && (
-    <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border bg-zinc-50 px-3 text-[11px] text-muted-foreground dark:bg-zinc-900">
+    <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border bg-muted px-3 text-xs text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <span
           className={cn(
             'size-1.5 rounded-full',
-            liveState === 'live' && 'bg-emerald-500 animate-pulse',
-            liveState === 'connecting' && 'bg-amber-500 animate-pulse',
-            liveState === 'unavailable' && 'bg-red-500',
+            liveState === 'live' && 'bg-success animate-pulse',
+            liveState === 'connecting' && 'bg-warning animate-pulse',
+            liveState === 'unavailable' && 'bg-destructive',
           )}
         />
         {liveState === 'live' ? t('browser.live') : liveState === 'unavailable' ? t('browser.unavailableTitle') : liveState === 'asleep' ? t('browser.sleepingTitle') : t('browser.opening')}
@@ -824,18 +824,18 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
   // ── empty / asleep states ────────────────────────────────────────────────
 
   const placeholder = !tab && (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 p-6 text-muted-foreground dark:bg-zinc-950">
+    <div className="flex flex-1 items-center justify-center bg-muted p-6 text-muted-foreground">
       {asleepEntry ? (
-        <div className="max-w-sm space-y-4 text-center">
-          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-zinc-200/70 dark:bg-zinc-800">
-            <Moon className="size-7 text-zinc-500" />
+        <div className="max-w-sm flex flex-col gap-4 text-center">
+          <div className="mx-auto flex size-14 items-center justify-center rounded-2xl bg-muted">
+            <Moon className="size-7 text-muted-foreground" />
           </div>
-          <div className="space-y-1">
+          <div className="flex flex-col gap-1">
             <p className="text-sm font-semibold text-foreground">{asleepEntry.context.name}</p>
             <p className="text-sm font-medium">{t('browser.sessionAsleepTitle')}</p>
             <p className="text-xs leading-relaxed">{t('browser.sessionAsleepBody')}</p>
             {asleepEntry.context.domain && (
-              <p className="font-mono text-[11px] text-muted-foreground/70">{asleepEntry.context.domain}</p>
+              <p className="font-mono text-xs text-muted-foreground/70">{asleepEntry.context.domain}</p>
             )}
           </div>
           <div className="flex items-center justify-center gap-2">
@@ -849,14 +849,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
             </button>
             <button
               onClick={() => handleForget(asleepEntry)}
-              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-red-500"
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-destructive"
             >
               {t('browser.deleteSavedSession')}
             </button>
           </div>
         </div>
       ) : (
-        <div className="space-y-3 text-center">
+        <div className="flex flex-col gap-3 text-center">
           <Globe className="mx-auto size-12 opacity-20" />
           <p className="text-sm font-medium">
             {permanent.length + temporary.length > 0 ? t('browser.selectTabTitle') : t('browser.emptyTitle')}
@@ -880,14 +880,14 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
     <div className="flex h-full flex-col" data-browser-controls>
       {!artifactTabId && <DetailHeader
         title={<>
-          <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-amber-500' : 'text-foreground/70')} />
+          <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-warning' : 'text-foreground/70')} />
           <p className="truncate text-sm font-medium">{tab?.title || asleepEntry?.context.name || t('browser.cloudBrowser')}</p>
         </>}
       >
         {!isMobile && (
           <button
             onClick={() => void toggleFullscreen()}
-            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            className="shrink-0 rounded p-1 text-muted-foreground transition-colors hover:bg-muted"
             aria-label={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
             title={fullscreen ? t('browser.restoreSize') : t('browser.expandFullPage')}
           >

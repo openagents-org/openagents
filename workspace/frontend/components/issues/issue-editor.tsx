@@ -126,12 +126,12 @@ export function IssueEditor({
                 maxLength={50000}
                 onValueChange={setDescription}
                 placeholder={t('issues.descriptionPlaceholder')}
-                className="min-h-44 resize-y rounded-none border-0 px-0 text-[13px] leading-6 shadow-none focus-visible:ring-0"
+                className="min-h-44 resize-y rounded-none border-0 px-0 text-sm leading-6 shadow-none focus-visible:ring-0"
               />
             </div>
             {!issue && (
-              <div className="space-y-3 border-t border-border/60 pt-4">
-                <div className="space-y-2">
+              <div className="flex flex-col gap-3 border-t border-border/60 pt-4">
+                <div className="flex flex-col gap-2">
                   <p className="text-xs font-medium text-muted-foreground">{t('issues.assignee')}</p>
                   <IssueAssigneePicker value={assignee} onChange={setAssignee} disabled={busy} choices={[
                     ...mentions.filter(m => m.kind === 'human').map(m => ({ id: m.source, name: m.name })),
@@ -140,11 +140,11 @@ export function IssueEditor({
               </div>
             )}
             <AttachmentPicker value={fileIds} onChange={setFileIds} disabled={busy} onUploadingChange={setUploading} />
-            <p className="text-[11px] text-muted-foreground">{t('issues.attachmentAudience')}</p>
+            <p className="text-xs text-muted-foreground">{t('issues.attachmentAudience')}</p>
             {error && <ErrorNotice message={error} />}
           </DialogBody>
           <DialogFooter className="items-center sm:justify-between">
-            <p className="hidden text-[11px] text-muted-foreground sm:block">
+            <p className="hidden text-xs text-muted-foreground sm:block">
               {t(issue ? 'issues.editHint' : 'issues.createHint')}
             </p>
             <div className="flex w-full justify-end gap-2 sm:w-auto">

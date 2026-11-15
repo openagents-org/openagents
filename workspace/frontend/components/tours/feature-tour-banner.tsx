@@ -10,7 +10,7 @@ import { TourDismissButton, type TourDismissScope } from './tour-dismiss-button'
 
 // Light keeps the soft brand wash; dark sits on the app's own neutral surface
 // instead of a navy band.
-const SURFACE = 'bg-linear-to-r from-blue-50 to-sky-50 dark:bg-none dark:bg-muted/50';
+const SURFACE = 'bg-linear-to-r from-info/10 to-info/10 dark:bg-none dark:bg-muted/50';
 
 const bannerKey = (feature: TourFeature) => `oa:tourBanner:${feature}`;
 
@@ -82,7 +82,7 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
         <div className="shrink-0 border-b p-2">
           <div className={cn('relative flex gap-2.5 rounded-lg border p-2.5 pr-8', SURFACE)}>
             {icon}
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 flex flex-col gap-2">
               <p className="text-xs leading-relaxed text-foreground/80">{t(`featureTours.${feature}Banner`)}</p>
               {watchButton}
             </div>
