@@ -11,6 +11,8 @@ import { dmSessionId, myAddress } from '@/lib/dm';
 import { sidebarMembers, onlineMemberNames } from '@/lib/sidebar-members';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Item, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogBody } from '@/components/ui/responsive-dialog';
 import { SidebarGroup, SidebarGroupLabel, SidebarGroupContent, SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuAction } from '@/components/ui/sidebar';
 import { Separator } from '@/components/ui/separator';
@@ -61,7 +63,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
         </SidebarGroupLabel>}
         {/* "+" adds people to the workspace; a DM with a teammate starts from
             their row, or from "N more" for everyone else. */}
-        {workspace?.slug && <button type="button" className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" aria-label={t('userMenu.inviteMembers')} title={t('userMenu.inviteMembers')} onClick={openInvite}><Plus className="size-3.5" /></button>}
+        {workspace?.slug && <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={t('userMenu.inviteMembers')} title={t('userMenu.inviteMembers')} onClick={openInvite}><Plus /></Button>}
       </div>
       <SidebarGroupContent id="rail-member-list" className={cn(showLabels && !membersOpen && 'hidden')}><SidebarMenu className="gap-0.5">
         {members.map(person => <SidebarMenuItem key={person.email}>
@@ -84,14 +86,14 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
           )}
         </SidebarMenuItem>)}
       </SidebarMenu>
-        {team.length > 0 && <button type="button" onClick={() => { setQuery(''); setOpen(true); }} className="mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-xs text-muted-foreground hover:bg-sidebar-accent hover:text-foreground" title={t('nav.viewAllMembers')} aria-label={t('nav.viewAllMembers')}>
-          {showLabels && <span className="flex-1 text-left">{moreCount > 0 ? t('nav.moreMembers', { count: moreCount }) : t('nav.viewAllMembers')}</span>}<ChevronRight className="size-3.5 shrink-0" />
-        </button>}
+        {team.length > 0 && <Button variant="ghost" size="sm" onClick={() => { setQuery(''); setOpen(true); }} className={cn('mt-1 w-full text-muted-foreground', showLabels ? 'justify-between' : 'justify-center')} title={t('nav.viewAllMembers')} aria-label={t('nav.viewAllMembers')}>
+          {showLabels && <span className="truncate">{moreCount > 0 ? t('nav.moreMembers', { count: moreCount }) : t('nav.viewAllMembers')}</span>}<ChevronRight />
+        </Button>}
         {/* Inviting, also spelled out at the end of the list. Permissions are
             enforced by the members page and the invite endpoint. */}
-        {workspace?.slug && <button type="button" onClick={openInvite} className={cn('mt-1 flex w-full items-center gap-1.5 rounded-md border border-sidebar-border px-2 py-1.5 text-xs font-medium text-sidebar-foreground hover:bg-sidebar-accent', !showLabels && 'justify-center')} title={t('userMenu.inviteMembers')} aria-label={t('userMenu.inviteMembers')}>
-          <UserPlus className="size-3.5 shrink-0" />{showLabels && t('userMenu.inviteMembers')}
-        </button>}
+        {workspace?.slug && <Button variant="outline" size="sm" onClick={openInvite} className="mt-1 w-full" title={t('userMenu.inviteMembers')} aria-label={t('userMenu.inviteMembers')}>
+          <UserPlus data-icon={showLabels ? 'inline-start' : undefined} />{showLabels && t('userMenu.inviteMembers')}
+        </Button>}
       </SidebarGroupContent>
     </SidebarGroup>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-md">
@@ -99,9 +101,15 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
       <DialogBody className="flex flex-col gap-3">
         <Input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={t('nav.searchMembers')} />
         <div className="max-h-80 overflow-y-auto">
-          {candidates.map(person => <button key={person.email} className="flex w-full items-center gap-3 rounded-md p-2 text-left hover:bg-muted" onClick={() => startDM(person.email)}>
-            <span className="relative shrink-0"><HumanAvatar email={person.email} />{(online.has(person.email.toLowerCase()) || person.email.toLowerCase() === currentUser.id.toLowerCase()) && <span className="absolute bottom-0 right-0 size-1.5 rounded-full bg-success ring-1 ring-background" aria-label={t('agents.online')} />}</span><span className="min-w-0"><span className="block truncate text-sm font-medium">{memberLabel(person.email, person.displayName || (person.email.toLowerCase() === currentUser.id.toLowerCase() ? currentUser.name : '') || person.email)}</span>{person.displayName && <span className="block truncate text-xs text-muted-foreground">{person.email}</span>}</span>
-          </button>)}
+          {candidates.map(person => <Item key={person.email} size="sm" asChild>
+            <button type="button" className="text-left hover:bg-muted" onClick={() => startDM(person.email)}>
+              <ItemMedia className="relative"><HumanAvatar email={person.email} />{(online.has(person.email.toLowerCase()) || person.email.toLowerCase() === currentUser.id.toLowerCase()) && <span className="absolute right-0 bottom-0 size-1.5 rounded-full bg-success ring-1 ring-background" aria-label={t('agents.online')} />}</ItemMedia>
+              <ItemContent className="min-w-0 gap-0">
+                <ItemTitle className="max-w-full truncate">{memberLabel(person.email, person.displayName || (person.email.toLowerCase() === currentUser.id.toLowerCase() ? currentUser.name : '') || person.email)}</ItemTitle>
+                {person.displayName && <ItemDescription className="truncate text-xs">{person.email}</ItemDescription>}
+              </ItemContent>
+            </button>
+          </Item>)}
           {!candidates.length && <p className="p-2 text-sm text-muted-foreground">{t('nav.noMembersFound')}</p>}
         </div>
       </DialogBody>

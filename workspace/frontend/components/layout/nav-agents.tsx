@@ -1,5 +1,6 @@
 'use client';
 import { MoreAgents } from './more-agents';
+import { Button } from '@/components/ui/button';
 import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 
@@ -81,15 +82,16 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             </button>
           </SidebarGroupLabel>
           {/* Same "+" as the Members header: straight to the add-agent gallery. */}
-          <button
-            type="button"
-            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:hidden"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden"
             aria-label={t('nav.addAgent')}
             title={t('nav.addAgent')}
             onClick={() => { openAddAgent(); onNavigate?.(); }}
           >
-            <Plus className="size-3.5" />
-          </button>
+            <Plus />
+          </Button>
           </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}

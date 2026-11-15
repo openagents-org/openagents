@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import {
   Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
@@ -9,6 +10,7 @@ import { toast } from 'sonner';
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuPortal,
@@ -118,22 +120,25 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon"
             title={user?.email || t('userMenu.account')}
-            className="flex size-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+            aria-label={user?.email || t('userMenu.account')}
+            className="rounded-full text-muted-foreground"
           >
             {user ? (
               <HumanAvatar email={user.email} className="size-6" />
             ) : (
-              <User className="size-4" />
+              <User />
             )}
-          </button>
+          </Button>
         </DropdownMenuTrigger>
 
         <DropdownMenuContent side={side} align={align} sideOffset={8} className="w-60">
           {user && (
             <>
+              <DropdownMenuGroup>
               <DropdownMenuLabel className="flex flex-col gap-0.5">
                 <span className="truncate text-sm font-medium">{user.email}</span>
                 {isOwnedByUser && (
@@ -142,20 +147,24 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                   </span>
                 )}
               </DropdownMenuLabel>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>
           )}
 
           {isOpenAgentsDomain && user && (
             <>
-              <DropdownMenuItem onClick={() => router.push('/')}>
-                <LayoutGrid />
-                {t('userMenu.switchWorkspace')}
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={() => router.push('/')}>
+                  <LayoutGrid />
+                  {t('userMenu.switchWorkspace')}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
               <DropdownMenuSeparator />
             </>
           )}
 
+          <DropdownMenuGroup>
           <DropdownMenuSub>
             <DropdownMenuSubTrigger>
               <ActiveThemeIcon />
@@ -220,10 +229,12 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             <Settings />
             {isAdmin ? t('userMenu.workspaceSettings') : t('userMenu.personalSettings')}
           </DropdownMenuItem>
+          </DropdownMenuGroup>
 
           {isOpenAgentsDomain && (
             <>
               <DropdownMenuSeparator />
+              <DropdownMenuGroup>
               {user ? (
                 <DropdownMenuItem onClick={handleSignOut} variant="destructive">
                   <LogOut />
@@ -235,6 +246,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
                   {t('userMenu.signIn')}
                 </DropdownMenuItem>
               )}
+              </DropdownMenuGroup>
             </>
           )}
         </DropdownMenuContent>

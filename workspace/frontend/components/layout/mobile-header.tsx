@@ -127,6 +127,7 @@ export function MobileHeader() {
           {tabs.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
+              aria-current={(onboarding ? 'connect' : viewMode) === mode ? 'page' : undefined}
               onClick={() => handleViewSwitch(mode)}
               className={cn(
                 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors',
