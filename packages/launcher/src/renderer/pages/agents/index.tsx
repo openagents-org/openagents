@@ -63,6 +63,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   const pendingCreateFrom = useUiStore((s) => s.pendingCreateFrom)
   // Where a form opened from another page (the marketplace) goes back to.
   const [returnTab, setReturnTab] = useState<string | null>(null)
+  // Set when the form just added an agent: its Back then stays here, where the
+  // Connect dialog for the new agent opens, instead of returning to the page
+  // the form came from (which would unmount that dialog before it is seen).
+  const justCreated = useRef(false)
   const updates = useInstallStore((s) => s.updates)
   const [loading, setLoading] = useState(agents.length === 0)
   const inFlight = useRef(false)
@@ -169,6 +173,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     if (pendingCreate !== "agent") return
     startSetup(pendingCreateType)
     setReturnTab(pendingCreateFrom)
+    justCreated.current = false
     clearPendingCreate()
   }, [pendingCreate, pendingCreateType, pendingCreateFrom, clearPendingCreate])
 
@@ -195,10 +200,11 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       onBack={() => {
         setNewAgentOpen(false); setSetupType(null); setConfigureOpen(false); void refresh()
         // Opened from the marketplace: Cancel goes back there, not to this list.
-        if (returnTab) useUiStore.getState().setCurrentTab(returnTab)
+        if (returnTab && !justCreated.current) useUiStore.getState().setCurrentTab(returnTab)
+        justCreated.current = false
         setReturnTab(null)
       }}
-      onCreated={(name) => { setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
+      onCreated={(name) => { justCreated.current = true; setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
       // The form stays open behind the type's page, unsaved edits and all,
       // and that page's Back returns here.
       onOpenType={(type) => openMarketPage(type, "dashboard")} /></React.Suspense>
