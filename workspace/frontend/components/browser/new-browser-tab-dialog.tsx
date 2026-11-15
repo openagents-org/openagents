@@ -65,14 +65,14 @@ export function NewBrowserTabDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader className="space-y-2 px-6 pt-6 pb-1">
+        <DialogHeader>
           <DialogTitle className="text-lg">{t('browser.openTabTitle')}</DialogTitle>
           <DialogDescription className="text-[13px] leading-relaxed">
             {t('browser.openTabDescription')}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 px-6 py-3">
+        <DialogBody className="flex flex-col gap-4">
           <div className="space-y-1.5">
             <Label htmlFor="new-tab-url">{t('browser.urlLabel')}</Label>
             <Input
@@ -96,7 +96,7 @@ export function NewBrowserTabDialog({
 
         </DialogBody>
 
-        <DialogFooter className="px-6 pb-6 pt-2">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={busy}>
             {t('common.cancel')}
           </Button>

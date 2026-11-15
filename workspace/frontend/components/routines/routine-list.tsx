@@ -89,7 +89,7 @@ export function RoutineList() {
           <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm leading-relaxed font-semibold">{t('routines.title')}</span>
           {visibleRoutines.length > 0 && (
-            <Badge variant="secondary" size="sm" className="rounded-full!">
+            <Badge variant="secondary" className="rounded-full!">
               {visibleRoutines.length}
             </Badge>
           )}
@@ -104,8 +104,7 @@ export function RoutineList() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 aria-label={t('routines.refresh')}
                 onClick={refreshRoutines}
                 className="text-muted-foreground"

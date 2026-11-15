@@ -184,7 +184,7 @@ function TransferOwnerDialog({
   return (
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="sm:max-w-md">
-        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">
             {t('adminThreads.transferTitle', { title: thread.title?.trim() || t('adminThreads.untitled') })}
           </DialogTitle>
@@ -192,8 +192,8 @@ function TransferOwnerDialog({
             {t('adminThreads.transferDescription')}
           </DialogDescription>
         </DialogHeader>
-        <DialogBody className="space-y-2 px-7 py-2">
-          <Label variant="secondary">{t('adminThreads.newOwner')}</Label>
+        <DialogBody className="flex flex-col gap-2">
+          <Label className="font-normal">{t('adminThreads.newOwner')}</Label>
           <Select value={email} onValueChange={setEmail}>
             <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
@@ -205,7 +205,7 @@ function TransferOwnerDialog({
             </SelectContent>
           </Select>
         </DialogBody>
-        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" onClick={onClose} disabled={busy}>
             {t('common.cancel')}
           </Button>

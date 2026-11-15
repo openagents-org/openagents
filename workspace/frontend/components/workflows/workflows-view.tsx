@@ -137,12 +137,12 @@ function RunWorkflowDialog({
   return (
     <Dialog open={!!workflow} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader className="space-y-1 px-7 pt-7 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">
             {t('workflows.newTaskWith', { name: workflow?.name ?? '' })}
           </DialogTitle>
         </DialogHeader>
-        <DialogBody className="space-y-3 px-7 py-2">
+        <DialogBody className="flex flex-col gap-3">
           <Textarea
             autoFocus
             value={description}
@@ -161,7 +161,7 @@ function RunWorkflowDialog({
           <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
           <AttachmentPicker value={fileIds} onChange={setFileIds} />
         </DialogBody>
-        <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>

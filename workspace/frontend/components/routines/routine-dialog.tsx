@@ -216,17 +216,17 @@ export function RoutineDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">{t(isEdit ? 'routines.edit' : 'routines.create')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
             {t(isEdit ? 'routines.editDescription' : 'routines.dialogDescription')}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-5 px-7 py-2">
+        <DialogBody className="flex flex-col gap-5">
           {/* Task description */}
           <div className="space-y-2">
-            <Label variant="secondary">{t('routines.taskLabel')}</Label>
+            <Label className="font-normal">{t('routines.taskLabel')}</Label>
             <Textarea
               value={message}
               onChange={(e) => handleMessageChange(e.target.value)}
@@ -239,7 +239,7 @@ export function RoutineDialog({
 
           {/* Routine name */}
           <div className="space-y-2">
-            <Label variant="secondary">{t('routines.nameLabel')}</Label>
+            <Label className="font-normal">{t('routines.nameLabel')}</Label>
             <Input
               value={name}
               onChange={(e) => { setName(e.target.value); setNameManual(true); }}
@@ -251,7 +251,7 @@ export function RoutineDialog({
           {/* Agent selector */}
           {agentOptions.length > 1 && (
             <div className="space-y-2">
-              <Label variant="secondary">{t('routines.agentLabel')}</Label>
+              <Label className="font-normal">{t('routines.agentLabel')}</Label>
               <Select value={source} onValueChange={setSource} disabled={submitting}>
                 <SelectTrigger className={SELECT_TRIGGER_CLASS}>
                   <SelectValue />
@@ -269,7 +269,7 @@ export function RoutineDialog({
 
           {/* Schedule type toggle */}
           <div className="space-y-2">
-            <Label variant="secondary">{t('routines.scheduleLabel')}</Label>
+            <Label className="font-normal">{t('routines.scheduleLabel')}</Label>
             <div className="flex gap-1 rounded-md bg-muted p-0.5">
               {(['daily', 'interval'] as const).map((type) => (
                 <button
@@ -298,7 +298,7 @@ export function RoutineDialog({
             <div className="space-y-3">
               <div className="flex gap-3">
                 <div className="flex-1 space-y-2">
-                  <Label variant="secondary">{t('routines.hourLabel')}</Label>
+                  <Label className="font-normal">{t('routines.hourLabel')}</Label>
                   <Select
                     value={String(hour)}
                     onValueChange={(v) => setHour(Number(v))}
@@ -317,7 +317,7 @@ export function RoutineDialog({
                   </Select>
                 </div>
                 <div className="flex-1 space-y-2">
-                  <Label variant="secondary">{t('routines.minuteLabel')}</Label>
+                  <Label className="font-normal">{t('routines.minuteLabel')}</Label>
                   <Select
                     value={String(minute)}
                     onValueChange={(v) => setMinute(Number(v))}
@@ -342,7 +342,7 @@ export function RoutineDialog({
                 </div>
               </div>
               <div className="space-y-2">
-                <Label variant="secondary">{t('routines.daysLabel')}</Label>
+                <Label className="font-normal">{t('routines.daysLabel')}</Label>
                 <div className="flex gap-1.5">
                   {dayLabels.map((label, i) => (
                     <button
@@ -397,7 +397,7 @@ export function RoutineDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </DialogBody>
 
-        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button
             variant="outline"
             className="min-w-24"

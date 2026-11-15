@@ -124,8 +124,7 @@ export function TrashView() {
             {isMobile && (
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={openMobileList}
                 aria-label={t('files.browseFolders')}
                 title={t('files.browseFolders')}
@@ -147,8 +146,7 @@ export function TrashView() {
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={handleEmpty}
               disabled={entries.length === 0 || emptying}
               aria-label={t('trash.emptyTrash')}
@@ -233,8 +231,7 @@ export function TrashView() {
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
-                        mode="icon"
-                        size="sm"
+                        size="icon-sm"
                         onClick={() => handleRestore(entry)}
                         disabled={busy}
                         aria-label={t('trash.restoreItem', { name: entry.name })}
@@ -249,8 +246,7 @@ export function TrashView() {
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
-                        mode="icon"
-                        size="sm"
+                        size="icon-sm"
                         onClick={() => handleDelete(entry)}
                         disabled={busy}
                         aria-label={t('trash.deleteItemPermanently', { name: entry.name })}

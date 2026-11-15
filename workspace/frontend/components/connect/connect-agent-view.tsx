@@ -859,7 +859,7 @@ function NodeCard({
           {agents.length === 0 && pendingAgents.length === 0 ? (
             <div className="flex flex-col items-center text-center py-6 gap-3">
               <p className="text-xs text-muted-foreground">{t(online ? 'connect.nodeAddFirstAgentHint' : 'connect.nodeNoAgents')}</p>
-              <Button variant="primary" size="lg" onClick={onAddAgent} className="min-w-[200px]">
+              <Button size="lg" onClick={onAddAgent} className="min-w-[200px]">
                 <Plus className="size-4 mr-1.5" />{t('connect.nodeAddAgent')}
               </Button>
             </div>
@@ -1431,7 +1431,7 @@ function NodesTab({
 
       {/* A new workspace can start pairing without a device roster. */}
       {loadFailed && nodes.length === 0 ? null : nodes.length === 0 ? (
-        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full h-12 text-sm" variant="primary" size="lg">
+        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full h-12 text-sm" size="lg">
           {pairingLoading ? (
             <><Loader2 className="size-4 animate-spin mr-2" />{t('connect.nodeGenerating')}</>
           ) : (

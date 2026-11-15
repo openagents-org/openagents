@@ -658,7 +658,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
           ) : null}
 
           <Button
-            variant={hasContent ? 'primary' : 'secondary'}
+            variant={hasContent ? 'default' : 'secondary'}
             size="icon"
             className={cn(
               'mb-0.5 size-8 shrink-0 rounded-full transition-all',

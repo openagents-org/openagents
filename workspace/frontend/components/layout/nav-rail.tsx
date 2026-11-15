@@ -279,13 +279,13 @@ export function NavRail() {
     railDragWidth !== null ? railDragWidth >= RAIL_SNAP_POINT : isRailExpanded;
 
   return (
-    /* The trailing border uses `border-border`, the same seam the list panel
-       draws on its own trailing edge — `border-sidebar-border` is transparent
-       in this theme, which left the rail bleeding into the list. */
+    /* No trailing border: the list and detail panes beside the rail form an
+       inset card with its own edge (see Wrapper). The extra pixel of width is
+       the gap that border used to fill, kept so the shell's width math holds. */
     <Sidebar
       collapsible="none"
       className={cn(
-        'relative w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0 border-e border-border',
+        'relative w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0',
         // No easing mid-drag: the width has to track the pointer exactly.
         railDragWidth === null && 'transition-[width] duration-200 ease-linear',
       )}

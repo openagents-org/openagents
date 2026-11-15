@@ -90,7 +90,7 @@ export function InvitationDialog() {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" mode="icon" size="sm" title={t('invitations.inviteAgent')}>
+        <Button variant="ghost" size="icon-sm" title={t('invitations.inviteAgent')}>
           <UserPlus className="size-4" />
         </Button>
       </DialogTrigger>
@@ -102,7 +102,7 @@ export function InvitationDialog() {
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 py-1">
+        <DialogBody className="flex flex-col gap-4">
           {/* Create invitation */}
           <div className="space-y-2">
             <Label>{t('invitations.agentName')}</Label>
@@ -131,7 +131,7 @@ export function InvitationDialog() {
 
           {invitations.length > 0 && (
             <div className="space-y-2">
-              <Label variant="secondary">{t('invitations.listTitle')}</Label>
+              <Label className="font-normal">{t('invitations.listTitle')}</Label>
               {/* No inner scroll region — DialogBody is the only scroll area. */}
               <div className="space-y-2">
                 {invitations.map((inv) => (

@@ -143,14 +143,14 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
       {/* Sized to match the confirm dialog's roomier spacing — this one carries a
           scrolling agent list, so it goes a step wider again. */}
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="space-y-2 px-6 pt-6 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">{t(asChannel ? 'newThread.channelTitle' : 'newThread.title')}</DialogTitle>
           <DialogDescription className="text-[15px] leading-relaxed">
             {t('newThread.descriptionMulti')}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="space-y-3 px-6 py-2">
+        <DialogBody className="flex flex-col gap-3">
           <ParticipantPicker options={candidates} value={picks} disabled={creating}
             onChange={(next) => {
               setSelectedPeople(new Set(next.filter((p) => p.kind === 'human').map((p) => p.id)));
@@ -252,7 +252,7 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
           {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         </DialogBody>
 
-        <DialogFooter className="px-6 pt-3 pb-6 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>

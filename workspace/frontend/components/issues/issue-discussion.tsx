@@ -586,7 +586,6 @@ export function IssueDiscussion({
                     <div className="flex items-center justify-end gap-3 px-3 pb-3">
                       <Button
                         size="sm"
-                        variant="mono"
                         type="submit"
                         className="shrink-0"
                         title={t('issues.commentShortcut')}

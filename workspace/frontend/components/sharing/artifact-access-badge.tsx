@@ -49,8 +49,6 @@ export function ArtifactVisibilityBadge({ kind, visibility, effectiveVisibility,
       <TooltipTrigger asChild>
         <Badge
           variant={badge === 'private' ? 'warning' : badge === 'public' ? 'success' : 'secondary'}
-          appearance="light"
-          size={size}
           className={cn('shrink-0 gap-1 font-normal', className)}
         >
           <VisibilityIcon badge={badge} />

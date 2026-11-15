@@ -92,7 +92,7 @@ function ServiceEditor({ service, agents, team, onClose, onSaved }: {
   const save = async () => { if (busy) return; setBusy(true); try { onSaved(await workspaceApi.saveService({ ...draft, example_requests: examples.split('\n').map(value => value.trim()).filter(Boolean) }, service?.id)); } catch { toast.error(t('services.failed')); } finally { setBusy(false); } };
   return <Dialog open onOpenChange={value => { if (!busy && !value) onClose(); }}>
     <DialogContent className="sm:max-w-xl"><DialogHeader><DialogTitle>{t(service ? 'services.edit' : 'services.create')}</DialogTitle></DialogHeader>
-      <DialogBody className="space-y-4">
+      <DialogBody className="flex flex-col gap-4">
         <div className="space-y-1.5"><Label htmlFor="service-agent">{t('services.agent')}</Label><select id="service-agent" className="h-9 w-full rounded border bg-background px-2 text-sm" disabled={!!service || busy} value={draft.agent_name} onChange={e => setDraft({ ...draft, agent_name: e.target.value })}>{agents.map(agent => <option key={agent.name} value={agent.name}>{agent.label}</option>)}</select></div>
         <div className="space-y-1.5"><Label htmlFor="service-name">{t('services.name')}</Label><Input id="service-name" value={draft.name} maxLength={120} onChange={e => setDraft({ ...draft, name: e.target.value })} /></div>
         {(['description', 'instructions', 'required_inputs'] as const).map(key => <div key={key} className="space-y-1.5"><Label htmlFor={`service-${key}`}>{t(key === 'required_inputs' ? 'services.inputs' : key === 'description' ? 'services.description' : 'services.instructions')}</Label><Textarea id={`service-${key}`} value={draft[key] || ''} onChange={e => setDraft({ ...draft, [key]: e.target.value })} /></div>)}

@@ -106,7 +106,7 @@ export function KnowledgeList() {
           <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm leading-relaxed font-semibold">{t('knowledge.title')}</span>
           {knowledge.length > 0 && (
-            <Badge variant="secondary" appearance="light" size="sm" shape="circle">
+            <Badge variant="secondary">
               {knowledge.length}
             </Badge>
           )}
@@ -121,8 +121,7 @@ export function KnowledgeList() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 aria-label={t('knowledge.refresh')}
                 onClick={refreshKnowledge}
                 className="text-muted-foreground"
@@ -149,8 +148,7 @@ export function KnowledgeList() {
           {query && (
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={() => setQuery('')}
               aria-label={t('knowledge.clearSearch')}
               className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
@@ -162,7 +160,7 @@ export function KnowledgeList() {
       </div>
 
       <div className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground">
-        {folder && <Button variant="ghost" mode="icon" size="sm" aria-label={t('knowledge.parentFolder')} onClick={() => { setFolder(folder.split('/').slice(0,-1).join('/')); setSelectedKnowledgeId(null); setQuery(''); }}><ArrowLeft className="size-3.5" /></Button>}
+        {folder && <Button variant="ghost" size="icon-sm" aria-label={t('knowledge.parentFolder')} onClick={() => { setFolder(folder.split('/').slice(0,-1).join('/')); setSelectedKnowledgeId(null); setQuery(''); }}><ArrowLeft className="size-3.5" /></Button>}
         <span className="min-w-0 flex-1 truncate" title={'/' + folder}>{folder ? '/' + folder : t('knowledge.rootFolder')}</span>
         <Button variant="outline" size="sm" className="shrink-0 gap-1.5" onClick={() => setNewFolderOpen(true)}><FolderPlus className="size-4" />{t('knowledge.newFolder')}</Button>
       </div>
@@ -236,8 +234,7 @@ export function KnowledgeList() {
               <div className="absolute right-2 bottom-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5 pointer-events-none opacity-0 shadow-sm transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
                 <Button
                   variant="ghost"
-                  mode="icon"
-                  size="sm"
+                  size="icon-sm"
                   aria-label={t('artifactAccess.share')}
                   title={t('artifactAccess.share')}
                   onClick={(e) => { e.stopPropagation(); setShareEntryId(entry.id); }}
@@ -247,8 +244,7 @@ export function KnowledgeList() {
                 </Button>
                 <Button
                   variant="ghost"
-                  mode="icon"
-                  size="sm"
+                  size="icon-sm"
                   aria-label={t('knowledge.editEntry')}
                   onClick={(e) => { e.stopPropagation(); handleEdit(entry); }}
                   className="size-6 text-muted-foreground"
@@ -257,8 +253,7 @@ export function KnowledgeList() {
                 </Button>
                 <Button
                   variant="ghost"
-                  mode="icon"
-                  size="sm"
+                  size="icon-sm"
                   aria-label={t('knowledge.deleteEntry')}
                   onClick={(e) => { e.stopPropagation(); handleDelete(entry); }}
                   className="size-6 text-muted-foreground hover:text-destructive"

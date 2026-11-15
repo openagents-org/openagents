@@ -697,7 +697,7 @@ function SkillDetail({
   return (
     <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
       <DialogContent className="sm:max-w-3xl">
-        <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+        <DialogHeader>
           <div className="flex items-start gap-4">
             <div className="size-12 rounded-xl bg-muted/60 flex items-center justify-center shrink-0">
               {skill.logo ? (
@@ -726,7 +726,7 @@ function SkillDetail({
           </div>
         </DialogHeader>
 
-        <DialogBody className="space-y-3 px-7 py-2">
+        <DialogBody className="flex flex-col gap-3">
           {skill.unavailable && (
             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-300">
               {t('skills.backingFileUnavailable')}
@@ -844,8 +844,8 @@ function SkillDetail({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">v{version.version}</span>
-                        {index === 0 && <Badge variant="outline" size="sm">{t('skills.latest')}</Badge>}
-                        {version.status === 'yanked' && <Badge variant="outline" size="sm">{t('skills.yanked')}</Badge>}
+                        {index === 0 && <Badge variant="outline">{t('skills.latest')}</Badge>}
+                        {version.status === 'yanked' && <Badge variant="outline">{t('skills.yanked')}</Badge>}
                       </div>
                       {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
                     </div>
@@ -883,7 +883,7 @@ function SkillDetail({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">v{version.version}</span>
-                        {index === 0 && <Badge variant="outline" size="sm">{t('skills.latest')}</Badge>}
+                        {index === 0 && <Badge variant="outline">{t('skills.latest')}</Badge>}
                       </div>
                       {version.changelog && <p className="text-xs text-muted-foreground mt-0.5">{version.changelog}</p>}
                     </div>
@@ -1022,7 +1022,7 @@ function SkillDetail({
           </div>
         </DialogBody>
 
-        <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" onClick={onClose}>
             {t('common.close')}
           </Button>
@@ -1180,7 +1180,7 @@ export function SkillsView() {
         titleInHeader
         title={<>
           <h2 className="text-sm font-semibold">{t('skills.title')}</h2>
-          <Badge variant="outline" size="sm" shape="circle">
+          <Badge variant="outline">
             {allSkills.length}
           </Badge>
         </>}
@@ -1198,7 +1198,7 @@ export function SkillsView() {
               className="h-7 w-48 pl-8 text-xs lg:w-56"
             />
           </div>
-          <Button variant="primary" size="sm" onClick={() => setUploadOpen(true)}>
+          <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Upload className="size-3.5" />
             <span className="hidden sm:inline">{t('skills.uploadCustom')}</span>
           </Button>
@@ -1370,7 +1370,7 @@ function UploadSkillDialog({
           <DialogTitle>{t('skills.uploadTitle')}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="space-y-3 py-1">
+        <DialogBody className="flex flex-col gap-3">
           {/* File picker */}
           <div>
             <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">

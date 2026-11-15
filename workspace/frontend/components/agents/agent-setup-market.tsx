@@ -175,7 +175,7 @@ export function MarketGallery({
     <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start gap-2">
-        <Button variant="ghost" mode="icon" size="sm" className="shrink-0" onClick={onBack} title={t('connect.nodeBack')}>
+        <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={onBack} title={t('connect.nodeBack')}>
           <ChevronRight className="size-4 rotate-180" />
         </Button>
         <div className="flex-1 min-w-0">

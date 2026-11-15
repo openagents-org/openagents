@@ -92,14 +92,14 @@ export function IssueEditor({
       }}
     >
       <DialogContent className="max-w-[620px]">
-        <DialogHeader className="border-b border-border/60 pb-4">
+        <DialogHeader className="border-b">
           <DialogTitle className="flex items-center gap-2 text-sm font-medium">
             <CircleDot className="size-4 text-muted-foreground" />
             {t(issue ? 'issues.editIssue' : 'issues.newIssue')}
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={save} className="flex min-h-0 flex-1 flex-col">
-          <DialogBody className="space-y-5 py-5">
+          <DialogBody className="flex flex-col gap-5">
             <label className="block">
               <span className="sr-only">{t('issues.title')}</span>
               <Input
@@ -143,7 +143,7 @@ export function IssueEditor({
             <p className="text-[11px] text-muted-foreground">{t('issues.attachmentAudience')}</p>
             {error && <ErrorNotice message={error} />}
           </DialogBody>
-          <DialogFooter className="items-center border-t border-border/60 bg-muted/15 py-4 sm:justify-between">
+          <DialogFooter className="items-center sm:justify-between">
             <p className="hidden text-[11px] text-muted-foreground sm:block">
               {t(issue ? 'issues.editHint' : 'issues.createHint')}
             </p>
@@ -159,7 +159,6 @@ export function IssueEditor({
               </Button>
               <Button
                 size="sm"
-                variant="mono"
                 type="submit"
                 disabled={busy || uploading || !title.trim()}
               >

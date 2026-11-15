@@ -581,8 +581,7 @@ export function ThreadList() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
-          variant="ghost"
-          mode="icon" size="sm"
+          variant="ghost" size="icon-sm"
           aria-label={t('threads.threadActions')}
           className="text-muted-foreground"
           onClick={(e) => e.stopPropagation()}
@@ -892,8 +891,7 @@ export function ThreadList() {
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
-                  variant="ghost"
-                  mode="icon" size="sm"
+                  variant="ghost" size="icon-sm"
                   aria-label={t('threads.dmActions')}
                   disabled={pendingDm === dmId}
                   className="text-muted-foreground"
@@ -963,7 +961,7 @@ export function ThreadList() {
           {/* Unread threads, in the app-shell-4 outlined-count style. Hidden at
               zero — a "0" beside the title is noise, not information. */}
           {unreadCount > 0 && (
-            <Badge variant="outline" size="sm" shape="circle" aria-label={t('threads.unreadCount', { count: unreadCount })}>
+            <Badge variant="outline" aria-label={t('threads.unreadCount', { count: unreadCount })}>
               {unreadCount}
             </Badge>
           )}
@@ -977,8 +975,7 @@ export function ThreadList() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
-                variant="ghost"
-                mode="icon" size="sm"
+                variant="ghost" size="icon-sm"
                 aria-label={t('threads.refresh')}
                 onClick={() => { refreshAgents(); refreshDMConversations(); }}
                 className="text-muted-foreground"
@@ -994,8 +991,7 @@ export function ThreadList() {
               <TooltipTrigger asChild>
                 <DropdownMenuTrigger asChild>
                   <Button
-                    variant="ghost"
-                    mode="icon" size="sm"
+                    variant="ghost" size="icon-sm"
                     aria-label={t('threads.sort')}
                     className="text-muted-foreground"
                   >
@@ -1044,8 +1040,7 @@ export function ThreadList() {
             <span className="absolute top-1/2 right-2 size-3 -translate-y-1/2 animate-spin rounded-full border-2 border-muted-foreground/30 border-t-muted-foreground" />
           ) : searchQuery ? (
             <Button
-              variant="ghost"
-              mode="icon" size="sm"
+              variant="ghost" size="icon-sm"
               onClick={() => setSearchQuery('')}
               aria-label={t('threads.clearSearch')}
               className="absolute top-1/2 right-1 size-5 -translate-y-1/2 text-muted-foreground/50 hover:text-foreground"
@@ -1084,7 +1079,6 @@ export function ThreadList() {
                   {count !== undefined && count > 0 && (
                     <Badge
                       variant="secondary"
-                      size="xs"
                       className="rounded-full! leading-none"
                     >
                       {count}

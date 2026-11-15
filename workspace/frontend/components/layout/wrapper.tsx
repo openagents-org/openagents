@@ -19,6 +19,7 @@ import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileHeader } from './mobile-header';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { isRecentAgent } from '@/lib/helpers';
+import { cn } from '@/lib/utils';
 import { shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
 import { ChatView } from '@/components/chat/chat-view';
 import { ThreadList } from '@/components/threads/thread-list';
@@ -313,7 +314,7 @@ export function Wrapper() {
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
-      className="relative h-full min-h-0 [&_.container-fluid]:px-5"
+      className="relative h-full min-h-0 bg-sidebar [&_.container-fluid]:px-5"
       style={{
         minWidth: WORKSPACE_MIN_WIDTH,
         '--sidebar-width': `${shellWidth}px`,
@@ -323,7 +324,16 @@ export function Wrapper() {
     >
       <AppSidebar />
 
-      <SidebarInset className="min-w-0">
+      {/* The inset card of shadcn's dashboard-01: the rail sits on the sidebar
+          colour and the list and detail panes share one card in front of it.
+          The list pane draws the card's leading edge and the seam (see
+          ListPanel); with no list showing, the detail pane closes the card. */}
+      <SidebarInset
+        className={cn(
+          'my-2 me-2 min-w-0 overflow-hidden rounded-e-xl border-y border-e',
+          !sidebarOpen && 'rounded-s-xl border-s',
+        )}
+      >
         {!showOnboarding && viewMode !== 'connect' && <AppHeader />}
         <div className="relative flex min-h-0 grow overflow-hidden">
           {showOnboarding ? (

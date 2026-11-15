@@ -92,7 +92,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
           <DialogTitle>{isEditing ? t('knowledge.editorTitleEdit') : t('knowledge.editorTitleNew')}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 py-1">
+        <DialogBody className="flex flex-col gap-4">
           <div className="space-y-2"><Label htmlFor="kb-folder">{t('knowledge.folder')}</Label>
             <select id="kb-folder" value={folderPath} onChange={event => setFolderPath(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
               <option value="">{t('knowledge.rootFolder')}</option>

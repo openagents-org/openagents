@@ -92,7 +92,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
   return (
     <div className="space-y-2">
       <div>
-        <Label variant="secondary">{t('collab.agentsSection')}</Label>
+        <Label className="font-normal">{t('collab.agentsSection')}</Label>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('collab.agentsSectionDescription')}</p>
       </div>
 
@@ -122,7 +122,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                       <span className="truncate">{agentLabel(agent)}</span>
-                      <Badge variant="outline" size="xs" className="shrink-0">{t('collab.kindAgent')}</Badge>
+                      <Badge variant="outline" className="shrink-0">{t('collab.kindAgent')}</Badge>
                     </p>
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
                       {agent.agentType && <span className="capitalize">{agent.agentType.replace('cloud:', '')}</span>}
@@ -174,8 +174,6 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
 
                   <Badge
                     variant={agent.visibility === 'personal' ? 'info' : 'secondary'}
-                    appearance="light"
-                    size="sm"
                   >
                     {agent.visibility === 'personal' ? t('collab.visibilityPersonal') : t('collab.visibilityTeam')}
                   </Badge>

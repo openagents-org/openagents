@@ -402,7 +402,7 @@ function FolderPicker({
 
       <div className="px-3 py-2 border-t flex items-center justify-end gap-2">
         <Button size="sm" variant="ghost" onClick={onClose}>{t('connect.nodeCancel')}</Button>
-        <Button size="sm" variant="primary" disabled={!path} onClick={() => { if (path) { onPick(path); onClose(); } }}>
+        <Button size="sm" disabled={!path} onClick={() => { if (path) { onPick(path); onClose(); } }}>
           {t('connect.nodePickerUseThis')}
         </Button>
       </div>
@@ -994,7 +994,7 @@ export function AgentSetup({
       </Button>
     );
     const saveButton = (
-      <Button data-testid="agent-setup-submit" variant="primary" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
+      <Button data-testid="agent-setup-submit" size={extensions?.compact ? 'lg' : undefined} onClick={create} disabled={busy || !name.trim() || extensions?.disabled} className={extensions?.compact ? 'w-full' : 'shrink-0'}>
         {busy ? <Loader2 className="size-4 animate-spin mr-1.5" /> : !isEdit && (!extensions?.headerActions || extensions?.compact) && <Plus className="size-4 mr-1.5" />}
         {isEdit ? t('connect.nodeSaveChanges') : signInUnconfirmed && credsError ? t('connect.agentAddAnyway') : t('connect.agentAddTitle')}
       </Button>

@@ -60,7 +60,7 @@ export function TourDismissButton({
           <Button variant="outline" size="sm" onClick={() => choose('session')}>
             {t('featureTours.dismissSession')}
           </Button>
-          <Button variant="primary" size="sm" onClick={() => choose('forever')}>
+          <Button size="sm" onClick={() => choose('forever')}>
             {t('featureTours.dismissForever')}
           </Button>
         </div>

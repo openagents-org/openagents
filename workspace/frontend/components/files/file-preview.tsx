@@ -552,8 +552,7 @@ export function FilePreview() {
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={() => {
                 if (isMobile) openMobileList();
                 else closePreview();
@@ -638,8 +637,7 @@ export function FilePreview() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => setInfoOpen((open) => !open)}
                 aria-label={infoOpen ? t('files.hideFileInfo') : t('files.showFileInfo')}
                 aria-pressed={infoOpen}
@@ -660,8 +658,7 @@ export function FilePreview() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => window.open(blobUrl || sourceUrl, '_blank')}
                 aria-label={t('files.openInNewTab')}
                 className="text-muted-foreground"
@@ -676,8 +673,7 @@ export function FilePreview() {
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={handleDownload}
               aria-label={t('common.download')}
               className="text-muted-foreground"
@@ -691,8 +687,7 @@ export function FilePreview() {
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={handleDelete}
               aria-label={t('common.delete')}
               className="text-muted-foreground hover:text-red-500"

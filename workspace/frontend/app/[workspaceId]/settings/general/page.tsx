@@ -77,7 +77,7 @@ export default function GeneralSettingsPage() {
               key={option}
               type="button"
               size="sm"
-              variant={option === locale ? 'primary' : 'outline'}
+              variant={option === locale ? 'default' : 'outline'}
               onClick={() => { if (isLocale(option)) setLocale(option); }}
             >
               {LOCALE_LABELS[option]}
@@ -90,7 +90,7 @@ export default function GeneralSettingsPage() {
       </div>
 
       <div className="space-y-2">
-        <Label variant="secondary">{t('settings.workspaceUrl')}</Label>
+        <Label className="font-normal">{t('settings.workspaceUrl')}</Label>
         <div className="flex items-center gap-2">
           <Input value={workspaceUrl} readOnly className="font-mono text-xs" />
           <Button variant="outline" size="icon" onClick={() => copyUrl(workspaceUrl)}>
@@ -100,7 +100,7 @@ export default function GeneralSettingsPage() {
       </div>
 
       <div className="space-y-2">
-        <Label variant="secondary">{t('settings.workspaceId')}</Label>
+        <Label className="font-normal">{t('settings.workspaceId')}</Label>
         <div className="flex items-center gap-2">
           <Input value={workspace.slug} readOnly className="font-mono text-xs" />
           <Button variant="outline" size="icon" onClick={() => copyId(workspace.slug)}>

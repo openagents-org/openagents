@@ -411,8 +411,7 @@ export function FileList() {
                 <DropdownMenuTrigger asChild>
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     disabled={Boolean(pending)}
                     aria-label={t("folders.actionsFor", { name: basename(folder.path) })}
                     className="mr-1 size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100 disabled:opacity-0"

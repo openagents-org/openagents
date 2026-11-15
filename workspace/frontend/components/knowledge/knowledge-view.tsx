@@ -134,8 +134,7 @@ export function KnowledgeView() {
           trigger={
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               aria-label={t('artifactAccess.share')}
               title={t('artifactAccess.share')}
               className="text-muted-foreground"
@@ -146,8 +145,7 @@ export function KnowledgeView() {
         />
         <Button
           variant="ghost"
-          mode="icon"
-          size="sm"
+          size="icon-sm"
           aria-label={t('knowledge.editEntry')}
           onClick={handleEdit}
           className="text-muted-foreground"

@@ -57,13 +57,13 @@ export function ArtifactPanel() {
   const refresh = async () => { setRevision(value=>value+1); await Promise.allSettled([refreshFiles(),refreshKnowledge(),refreshBrowserTabs()]); };
   return <aside data-artifact-preview className="flex h-full min-h-0 flex-col bg-background" aria-label={t('artifactPanel.title')}>
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b px-3">
-      {selectedArtifact ? <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.browse')} onClick={()=>setSelectedArtifact(null)}><ArrowLeft className="size-4" /></Button> : <PanelRight className="size-4 text-muted-foreground" />}
+      {selectedArtifact ? <Button variant="ghost" size="icon-sm" aria-label={t('artifactPanel.browse')} onClick={()=>setSelectedArtifact(null)}><ArrowLeft className="size-4" /></Button> : <PanelRight className="size-4 text-muted-foreground" />}
       <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={selected?.title}>{selected?.title || t('artifactPanel.title')}</span>
-      {setting?.can_pin && (selectedArtifact || setting.unavailable) && <Button variant={pinned?'outline':'ghost'} mode="icon" size="sm" disabled={busy} title={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button>}
+      {setting?.can_pin && (selectedArtifact || setting.unavailable) && <Button variant={pinned?'outline':'ghost'} size="icon-sm" disabled={busy} title={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button>}
       {selectedArtifact && <ArtifactFileActions artifact={selectedArtifact} />}
-      <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.refresh')} onClick={()=>void refresh()}><RefreshCw className="size-3.5" /></Button>
+      <Button variant="ghost" size="icon-sm" aria-label={t('artifactPanel.refresh')} onClick={()=>void refresh()}><RefreshCw className="size-3.5" /></Button>
       <ArtifactShareButton choices={shareable} selected={selectedArtifact} />
-      <Button variant="ghost" mode="icon" size="sm" aria-label={t('artifactPanel.close')} onClick={()=>setShowBrowserPreview(false)}><X className="size-4" /></Button>
+      <Button variant="ghost" size="icon-sm" aria-label={t('artifactPanel.close')} onClick={()=>setShowBrowserPreview(false)}><X className="size-4" /></Button>
     </header>
     {pinned && <div className="flex items-center gap-1.5 border-b bg-muted/40 px-4 py-2 text-xs text-muted-foreground"><Pin className="size-3" />{t('artifactPanel.pinnedHint')}</div>}
     {selectedArtifact ? <div className="min-h-0 flex-1"><ArtifactContent artifact={selectedArtifact} revision={revision} /></div> : <div className="min-h-0 flex-1 overflow-auto p-4">

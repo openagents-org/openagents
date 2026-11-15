@@ -381,8 +381,7 @@ export function FileGrid() {
                 {isMobile && (
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={openMobileList}
                     className="mr-1 shrink-0 text-muted-foreground"
                     title={t('files.browseFolders')}
@@ -400,8 +399,7 @@ export function FileGrid() {
                     unselected state. */}
                 <Button
                   variant="ghost"
-                  mode="icon"
-                  size="sm"
+                  size="icon-sm"
                   onClick={navigateUp}
                   className="mr-1 shrink-0 text-muted-foreground"
                   title={navigateUpLabel}
@@ -426,7 +424,7 @@ export function FileGrid() {
               </>
             )}
             {itemCount > 0 && (
-              <Badge variant="secondary" size="sm" className="ml-1.5 shrink-0 rounded-full!">
+              <Badge variant="secondary" className="ml-1.5 shrink-0 rounded-full!">
                 {itemCount}
               </Badge>
             )}
@@ -461,8 +459,7 @@ export function FileGrid() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
                 aria-label={view === 'grid' ? t('files.switchToListView') : t('files.switchToGridView')}
                 className="shrink-0 text-muted-foreground"
@@ -482,8 +479,7 @@ export function FileGrid() {
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => fileInputRef.current?.click()}
                 aria-label={t('files.uploadFile')}
                 className="shrink-0 text-muted-foreground"
@@ -681,8 +677,7 @@ export function FileGrid() {
                 />
                 <Button
                   variant="ghost"
-                  mode="icon"
-                  size="sm"
+                  size="icon-sm"
                   onClick={(e) => handleDelete(e, file.id, file.filename)}
                   aria-label={t('files.deleteItem', { name: displayName })}
                   className="size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
@@ -792,8 +787,7 @@ export function FileGrid() {
                   {/* Delete button on hover */}
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={(e) => handleDelete(e, file.id, file.filename)}
                     aria-label={t('files.deleteItem', { name: displayName })}
                     className="absolute top-1.5 right-1.5 size-6 bg-background/80 text-muted-foreground opacity-0 shadow-sm transition-opacity hover:text-red-500 group-hover:opacity-100"
@@ -846,8 +840,7 @@ function FileAccessMenu({
       <DropdownMenuTrigger asChild>
         <Button
           variant="ghost"
-          mode="icon"
-          size="sm"
+          size="icon-sm"
           onClick={(e) => e.stopPropagation()}
           aria-label={t('artifactAccess.moreActions', { name: displayName })}
           className={className}
@@ -974,8 +967,7 @@ function UploadActions({
       {failed && (
         <Button
           variant="ghost"
-          mode="icon"
-          size="sm"
+          size="icon-sm"
           onClick={onRetry}
           aria-label={t('files.retryUploadItem', { name: upload.name })}
           className="size-6 bg-background/80 text-muted-foreground shadow-sm"
@@ -985,8 +977,7 @@ function UploadActions({
       )}
       <Button
         variant="ghost"
-        mode="icon"
-        size="sm"
+        size="icon-sm"
         onClick={onCancel}
         aria-label={failed ? t('files.dismissItem', { name: upload.name }) : t('files.cancelUploadItem', { name: upload.name })}
         className="size-6 bg-background/80 text-muted-foreground shadow-sm hover:text-red-500"

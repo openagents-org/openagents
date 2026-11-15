@@ -69,8 +69,7 @@ export function DesktopNotificationPrompt() {
       </Button>
       <Button
         variant="ghost"
-        mode="icon"
-        size="sm"
+        size="icon-sm"
         className="size-6 shrink-0 text-muted-foreground"
         aria-label={t('slackSignals.promptDismiss')}
         onClick={dismiss}

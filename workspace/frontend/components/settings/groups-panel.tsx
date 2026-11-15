@@ -127,7 +127,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
   return (
     <div className="space-y-4">
       <div>
-        <Label variant="secondary">{t('groups.title')}</Label>
+        <Label className="font-normal">{t('groups.title')}</Label>
         <p className="mt-0.5 text-xs text-muted-foreground">{t('groups.description')}</p>
         {!editable && <p className="mt-1 text-xs text-muted-foreground">{t('groups.adminOnly')}</p>}
       </div>
@@ -180,7 +180,7 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
                   <div className="min-w-0 flex-1">
                     <p className="flex items-center gap-1.5 truncate text-sm font-medium">
                       <span className="truncate">{groupName(g)}</span>
-                      {builtin && <Badge variant="outline" size="xs" className="shrink-0">{t('groups.builtin')}</Badge>}
+                      {builtin && <Badge variant="outline" className="shrink-0">{t('groups.builtin')}</Badge>}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {t('groups.memberCount', { count: g.member_count })}
@@ -342,7 +342,7 @@ function GroupMembers({
                 <div className="min-w-0 flex-1">
                   <p className="flex items-center gap-1.5 truncate text-sm">
                     <span className="truncate">{name}</span>
-                    <Badge variant="outline" size="xs" className="shrink-0">
+                    <Badge variant="outline" className="shrink-0">
                       {isAgent ? t('collab.kindAgent') : t('collab.kindPerson')}
                     </Badge>
                   </p>

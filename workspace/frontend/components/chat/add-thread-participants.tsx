@@ -103,11 +103,11 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
       </Button>}
       <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
         <DialogContent className="sm:max-w-xl">
-          <DialogHeader className="space-y-2 px-6 pt-6 pb-2">
+          <DialogHeader>
             <DialogTitle className="text-xl">{title}</DialogTitle>
             <DialogDescription>{t('threadAccess.addParticipantsHint')}</DialogDescription>
           </DialogHeader>
-          <DialogBody className="space-y-3 px-6 py-2">
+          <DialogBody className="flex flex-col gap-3">
             {loadFailed ? (
               <div className="space-y-2 text-sm text-muted-foreground">
                 <p>{t('collab.participantsLoadFailed')}</p>
@@ -125,7 +125,7 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
               </div>
             ))}
           </DialogBody>
-          <DialogFooter className="px-6 pt-3 pb-6 sm:space-x-3">
+          <DialogFooter>
             <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
             <Button disabled={!mayAdd || !participants || loadFailed || !allowedPicks.length || saving} onClick={add}>
               {saving ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}

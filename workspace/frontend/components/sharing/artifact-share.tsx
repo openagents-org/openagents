@@ -240,8 +240,7 @@ export function ArtifactShareContent({
                 {canManage && (
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={() => revoke(g)}
                     aria-label={t('artifactAccess.revoke')}
                     title={t('artifactAccess.revoke')}

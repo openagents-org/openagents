@@ -41,7 +41,7 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
   // Download and the link need only the id, so they show from the first
   // frame while the list loads.
   return <>
-    <Button variant="ghost" mode="icon" size="sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
+    <Button variant="ghost" size="icon-sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
     <CopyResourceLink view="files" id={artifact.id} />
   </>;
 }

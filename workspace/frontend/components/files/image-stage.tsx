@@ -146,8 +146,7 @@ export function ImageStage({
             <>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => changeZoom(-ZOOM_STEP)}
                 disabled={!loaded || zoom <= MIN_ZOOM}
                 aria-label={t("media.zoomOut")}
@@ -160,8 +159,7 @@ export function ImageStage({
               </span>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={() => changeZoom(ZOOM_STEP)}
                 disabled={!loaded || zoom >= MAX_ZOOM}
                 aria-label={t("media.zoomIn")}
@@ -189,8 +187,7 @@ export function ImageStage({
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={() => setRotation((r) => r + 90)}
                     disabled={!loaded}
                     aria-label={t("media.rotate")}
@@ -205,8 +202,7 @@ export function ImageStage({
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={() => setFlipped((f) => !f)}
                     disabled={!loaded}
                     aria-label={t("media.flipHorizontally")}
@@ -271,8 +267,7 @@ export function ImageStage({
           <div className="flex h-11 shrink-0 items-center justify-center gap-2 border-t border-border">
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={siblings.onPrevious}
               aria-label={t("media.previousImage")}
               className="text-muted-foreground"
@@ -284,8 +279,7 @@ export function ImageStage({
             </span>
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={siblings.onNext}
               aria-label={t("media.nextImage")}
               className="text-muted-foreground"

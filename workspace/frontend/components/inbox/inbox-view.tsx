@@ -39,9 +39,9 @@ function UnreadDot({ unread, priority }: { unread: boolean; priority: Notificati
 function KindChip({ kind, resolved }: { kind: InboxActionKind; resolved: boolean }) {
   const t = useT();
   if (resolved) {
-    return <Badge variant="secondary" appearance="light" size="xs" className="shrink-0">{t('inbox.chipDone')}</Badge>;
+    return <Badge variant="secondary" className="shrink-0">{t('inbox.chipDone')}</Badge>;
   }
-  return <Badge variant="warning" appearance="light" size="xs" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
+  return <Badge variant="warning" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
 }
 
 /** Per-id cache of the live approval records behind actionable rows. */

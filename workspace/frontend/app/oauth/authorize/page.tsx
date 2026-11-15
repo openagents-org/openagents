@@ -3,7 +3,7 @@
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { Check, Loader2, LogIn, ShieldAlert } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 import { approveOAuth } from '@/lib/account-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin } from '@/lib/auth-redirects';

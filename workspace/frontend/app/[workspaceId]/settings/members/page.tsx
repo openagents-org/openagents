@@ -209,7 +209,7 @@ export default function MembersSettingsPage() {
 
       {editable && pendingInvites.length > 0 && (
         <div className="space-y-2">
-          <Label variant="secondary">{t('admin.pendingInvites')}</Label>
+          <Label className="font-normal">{t('admin.pendingInvites')}</Label>
           <div className="divide-y rounded-lg border">
             {pendingInvites.map((inv) => (
               <div key={inv.inviteId} className="flex items-center gap-3 px-4 py-2.5">
@@ -247,7 +247,7 @@ export default function MembersSettingsPage() {
       )}
 
       {/* v1.1 M1: unified roster — people first, agents below */}
-      <Label variant="secondary">{t('collab.peopleSection')}</Label>
+      <Label className="font-normal">{t('collab.peopleSection')}</Label>
 
       {loading ? (
         <div className="flex items-center justify-center py-10">

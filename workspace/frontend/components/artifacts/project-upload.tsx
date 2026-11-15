@@ -36,7 +36,7 @@ export function ProjectUpload({ projectId, revision, onPublished }: {projectId?:
       event.target.value='';
     }} />
     {!files.length ? <Button size="sm" variant="outline" onClick={()=>input.current?.click()}><FolderUp className="size-4" />{t(projectId?'webProject.update':'webProject.upload')}</Button> : <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-      <div className="flex items-center justify-between"><strong className="text-sm">{t(projectId?'webProject.update':'webProject.upload')}</strong><Button size="sm" mode="icon" variant="ghost" disabled={busy} aria-label={t('artifactPanel.close')} onClick={()=>setFiles([])}><X className="size-4" /></Button></div>
+      <div className="flex items-center justify-between"><strong className="text-sm">{t(projectId?'webProject.update':'webProject.upload')}</strong><Button size="icon-sm" variant="ghost" disabled={busy} aria-label={t('artifactPanel.close')} onClick={()=>setFiles([])}><X className="size-4" /></Button></div>
       <label className="block space-y-1 text-xs">{t('webProject.name')}<Input value={title} maxLength={120} disabled={busy} onChange={e=>setTitle(e.target.value)} /></label>
       <label className="block space-y-1 text-xs">{t('webProject.entry')}<select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={entry} disabled={busy} onChange={e=>setEntry(e.target.value)}>{files.filter(f=>/\.html?$/i.test(f.path)).map(f=><option key={f.path}>{f.path}</option>)}</select></label>
       <p className="text-xs leading-5 text-muted-foreground">{files.length} {t('webProject.files')} · {t(projectId?'webProject.keepsSharing':currentSessionId&&!currentSessionId.startsWith('dm:')?'webProject.threadSharing':'webProject.private')}</p>

@@ -76,14 +76,14 @@ export function TaskChatPopup({ open, onOpenChange, sessionId, taskTitle, assign
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl gap-0 p-0 overflow-hidden">
-        <DialogHeader className="px-5 py-3 border-b border-border">
-          <DialogTitle className="flex items-center gap-2 text-sm font-semibold">
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader className="border-b">
+          <DialogTitle className="flex items-center gap-2">
             {assignee && <AgentAvatar name={assignee} size={20} />}
             <span className="truncate">{taskTitle}</span>
           </DialogTitle>
           {subtitle && (
-            <p className="text-[11px] text-muted-foreground truncate">{subtitle}</p>
+            <p className="truncate text-xs text-muted-foreground">{subtitle}</p>
           )}
         </DialogHeader>
 

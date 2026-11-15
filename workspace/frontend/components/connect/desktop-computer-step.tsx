@@ -156,11 +156,11 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
                 {/* Offline goes back through connect: the desktop app then
                     starts its background service if it is not running, which
                     merely checking again never did. */}
-                <Button variant="primary" onClick={() => (error === 'offline' && editable ? void connect() : setAttempt((value) => value + 1))}>{t('onboarding.checkAgain')}</Button>
+                <Button onClick={() => (error === 'offline' && editable ? void connect() : setAttempt((value) => value + 1))}>{t('onboarding.checkAgain')}</Button>
                 {error === 'offline' && <Button variant="outline" onClick={() => host.openComputer()}>{t('onboarding.openComputer')}</Button>}
               </div>
             ) : (
-              <Button variant="primary" className="min-h-11 w-full whitespace-normal" onClick={connect} disabled={!editable || working}>
+              <Button className="min-h-11 w-full whitespace-normal" onClick={connect} disabled={!editable || working}>
                 {working ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Laptop className="size-4 shrink-0" />}
                 {t(phase === 'connecting' ? 'onboarding.connectingComputer' : phase === 'waiting' ? 'onboarding.waitingComputer' : 'onboarding.connectComputerToWorkspace')}
                 {!working && <ArrowRight className="size-4 shrink-0" />}

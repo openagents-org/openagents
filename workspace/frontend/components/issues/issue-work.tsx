@@ -78,7 +78,7 @@ export function IssueWork({ issueId, closed, onPosted }: {
       <DialogContent className="sm:max-w-md">
         <DialogHeader><DialogTitle>{t('issueWork.assignAgent')}</DialogTitle><DialogDescription>{t('issueWork.assignHint')}</DialogDescription></DialogHeader>
         <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
-          <DialogBody className="space-y-4">
+          <DialogBody className="flex flex-col gap-4">
             {choices ? choices.length ? <IssueAssigneePicker agentsOnly value={agent} onChange={setAgent} choices={choices} disabled={busy} /> : <p className="text-sm text-muted-foreground">{t('issueWork.noAgents')}</p> : !error && <Loader2 className="size-4 animate-spin" />}
             <label className="block space-y-2 text-xs font-medium">
               <span>{t('issueWork.instruction')}</span>

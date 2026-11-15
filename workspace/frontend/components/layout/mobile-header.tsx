@@ -69,11 +69,11 @@ export function MobileHeader() {
           <div className="flex items-center gap-2 min-w-0">
             <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" mode="icon" size="sm" className="shrink-0">
+                <Button variant="ghost" size="icon-sm" className="shrink-0">
                   <Menu className="size-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" close={false}>
+              <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
                 <SheetHeader className="p-0 space-y-0">
                   <SheetTitle className="sr-only">{t('nav.navigation')}</SheetTitle>
                 </SheetHeader>

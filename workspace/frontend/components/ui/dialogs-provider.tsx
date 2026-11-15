@@ -149,7 +149,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
             rather than compact. Overrides stay local to confirm/prompt. */}
         {pending && (
           <DialogContent className="max-w-lg">
-            <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
+            <DialogHeader>
               <DialogTitle className="text-xl">{pending.title}</DialogTitle>
               {pending.description && (
                 <DialogDescription className="text-[15px] leading-relaxed">
@@ -159,7 +159,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
             </DialogHeader>
 
             {pending.kind === 'prompt' && (
-              <DialogBody className="px-7 py-2">
+              <DialogBody>
                 <Input
                   ref={inputRef}
                   value={value}
@@ -179,7 +179,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
               </DialogBody>
             )}
 
-            <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+            <DialogFooter>
               <Button
                 variant="outline"
                 className="min-w-24"
@@ -192,7 +192,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 {pending.cancelText ?? t('common.cancel')}
               </Button>
               <Button
-                variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'primary'}
+                variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'default'}
                 className="min-w-24"
                 disabled={!canSubmit}
                 onClick={submit}

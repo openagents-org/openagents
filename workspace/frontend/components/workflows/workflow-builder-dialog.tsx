@@ -112,13 +112,13 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl">
-        <DialogHeader className="px-7 pt-7 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">
             {workflow ? t('workflows.editTitle') : t('workflows.createTitle')}
           </DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 px-7 py-2">
+        <DialogBody className="flex flex-col gap-4">
           {/* Meta */}
           <div className="flex flex-col sm:flex-row gap-3">
             <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('workflows.namePlaceholder')} autoFocus className="flex-1" />
@@ -325,7 +325,7 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
           )}
         </DialogBody>
 
-        <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>

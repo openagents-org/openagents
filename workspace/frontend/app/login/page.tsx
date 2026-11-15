@@ -3,7 +3,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 
 function Login() {
   const t = useT();

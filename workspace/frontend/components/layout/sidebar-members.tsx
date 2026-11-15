@@ -96,7 +96,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
     </SidebarGroup>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-md">
       <DialogHeader><DialogTitle>{t('nav.members')} · {team.length}</DialogTitle></DialogHeader>
-      <DialogBody className="space-y-3">
+      <DialogBody className="flex flex-col gap-3">
         <Input autoFocus value={query} onChange={event => setQuery(event.target.value)} placeholder={t('nav.searchMembers')} />
         <div className="max-h-80 overflow-y-auto">
           {candidates.map(person => <button key={person.email} className="flex w-full items-center gap-3 rounded-md p-2 text-left hover:bg-muted" onClick={() => startDM(person.email)}>

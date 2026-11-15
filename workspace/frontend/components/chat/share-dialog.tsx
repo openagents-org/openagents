@@ -57,7 +57,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: {
           <DialogDescription>{t('share.chooseType')}</DialogDescription>
         </DialogHeader>
         <Tabs value={mode} onValueChange={setMode}>
-          <DialogBody className="space-y-4">
+          <DialogBody className="flex flex-col gap-4">
             <TabsList className="w-full">
               <TabsTrigger value="thread">{t('share.threadLink')}</TabsTrigger>
               <TabsTrigger value="snapshot">{t('share.snapshot')}</TabsTrigger>

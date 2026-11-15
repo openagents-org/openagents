@@ -596,8 +596,7 @@ function VolumeControl({
     <div className={cn('flex items-center gap-2', className)}>
       <Button
         variant="ghost"
-        mode="icon"
-        size="sm"
+        size="icon-sm"
         onClick={onToggleMute}
         disabled={disabled}
         aria-label={muted ? t("media.unmute") : t("media.mute")}
@@ -653,8 +652,7 @@ function TransportButton({
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          mode="icon"
-          size="sm"
+          size="icon-sm"
           onClick={onClick}
           disabled={disabled}
           aria-label={label}
@@ -767,8 +765,7 @@ export function AudioStage({
               <SkipBack className="size-5" />
             </TransportButton>
 
-            <Button
-              mode="icon"
+            <Button size="icon"
               onClick={player.toggle}
               disabled={locked}
               aria-label={player.playing ? t("media.pause") : t("media.play")}
@@ -1084,7 +1081,7 @@ export function VideoStage({
                 <Button
                   key={rate}
                   size="sm"
-                  variant={player.rate === rate ? 'primary' : 'outline'}
+                  variant={player.rate === rate ? 'default' : 'outline'}
                   onClick={() => player.changeRate(rate)}
                   disabled={locked}
                   aria-pressed={player.rate === rate}

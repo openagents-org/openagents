@@ -106,7 +106,7 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
             <DialogTitle>{t('threadSettings.title')}</DialogTitle>
             <DialogDescription>{t('threadSettings.description')}</DialogDescription>
           </DialogHeader>
-          <DialogBody className="space-y-5 pb-5">
+          <DialogBody className="flex flex-col gap-5">
               <p className="truncate text-sm font-medium">{session.title}</p>
               {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <div className="space-y-2">
                 <label className="text-sm font-medium" htmlFor="thread-icon">{t('threadSettings.icon')}</label>

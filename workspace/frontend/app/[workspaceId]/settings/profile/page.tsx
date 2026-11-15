@@ -199,7 +199,7 @@ export default function ProfileSettingsPage() {
         {/* Solid only while there is something to save; a faded solid button
             read as "still grey" whether or not anything had changed. */}
         <Button
-          variant={dirty || saving ? 'primary' : 'secondary'}
+          variant={dirty || saving ? 'default' : 'secondary'}
           onClick={save}
           disabled={saving || !dirty || !name.trim()}
         >

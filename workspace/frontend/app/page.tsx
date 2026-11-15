@@ -10,9 +10,9 @@ import {
   Copy, Check, ArrowRight,
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/reui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { capture, group } from '@/lib/analytics';

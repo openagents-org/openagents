@@ -15,7 +15,7 @@ export function HumanProfile({ email, onClose }: { email: string | null; onClose
   return <Dialog open={!!email} onOpenChange={open => { if (!open) onClose(); }}>
     <DialogContent className="sm:max-w-sm">
       <DialogHeader><DialogTitle className="flex items-center gap-3">{email && <HumanAvatar email={email} />}{person?.displayName || email}</DialogTitle></DialogHeader>
-      <DialogBody className="space-y-3 text-sm">
+      <DialogBody className="flex flex-col gap-3 text-sm">
         <p className="break-all text-muted-foreground">{email}</p>
         {person && <p>{roleLabel(t, person.role)}</p>}
         {online && <p className="flex items-center gap-2"><span className="size-2 rounded-full bg-emerald-500" />{t('nav.memberOnline')}</p>}

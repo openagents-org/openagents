@@ -63,7 +63,7 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
           <DialogTitle>{t('threadAccess.addParticipants')}</DialogTitle>
           <DialogDescription>{t('issues.addParticipantsHint')}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="space-y-3">
+        <DialogBody className="flex flex-col gap-3">
           {options ? <ParticipantPicker options={available} value={selected} onChange={setPicks} disabled={saving} />
             : !error && <Loader2 className="size-4 animate-spin" />}
           {error && <ErrorNotice message={error} />}

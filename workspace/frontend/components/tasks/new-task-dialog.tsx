@@ -176,7 +176,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
   return (
     <Dialog open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader className="space-y-2 px-7 pt-7 pb-2">
+        <DialogHeader>
           <DialogTitle className="text-xl">{t(isEdit ? 'issueWork.edit' : issueTitle ? 'issueWork.add' : 'tasks.newTaskTitle')}</DialogTitle>
           {!isEdit && (
             <DialogDescription className="text-sm leading-relaxed">
@@ -185,7 +185,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
           )}
         </DialogHeader>
 
-        <DialogBody className="space-y-4 px-7 py-2">
+        <DialogBody className="flex flex-col gap-4">
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldDescription')}</label>
             <Textarea
@@ -269,7 +269,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
         </DialogBody>
 
         {error && <p role="alert" className="px-7 text-sm text-destructive">{error}</p>}
-        <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" disabled={saving} onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
