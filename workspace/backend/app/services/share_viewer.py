@@ -17,6 +17,7 @@ from urllib.parse import quote
 
 from markdown_it import MarkdownIt
 
+from app.config import config
 from app.models import PublicShare
 from app.services import public_shares as shares
 
@@ -64,7 +65,7 @@ PAGE_CSP = ("default-src 'none'; img-src 'self' data:; media-src 'self'; frame-s
 _CSS = """
 *{box-sizing:border-box}body{margin:0;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;color:#18181b;background:#fff;display:flex;flex-direction:column;min-height:100vh}
 header{display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:1px solid #e4e4e7}
-header .t{flex:1;min-width:0}h1{margin:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+header .t{flex:1;min-width:0}header h1{margin:0;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 header p{margin:0;font-size:12px;color:#71717a;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 a.btn{display:inline-flex;align-items:center;padding:6px 12px;border-radius:6px;font-size:13px;text-decoration:none;white-space:nowrap}
 a.primary{background:#18181b;color:#fff}a.outline{border:1px solid #e4e4e7;color:#18181b}
@@ -74,6 +75,7 @@ main{flex:1;min-height:0;display:flex;flex-direction:column}
 .center img,.center video{max-width:100%;max-height:85vh}
 iframe{flex:1;width:100%;min-height:80vh;border:0;background:#fff}
 article{max-width:768px;width:100%;margin:0 auto;padding:24px}
+article h1{font-size:1.9em;margin:.4em 0}article h2{font-size:1.5em;margin:1em 0 .4em}article h3{font-size:1.2em;margin:1em 0 .4em}
 article img{max-width:100%}article pre{background:#f4f4f5;padding:12px;border-radius:6px;overflow:auto}
 article code{background:#f4f4f5;padding:1px 4px;border-radius:4px}article pre code{padding:0;background:none}
 article table,.sheet table{border-collapse:collapse}article th,article td{border:1px solid #e4e4e7;padding:4px 10px}
@@ -101,12 +103,12 @@ def _size(n: Optional[int]) -> str:
     return ""
 
 
-def _shell(title: str, header: str, body: str, lang: str, banner: str = "") -> str:
+def _shell(title: str, header: str, body: str, lang: str, banner: str = "", preview: str = "") -> str:
     s = _STRINGS[lang]
     return (f"<!doctype html><html lang=\"{lang}\"><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
             "<meta name=\"referrer\" content=\"no-referrer\"><meta name=\"robots\" content=\"noindex,nofollow\">"
-            f"<title>{html.escape(title)}</title><style>{_CSS}</style></head><body>"
+            f"<title>{html.escape(title)}</title>{preview}<style>{_CSS}</style></head><body>"
             f"{header}{banner}<main>{body}</main>"
             f"<footer>{html.escape(s['footer'])} · <a href=\"https://openagents.org\" rel=\"noopener noreferrer\">openagents.org</a></footer>"
             "</body></html>")
@@ -116,6 +118,18 @@ def error_page(why: str, lang: str) -> str:
     s = _STRINGS[lang]
     message = s["expired"] if "expired" in (why or "").lower() else s["gone"]
     return _shell(s["title"], "", f"<div class=\"msg\"><h1>{html.escape(s['title'])}</h1><p>{html.escape(message)}</p></div>", lang)
+
+
+_UPLOAD_STAMP = re.compile(r"^\d{8}_\d{6}_(?=.)")
+
+
+def display_title(link: PublicShare) -> str:
+    """The name people see: without the upload's timestamp prefix
+    (20261113_191329_report.png) or a web project's bundle suffix."""
+    title = link.title or ""
+    if shares.is_web_project(link.content_type) and title.endswith(".webproject.zip"):
+        title = title[:-len(".webproject.zip")]
+    return _UPLOAD_STAMP.sub("", title) or title
 
 
 def _kind(link: PublicShare) -> str:
@@ -197,6 +211,7 @@ def page(link: PublicShare, data: Optional[bytes], lang: str, format_date) -> st
     esc = html.escape
     token = quote(link.token, safe="")
     kind = _kind(link)
+    title = display_title(link)
     meta = [_size(link.size)]
     if link.snapshot_at:
         meta.append(s["shared"].format(date=format_date(link.snapshot_at)))
@@ -207,22 +222,22 @@ def page(link: PublicShare, data: Optional[bytes], lang: str, format_date) -> st
         site = f"/v1/public/shares/{token}/site/{quote(link.entrypoint, safe='/')}"
         actions += f"<a class=\"btn outline\" href=\"{esc(site)}\" target=\"_blank\" rel=\"noopener noreferrer\">{esc(s['open'])}</a>"
     actions += f"<a class=\"btn primary\" href=\"/{token}/download\">{esc(s['download'])}</a>"
-    header = (f"<header><div class=\"t\"><h1 title=\"{esc(link.title)}\">{esc(link.title)}</h1>"
+    header = (f"<header><div class=\"t\"><h1 title=\"{esc(title)}\">{esc(title)}</h1>"
               f"<p>{esc(' · '.join(meta))}</p></div>{actions}</header>")
     raw = f"/{token}/raw"
     banner = ""
     text = (data or b"")[:MAX_TEXT_BYTES].decode("utf-8", "replace") if data is not None else ""
     if kind == "page":
         banner = f"<div class=\"warn\">{esc(s['user_content'])}</div>"
-        body = f"<iframe title=\"{esc(link.title)}\" src=\"{esc(site)}\" sandbox=\"allow-scripts\" referrerpolicy=\"no-referrer\"></iframe>"
+        body = f"<iframe title=\"{esc(title)}\" src=\"{esc(site)}\" sandbox=\"allow-scripts\" referrerpolicy=\"no-referrer\"></iframe>"
     elif kind == "image":
-        body = f"<div class=\"center\"><img src=\"{raw}\" alt=\"{esc(link.title)}\"></div>"
+        body = f"<div class=\"center\"><img src=\"{raw}\" alt=\"{esc(title)}\"></div>"
     elif kind == "video":
         body = f"<div class=\"center\"><video src=\"{raw}\" controls preload=\"metadata\"></video></div>"
     elif kind == "audio":
         body = f"<div class=\"center\"><audio src=\"{raw}\" controls preload=\"metadata\"></audio></div>"
     elif kind == "pdf":
-        body = f"<iframe title=\"{esc(link.title)}\" src=\"{raw}\"></iframe>"
+        body = f"<iframe title=\"{esc(title)}\" src=\"{raw}\"></iframe>"
     elif kind == "markdown":
         text = re.sub(rf"{re.escape(shares.ASSET_SCHEME)}(\d+)", lambda m: f"/{token}/assets/{m.group(1)}", text)
         body = f"<article>{_md.render(text)}</article>"
@@ -233,7 +248,18 @@ def page(link: PublicShare, data: Optional[bytes], lang: str, format_date) -> st
         body = f"<pre class=\"text\">{esc(text)}</pre>"
     else:
         body = f"<div class=\"msg\"><p>{esc(s['no_preview'])}</p></div>"
-    return _shell(link.title or s["title"], header, body, lang, banner)
+    # What a chat app shows when the link is pasted: the name, and the image
+    # itself for an image. Absolute, since unfurlers resolve nothing.
+    origin = f"https://{config.SHARE_CONTENT_HOST}" if config.SHARE_CONTENT_HOST else ""
+    preview = (f"<meta property=\"og:type\" content=\"website\"><meta property=\"og:site_name\" content=\"OpenAgents\">"
+               f"<meta property=\"og:title\" content=\"{esc(title or s['title'])}\">"
+               f"<meta property=\"og:description\" content=\"{esc(s['footer'])}\">")
+    if kind == "image" and origin and "svg" not in (link.content_type or "").lower():
+        preview += (f"<meta property=\"og:image\" content=\"{origin}{raw}\">"
+                    "<meta name=\"twitter:card\" content=\"summary_large_image\">")
+    else:
+        preview += "<meta name=\"twitter:card\" content=\"summary\">"
+    return _shell(title or s["title"], header, body, lang, banner, preview)
 
 
 def renders_from_bytes(link: PublicShare) -> bool:
