@@ -59,7 +59,7 @@ export function AboutSection({
             {t("settings.about.copyright", { year: new Date().getFullYear() })}
           </div>
         </div>
-        <Badge variant="muted" className="ml-auto shrink-0 font-mono">
+        <Badge variant="secondary" className="ml-auto shrink-0 font-mono">
           {launcherVersion}
         </Badge>
       </Card>

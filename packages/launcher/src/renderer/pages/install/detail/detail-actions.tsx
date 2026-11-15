@@ -154,7 +154,7 @@ export function DetailActions({
 
       {isInstalled && isManaged && (
         <Button
-          variant="destructive-ghost"
+          variant="destructive"
           size="lg"
           className="border border-destructive/25"
           onClick={onUninstall}

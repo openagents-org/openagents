@@ -79,7 +79,7 @@ export function PlatformConnectDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="flex-row items-center gap-3 space-y-0">
+        <DialogHeader className="flex-row items-center gap-3">
           <PlatformLogo platform={platform} size={44} />
           <div className="min-w-0">
             <DialogTitle>

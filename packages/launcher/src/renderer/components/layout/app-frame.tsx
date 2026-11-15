@@ -51,7 +51,7 @@ export function AppFrame({ children }: { children: React.ReactNode }): React.JSX
     <SidebarProvider
       open={open}
       onOpenChange={setOpen}
-      className="h-screen min-h-0 overflow-hidden"
+      className="h-screen min-h-0 overflow-hidden bg-sidebar"
       data-instant-width={instant || undefined}
       style={{
         "--sidebar-width-icon": "var(--rail-icon-width)",
@@ -63,7 +63,11 @@ export function AppFrame({ children }: { children: React.ReactNode }): React.JSX
       } as React.CSSProperties}
     >
       <AppSidebar />
-      <SidebarInset className="min-h-0 min-w-0 overflow-hidden">
+      {/* The inset card of shadcn's dashboard-01, laid out by hand rather than
+          with `variant="inset"`: that variant pads the sidebar too, which would
+          push its top row off the traffic lights. The gaps that would sit under
+          OS window buttons are platform tokens, see `--frame-inset-*`. */}
+      <SidebarInset className="mt-(--frame-inset-top) mr-(--frame-inset-end) mb-2 min-h-0 min-w-0 overflow-hidden rounded-xl shadow-sm ring-1 ring-foreground/5">
         <AppHeader />
         <div className="relative min-h-0 flex-1 overflow-hidden">{children}</div>
       </SidebarInset>

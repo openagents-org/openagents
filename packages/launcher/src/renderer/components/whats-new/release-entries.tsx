@@ -63,7 +63,6 @@ export function ReleaseEntries({
                 "Improved" are not. */}
             <Badge
               variant={TONE[entry.type]}
-              size="sm"
               className="mt-0.5 w-16 shrink-0 justify-center"
             >
               {t(`whatsNew.types.${entry.type}`)}

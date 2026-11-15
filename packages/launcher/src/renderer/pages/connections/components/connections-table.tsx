@@ -116,7 +116,7 @@ function Row({
           <PlatformLogo platform={platform} size={32} />
           <span className="truncate text-sm font-medium">{platform.label}</span>
           {row.planned && (
-            <Badge variant="muted" size="sm">
+            <Badge variant="secondary">
               {t("connections.card.planned")}
             </Badge>
           )}
@@ -139,7 +139,6 @@ function Row({
 
       <TableCell>
         <ConnectionStatusBadge
-          size="default"
           status={connection?.status || "disconnected"}
         />
         {detail && (

@@ -58,7 +58,7 @@ export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.El
       {entry.tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {entry.tags.map((tag) => (
-            <Badge key={tag.key} variant="muted" size="sm" className="font-mono">
+            <Badge key={tag.key} variant="secondary" className="font-mono">
               <span className="text-muted-foreground">{t(`logs.tag.${tag.key}`)}</span>
               {tag.value}
             </Badge>

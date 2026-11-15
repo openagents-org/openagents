@@ -153,7 +153,7 @@ export function WorkspaceCard({
             {t(`workspaces.health.${status}`)}
           </span>
           {device && health !== "revoked" && (
-            <Badge variant="outline" size="sm" className="font-normal text-muted-foreground" title={t("workspaces.card.deviceBadgeHint")}>
+            <Badge variant="outline" className="font-normal text-muted-foreground" title={t("workspaces.card.deviceBadgeHint")}>
               {t("workspaces.health.device")}
             </Badge>
           )}

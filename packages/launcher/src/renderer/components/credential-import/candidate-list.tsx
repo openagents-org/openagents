@@ -61,7 +61,7 @@ export function CandidateList({
                   {t(`credentialImport.vendor.${c.vendor}`)}
                 </span>
                 {c.vendor === "relay" && (
-                  <Badge variant="muted" size="sm">
+                  <Badge variant="secondary">
                     {t(`credentialImport.protocol.${c.protocol}`)}
                   </Badge>
                 )}

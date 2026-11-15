@@ -187,7 +187,7 @@ export default function MessageInput({
                 <PaperclipIcon className="w-3 h-3 text-(--text-tertiary)" />
                 <span className="truncate max-w-40 text-(--text-primary)">{att.filename}</span>
                 <Button
-                  variant="destructive-ghost"
+                  variant="destructive"
                   size="icon"
                   onClick={() => removeAttachment(i)}
                   title={t('chat.input.remove')}

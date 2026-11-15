@@ -154,7 +154,7 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
               <Download />
               {t("logs.actions.export")}
             </Button>
-            <Button variant="destructive-ghost" onClick={() => setClearOpen(true)}>
+            <Button variant="destructive" onClick={() => setClearOpen(true)}>
               <Trash2 />
               {t("logs.actions.clear")}
             </Button>

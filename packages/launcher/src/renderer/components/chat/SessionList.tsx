@@ -75,7 +75,7 @@ export default function SessionList({
         <div className="flex items-center gap-1">
           {selectedWorkspaceId && (
             <Button
-              variant="destructive-ghost"
+              variant="destructive"
               size="icon"
               onClick={onClearAll}
               title={t("chat.sessionList.clearAll")}
@@ -167,7 +167,7 @@ export default function SessionList({
                     {wsLabel}
                   </span>
                   <Button
-                    variant="destructive-ghost"
+                    variant="destructive"
                     size="icon"
                     onClick={(e) => {
                       e.stopPropagation()

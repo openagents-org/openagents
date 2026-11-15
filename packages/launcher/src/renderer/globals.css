@@ -4,6 +4,9 @@
    Tailwind v4 does not ship them, so without this import those components
    would pop in and out with no transition at all. */
 @import "tw-animate-css";
+/* shadcn 4.23 shared variants and utilities (data-open/active/horizontal…,
+   no-scrollbar, scroll-fade, shimmer) the radix-nova components rely on. */
+@import "./shadcn-tailwind.css";
 
 
 /* shadcn components ship `dark:` variants that assume a `.dark` class. The
@@ -98,31 +101,25 @@
        `max-h-(--dialog-max-h)` can express it without an arbitrary value. */
     --dialog-max-h: min(85vh, 52rem);
 
-    /* shadcn HSL aliases — the neutral theme, as HSL triples because
-       `@theme inline` wraps them in `hsl()`. */
-    --background: 0 0% 100%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 0 0% 9%;
-    --primary-foreground: 0 0% 98%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent-hsl: 0 0% 9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border-hsl: 0 0% 89.8%;
-    --input-hsl: 0 0% 89.8%;
-    --ring: 0 0% 63.9%;
-    --success-hsl: 136 60% 51%;
-    --success-foreground: 136 56% 33%;   /* #248a3d */
-    --warning-hsl: 35 100% 53%;
-    --warning-foreground: 33 90% 41%;    /* #c77c0a */
+    /* shadcn radix-nova tokens (neutral, OKLCH). Full colours, not HSL
+       triples: the nova components mix them directly, e.g.
+       `color-mix(in oklch, var(--secondary), var(--foreground) 5%)`. */
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --popover: oklch(1 0 0);
+    --popover-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --destructive: oklch(0.577 0.245 27.325);
+    --destructive-foreground: oklch(0.985 0 0);
+    --input: oklch(0.922 0 0);
+    --ring: oklch(0.708 0 0);
   }
 
   /* ===========================================================
@@ -180,48 +177,41 @@
     --shadow-md: 0 2px 10px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
     --shadow-lg: 0 12px 40px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
 
-    /* shadcn HSL aliases (dark) */
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 89.8%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent-hsl: 0 0% 89.8%;
-    --accent-foreground: 0 0% 9%;
-    --destructive: 0 72% 51%;
-    --destructive-foreground: 0 0% 98%;
-    --border-hsl: 0 0% 14.9%;
-    --input-hsl: 0 0% 14.9%;
-    --ring: 0 0% 45.1%;
-    --success-hsl: 158 64% 52%;
-    --success-foreground: 158 64% 72%;
-    --warning-hsl: 43 96% 56%;
-    --warning-foreground: 43 96% 76%;
+    /* shadcn radix-nova tokens (dark) */
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --popover: oklch(0.205 0 0);
+    --popover-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --destructive-foreground: oklch(0.985 0 0);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
   }
 }
 
 /* Register design tokens with Tailwind v4 so `bg-*`, `text-*`, `border-*`,
    `rounded-*`, `shadow-*` utilities resolve correctly. */
 @theme inline {
-  --color-background: hsl(var(--background));
-  --color-foreground: hsl(var(--foreground));
-  --color-card: hsl(var(--card));
-  --color-card-foreground: hsl(var(--card-foreground));
-  --color-popover: hsl(var(--popover));
-  --color-popover-foreground: hsl(var(--popover-foreground));
-  --color-primary: hsl(var(--primary));
-  --color-primary-foreground: hsl(var(--primary-foreground));
-  --color-secondary: hsl(var(--secondary));
-  --color-secondary-foreground: hsl(var(--secondary-foreground));
-  --color-muted: hsl(var(--muted));
-  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
   /* NOTE: shadcn's `accent` is the neutral hover/focus wash — NOT the brand
      colour. The launcher's brand purple is exposed as `primary` (below), which
      is what shadcn expects too. Mapping `accent` to the purple would turn
@@ -239,15 +229,17 @@
   --color-row-hover-foreground: var(--row-hover-foreground);
   --color-row-active: var(--row-active);
   --color-row-active-foreground: var(--row-active-foreground);
-  --color-destructive: hsl(var(--destructive));
-  --color-destructive-foreground: hsl(var(--destructive-foreground));
-  --color-border: hsl(var(--border-hsl));
-  --color-input: hsl(var(--input-hsl));
-  --color-ring: hsl(var(--ring));
-  --color-success: hsl(var(--success-hsl));
-  --color-success-foreground: hsl(var(--success-foreground));
-  --color-warning: hsl(var(--warning-hsl));
-  --color-warning-foreground: hsl(var(--warning-foreground));
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-text);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-text);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-text);
 
   /* ── Type scale ────────────────────────────────────────────────────────
      Desktop-dense: every step sits one notch below Tailwind's web defaults
@@ -287,6 +279,12 @@
   --radius-md: 8px;
   --radius-lg: 10px;
   --radius-xl: 14px;
+  --radius-2xl: 18px;
+  --radius-3xl: 22px;
+  --radius-4xl: 26px;
+
+  /* Headings follow the body face. */
+  --font-heading: inherit;
 
   /* Exposes the `pulse-dot` keyframes (defined below) as `animate-pulse-dot`,
      so status indicators need no arbitrary `animate-[…]` value. */
@@ -356,10 +354,9 @@
   --text-tertiary: #636366;
   --border: rgba(0, 0, 0, 0.24);
   --border-hover: rgba(0, 0, 0, 0.38);
-  --muted-foreground: 240 8% 32%;
-  --secondary-foreground: 240 10% 16%;
-  --border-hsl: 240 6% 72%;
-  --input-hsl: 240 6% 72%;
+  --muted-foreground: oklch(0.42 0 0);
+  --secondary-foreground: oklch(0.2 0 0);
+  --input: oklch(0.75 0 0);
 }
 
 :root[data-theme="dark"][data-contrast="high"] {
@@ -367,10 +364,9 @@
   --text-tertiary: #a1a1aa;
   --border: rgba(255, 255, 255, 0.28);
   --border-hover: rgba(255, 255, 255, 0.42);
-  --muted-foreground: 240 5% 78%;
-  --secondary-foreground: 240 6% 88%;
-  --border-hsl: 240 5% 42%;
-  --input-hsl: 240 5% 42%;
+  --muted-foreground: oklch(0.82 0 0);
+  --secondary-foreground: oklch(0.9 0 0);
+  --input: oklch(1 0 0 / 35%);
 }
 
 /* ===========================================================
@@ -549,11 +545,20 @@ code {
   /* Room at the left of the Workspace bar, which has no sidebar under the
      traffic lights and so starts its controls after them. */
   --traffic-lights-w: 0px;
+  /* This Computer's page sits on the sidebar as an inset card (shadcn
+     dashboard-01). Its top and trailing gaps exist only where no OS buttons
+     sit over that corner: on Windows and Linux the window-controls overlay
+     paints the page colour over the top-right, so the card meets the window
+     edge there and the buttons stay on the header's surface. */
+  --frame-inset-top: 0px;
+  --frame-inset-end: 0px;
 }
 
 :root[data-platform="darwin"] {
   /* macOS draws its buttons on the left, so nothing is reserved on the right. */
   --window-controls-w: 0px;
+  --frame-inset-top: 0.5rem;
+  --frame-inset-end: 0.5rem;
   /* The rail holds the traffic lights whole (x 12 to about 72,
      `trafficLightPosition` in main/index.ts) in its top row, the way a
      messenger's side rail does, so the header beside it starts at its own

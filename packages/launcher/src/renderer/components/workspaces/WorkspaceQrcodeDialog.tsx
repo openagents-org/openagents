@@ -61,7 +61,7 @@ export function WorkspaceQrcodeDialog({
 
         {/* DialogBody carries the project's standard dialog padding — a bare
             div here leaves the code flush against the header's divider. */}
-        <DialogBody className="items-center gap-4 py-6">
+        <DialogBody className="items-center gap-4">
           {url ? (
             <>
               {/* The code keeps a white quiet zone in both themes — inverting it

@@ -98,7 +98,7 @@ export function NotificationBell({
             )}
             {items.length > 0 && (
               <Button
-                variant="destructive-ghost"
+                variant="destructive"
                 size="sm"
                 className="h-auto px-1.5 py-0.5 text-2xs"
                 onClick={() => clear()}

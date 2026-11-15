@@ -75,7 +75,7 @@ export function DetailVersions({
                 )}
                 <span className="truncate font-mono text-xs">v{v.version}</span>
                 {isCurrent && (
-                  <Badge variant="default" size="sm">
+                  <Badge variant="default">
                     {t("agents.changelog.installed")}
                   </Badge>
                 )}

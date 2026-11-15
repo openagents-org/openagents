@@ -14,15 +14,10 @@ import { useThemeStore } from "@renderer/store/theme"
 const OPAQUE_TINT = "bg-(--bg-card)! bg-linear-to-b!"
 
 /**
- * Deviates from the stock shadcn file in two ways, both required here:
- *
- * 1. Theme comes from the launcher's own store rather than `next-themes` —
- *    this is Electron, not Next, and the store already resolves `system` down
- *    to a concrete light/dark value.
- * 2. The custom properties point at the launcher's raw colour tokens. Sonner
- *    reads these as real colours, but this project's `--popover` holds bare
- *    HSL channels (`0 0% 100%`) meant to be wrapped in `hsl()`, so passing it
- *    through unwrapped would yield an invalid colour.
+ * Deviates from the stock shadcn file in one way: the theme comes from the
+ * launcher's own store rather than `next-themes` — this is Electron, not
+ * Next, and the store already resolves `system` down to a concrete
+ * light/dark value. Status toasts keep their soft tint.
  */
 const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
   const resolved = useThemeStore((s) => s.resolved)
@@ -77,8 +72,8 @@ const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
       }}
       style={
         {
-          "--normal-bg": "var(--bg-card)",
-          "--normal-text": "var(--text-primary)",
+          "--normal-bg": "var(--popover)",
+          "--normal-text": "var(--popover-foreground)",
           "--normal-border": "var(--border)",
           "--border-radius": "var(--radius)",
         } as React.CSSProperties

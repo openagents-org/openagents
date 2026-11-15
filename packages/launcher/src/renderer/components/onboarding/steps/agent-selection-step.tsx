@@ -154,14 +154,13 @@ function AgentCard({
             </span>
             {agent.featured && (
               <Badge
-                size="sm"
                 variant="secondary"
                 className="border-(--accent-border) bg-(--accent-bg) text-(--accent)"
               >
                 {t("onboarding.flow.agentSelection.featured")}
               </Badge>
             )}
-            <StatusBadge size="sm" tone={agent.installed ? "success" : "neutral"}>
+            <StatusBadge tone={agent.installed ? "success" : "neutral"}>
               {agent.installed
                 ? t("onboarding.flow.agentSelection.installed")
                 : t("onboarding.flow.agentSelection.needsInstall")}

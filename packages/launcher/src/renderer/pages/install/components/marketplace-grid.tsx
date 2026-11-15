@@ -91,7 +91,7 @@ function AgentCard({
 
       <div className="flex flex-wrap gap-1">
         {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
-          <Badge key={tag} variant="muted" size="sm" className="font-mono">
+          <Badge key={tag} variant="secondary" className="font-mono">
             {tag}
           </Badge>
         ))}

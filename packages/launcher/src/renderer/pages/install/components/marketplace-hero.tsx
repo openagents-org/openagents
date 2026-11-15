@@ -177,7 +177,7 @@ function HeroSlide({
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-3">
               {tags.map((tag) => (
-                <Badge key={tag} variant="muted" size="sm" className="font-mono">
+                <Badge key={tag} variant="secondary" className="font-mono">
                   {tag}
                 </Badge>
               ))}
