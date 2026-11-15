@@ -73,13 +73,13 @@ export function AgentsTable({
     // or the header would stick to it rather than under the page's toolbar.
     <div className="overflow-clip rounded-lg border bg-card">
         <Table containerClassName="overflow-x-clip">
-          <TableHeader className="sticky top-12 z-5 bg-card">
+          <TableHeader className="sticky top-12 z-5 bg-muted">
             <TableRow className="hover:bg-transparent">
               {COLUMNS.map((c) => (
                 <TableHead
                   key={c}
                   className={cn(
-                    "px-4 text-xs font-normal whitespace-nowrap text-muted-foreground first:pl-6",
+                    "px-4 first:pl-6",
                     WIDTH[c],
                     c === "actions" && "pr-6 text-right",
                   )}
@@ -161,7 +161,7 @@ export function AgentsTable({
                               is for from then on, so it leads the actions. */}
                           <Button size="sm" variant="outline" data-testid={`agent-enter-workspace-${agent.name}`}
                             onClick={() => onOpenWorkspace(agent)}>
-                            <LogIn />
+                            <LogIn data-icon="inline-start" />
                             {t("agents.list.enterWorkspace")}
                           </Button>
                         </>

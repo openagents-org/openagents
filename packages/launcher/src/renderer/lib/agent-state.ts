@@ -49,10 +49,10 @@ export function isRunning(agent: Agent): boolean {
 
 /** The dot beside a status word — colour plus the word, never colour alone. */
 export const STATE_DOT_CLASS: Record<StateKey, string> = {
-  running: "bg-(--success)",
-  idle: "bg-(--warning)",
-  starting: "bg-(--warning)",
-  error: "bg-(--danger)",
+  running: "bg-success",
+  idle: "bg-warning",
+  starting: "bg-warning",
+  error: "bg-destructive",
   offline: "bg-muted-foreground/50",
   notConnected: "bg-muted-foreground/50",
 }

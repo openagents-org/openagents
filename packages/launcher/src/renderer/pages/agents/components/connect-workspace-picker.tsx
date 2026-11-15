@@ -4,6 +4,8 @@ import { ChevronDown } from "lucide-react"
 
 import { DialogBody, DialogFooter } from "@renderer/components/ui/dialog"
 import { Button } from "@renderer/components/ui/button"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@renderer/components/ui/collapsible"
+import { Separator } from "@renderer/components/ui/separator"
 import { SearchInput } from "@renderer/components/ui-kit"
 import { useAgentsStore } from "@renderer/store/agents"
 import { cn } from "@renderer/lib/utils"
@@ -107,21 +109,19 @@ export function ConnectWorkspacePicker({
           )}
         </div>
 
-        <div className="border-t pt-3">
-          <button
-            type="button"
-            aria-expanded={pairOpen}
-            onClick={() => setPairOpen((v) => !v)}
-            className="flex w-full items-start gap-2 text-left"
-          >
+        <Separator />
+        <Collapsible open={pairOpen} onOpenChange={setPairOpen}>
+          <CollapsibleTrigger className="flex w-full items-start gap-2 text-left">
             <ChevronDown className={cn("mt-0.5 size-4 shrink-0 transition-transform", !pairOpen && "-rotate-90")} />
             <span>
               <span className="block text-sm font-medium">{t("agents.connectDialog.pairToggle")}</span>
               <span className="block text-xs text-muted-foreground">{t("agents.connectDialog.pairToggleHint")}</span>
             </span>
-          </button>
-          {pairOpen && <PairCodeForm className="mt-3" onPaired={onPaired} showToast={showToast} />}
-        </div>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <PairCodeForm className="mt-3" onPaired={onPaired} showToast={showToast} />
+          </CollapsibleContent>
+        </Collapsible>
       </DialogBody>
 
       <DialogFooter>

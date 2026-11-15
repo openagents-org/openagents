@@ -15,6 +15,7 @@ import { Button } from "@renderer/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -43,60 +44,81 @@ export function AgentRowMenu({
   running: boolean
   connected: boolean
   busy: boolean
-} & Pick<AgentActionHandlers, "onRename" | "onConfigure" | "onOpenTerminal" | "onToggle" | "onDisconnect" | "onRemove">): React.JSX.Element {
+} & Pick<
+  AgentActionHandlers,
+  | "onRename"
+  | "onConfigure"
+  | "onOpenTerminal"
+  | "onToggle"
+  | "onDisconnect"
+  | "onRemove"
+>): React.JSX.Element {
   const { t } = useTranslation()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button size="icon-sm" variant="ghost" aria-label={t("agents.list.more")}>
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          aria-label={t("agents.list.more")}
+        >
           <MoreHorizontal />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => onRename(agent)}>
-          <Pencil />
-          {t("agents.list.rename")}
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onConfigure(agent)}>
-          <SlidersHorizontal />
-          {t("agents.list.configure")}
-        </DropdownMenuItem>
-        {(connected || agent.network) && <DropdownMenuSeparator />}
-        {/* Its CLI in a terminal — for a sign-in or a look at what it is doing;
-            not often enough to be a button on every row. */}
-        {agent.network && agent.hasCli && (
-          <DropdownMenuItem onClick={() => onOpenTerminal(agent)}>
-            <Terminal />
-            {t("agents.list.chat")}
+        <DropdownMenuGroup>
+          <DropdownMenuItem onClick={() => onRename(agent)}>
+            <Pencil />
+            {t("agents.list.rename")}
           </DropdownMenuItem>
-        )}
-        {/* Nothing to start or stop without a workspace — there is no message
+          <DropdownMenuItem onClick={() => onConfigure(agent)}>
+            <SlidersHorizontal />
+            {t("agents.list.configure")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
+        {(connected || agent.network) && <DropdownMenuSeparator />}
+        <DropdownMenuGroup>
+          {/* Its CLI in a terminal — for a sign-in or a look at what it is doing;
+            not often enough to be a button on every row. */}
+          {agent.network && agent.hasCli && (
+            <DropdownMenuItem onClick={() => onOpenTerminal(agent)}>
+              <Terminal />
+              {t("agents.list.chat")}
+            </DropdownMenuItem>
+          )}
+          {/* Nothing to start or stop without a workspace — there is no message
             source and no process, so both are offers the launcher cannot keep.
             Joining one is the only move, and the row already offers it. */}
-        {connected && (
-          <DropdownMenuItem
-            // Stopping is a destructive entry point and is coloured like every
-            // other one; starting is not.
-            variant={running ? "destructive" : "default"}
-            disabled={busy}
-            data-testid={`agent-toggle-${agent.name}`}
-            onClick={() => onToggle(agent)}
-          >
-            {running ? <Square /> : <Play />}
-            {running ? t("agents.list.stop") : t("agents.list.start")}
-          </DropdownMenuItem>
-        )}
-        {agent.network && (
-          <DropdownMenuItem onClick={() => onDisconnect(agent)}>
-            <Unplug />
-            {t("agents.list.disconnect")}
-          </DropdownMenuItem>
-        )}
+          {connected && (
+            <DropdownMenuItem
+              // Stopping is a destructive entry point and is coloured like every
+              // other one; starting is not.
+              variant={running ? "destructive" : "default"}
+              disabled={busy}
+              data-testid={`agent-toggle-${agent.name}`}
+              onClick={() => onToggle(agent)}
+            >
+              {running ? <Square /> : <Play />}
+              {running ? t("agents.list.stop") : t("agents.list.start")}
+            </DropdownMenuItem>
+          )}
+          {agent.network && (
+            <DropdownMenuItem onClick={() => onDisconnect(agent)}>
+              <Unplug />
+              {t("agents.list.disconnect")}
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem variant="destructive" onClick={() => onRemove(agent)}>
-          <Trash2 />
-          {t("agents.list.remove")}
-        </DropdownMenuItem>
+        <DropdownMenuGroup>
+          <DropdownMenuItem
+            variant="destructive"
+            onClick={() => onRemove(agent)}
+          >
+            <Trash2 />
+            {t("agents.list.remove")}
+          </DropdownMenuItem>
+        </DropdownMenuGroup>
       </DropdownMenuContent>
     </DropdownMenu>
   )

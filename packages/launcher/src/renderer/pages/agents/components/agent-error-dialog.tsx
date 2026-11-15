@@ -65,17 +65,17 @@ export function AgentErrorDialog({
           </DialogHeader>
 
           <DialogBody>
-            <pre className="m-0 max-h-72 overflow-auto rounded-md border bg-muted p-3 font-mono text-2xs leading-relaxed break-words whitespace-pre-wrap">
+            <pre className="m-0 max-h-72 overflow-auto rounded-md border bg-muted p-3 font-mono text-xs leading-relaxed break-words whitespace-pre-wrap">
               {message}
             </pre>
-            <p className="mt-3 mb-0 text-2xs text-muted-foreground">
+            <p className="m-0 text-xs text-muted-foreground">
               {t("agents.list.error.hint")}
             </p>
           </DialogBody>
 
           <DialogFooter>
             <Button variant="outline" onClick={() => void copy()}>
-              {copied ? <Check /> : <Copy />}
+              {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
               {t(copied ? "agents.list.error.copied" : "agents.list.error.copy")}
             </Button>
             <Button onClick={() => setOpen(false)}>
