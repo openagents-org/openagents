@@ -423,7 +423,8 @@ test.describe("launcher full flow", () => {
       // stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
-      const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
+      // The gateway URL is a repo secret too (not public), so it is masked as well.
+      const secrets = [cred.key, cred.base, process.env.E2E_WS_TOKEN].filter(
         (v): v is string => !!v,
       )
       // The known values are not the only secrets: pairing mints a per-device
