@@ -257,6 +257,9 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * is never trusted", "…entries and 1 hooks entry in …, the settings of a
  * directory added to this session"); a probe whose real error matched no
  * known kind quoted that as why Claude failed.
+ * Test lines with their colour taken off (stripAnsi): with FORCE_COLOR set
+ * Claude Code prints that notice in red, "\x1b[0m\x1b[31mIgnoring 14 …", and
+ * the patterns anchored at the start of a line never matched it.
  */
 const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|^\s*Ignoring \d+ [\w.]+ entr(?:y|ies) (?:from|in|and) /i;
 
@@ -288,9 +291,9 @@ function stripAnsi(text) {
   return String(text || '').replace(ANSI_RE, '');
 }
 
-/** CLI output with the known-harmless lines taken out. */
+/** CLI output without colour, and with the known-harmless lines taken out. */
 function stripCliNoise(text) {
-  return String(text || '').split(/\r?\n/).filter((l) => !BENIGN_CLI_OUTPUT.test(l)).join('\n');
+  return stripAnsi(text).split(/\r?\n/).filter((l) => !BENIGN_CLI_OUTPUT.test(l)).join('\n');
 }
 
 /**

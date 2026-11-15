@@ -650,6 +650,29 @@ describe('probeAgentType', () => {
     assert.equal(r.message, 'API Error: 400 relay says something odd');
   });
 
+  it('looks past that notice in colour too, on exit and on a timeout', async () => {
+    // Claude Code 2.1.318 with FORCE_COLOR=1, as captured: the notice in red
+    // got past the patterns anchored at the start of a line and was the
+    // reason, escapes and all.
+    const notice = '\x1b[0m\x1b[31mIgnoring 14 permissions.allow entries from .claude/settings.local.json: '
+      + 'this workspace has not been trusted.\x1b[0m';
+    const run = async (end, opts) => {
+      const entry = {
+        name: 'claude', label: 'Claude', check_ready: { login_command: 'claude login' },
+        probe: {
+          args: ['-e', `console.error(${JSON.stringify(notice)}); console.log("\\x1b[31mAPI Error: 400 relay says something odd\\x1b[0m"); ${end}`],
+          timeout_s: 30,
+        },
+      };
+      const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
+      return probeAgentType(c, 'claude', opts);
+    };
+    assert.equal((await run('process.exit(1)')).message, 'API Error: 400 relay says something odd');
+    const timedOut = await run('setTimeout(()=>{}, 60000)', { timeoutMs: 1000 });
+    assert.equal(timedOut.code, CODE.TIMEOUT);
+    assert.equal(timedOut.message, 'Timed out after 1s: API Error: 400 relay says something odd');
+  });
+
   it('treats every wording of Claude Code\'s ignored-settings notice as harmless', () => {
     const { BENIGN_CLI_OUTPUT } = require('../src/adapters/utils');
     for (const line of [
@@ -659,6 +682,14 @@ describe('probeAgentType', () => {
       'Ignoring 3 permissions.allow entries and 1 hooks entry in /tmp/other, the settings of a directory added to this session (as --add-dir does)',
     ]) assert.ok(BENIGN_CLI_OUTPUT.test(line), line);
     assert.ok(!BENIGN_CLI_OUTPUT.test('Error: Ignoring the request because the API key is invalid'));
+  });
+
+  it('takes the colour off before it leaves out the harmless lines', () => {
+    // Claude's stderr tail in chat goes through this as well.
+    const { stripCliNoise } = require('../src/adapters/utils');
+    const out = stripCliNoise('\x1b[0m\x1b[31mIgnoring 1 hooks entry from .claude/settings.json: this workspace has not been trusted.\x1b[0m\n'
+      + '\x1b[31mAPI Error: 403 insufficient_quota\x1b[0m');
+    assert.equal(out, 'API Error: 403 insufficient_quota');
   });
 
   it('looks past Codex\'s fallback-metadata warning to the real error', async () => {
