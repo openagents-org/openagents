@@ -92,7 +92,9 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
       {!minimized && !fullscreen && <button type="button" onClick={() => setMinimized(true)} aria-label={t('threadLiveBrowser.minimize')} className="rounded p-1 text-muted-foreground hover:bg-muted"><Minus className="size-4" /></button>}
       <button type="button" onClick={close} aria-label={t('common.close')} className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
     </div>
-    {tab?.url && !minimized && <p className="truncate border-b px-3 py-1 text-[11px] text-muted-foreground" title={tab.url}>{tab.url}</p>}
+    {/* The interactive and fullscreen views embed the browser with its own
+        address bar; only the small thumbnail view needs the address here. */}
+    {tab?.url && !minimized && !interactive && !fullscreen && <p className="truncate border-b px-3 py-1 text-[11px] text-muted-foreground" title={tab.url}>{tab.url}</p>}
     <div className={`${minimized && !fullscreen ? 'hidden' : ''} relative min-h-0 overflow-auto bg-muted/40 ${fullscreen ? 'flex-1' : interactive ? 'h-[320px] max-h-[65vh]' : 'h-[135px]'}`}>
       {interactive ? <BrowserArtifactPreview tabId={id} revision={0} /> : fullscreen ? <BrowserArtifactPreview tabId={id} revision={0} /> : <>
         <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground">{t('threadLiveBrowser.waiting')}</span>
