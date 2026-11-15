@@ -22,7 +22,10 @@ export default defineConfig({
     ["html", { open: "never", outputFolder: "e2e-results/html" }],
   ],
   use: {
-    trace: "retain-on-failure",
+    // No DOM snapshots: they record every input's value (password fields
+    // included), and failed runs' traces are uploaded as public artifacts.
+    // Secrets are typed with e2e/secret-input.ts so action params stay clean.
+    trace: { mode: "retain-on-failure", snapshots: false, screenshots: true, sources: true },
     screenshot: "only-on-failure",
     video: "retain-on-failure",
   },

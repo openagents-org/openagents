@@ -13,6 +13,7 @@
 import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
 import { openMarketplace } from "./marketplace"
+import { fillSecret } from "./secret-input"
 import {
   haveWorkspaceCreds,
   haveMemberCreds,
@@ -323,7 +324,11 @@ test.describe("launcher full flow", () => {
         else if (varName.endsWith("_BASE_URL")) val = cred.base
         else if (varName.endsWith("_MODEL")) val = cred.model
         if (!val) continue
-        await page.locator(`[id="${id}"]`).fill(val)
+        const input = page.locator(`[id="${id}"]`)
+        // The key and the gateway URL are secrets: fill() would write them into
+        // the trace that failed runs upload publicly. The model name is not.
+        if (varName.endsWith("_MODEL")) await input.fill(val)
+        else await fillSecret(input, val)
         if (varName.endsWith("_API_KEY")) filledKey = true
       }
       // Adding without a key is not a failure the form reports — the field is
