@@ -537,3 +537,15 @@ def test_dead_links_show_a_page_saying_so(client, workspace, people, monkeypatch
     assert page.status_code == 404 and "此链接已失效" in page.text
     assert "This link is no longer available" in client.get(f"/{token}", headers=SHARE).text
     assert client.get("/", headers=SHARE).status_code == 404
+
+
+def test_the_viewer_shows_a_clean_name_and_a_link_preview(client, workspace, people, monkeypatch):
+    mia = _bearer("mia", workspace)
+    token, _ = _shared(client, workspace, mia, "poster.png", b"\x89PNG\r\n\x1a\n" + bytes(64), "image/png", monkeypatch)
+    page = client.get(f"/{token}", headers=SHARE).text
+    assert "<title>poster.png</title>" in page and ">poster.png</h1>" in page
+    assert '<meta property="og:title" content="poster.png">' in page
+    assert f'<meta property="og:image" content="https://oa-share.test/{token}/raw">' in page
+    # Link checkers and chat apps may ask with HEAD first.
+    assert client.head(f"/{token}", headers=SHARE).status_code == 200
+    assert client.head(f"/{token}/raw", headers=SHARE).status_code == 200

@@ -366,7 +366,7 @@ def _html(body: str, status: int = 200) -> Response:
         "Cache-Control": "no-store", "X-Robots-Tag": "noindex, nofollow", **_NO_REFERRER})
 
 
-@router.get("/public/shares/{token}/view")
+@router.api_route("/public/shares/{token}/view", methods=["GET", "HEAD"])
 def public_share_view(token: str, request: Request, db: Session = Depends(get_db)):
     """The page a public link opens. Only on the share domain: it shows what
     a stranger wrote, which must never render on the API's own host."""
@@ -384,7 +384,7 @@ def public_share_view(token: str, request: Request, db: Session = Depends(get_db
     return _html(share_viewer.page(link, data, lang, fmt))
 
 
-@router.get("/public/shares/{token}/raw")
+@router.api_route("/public/shares/{token}/raw", methods=["GET", "HEAD"])
 def public_share_raw(token: str, request: Request, db: Session = Depends(get_db)):
     """The image, video, audio or PDF the viewer embeds, served inline (with
     ranges, so media seeks). Never HTML: that is only ever framed from /site/."""
