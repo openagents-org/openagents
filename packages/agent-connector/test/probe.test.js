@@ -650,6 +650,17 @@ describe('probeAgentType', () => {
     assert.equal(r.message, 'API Error: 400 relay says something odd');
   });
 
+  it('treats every wording of Claude Code\'s ignored-settings notice as harmless', () => {
+    const { BENIGN_CLI_OUTPUT } = require('../src/adapters/utils');
+    for (const line of [
+      'Ignoring 14 permissions.allow entries from .claude/settings.local.json: this workspace has not been trusted.',
+      'Ignoring 1 permissions.allow entry from .claude/settings.json: a session with no working directory is never trusted.',
+      'Ignoring 2 hooks entries from C:\\Users\\me\\.claude\\settings.local.json: Put them in user or managed settings instead.',
+      'Ignoring 3 permissions.allow entries and 1 hooks entry in /tmp/other, the settings of a directory added to this session (as --add-dir does)',
+    ]) assert.ok(BENIGN_CLI_OUTPUT.test(line), line);
+    assert.ok(!BENIGN_CLI_OUTPUT.test('Error: Ignoring the request because the API key is invalid'));
+  });
+
   it('looks past Codex\'s fallback-metadata warning to the real error', async () => {
     const warning = 'warning: Model metadata for `gpt-5.5` not found. Defaulting to fallback metadata; this can degrade performance and cause issues.';
     const entry = {

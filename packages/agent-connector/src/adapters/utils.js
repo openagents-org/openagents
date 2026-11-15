@@ -253,10 +253,12 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * model" and skipped the direct API check that would have said why.
  * Claude Code also says when it ignores a folder's own settings ("Ignoring 14
  * permissions.allow entries from .claude/settings.local.json: this workspace
- * has not been trusted…"); a probe whose real error matched no known kind
- * quoted that as why Claude failed.
+ * has not been trusted…", "…entry from …: a session with no working directory
+ * is never trusted", "…entries and 1 hooks entry in …, the settings of a
+ * directory added to this session"); a probe whose real error matched no
+ * known kind quoted that as why Claude failed.
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|^\s*Ignoring \d+ permissions\.\w+ entries from .*has not been trusted/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|^\s*Ignoring \d+ [\w.]+ entr(?:y|ies) (?:from|in|and) /i;
 
 /**
  * What a failed socket says went wrong. Node 20+ tries every address a host
