@@ -3,17 +3,17 @@ import { useTranslation } from "react-i18next"
 import { useShallow } from "zustand/react/shallow"
 
 import { Switch } from "@renderer/components/ui/switch"
+import { ToggleGroup, ToggleGroupItem } from "@renderer/components/ui/toggle-group"
 import {
   UI_SCALES,
   useAppearanceStore,
   type UiScale,
 } from "@renderer/store/appearance"
-import { cn } from "@renderer/lib/utils"
 import { SettingsCard, Row } from "../components/settings-card"
 import { ThemePicker } from "../components/theme-picker"
 
 const SCALE_SAMPLE: Record<UiScale, string> = {
-  sm: "text-2xs",
+  sm: "text-xs",
   md: "text-xs",
   lg: "text-sm",
 }
@@ -53,24 +53,20 @@ export function AppearanceSection(): React.JSX.Element {
           label={t("settings.appearance.scale")}
           desc={t("settings.appearance.scaleDesc")}
         >
-          <div className="flex gap-1.5">
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            value={scale}
+            onValueChange={(v) => v && setScale(v as UiScale)}
+            aria-label={t("settings.appearance.scale")}
+          >
             {UI_SCALES.map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => setScale(s)}
-                className={cn(
-                  "rounded-md border px-3 py-1.5 transition-colors",
-                  SCALE_SAMPLE[s],
-                  scale === s
-                    ? "border-primary bg-accent font-medium text-foreground"
-                    : "border-border text-muted-foreground hover:bg-accent hover:text-foreground",
-                )}
-              >
+              // Each option is set in the size it picks.
+              <ToggleGroupItem key={s} value={s} className={SCALE_SAMPLE[s]}>
                 {t(`settings.appearance.scales.${s}`)}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
         </Row>
       </SettingsCard>
 

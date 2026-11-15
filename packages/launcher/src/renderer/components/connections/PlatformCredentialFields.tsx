@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Field, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -44,14 +45,16 @@ export function PlatformCredentialFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="__new__">
-              {t("connections.dialog.addNewCredential")}
-            </SelectItem>
-            {credentials.map((c) => (
-              <SelectItem key={c.id} value={c.id}>
-                {c.label} ({c.kind})
+            <SelectGroup>
+              <SelectItem value="__new__">
+                {t("connections.dialog.addNewCredential")}
               </SelectItem>
-            ))}
+              {credentials.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.label} ({c.kind})
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
       </Field>
@@ -82,7 +85,7 @@ export function PlatformCredentialFields({
               <Button
                 variant="link"
                 size="sm"
-                className="h-auto self-start p-0 text-2xs"
+                className="h-auto self-start p-0 text-xs"
                 onClick={() => window.api.openExternal(platform.docs!)}
               >
                 {t("connections.dialog.whereToGet")}

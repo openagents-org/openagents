@@ -75,14 +75,14 @@ export function TimelineDensity({
   return (
     <div className="px-4 py-3">
       <div className="mb-2 flex items-center justify-between">
-        <span className="text-2xs font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           {t("logs.timeline.density")}
         </span>
         {brush && (
           <button
             type="button"
             onClick={() => onBrushChange(null)}
-            className="border-0 bg-transparent p-0 text-2xs text-primary"
+            className="border-0 bg-transparent p-0 text-xs text-primary"
           >
             {t("logs.timeline.clearBrush")}
           </button>
@@ -90,7 +90,7 @@ export function TimelineDensity({
       </div>
 
       <div className="flex gap-2">
-        <div className="flex w-8 shrink-0 flex-col justify-between py-0.5 text-right text-3xs text-muted-foreground">
+        <div className="flex w-8 shrink-0 flex-col justify-between py-0.5 text-right text-xs text-muted-foreground">
           <span>{max}</span>
           <span>{Math.round(max / 2)}</span>
           <span>0</span>
@@ -115,11 +115,11 @@ export function TimelineDensity({
                 className="flex h-full min-w-0 flex-1 flex-col justify-end"
               >
                 <div
-                  className="w-full bg-(--danger)"
+                  className="w-full bg-destructive"
                   style={{ height: `${(b.error / max) * 100}%` }}
                 />
                 <div
-                  className="w-full bg-(--warning)"
+                  className="w-full bg-warning"
                   style={{ height: `${(b.warn / max) * 100}%` }}
                 />
                 <div
@@ -140,10 +140,10 @@ export function TimelineDensity({
                   width: `${pct(selection.end, span) - pct(selection.start, span)}%`,
                 }}
               >
-                <span className="absolute -top-1 -left-px -translate-x-1/2 rounded-sm bg-primary px-1 text-3xs text-primary-foreground">
+                <span className="absolute -top-1 -left-px -translate-x-1/2 rounded-sm bg-primary px-1 text-xs text-primary-foreground">
                   {formatClock(selection.start)}
                 </span>
-                <span className="absolute -top-1 -right-px translate-x-1/2 rounded-sm bg-primary px-1 text-3xs text-primary-foreground">
+                <span className="absolute -top-1 -right-px translate-x-1/2 rounded-sm bg-primary px-1 text-xs text-primary-foreground">
                   {formatClock(selection.end)}
                 </span>
               </div>
@@ -155,7 +155,7 @@ export function TimelineDensity({
               <span
                 key={tick.ratio}
                 className={cn(
-                  "absolute text-3xs text-muted-foreground",
+                  "absolute text-xs text-muted-foreground",
                   // Keep the edge labels inside the plot instead of clipping.
                   i === 0
                     ? "translate-x-0"

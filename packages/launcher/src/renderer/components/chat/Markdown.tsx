@@ -131,7 +131,7 @@ function renderInline(text: string): React.ReactNode[] {
       const m = rest.match(re)
       if (!m) { out.push(rest); break }
       if (m.index! > 0) out.push(rest.slice(0, m.index))
-      if (m[1]) out.push(<a key={`a-${keyIdx++}`} href={m[3]} target="_blank" rel="noreferrer" className="text-(--accent) underline">{m[2]}</a>)
+      if (m[1]) out.push(<a key={`a-${keyIdx++}`} href={m[3]} target="_blank" rel="noreferrer" className="text-primary underline">{m[2]}</a>)
       else if (m[4]) out.push(<strong key={`b-${keyIdx++}`}>{m[5]}</strong>)
       else if (m[6]) out.push(<em key={`i-${keyIdx++}`}>{m[7]}</em>)
       else if (m[8]) out.push(<s key={`s-${keyIdx++}`}>{m[9]}</s>)
@@ -146,7 +146,7 @@ function renderInline(text: string): React.ReactNode[] {
   while ((m = codeRe.exec(remaining)) !== null) {
     if (m.index > last) pushText(remaining.slice(last, m.index))
     nodes.push(
-      <code key={`c-${keyIdx++}`} className="px-1 py-0.5 rounded bg-(--bg-input) text-xs font-mono">
+      <code key={`c-${keyIdx++}`} className="px-1 py-0.5 rounded bg-muted text-xs font-mono">
         {m[1]}
       </code>,
     )
@@ -167,13 +167,13 @@ function CodeBlock({ code, lang }: { code: string; lang?: string }): React.JSX.E
     } catch {}
   }
   return (
-    <div className="relative my-2 rounded-(--radius) overflow-hidden border border-(--border) bg-[#1e1e2a]">
-      <div className="flex items-center justify-between px-3 py-1 bg-[#26263a] text-3xs text-[#aaa] font-mono">
+    <div className="relative my-2 rounded-lg overflow-hidden border border-border bg-[#1e1e2a]">
+      <div className="flex items-center justify-between px-3 py-1 bg-[#26263a] text-xs text-[#aaa] font-mono">
         <span>{lang || t('chat.markdown.text')}</span>
         <button
           type="button"
           onClick={copy}
-          className="px-2 py-0.5 rounded text-3xs bg-[#3a3a55] text-white hover:bg-[#4a4a6a] transition-colors"
+          className="px-2 py-0.5 rounded text-xs bg-[#3a3a55] text-white hover:bg-[#4a4a6a] transition-colors"
         >
           {copied ? t('chat.markdown.copied') : t('chat.markdown.copy')}
         </button>
@@ -193,7 +193,7 @@ interface MarkdownProps {
 export default function Markdown({ source, className }: MarkdownProps): React.JSX.Element {
   const blocks = useMemo(() => parseMarkdown(source), [source])
   return (
-    <div className={cn('text-sm leading-[1.6] text-(--text-primary) break-words', className)}>
+    <div className={cn('text-sm leading-[1.6] text-foreground break-words', className)}>
       {blocks.map((b, idx) => {
         switch (b.type) {
           case 'h1': return <h1 key={idx} className="text-xl font-bold mt-3 mb-2">{renderInline(b.text || '')}</h1>
@@ -201,10 +201,10 @@ export default function Markdown({ source, className }: MarkdownProps): React.JS
           case 'h3': return <h3 key={idx} className="text-base font-bold mt-2.5 mb-1.5">{renderInline(b.text || '')}</h3>
           case 'h4': return <h4 key={idx} className="text-sm font-bold mt-2 mb-1">{renderInline(b.text || '')}</h4>
           case 'p':  return <p key={idx} className="my-1 whitespace-pre-wrap">{renderInline(b.text || '')}</p>
-          case 'hr': return <hr key={idx} className="my-3 border-t border-(--border)" />
+          case 'hr': return <hr key={idx} className="my-3 border-t border-border" />
           case 'code': return <CodeBlock key={idx} code={b.text || ''} lang={b.lang} />
           case 'blockquote': return (
-            <blockquote key={idx} className="my-2 pl-3 border-l-2 border-(--accent) text-(--text-secondary) italic">
+            <blockquote key={idx} className="my-2 pl-3 border-l-2 border-primary text-muted-foreground italic">
               {renderInline(b.text || '')}
             </blockquote>
           )
@@ -234,13 +234,13 @@ export default function Markdown({ source, className }: MarkdownProps): React.JS
               <table className="text-xs border-collapse">
                 <thead>
                   <tr>{(b.headerRow || []).map((h, j) => (
-                    <th key={j} className="px-2 py-1 border border-(--border) bg-(--bg-input) text-left font-semibold">{renderInline(h)}</th>
+                    <th key={j} className="px-2 py-1 border border-border bg-muted text-left font-semibold">{renderInline(h)}</th>
                   ))}</tr>
                 </thead>
                 <tbody>
                   {(b.rows || []).map((r, j) => (
                     <tr key={j}>{r.map((c, k) => (
-                      <td key={k} className="px-2 py-1 border border-(--border)">{renderInline(c)}</td>
+                      <td key={k} className="px-2 py-1 border border-border">{renderInline(c)}</td>
                     ))}</tr>
                   ))}
                 </tbody>

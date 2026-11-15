@@ -1,6 +1,5 @@
 import React from "react"
 import type { TFunction } from "i18next"
-import { Check } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -9,7 +8,8 @@ import {
   type ImportSource,
 } from "../../../shared/credential-import"
 import { Badge } from "@renderer/components/ui/badge"
-import { cn } from "@renderer/lib/utils"
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from "@renderer/components/ui/field"
+import { RadioGroup, RadioGroupItem } from "@renderer/components/ui/radio-group"
 
 interface Props {
   candidates: ImportCandidate[]
@@ -28,62 +28,45 @@ export function CandidateList({
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div
-      role="radiogroup"
+    // shadcn's choice cards: each row is a FieldLabel around its Field, so the
+    // whole row picks the radio inside it.
+    <RadioGroup
+      value={selected ?? ""}
+      onValueChange={onSelect}
       aria-label={t("credentialImport.title")}
-      className="flex flex-col gap-2"
+      className="gap-2"
     >
-      {candidates.map((c) => {
-        const active = c.id === selected
-        return (
-          <button
-            key={c.id}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            onClick={() => onSelect(c.id)}
-            className={cn(
-              "flex w-full cursor-pointer items-start gap-3 rounded-lg border bg-transparent px-3.5 py-3 text-left transition-colors hover:bg-muted/50",
-              active && "border-primary bg-muted/50",
-            )}
-          >
-            <span
-              className={cn(
-                "mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border",
-                active && "border-primary bg-primary text-primary-foreground",
-              )}
-            >
-              {active && <Check className="size-3" />}
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-1">
-              <span className="flex flex-wrap items-center gap-2">
-                <span className="text-sm font-medium">
-                  {t(`credentialImport.vendor.${c.vendor}`)}
-                </span>
+      {candidates.map((c) => (
+        <FieldLabel key={c.id} htmlFor={`import-candidate-${c.id}`}>
+          <Field orientation="horizontal">
+            <RadioGroupItem value={c.id} id={`import-candidate-${c.id}`} />
+            <FieldContent className="min-w-0">
+              <FieldTitle className="flex-wrap">
+                {t(`credentialImport.vendor.${c.vendor}`)}
                 {c.vendor === "relay" && (
                   <Badge variant="secondary">
                     {t(`credentialImport.protocol.${c.protocol}`)}
                   </Badge>
                 )}
-                <code className="text-2xs text-muted-foreground">
+                <code className="text-xs font-normal text-muted-foreground">
                   {c.keyHint}
                 </code>
-              </span>
-              <span className="truncate font-mono text-2xs text-muted-foreground">
+              </FieldTitle>
+              <FieldDescription className="truncate font-mono text-xs">
                 {c.baseUrl}
-              </span>
-              <span className="text-2xs text-muted-foreground">
+              </FieldDescription>
+              <FieldDescription className="text-xs">
                 {t("credentialImport.from", {
                   sources: c.sources.map((s) => sourceLabel(s, t)).join(" · "),
                 })}
                 {c.model &&
                   ` · ${t("credentialImport.model", { model: c.model })}`}
-              </span>
-            </span>
-          </button>
-        )
-      })}
-    </div>
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+        </FieldLabel>
+      ))}
+    </RadioGroup>
   )
 }
 

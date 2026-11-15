@@ -63,7 +63,7 @@ export const STATE_TEXT_CLASS: Record<StateKey, string> = {
   running: "text-foreground",
   idle: "text-foreground",
   starting: "text-foreground",
-  error: "text-(--danger-text)",
+  error: "text-destructive",
   offline: "text-muted-foreground",
   notConnected: "text-muted-foreground",
 }

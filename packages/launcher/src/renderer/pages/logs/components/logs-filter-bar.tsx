@@ -4,13 +4,16 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
 import { Checkbox } from "@renderer/components/ui/checkbox"
-import { Label } from "@renderer/components/ui/label"
+import { Badge } from "@renderer/components/ui/badge"
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@renderer/components/ui/field"
+import { ToggleGroup, ToggleGroupItem } from "@renderer/components/ui/toggle-group"
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@renderer/components/ui/popover"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -38,7 +41,6 @@ export const EVENT_TYPES: LogEventType[] = [
   "log",
 ]
 
-const SEGMENT = "flex h-9 items-center gap-1.5 px-3.5 text-sm whitespace-nowrap transition-colors"
 
 interface Props {
   agents: Agent[]
@@ -108,12 +110,14 @@ export function LogsFilterBar({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value={ALL_AGENTS}>{t("logs.allAgents")}</SelectItem>
-            {agents.map((a) => (
-              <SelectItem key={a.name} value={a.name}>
-                {a.name}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              <SelectItem value={ALL_AGENTS}>{t("logs.allAgents")}</SelectItem>
+              {agents.map((a) => (
+                <SelectItem key={a.name} value={a.name}>
+                  {a.name}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
 
@@ -129,77 +133,75 @@ export function LogsFilterBar({
       </div>
 
       <div className="flex shrink-0 items-center gap-2">
-        <div role="radiogroup" className="flex overflow-hidden rounded-md border bg-card">
-          <button
-            type="button"
-            role="radio"
-            aria-checked={allLevels}
-            onClick={() => onLevelsChange(new Set(LEVEL_ORDER))}
-            className={cn(SEGMENT, allLevels ? "bg-(--accent-bg) font-medium text-primary" : "hover:bg-muted")}
-          >
-            {t("logs.levels.all")}
-          </button>
-          {LEVEL_ORDER.map((level) => {
-            const active = levels.has(level) && !allLevels
-            return (
-              <button
-                key={level}
-                type="button"
-                role="radio"
-                aria-checked={active}
-                onClick={() => pickLevel(level)}
-                title={t("logs.levelCount", { count: levelCounts[level] })}
-                className={cn(SEGMENT, "border-l", active ? "bg-(--accent-bg) font-medium text-primary" : "hover:bg-muted")}
-              >
-                <span className={cn("size-2 rounded-full", LEVEL_DOT[level])} />
-                {/* Same keys the table badge and the timeline read, so the three
-                    places a level is named can never drift apart. */}
-                {t(`logs.levels.${level}`)}
-              </button>
-            )
-          })}
-        </div>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          aria-label={t("logs.columns.level")}
+          value={allLevels ? "all" : levels.size === 1 ? [...levels][0] : ""}
+          // Clicking the chosen level again reports "": that widens back to
+          // everything, as picking "all" does.
+          onValueChange={(v) =>
+            !v || v === "all" ? onLevelsChange(new Set(LEVEL_ORDER)) : pickLevel(v as LogLevel)
+          }
+        >
+          <ToggleGroupItem value="all">{t("logs.levels.all")}</ToggleGroupItem>
+          {LEVEL_ORDER.map((level) => (
+            <ToggleGroupItem
+              key={level}
+              value={level}
+              title={t("logs.levelCount", { count: levelCounts[level] })}
+            >
+              <span className={cn("size-2 rounded-full", LEVEL_DOT[level])} />
+              {/* Same keys the table badge and the timeline read, so the three
+                  places a level is named can never drift apart. */}
+              {t(`logs.levels.${level}`)}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
 
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline">
-              <SlidersHorizontal />
+              <SlidersHorizontal data-icon="inline-start" />
               {t("logs.actions.moreFilters")}
-              {extraCount > 0 && (
-                <span className="rounded-full bg-primary px-1.5 text-3xs text-primary-foreground">
-                  {extraCount}
-                </span>
-              )}
+              {extraCount > 0 && <Badge className="tabular-nums">{extraCount}</Badge>}
             </Button>
           </PopoverTrigger>
           <PopoverContent align="end" className="w-56">
-            <p className="mb-2 text-2xs font-semibold text-muted-foreground">
-              {t("logs.filters.eventType")}
-            </p>
-            <div className="flex flex-col gap-1.5">
-              {EVENT_TYPES.map((type) => (
-                <Label key={type} className="cursor-pointer text-xs font-normal">
-                  <Checkbox
-                    checked={eventTypes.has(type)}
-                    onCheckedChange={() => toggleEventType(type)}
-                  />
-                  {t(`logs.eventType.${type}`)}
-                </Label>
-              ))}
-            </div>
-            <Separator className="my-3" />
-            <Label className="cursor-pointer text-xs font-normal">
+            <FieldSet>
+              <FieldLegend variant="label">{t("logs.filters.eventType")}</FieldLegend>
+              <FieldGroup data-slot="checkbox-group" className="gap-2">
+                {EVENT_TYPES.map((type) => (
+                  <Field key={type} orientation="horizontal">
+                    <Checkbox
+                      id={`logs-event-${type}`}
+                      checked={eventTypes.has(type)}
+                      onCheckedChange={() => toggleEventType(type)}
+                    />
+                    <FieldLabel htmlFor={`logs-event-${type}`} className="font-normal">
+                      {t(`logs.eventType.${type}`)}
+                    </FieldLabel>
+                  </Field>
+                ))}
+              </FieldGroup>
+            </FieldSet>
+            <Separator />
+            <Field orientation="horizontal">
               <Checkbox
+                id="logs-only-stack"
                 checked={onlyWithStack}
                 onCheckedChange={(v) => onOnlyWithStackChange(v === true)}
               />
-              {t("logs.filters.onlyWithStack")}
-            </Label>
+              <FieldLabel htmlFor="logs-only-stack" className="font-normal">
+                {t("logs.filters.onlyWithStack")}
+              </FieldLabel>
+            </Field>
             {extraCount > 0 && (
               <Button
                 size="xs"
                 variant="ghost"
-                className="mt-3 w-full"
+                className="w-full"
                 onClick={() => {
                   onEventTypesChange(new Set())
                   onOnlyWithStackChange(false)

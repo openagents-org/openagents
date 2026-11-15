@@ -52,32 +52,32 @@ export function WelcomeStep(): React.JSX.Element {
       <SectionLabel>{t("onboarding.flow.sections.runtimeScan")}</SectionLabel>
       <ul
         className={cn(
-          "m-0 list-none overflow-hidden rounded-lg border border-(--border) bg-(--bg-card) p-0 transition-opacity",
+          "m-0 list-none overflow-hidden rounded-lg border border-border bg-card p-0 transition-opacity",
           loading && "opacity-60",
         )}
       >
         {rows.map((row) => (
           <li
             key={row.id}
-            className="flex items-center gap-3 border-b border-(--border) px-4 py-2.5 last:border-b-0"
+            className="flex items-center gap-3 border-b border-border px-4 py-2.5 last:border-b-0"
           >
             <span
               className={cn(
                 "size-1.5 shrink-0 rounded-full",
-                row.detected ? "bg-(--success)" : "bg-(--text-tertiary)",
+                row.detected ? "bg-success" : "bg-muted-foreground/60",
               )}
             />
             <span className="text-sm">
               {t(`onboarding.flow.welcome.scan.${row.id}`)}
             </span>
-            <span className="ml-auto truncate font-mono text-2xs text-(--text-secondary)">
+            <span className="ml-auto truncate font-mono text-xs text-muted-foreground">
               {row.value}
             </span>
           </li>
         ))}
       </ul>
 
-      <p className="mt-5 mb-0 text-xs text-(--text-tertiary)">
+      <p className="mt-5 mb-0 text-xs text-muted-foreground">
         {t("onboarding.flow.welcome.footnote.node")}
       </p>
     </>

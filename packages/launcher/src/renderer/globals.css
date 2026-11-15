@@ -247,14 +247,10 @@
      `text-sm` throughout, so redefining the scale here makes them inherit the
      launcher's density automatically — no per-component class surgery.
 
-     Six steps replace the eleven ad-hoc sizes (9/10/10.5/11/11.5/12/12.5/13/
-     14/17/18px) currently hardcoded as `text-[Npx]` across the pages. Line
+     12px (`text-xs`) is the floor: there are no steps below it. The 10px and
+     11px steps this scale once had are gone so they cannot come back. Line
      heights are unitless so they track any later size change. */
-  --text-3xs: 0.625rem;    /* 10px — micro badges, corner labels */
-  --text-3xs--line-height: 1.4;
-  --text-2xs: 0.6875rem;   /* 11px — meta text, secondary captions */
-  --text-2xs--line-height: 1.45;
-  --text-xs: 0.75rem;      /* 12px — dense body */
+  --text-xs: 0.75rem; /* 12px — dense body */
   --text-xs--line-height: 1.5;
   --text-sm: 0.8125rem;    /* 13px — primary body */
   --text-sm--line-height: 1.5;

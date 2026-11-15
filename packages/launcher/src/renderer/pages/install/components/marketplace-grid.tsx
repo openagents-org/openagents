@@ -3,7 +3,15 @@ import { useTranslation } from "react-i18next"
 
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Badge } from "@renderer/components/ui/badge"
-import { Card } from "@renderer/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@renderer/components/ui/card"
 import { cn } from "@renderer/lib/utils"
 
 import { describeEntry } from "../entry-meta"
@@ -65,43 +73,43 @@ function AgentCard({
       onKeyDown={(e) => {
         if (e.key === "Enter") open()
       }}
+      size="sm"
       className={cn(
-        "gap-3.5 px-4.5 py-4 transition-colors",
-        disabled ? "opacity-60" : "cursor-pointer hover:border-primary/40",
+        "transition-colors",
+        disabled ? "opacity-60" : "cursor-pointer hover:ring-foreground/20",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <AgentIcon type={entry.name} size={32} />
-          <div className="min-w-0">
-            <div className="truncate text-base font-semibold">
-              {entry.label || entry.name}
-            </div>
-            <div className="truncate font-mono text-3xs text-muted-foreground">
-              {row.runtime || t("install.hero.builtin")}
-            </div>
-          </div>
+      <CardHeader>
+        <CardTitle className="flex min-w-0 items-center gap-2.5">
+          <AgentIcon type={entry.name} size={24} />
+          <span className="truncate">{entry.label || entry.name}</span>
+        </CardTitle>
+        <CardDescription className="truncate font-mono text-xs">
+          {row.runtime || t("install.hero.builtin")}
+        </CardDescription>
+        <CardAction>
+          <AgentStatusBadge status={status} />
+        </CardAction>
+      </CardHeader>
+
+      <CardContent className="flex flex-col gap-2.5">
+        <p className="m-0 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+          {describeEntry(entry, t) || t("install.card.noDescription")}
+        </p>
+        <div className="flex flex-wrap gap-1">
+          {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
+            <Badge key={tag} variant="secondary" className="font-mono">
+              {tag}
+            </Badge>
+          ))}
         </div>
-        <AgentStatusBadge status={status} className="shrink-0" />
-      </div>
+      </CardContent>
 
-      <p className="m-0 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-        {describeEntry(entry, t) || t("install.card.noDescription")}
-      </p>
-
-      <div className="flex flex-wrap gap-1">
-        {(entry.tags || []).slice(0, MAX_TAGS).map((tag) => (
-          <Badge key={tag} variant="secondary" className="font-mono">
-            {tag}
-          </Badge>
-        ))}
-      </div>
-
-      <div
-        className="mt-auto flex items-center justify-between gap-2 border-t pt-3.5"
+      <CardFooter
+        className="mt-auto justify-between gap-2"
         onClick={(e) => e.stopPropagation()}
       >
-        <span className="font-mono text-2xs text-muted-foreground">
+        <span className="font-mono text-xs text-muted-foreground">
           {row.version ? `v${row.version}` : "—"}
         </span>
         <AgentActionButton
@@ -111,7 +119,7 @@ function AgentCard({
           onInstall={() => onInstall(row)}
           onManage={() => onManage(entry.name)}
         />
-      </div>
+      </CardFooter>
     </Card>
   )
 }

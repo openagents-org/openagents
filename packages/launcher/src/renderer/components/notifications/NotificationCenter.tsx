@@ -17,6 +17,7 @@ import { useNotificationsStore } from "../../store/notifications"
 import { routeNotification } from "../../hooks/useNotificationRouting"
 import { Button } from "../ui/button"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -48,20 +49,20 @@ function kindIcon(kind: NotifKind): React.JSX.Element {
     case "agent_error":
     case "workspace_error":
     case "platform_error":
-      return <AlertOctagon className="w-3.5 h-3.5 text-(--danger-text)" />
+      return <AlertOctagon className="w-3.5 h-3.5 text-destructive" />
     case "agent_finished":
-      return <CheckCircle2 className="w-3.5 h-3.5 text-(--success-text)" />
+      return <CheckCircle2 className="w-3.5 h-3.5 text-success-foreground" />
     case "agent_mention":
     case "workspace_mention":
-      return <AtSign className="w-3.5 h-3.5 text-(--accent)" />
+      return <AtSign className="w-3.5 h-3.5 text-primary" />
     case "workspace_message":
-      return <MessageSquare className="w-3.5 h-3.5 text-(--text-secondary)" />
+      return <MessageSquare className="w-3.5 h-3.5 text-muted-foreground" />
     case "github":
       return <Github className="w-3.5 h-3.5" />
     case "update_available":
       return <Download className="w-3.5 h-3.5 text-warning" />
     default:
-      return <Bell className="w-3.5 h-3.5 text-(--text-secondary)" />
+      return <Bell className="w-3.5 h-3.5 text-muted-foreground" />
   }
 }
 
@@ -127,11 +128,11 @@ export function NotificationCenterButton(): React.JSX.Element {
         onClick={() => setOpen((o) => !o)}
         title={t("notificationsPanel.tooltip")}
         aria-label={t("notificationsPanel.ariaLabel", { count: unread })}
-        className="relative h-8 w-8 text-(--text-secondary) hover:enabled:text-(--text-primary)"
+        className="relative h-8 w-8 text-muted-foreground hover:enabled:text-foreground"
       >
         <Bell className="w-4 h-4" />
         {unread > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-(--danger) text-white text-3xs font-bold leading-4 text-center pointer-events-none">
+          <span className="absolute -top-0.5 -right-0.5 min-w-4 h-4 px-1 rounded-full bg-destructive text-white text-xs font-bold leading-4 text-center pointer-events-none">
             {unread > 99 ? "99+" : unread}
           </span>
         )}
@@ -142,15 +143,15 @@ export function NotificationCenterButton(): React.JSX.Element {
           className={cn(
             "absolute right-0 top-[calc(100%+6px)] z-50",
             "w-90 max-h-130",
-            "bg-(--bg-card) border border-(--border) rounded-(--radius)",
-            "shadow-(--shadow-lg) overflow-hidden flex flex-col",
+            "bg-card border border-border rounded-lg",
+            "shadow-lg overflow-hidden flex flex-col",
           )}
         >
-          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-(--border)">
-            <div className="text-sm font-semibold text-(--text-primary)">
+          <div className="flex items-center justify-between px-3.5 py-2.5 border-b border-border">
+            <div className="text-sm font-semibold text-foreground">
               {t("notificationsPanel.title")}
               {unread > 0 && (
-                <span className="ml-1.5 text-2xs text-(--text-tertiary) font-normal">
+                <span className="ml-1.5 text-xs text-muted-foreground font-normal">
                   {t("notificationsPanel.unread", { count: unread })}
                 </span>
               )}
@@ -161,7 +162,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 size="icon"
                 onClick={() => setShowPrefs((s) => !s)}
                 title={t("notificationsPanel.settingsTooltip")}
-                className="h-6 w-6 text-(--text-secondary) hover:enabled:text-(--text-primary)"
+                className="h-6 w-6 text-muted-foreground hover:enabled:text-foreground"
               >
                 <SettingsIcon className="w-3.5 h-3.5" />
               </Button>
@@ -177,10 +178,10 @@ export function NotificationCenterButton(): React.JSX.Element {
             <div className="flex-1 overflow-y-auto px-3.5 py-3">
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-xs font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-foreground">
                     {t("notificationsPanel.prefs.enable")}
                   </div>
-                  <div className="text-2xs text-(--text-tertiary)">
+                  <div className="text-xs text-muted-foreground">
                     {t("notificationsPanel.prefs.enableDesc")}
                   </div>
                 </div>
@@ -191,7 +192,7 @@ export function NotificationCenterButton(): React.JSX.Element {
               </div>
               <div className="flex items-center justify-between mb-3">
                 <div>
-                  <div className="text-xs font-medium text-(--text-primary)">
+                  <div className="text-xs font-medium text-foreground">
                     {t("notificationsPanel.prefs.playSound")}
                   </div>
                 </div>
@@ -201,7 +202,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 />
               </div>
               <div className="mt-4">
-                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
                   {t("notificationsPanel.prefs.muteByKind")}
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -228,7 +229,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                 </div>
               </div>
               <div className="mt-4">
-                <div className="text-2xs uppercase tracking-wide text-(--text-tertiary) mb-2">
+                <div className="text-xs uppercase tracking-wide text-muted-foreground mb-2">
                   {t("notificationsPanel.prefs.quietHours")}
                 </div>
                 <QuietHoursControl
@@ -246,7 +247,7 @@ export function NotificationCenterButton(): React.JSX.Element {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-(--border)">
+              <div className="flex items-center justify-between px-3.5 py-1.5 border-b border-border">
                 <div className="flex gap-1">
                   {(["all", "unread"] as const).map((f) => (
                     <button
@@ -254,10 +255,10 @@ export function NotificationCenterButton(): React.JSX.Element {
                       type="button"
                       onClick={() => setFilter(f)}
                       className={cn(
-                        "px-2 py-0.5 text-2xs rounded-sm border-0",
+                        "px-2 py-0.5 text-xs rounded-sm border-0",
                         filter === f
-                          ? "bg-(--bg-input) text-(--text-primary) font-medium"
-                          : "bg-transparent text-(--text-secondary)",
+                          ? "bg-muted text-foreground font-medium"
+                          : "bg-transparent text-muted-foreground",
                       )}
                     >
                       {f === "all" ? t("notificationsPanel.filters.all") : t("notificationsPanel.filters.unread")}
@@ -273,7 +274,7 @@ export function NotificationCenterButton(): React.JSX.Element {
 
               <div className="flex-1 overflow-y-auto">
                 {visible.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-xs text-(--text-tertiary)">
+                  <div className="px-4 py-8 text-center text-xs text-muted-foreground">
                     {filter === "unread"
                       ? t("notificationsPanel.empty.unread")
                       : t("notificationsPanel.empty.all")}
@@ -285,9 +286,9 @@ export function NotificationCenterButton(): React.JSX.Element {
                         key={r.id}
                         onClick={() => handleClick(r)}
                         className={cn(
-                          "flex items-start gap-2.5 px-3.5 py-2.5 border-b border-(--border) cursor-pointer transition-colors duration-100",
-                          !r.read && "bg-(--accent-bg)",
-                          "hover:bg-(--bg-input)",
+                          "flex items-start gap-2.5 px-3.5 py-2.5 border-b border-border cursor-pointer transition-colors duration-100",
+                          !r.read && "bg-primary/5",
+                          "hover:bg-muted",
                         )}
                       >
                         <div className="shrink-0 mt-0.5">
@@ -299,17 +300,17 @@ export function NotificationCenterButton(): React.JSX.Element {
                               className={cn(
                                 "text-xs truncate",
                                 r.read
-                                  ? "text-(--text-primary) font-normal"
-                                  : "text-(--text-primary) font-semibold",
+                                  ? "text-foreground font-normal"
+                                  : "text-foreground font-semibold",
                               )}
                             >
                               {r.title}
                             </div>
-                            <span className="text-3xs text-(--text-tertiary) shrink-0">
+                            <span className="text-xs text-muted-foreground shrink-0">
                               {timeAgo(r.createdAt)}
                             </span>
                           </div>
-                          <div className="text-2xs text-(--text-secondary) line-clamp-2 mt-0.5">
+                          <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">
                             {r.body}
                           </div>
                         </div>
@@ -321,7 +322,7 @@ export function NotificationCenterButton(): React.JSX.Element {
                             void clear(r.id)
                           }}
                           title={t("notificationsPanel.dismiss")}
-                          className="h-5 w-5 shrink-0 opacity-50 hover:opacity-100 text-(--text-secondary)"
+                          className="h-5 w-5 shrink-0 opacity-50 hover:opacity-100 text-muted-foreground"
                         >
                           <X className="w-3 h-3" />
                         </Button>
@@ -359,11 +360,13 @@ function HourSelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent size="xs">
-        {HOURS.map((hour) => (
-          <SelectItem key={hour} value={String(hour)}>
-            {formatHour(hour)}
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {HOURS.map((hour) => (
+            <SelectItem key={hour} value={String(hour)}>
+              {formatHour(hour)}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )
@@ -389,7 +392,7 @@ function QuietHoursControl({
         />
       </div>
       {enabled && (
-        <div className="flex items-center gap-2 text-2xs text-(--text-secondary)">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <HourSelect
             value={start}
             onChange={(hour) => onChange([hour, end])}

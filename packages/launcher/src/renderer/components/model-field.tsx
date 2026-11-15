@@ -272,8 +272,8 @@ export function ModelField({
                         {detail.length > 0 && (
                           <span
                             className={cn(
-                              "truncate text-2xs",
-                              "text-(--text-tertiary)",
+                              "truncate text-xs",
+                              "text-muted-foreground",
                             )}
                           >
                             {detail.join(" — ")}
@@ -287,7 +287,7 @@ export function ModelField({
             </CommandList>
           </Command>
         ) : (
-          <div className="flex max-h-48 items-start gap-2 overflow-y-auto px-3 py-3 text-xs leading-relaxed text-(--text-tertiary)">
+          <div className="flex max-h-48 items-start gap-2 overflow-y-auto px-3 py-3 text-xs leading-relaxed text-muted-foreground">
             {loading ? (
               <Spinner className="mt-px size-3.5 shrink-0" />
             ) : (
@@ -300,7 +300,7 @@ export function ModelField({
           </div>
         )}
         <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5">
-          <span className="truncate text-2xs text-(--text-tertiary)">
+          <span className="truncate text-xs text-muted-foreground">
             {loading
               ? t("agents.envFields.model.loading")
               : t("agents.envFields.model.freeform")}

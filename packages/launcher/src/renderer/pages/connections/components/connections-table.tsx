@@ -53,13 +53,13 @@ export function ConnectionsTable({
   const { t } = useTranslation()
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="overflow-hidden rounded-lg border">
       {/* Same scale and gutters as the agents table. Five columns at the
           1200px minimum window leave ~856px, and the fixed platform catalog
           spends ~816px of it — see the per-cell caps below, which are what
           keep the table off its own horizontal scrollbar. */}
       <Table className="[&_td]:px-3 [&_th]:px-3">
-        <TableHeader>
+        <TableHeader className="bg-muted">
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead
@@ -147,8 +147,8 @@ function Row({
           <div
             className={
               row.connected
-                ? "mt-1 max-w-40 truncate text-2xs text-muted-foreground"
-                : "mt-1 max-w-40 truncate text-2xs text-destructive"
+                ? "mt-1 max-w-40 truncate text-xs text-muted-foreground"
+                : "mt-1 max-w-40 truncate text-xs text-destructive"
             }
             title={detail}
           >

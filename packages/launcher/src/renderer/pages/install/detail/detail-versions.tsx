@@ -81,7 +81,7 @@ export function DetailVersions({
                 )}
               </span>
               {v.date && (
-                <span className="shrink-0 font-mono text-2xs text-muted-foreground">
+                <span className="shrink-0 font-mono text-xs text-muted-foreground">
                   {new Date(v.date).toLocaleDateString()}
                 </span>
               )}
@@ -160,7 +160,7 @@ function VersionLinks({
   ].filter((l): l is { label: string; url: string } => !!l)
 
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-8 pt-1.5 pb-3 text-2xs">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 px-8 pt-1.5 pb-3 text-xs">
       {version.date && (
         <span className="text-muted-foreground">
           {t("agents.changelog.released", {

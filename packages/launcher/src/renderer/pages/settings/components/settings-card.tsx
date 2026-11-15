@@ -1,6 +1,14 @@
 import React from "react"
 
-import { Card } from "@renderer/components/ui/card"
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@renderer/components/ui/card"
 import { cn } from "@renderer/lib/utils"
 
 interface SettingsCardProps {
@@ -35,31 +43,19 @@ export function SettingsCard({
   footer,
   className,
 }: SettingsCardProps): React.JSX.Element {
-  const card = (
-    <Card className={cn("gap-0 overflow-hidden p-0", !(title || action) && "mb-5", !(title || action) && className)}>
-      {children && <div className="divide-y divide-border px-5">{children}</div>}
-      {footer && <div className="border-t px-5 py-4">{footer}</div>}
-    </Card>
-  )
-  if (!(title || action)) return card
-  // The group's name sits above its card, not in a shaded band across the
-  // top of it: the band was the last grey block in the app and boxed every
-  // group twice. The card holds only the settings.
+  const header = !!(title || desc || action)
   return (
-    <section className={cn("mb-6", className)}>
-      <div data-slot="settings-card-header" className="mb-2 flex items-end justify-between gap-3 px-1">
-        <div className="min-w-0">
-          {title && <h3 className="m-0 text-sm font-semibold">{title}</h3>}
-          {desc && (
-            <p className="mt-0.5 mb-0 text-xs text-muted-foreground">
-              {desc}
-            </p>
-          )}
-        </div>
-        {action && <div className="shrink-0">{action}</div>}
-      </div>
-      {card}
-    </section>
+    <Card className={cn("mb-6 gap-0 py-0", className)}>
+      {header && (
+        <CardHeader className="border-b py-(--card-spacing)">
+          {title && <CardTitle>{title}</CardTitle>}
+          {desc && <CardDescription>{desc}</CardDescription>}
+          {action && <CardAction>{action}</CardAction>}
+        </CardHeader>
+      )}
+      {children && <CardContent className="flex flex-col divide-y">{children}</CardContent>}
+      {footer && <CardFooter>{footer}</CardFooter>}
+    </Card>
   )
 }
 
@@ -141,7 +137,7 @@ export function InfoRow({
       <div className="min-w-0">
         <div className="text-xs text-muted-foreground">{label}</div>
         {hint && (
-          <div className="mt-0.5 truncate font-mono text-2xs text-muted-foreground">
+          <div className="mt-0.5 truncate font-mono text-xs text-muted-foreground">
             {hint}
           </div>
         )}

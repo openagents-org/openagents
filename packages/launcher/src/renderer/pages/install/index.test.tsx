@@ -181,10 +181,15 @@ describe("marketplace", () => {
 
     // codex is the only `featured` entry but it is already installed, so the
     // banner drops to the next preference: something not on the machine.
-    const hero = (await screen.findByRole("heading", { name: "OpenClaw" }))
-      .closest("section") as HTMLElement
-    expect(within(hero).getByRole("img", { name: "openclaw" })).toBeInTheDocument()
-    expect(within(hero).getByRole("button", { name: /Install now/ })).toBeInTheDocument()
+    const hero = (
+      await screen.findByRole("heading", { name: "OpenClaw" })
+    ).closest("[aria-roledescription=carousel]") as HTMLElement
+    expect(
+      within(hero).getByRole("img", { name: "openclaw" }),
+    ).toBeInTheDocument()
+    expect(
+      within(hero).getByRole("button", { name: /Install now/ }),
+    ).toBeInTheDocument()
   })
 
   it("prefers the translated blurb over the core's own description", async () => {

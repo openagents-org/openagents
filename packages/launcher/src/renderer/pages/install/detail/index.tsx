@@ -174,7 +174,7 @@ export default function AgentDetail({
             title={t("agents.changelog.title")}
             action={
               detail.changelog.versions.length > 0 && (
-                <span className="text-2xs text-muted-foreground">
+                <span className="text-xs text-muted-foreground">
                   {t("agents.changelog.recent", {
                     count: Math.min(detail.changelog.versions.length, MAX_VERSIONS),
                   })}

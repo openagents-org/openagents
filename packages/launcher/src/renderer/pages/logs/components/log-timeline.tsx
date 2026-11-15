@@ -35,9 +35,9 @@ interface Props {
 }
 
 const LEGEND = [
-  { key: "error", dot: "bg-(--danger)" },
-  { key: "warn", dot: "bg-(--warning)" },
-  { key: "info", dot: "bg-(--info)" },
+  { key: "error", dot: "bg-destructive" },
+  { key: "warn", dot: "bg-warning" },
+  { key: "info", dot: "bg-info" },
 ] as const
 
 export function LogTimeline({
@@ -111,9 +111,9 @@ export function LogTimeline({
               className={cn(
                 "mt-0.5 size-2 shrink-0 rounded-full",
                 selected.level === "error"
-                  ? "bg-(--danger)"
+                  ? "bg-destructive"
                   : selected.level === "warn"
-                    ? "bg-(--warning)"
+                    ? "bg-warning"
                     : "bg-primary",
               )}
             />
@@ -121,7 +121,7 @@ export function LogTimeline({
               <p className="m-0 text-xs font-semibold wrap-break-word">
                 {selected.message}
               </p>
-              <p className="mt-1 mb-0 text-2xs text-muted-foreground">
+              <p className="mt-1 mb-0 text-xs text-muted-foreground">
                 {selected.agent || selected.scope || "—"} ·{" "}
                 {formatClock(selected.time, true)}
               </p>
@@ -151,7 +151,7 @@ export function LogTimeline({
         {LEGEND.map((item) => (
           <span
             key={item.key}
-            className="flex items-center gap-1.5 text-2xs text-muted-foreground"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground"
           >
             <span className={cn("size-2 rounded-full", item.dot)} />
             {t(`logs.levels.${item.key}`)}
@@ -172,7 +172,7 @@ export function LogTimeline({
           {/* Named, not numbered, at the floor: "100%" invited the user to
               press minus and wonder why nothing happened. */}
           <span
-            className="min-w-14 text-center text-2xs tabular-nums text-muted-foreground"
+            className="min-w-14 text-center text-xs tabular-nums text-muted-foreground"
             title={t("logs.timeline.fitHint")}
           >
             {zoom === ZOOM_STEPS[0] ? t("logs.timeline.fit") : `${zoom}%`}

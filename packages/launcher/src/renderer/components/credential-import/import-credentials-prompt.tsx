@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { canImportCredentials } from "../../../shared/credential-import-targets"
 import { Button } from "@renderer/components/ui/button"
+import { Item, ItemActions, ItemContent, ItemDescription } from "@renderer/components/ui/item"
 import { showGlobalToast } from "@renderer/hooks/useToast"
 import { cn } from "@renderer/lib/utils"
 
@@ -42,31 +43,22 @@ export function ImportCredentialsPrompt({
   }
 
   return (
-    <div
-      className={cn(
-        "flex items-center justify-between gap-3 rounded-lg border border-dashed px-3.5 py-2.5",
-        className,
-      )}
-    >
-      <p className="m-0 text-2xs leading-relaxed text-muted-foreground">
-        {t("credentialImport.prompt")}
-      </p>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="shrink-0"
-        onClick={() => setOpen(true)}
-      >
-        <Import />
-        {t("credentialImport.trigger")}
-      </Button>
+    <Item variant="outline" size="sm" className={cn("border-dashed", className)}>
+      <ItemContent>
+        <ItemDescription className="text-xs">{t("credentialImport.prompt")}</ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <Button type="button" variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <Import data-icon="inline-start" />
+          {t("credentialImport.trigger")}
+        </Button>
+      </ItemActions>
       <ImportCredentialsDialog
         open={open}
         agentType={agentType}
         onOpenChange={setOpen}
         onImport={apply}
       />
-    </div>
+    </Item>
   )
 }

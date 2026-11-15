@@ -41,29 +41,29 @@ export default function MessageBubble({
   return (
     <div className={cn('flex gap-3 mb-3', isHuman && 'flex-row-reverse')}>
       <div className={cn(
-        'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-3xs font-bold text-white',
+        'shrink-0 w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white',
         avatarColor,
       )}>
         {initials}
       </div>
       <div className={cn('flex-1 min-w-0 max-w-[75%]', isHuman && 'items-end')}>
         <div className={cn('flex items-center gap-2 mb-1', isHuman && 'flex-row-reverse')}>
-          <span className="text-2xs font-semibold text-(--text-primary)">{message.senderName || t('chat.bubble.unknownSender')}</span>
+          <span className="text-xs font-semibold text-foreground">{message.senderName || t('chat.bubble.unknownSender')}</span>
           {message.metadata && (message.metadata as { agentType?: string }).agentType && (
-            <span className="text-3xs text-(--text-tertiary)">
+            <span className="text-xs text-muted-foreground">
               {(message.metadata as { agentType?: string }).agentType}
             </span>
           )}
-          <span className="text-3xs text-(--text-tertiary)">{formatTime(message.createdAt)}</span>
-          {isPending && <span className="text-3xs text-muted-foreground">{t('chat.bubble.sending')}</span>}
+          <span className="text-xs text-muted-foreground">{formatTime(message.createdAt)}</span>
+          {isPending && <span className="text-xs text-muted-foreground">{t('chat.bubble.sending')}</span>}
         </div>
         <div className={cn(
-          'rounded-(--radius) px-3 py-2',
+          'rounded-lg px-3 py-2',
           isHuman
-            ? 'bg-(--accent) text-(--accent-text)'
+            ? 'bg-primary text-primary-foreground'
             : isSystem
-              ? 'bg-(--bg-input) text-(--text-secondary) italic'
-              : 'bg-(--bg-card) border border-(--border) text-(--text-primary)',
+              ? 'bg-muted text-muted-foreground italic'
+              : 'bg-card border border-border text-foreground',
         )}>
           {message.content && (
             isHuman
@@ -82,7 +82,7 @@ export default function MessageBubble({
                   type="button"
                   key={att.fileId || `${att.filename}-${i}`}
                   onClick={() => onDownloadAttachment && att.fileId && onDownloadAttachment(att.fileId, att.filename || 'file')}
-                  className="text-2xs px-2 py-1 rounded bg-(--bg-input) text-(--text-primary) border border-(--border) hover:border-(--border-hover) flex items-center gap-1.5"
+                  className="text-xs px-2 py-1 rounded bg-muted text-foreground border border-border hover:border-input flex items-center gap-1.5"
                 >
                   <span>📎</span>
                   <span className="truncate max-w-45">{att.filename || att.fileId}</span>

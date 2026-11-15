@@ -78,7 +78,7 @@ export function DetailQuickStart({ entry, showToast }: Props): React.JSX.Element
           {commands.map((ex, i) => (
             <div key={`${ex.cmd}-${i}`} className="flex min-w-0 flex-col gap-1.5">
               {ex.description && (
-                <span className="truncate text-2xs tracking-wider text-muted-foreground uppercase">
+                <span className="truncate text-xs tracking-wider text-muted-foreground uppercase">
                   {ex.description}
                 </span>
               )}

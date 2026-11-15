@@ -65,7 +65,7 @@ export function OnboardingFlow({
   if (!open) return null
 
   return ReactDOM.createPortal(
-    <div className="fixed inset-0 z-1500 flex bg-(--bg-primary)">
+    <div className="fixed inset-0 z-1500 flex bg-background">
       {/* The wizard covers the whole window, title-bar strip included, and it
           is the first thing a new user sees — without its own grab handle the
           window could not be moved at all during setup. Same strip the app

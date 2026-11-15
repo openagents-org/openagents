@@ -96,9 +96,9 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
               />
               <span
                 className={cn(
-                  "truncate text-center text-2xs",
+                  "truncate text-center text-xs",
                   active ? "font-medium text-foreground" : "text-muted-foreground",
-                  failed && "text-(--danger-text)",
+                  failed && "text-destructive",
                 )}
               >
                 {t(`install.progress.stages.${stage}`)}
@@ -122,7 +122,7 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
       )}
 
       {job.logFile && (
-        <p className="m-0 mt-3 flex min-w-0 items-center gap-2 text-2xs text-muted-foreground">
+        <p className="m-0 mt-3 flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
           <span className="shrink-0">{t("install.progress.logFile.label")}</span>
           <button
             type="button"
@@ -136,7 +136,7 @@ export function DetailProgress({ job, onCopyLog, onRetry }: Props): React.JSX.El
       )}
 
       {logOpen && (
-        <pre className="log-viewer mt-3 max-h-60 overflow-auto text-2xs leading-relaxed break-words whitespace-pre-wrap">
+        <pre className="log-viewer mt-3 max-h-60 overflow-auto text-xs leading-relaxed break-words whitespace-pre-wrap">
           {job.log ||
             (errored
               ? job.error || t("install.progress.noLog")

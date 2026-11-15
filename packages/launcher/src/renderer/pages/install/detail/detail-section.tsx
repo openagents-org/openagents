@@ -46,7 +46,7 @@ export function RailCard({
   return (
     <Card className={cn("gap-3 px-4 py-4", className)}>
       {title && (
-        <div className="text-2xs font-medium tracking-wider text-muted-foreground uppercase">
+        <div className="text-xs font-medium tracking-wider text-muted-foreground uppercase">
           {title}
         </div>
       )}

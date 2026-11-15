@@ -48,7 +48,7 @@ export function ReleaseEntries({
           <span className="font-mono text-sm font-semibold">
             v{release.version}
           </span>
-          <span className="text-2xs text-muted-foreground">{release.date}</span>
+          <span className="text-xs text-muted-foreground">{release.date}</span>
         </div>
       )}
       {/* A hairline between changes: with only a gap, each title sat as close

@@ -1,7 +1,10 @@
 import React, { useEffect, useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { CircleAlert } from "lucide-react"
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
+import { Empty, EmptyDescription } from "@renderer/components/ui/empty"
 import {
   Dialog,
   DialogBody,
@@ -91,14 +94,15 @@ export function ImportCredentialsDialog({
             />
           )}
           {nothingFound && (
-            <p className="m-0 rounded-lg border border-dashed px-4 py-5 text-center text-xs text-muted-foreground">
-              {t("credentialImport.empty")}
-            </p>
+            <Empty className="border p-4">
+              <EmptyDescription>{t("credentialImport.empty")}</EmptyDescription>
+            </Empty>
           )}
           {lost && (
-            <p className="m-0 text-xs text-(--danger-text)">
-              {t("credentialImport.lost")}
-            </p>
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{t("credentialImport.lost")}</AlertDescription>
+            </Alert>
           )}
 
           <PasteConfig

@@ -201,13 +201,13 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         )}
       </header>
 
-      {/* A block container, not a flex column: flex children default to
+      {/* Children do not shrink (`*:shrink-0`): flex children default to
           `shrink: 1`, so inside a scroll box with a definite height they get
           squashed instead of overflowing — which flattened the banner to a
-          sliver. `space-y` gives the same rhythm without the shrinking. */}
+          sliver. */}
       {/* No scroll-edge fade here: the filter row below sticks to the top of
           this box, and the fade would wash it out with everything else. */}
-      <div className="flex-1 space-y-4 overflow-y-auto px-9 pt-4 pb-6">
+      <div className="flex flex-1 flex-col gap-4 overflow-y-auto px-9 pt-4 pb-6 *:shrink-0">
         <MarketplaceHero
           catalog={market.catalog}
           installed={installedList}

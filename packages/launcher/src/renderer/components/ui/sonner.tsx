@@ -11,7 +11,7 @@ import { cn } from "@renderer/lib/utils"
 import { useThemeStore } from "@renderer/store/theme"
 
 // Sonner sets `background` as a shorthand, so both layers need `!`.
-const OPAQUE_TINT = "bg-(--bg-card)! bg-linear-to-b!"
+const OPAQUE_TINT = "bg-card! bg-linear-to-b!"
 
 /**
  * Deviates from the stock shadcn file in one way: the theme comes from the
@@ -53,17 +53,17 @@ const Toaster = ({ ...props }: ToasterProps): React.JSX.Element => {
         classNames: {
           success: cn(
             OPAQUE_TINT,
-            "from-(--success-bg) to-(--success-bg) text-(--success-text)! border-(--success-border)!",
+            "from-success/10 to-success/10 text-success-foreground! border-success/30!",
           ),
           error: cn(
             OPAQUE_TINT,
-            "from-(--danger-bg) to-(--danger-bg) text-(--danger-text)! border-(--danger-border)!",
+            "from-destructive/10 to-destructive/10 text-destructive! border-destructive/30!",
           ),
           warning: cn(
             OPAQUE_TINT,
-            "from-(--warning-bg) to-(--warning-bg) text-(--warning-text)! border-(--warning-border)!",
+            "from-warning/10 to-warning/10 text-warning-foreground! border-warning/30!",
           ),
-          info: "bg-(--bg-card)! text-(--text-primary)! border-(--border)!",
+          info: "bg-card! text-foreground! border-border!",
           // Sonner colours the title itself, which would keep it neutral on
           // top of a tinted surface — inherit so it follows the type.
           title: "text-inherit!",

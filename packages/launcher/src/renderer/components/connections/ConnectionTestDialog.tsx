@@ -100,7 +100,7 @@ export function ConnectionTestDialog({
                 </p>
               )}
               {result.detail && (
-                <p className="max-w-90 text-center text-2xs wrap-break-word text-muted-foreground">
+                <p className="max-w-90 text-center text-xs wrap-break-word text-muted-foreground">
                   {result.detail}
                 </p>
               )}

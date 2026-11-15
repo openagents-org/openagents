@@ -3,10 +3,10 @@ import {
   AlertTriangle,
   Check,
   Globe,
-  Loader2,
   LogIn,
   TerminalSquare,
 } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -14,6 +14,7 @@ import {
   UseTerminalButton,
 } from "@renderer/components/agent-auth/cli-login-panel"
 import { Button } from "@renderer/components/ui/button"
+import { Card, CardContent } from "@renderer/components/ui/card"
 import { cn } from "@renderer/lib/utils"
 import type { OnboardingAgent } from "@renderer/types"
 
@@ -54,18 +55,16 @@ export function LoginPanel({
     /^claude\b/.test(entry.loginCommand || "")
 
   return (
-    <div className="rounded-lg border border-(--border) bg-(--bg-card) p-5">
+    <Card><CardContent>
       <div className="flex items-center gap-2 text-base font-semibold">
         {loggedIn ? (
           <>
-            <Check className="size-4 shrink-0 text-(--success)" />
-            <span>
-              {t("onboarding.flow.apiKey.detectedLogin")}
-            </span>
+            <Check className="size-4 shrink-0 text-success" />
+            <span>{t("onboarding.flow.apiKey.detectedLogin")}</span>
           </>
         ) : cliInstalled === false ? (
           <>
-            <AlertTriangle className="size-4 shrink-0 text-(--warning)" />
+            <AlertTriangle className="size-4 shrink-0 text-warning" />
             <span>
               {t("onboarding.flow.apiKey.notInstalledYet", { label })}
             </span>
@@ -73,9 +72,9 @@ export function LoginPanel({
         ) : (
           <>
             {viaTerminal ? (
-              <TerminalSquare className="size-4 shrink-0 text-(--accent)" />
+              <TerminalSquare className="size-4 shrink-0 text-primary" />
             ) : (
-              <Globe className="size-4 shrink-0 text-(--accent)" />
+              <Globe className="size-4 shrink-0 text-primary" />
             )}
             <span>
               {cliInstalled
@@ -86,7 +85,7 @@ export function LoginPanel({
         )}
       </div>
 
-      <p className="m-0 mt-2.5 text-xs leading-relaxed text-(--text-secondary)">
+      <p className="m-0 mt-2.5 text-xs leading-relaxed text-muted-foreground">
         {cliInstalled === false
           ? t("onboarding.flow.apiKey.notInstalledHint")
           : t(
@@ -115,8 +114,8 @@ export function LoginPanel({
       )}
 
       {showWindowsShellNote && (
-        <div className="mt-3 flex items-start gap-2 rounded-sm bg-accent p-3 text-2xs text-(--text-secondary)">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning-text)" />
+        <div className="mt-3 flex items-start gap-2 rounded-sm bg-accent p-3 text-xs text-muted-foreground">
+          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning-foreground" />
           <span>
             {t("onboarding.flow.apiKey.windowsShellNotePrefix")}
             <ExternalLink href="https://git-scm.com/downloads/win">
@@ -132,38 +131,38 @@ export function LoginPanel({
       )}
 
       <div className="mt-4 flex flex-wrap items-center gap-2">
-      <Button
-        size="sm"
-        variant={loggedIn ? "outline" : "default"}
-        onClick={() => void startLogin()}
-        disabled={busy}
-      >
-        {busy ? (
-          <>
-            <Loader2 className="animate-spin" />
-            {t("onboarding.flow.apiKey.waitingForLogin")}
-          </>
-        ) : (
-          <>
-            <LogIn />
-            {loggedIn
-              ? t("onboarding.flow.apiKey.signInAgain")
-              : t("onboarding.flow.apiKey.signInNow")}
-          </>
-        )}
-      </Button>
-      {login.phase === "idle" &&
-        !needsRealTerminal(entry.name, entry.loginCommand || "") && (
-          <UseTerminalButton
-            onClick={() => void startLogin({ terminal: true })}
-          />
-        )}
+        <Button
+          size="sm"
+          variant={loggedIn ? "outline" : "default"}
+          onClick={() => void startLogin()}
+          disabled={busy}
+        >
+          {busy ? (
+            <>
+              <Spinner data-icon="inline-start" />
+              {t("onboarding.flow.apiKey.waitingForLogin")}
+            </>
+          ) : (
+            <>
+              <LogIn />
+              {loggedIn
+                ? t("onboarding.flow.apiKey.signInAgain")
+                : t("onboarding.flow.apiKey.signInNow")}
+            </>
+          )}
+        </Button>
+        {login.phase === "idle" &&
+          !needsRealTerminal(entry.name, entry.loginCommand || "") && (
+            <UseTerminalButton
+              onClick={() => void startLogin({ terminal: true })}
+            />
+          )}
       </div>
 
-      <p className="m-0 mt-3 text-2xs leading-relaxed text-(--text-tertiary)">
+      <p className="m-0 mt-3 text-xs leading-relaxed text-muted-foreground">
         {t("onboarding.flow.apiKey.detectionNote")}
       </p>
-    </div>
+    </CardContent></Card>
   )
 }
 
@@ -181,7 +180,7 @@ export function ExternalLink({
         e.preventDefault()
         void window.api.openExternal(href)
       }}
-      className="text-(--accent) hover:underline"
+      className="text-primary hover:underline"
     >
       {children}
     </a>

@@ -31,9 +31,9 @@ interface Props {
 }
 
 const DOT_CLASS: Record<LogLevel, string> = {
-  error: "bg-(--danger)",
-  warn: "bg-(--warning)",
-  info: "bg-(--info)",
+  error: "bg-destructive",
+  warn: "bg-warning",
+  info: "bg-info",
   debug: "bg-muted-foreground/50",
   trace: "bg-muted-foreground/40",
   unknown: "bg-muted-foreground/50",
@@ -93,7 +93,7 @@ function IncidentTag({
 
   return (
     <div
-      className="pointer-events-none absolute -top-1 z-20 rounded-md border border-(--danger-border) bg-(--danger-bg) px-2 py-0.5 text-3xs whitespace-nowrap text-(--danger-text)"
+      className="pointer-events-none absolute -top-1 z-20 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-xs whitespace-nowrap text-destructive"
       style={{
         // The 10rem offset skips the sticky lane-label column.
         left: `calc(10rem + (100% - 10rem) * ${p / 100})`,
@@ -131,12 +131,12 @@ export function TimelineLanes({
       {laneSlots.map(({ lane, slots }) => (
         <div key={lane.agent} className="flex items-center border-t">
           <div className="sticky left-0 z-10 flex w-40 shrink-0 items-center gap-2 bg-card px-4 py-3">
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-2xs font-semibold text-primary uppercase">
+            <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary uppercase">
               {lane.agent.slice(0, 2)}
             </span>
             <div className="min-w-0">
               <div className="truncate text-xs font-medium">{lane.agent}</div>
-              <div className="text-3xs text-muted-foreground">
+              <div className="text-xs text-muted-foreground">
                 {t("logs.timeline.laneEvents", { count: lane.total })}
               </div>
             </div>
@@ -146,7 +146,7 @@ export function TimelineLanes({
             {incidents.map((incident) => (
               <div
                 key={incident.start}
-                className="pointer-events-none absolute inset-y-0 bg-(--danger)/10"
+                className="pointer-events-none absolute inset-y-0 bg-destructive/10"
                 style={{
                   left: `${pct(incident.start, span)}%`,
                   width: `${Math.max(0.5, pct(incident.end, span) - pct(incident.start, span))}%`,

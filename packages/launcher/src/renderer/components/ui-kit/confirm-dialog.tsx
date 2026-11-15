@@ -67,10 +67,10 @@ export function ConfirmDialog({
               Destructive prompts with no glyph of their own get a warning mark
               — it reads as "this one is different" before the copy is. */}
           {icon ? (
-            <AlertDialogMedia className="mb-0 size-12">{icon}</AlertDialogMedia>
+            <AlertDialogMedia>{icon}</AlertDialogMedia>
           ) : destructive ? (
-            <AlertDialogMedia className="mb-0 size-11 bg-destructive/10 text-destructive">
-              <TriangleAlert className="size-5" />
+            <AlertDialogMedia className="bg-destructive/10 text-destructive">
+              <TriangleAlert />
             </AlertDialogMedia>
           ) : null}
           <AlertDialogTitle>{title}</AlertDialogTitle>
@@ -104,7 +104,7 @@ export function ConfirmDialog({
               onConfirm()
             }}
           >
-            {busy && <Spinner />}
+            {busy && <Spinner data-icon="inline-start" />}
             {busy
               ? t("ui.confirmDialog.working")
               : (confirmLabel ?? t("ui.confirmDialog.confirm"))}

@@ -2,6 +2,7 @@ import React from "react"
 import { Unplug } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "../ui/alert"
 import { Button } from "../ui/button"
 import type { RevokedPairing } from "../../types"
 
@@ -32,36 +33,34 @@ export function WorkspaceRevokedNotice({
       {notices.map((n) => {
         const count = n.agents?.length || 0
         return (
-          <div
+          <Alert
             key={n.workspaceId}
-            className="flex flex-wrap items-center gap-3 rounded-lg border bg-muted/40 px-4 py-3"
+            className="has-data-[slot=alert-action]:pr-44"
           >
-            <Unplug className="size-4 shrink-0 text-(--warning)" />
-            <div className="min-w-50 flex-1">
-              <div className="text-sm font-medium">
-                {t("workspaces.revokedNotice.title", {
-                  name: n.workspaceName || n.workspaceSlug || n.workspaceId,
-                })}
-              </div>
-              <p className="m-0 mt-0.5 text-xs text-(--text-secondary)">
-                {count > 0
-                  ? t("workspaces.revokedNotice.bodyAgents", { count })
-                  : t("workspaces.revokedNotice.body")}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button size="sm" onClick={onRejoin}>
-                {t("workspaces.revokedNotice.rejoin")}
-              </Button>
+            <Unplug className="text-warning" />
+            <AlertTitle>
+              {t("workspaces.revokedNotice.title", {
+                name: n.workspaceName || n.workspaceSlug || n.workspaceId,
+              })}
+            </AlertTitle>
+            <AlertDescription>
+              {count > 0
+                ? t("workspaces.revokedNotice.bodyAgents", { count })
+                : t("workspaces.revokedNotice.body")}
+            </AlertDescription>
+            <AlertAction className="flex items-center gap-2">
               <Button
-                size="sm"
+                size="xs"
                 variant="ghost"
                 onClick={() => onDismiss(n.workspaceId)}
               >
                 {t("workspaces.revokedNotice.dismiss")}
               </Button>
-            </div>
-          </div>
+              <Button size="xs" onClick={onRejoin}>
+                {t("workspaces.revokedNotice.rejoin")}
+              </Button>
+            </AlertAction>
+          </Alert>
         )
       })}
     </div>

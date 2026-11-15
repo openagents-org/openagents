@@ -16,6 +16,7 @@ import { Badge } from "../ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -63,20 +64,20 @@ interface Props {
 
 /** Colour on the dot; only a problem colours the word too. */
 const DOT: Record<WorkspaceHealthState, string> = {
-  healthy: "bg-(--success)",
-  warning: "bg-(--warning)",
-  device: "bg-(--success)",
-  revoked: "bg-(--danger)",
+  healthy: "bg-success",
+  warning: "bg-warning",
+  device: "bg-success",
+  revoked: "bg-destructive",
   disconnected: "bg-muted-foreground/50",
-  error: "bg-(--danger)",
+  error: "bg-destructive",
 }
 const TEXT: Record<WorkspaceHealthState, string> = {
   healthy: "text-muted-foreground",
   warning: "text-muted-foreground",
   device: "text-muted-foreground",
-  revoked: "text-(--danger-text)",
+  revoked: "text-destructive",
   disconnected: "text-muted-foreground",
-  error: "text-(--danger-text)",
+  error: "text-destructive",
 }
 
 /** Agent marks shown before the rest fold into "+N". */
@@ -127,8 +128,13 @@ export function WorkspaceCard({
   // it changed under the user a moment after the page opened. The tooltip says
   // when it is the browser.
   const enterButton = (
-    <Button size="sm" variant="outline" onClick={onOpen} data-testid="workspace-enter">
-      <LogIn />
+    <Button
+      size="sm"
+      variant="outline"
+      onClick={onOpen}
+      data-testid="workspace-enter"
+    >
+      <LogIn data-icon="inline-start" />
       {t("workspaces.card.enter")}
     </Button>
   )
@@ -181,7 +187,7 @@ export function WorkspaceCard({
       <ItemActions onClick={(e) => e.stopPropagation()}>
         {revoked ? (
           <Button size="sm" onClick={onRepair}>
-            <RotateCcw />
+            <RotateCcw data-icon="inline-start" />
             {t("workspaces.card.repair")}
           </Button>
         ) : browserOnlyReason ? (
@@ -204,30 +210,36 @@ export function WorkspaceCard({
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            {opensInApp && (
-              <DropdownMenuItem onClick={onOpenInBrowser}>
-                <ExternalLink />
-                {t("workspaces.card.openInBrowser")}
+            <DropdownMenuGroup>
+              {opensInApp && (
+                <DropdownMenuItem onClick={onOpenInBrowser}>
+                  <ExternalLink />
+                  {t("workspaces.card.openInBrowser")}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={onCopyUrl}>
+                <Copy />
+                {t("workspaces.card.copyUrl")}
               </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={onCopyUrl}>
-              <Copy />
-              {t("workspaces.card.copyUrl")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setQrcodeOpen(true)}>
-              <QrcodeIcon />
-              {t("workspaces.card.qrcode")}
-            </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setQrcodeOpen(true)}>
+                <QrcodeIcon />
+                {t("workspaces.card.qrcode")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={onRename}>
-              <Pencil />
-              {t("workspaces.card.rename")}
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={onRename}>
+                <Pencil />
+                {t("workspaces.card.rename")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={onRemove}>
-              <Trash2 />
-              {t("workspaces.card.remove")}
-            </DropdownMenuItem>
+            <DropdownMenuGroup>
+              <DropdownMenuItem variant="destructive" onClick={onRemove}>
+                <Trash2 />
+                {t("workspaces.card.remove")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
         <WorkspaceQrcodeDialog ws={ws} open={qrcodeOpen} onOpenChange={setQrcodeOpen} />

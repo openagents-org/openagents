@@ -78,19 +78,19 @@ export function CredentialCard({
               </Badge>
             )}
             {cred.scopes?.map((s) => (
-              <Badge key={s} variant="secondary" className="text-(--text-link)">
+              <Badge key={s} variant="secondary" className="text-foreground">
                 {s}
               </Badge>
             ))}
           </div>
-          <div className="mt-0.5 text-2xs text-muted-foreground">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {platform?.label || cred.provider}
             {lastTest && (
               <>
                 {" · "}
                 <span
                   className={
-                    cred.lastTestOk ? "text-muted-foreground" : "text-(--danger-text)"
+                    cred.lastTestOk ? "text-muted-foreground" : "text-destructive"
                   }
                 >
                   {t("credentials.card.tested", { date: lastTest })}{" "}

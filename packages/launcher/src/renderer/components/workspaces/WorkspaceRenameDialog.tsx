@@ -12,7 +12,8 @@ import {
 } from "../ui/dialog"
 import { Button } from "../ui/button"
 import { Checkbox } from "../ui/checkbox"
-import { Field, FieldDescription, FieldLabel } from "../ui/field"
+import { Alert, AlertDescription, AlertTitle } from "../ui/alert"
+import { Field, FieldDescription, FieldError, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import type { Workspace } from "../../types"
 
@@ -123,40 +124,39 @@ export function WorkspaceRenameDialog({
             </FieldDescription>
           </Field>
 
-          <label className="mt-4 flex cursor-pointer items-start gap-2.5">
+          <Field orientation="horizontal" data-disabled={busy || undefined}>
             <Checkbox
+              id="workspace-rename-remote"
               checked={remote}
               disabled={busy}
               onCheckedChange={(v) => {
                 setRemote(v === true)
                 setError(null)
               }}
-              className="mt-0.5"
             />
-            <span className="text-xs">
+            <FieldLabel
+              htmlFor="workspace-rename-remote"
+              className="font-normal"
+            >
               {t("workspaces.rename.applyRemote")}
-            </span>
-          </label>
+            </FieldLabel>
+          </Field>
 
           {remote && (
-            <div className="mt-3 flex items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5">
-              <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--warning)" />
-              <div className="min-w-0">
-                <div className="text-xs font-medium">
-                  {t("workspaces.rename.remoteWarningTitle")}
-                </div>
-                <p className="m-0 mt-1 text-2xs text-muted-foreground">
-                  {t("workspaces.rename.remoteWarningBody", {
-                    slug: workspace?.slug || workspace?.id,
-                  })}
-                </p>
-              </div>
-            </div>
+            <Alert>
+              <AlertTriangle className="text-warning" />
+              <AlertTitle>
+                {t("workspaces.rename.remoteWarningTitle")}
+              </AlertTitle>
+              <AlertDescription>
+                {t("workspaces.rename.remoteWarningBody", {
+                  slug: workspace?.slug || workspace?.id,
+                })}
+              </AlertDescription>
+            </Alert>
           )}
 
-          {error && (
-            <p className="mt-3 mb-0 text-2xs text-(--danger-text)">{error}</p>
-          )}
+          {error && <FieldError>{error}</FieldError>}
         </DialogBody>
 
         <DialogFooter>

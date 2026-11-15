@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 import { Field, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -55,11 +56,13 @@ export function CredentialFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {PLATFORMS.map((p) => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.label}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {PLATFORMS.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>
@@ -73,11 +76,13 @@ export function CredentialFormFields({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {KIND_OPTIONS.map((k) => (
-                <SelectItem key={k.value} value={k.value}>
-                  {t(k.labelKey)}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {KIND_OPTIONS.map((k) => (
+                  <SelectItem key={k.value} value={k.value}>
+                    {t(k.labelKey)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Field>
@@ -121,7 +126,7 @@ export function CredentialFormFields({
           <span className="text-sm font-medium">
             {t("credentials.editor.shareTitle")}
           </span>
-          <span className="block text-2xs text-muted-foreground">
+          <span className="block text-xs text-muted-foreground">
             {t("credentials.editor.shareDescription")}
           </span>
         </div>
