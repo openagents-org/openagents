@@ -11,6 +11,7 @@ const {
   toolPreview,
   AgyRunState,
   classifyAgyFailure,
+  agyShouldRetryStaleConversation,
   agyBinaryCandidates,
 } = require('../src/adapters/antigravity-stream');
 
@@ -257,6 +258,44 @@ describe('classifyAgyFailure', () => {
     assert.equal(kind, 'unknown');
     assert.match(message, /not available on this account/);
     assert.match(message, /Agent execution terminated due to error/);
+  });
+
+  it('does not turn agy\'s bare "error: interrupted" into a sign-in hint', () => {
+    // Captured from the architect adapter: after SIGTERM, agy exits 1 and
+    // stderr is this single line. The unknown branch used to append sign-in
+    // guidance under it.
+    const { kind, message } = classifyAgyFailure({ code: 1, stderr: 'error: interrupted' });
+    assert.equal(kind, 'interrupted');
+    assert.match(message, /interrupted before it finished/);
+    assert.match(message, /not replayed/);
+    assert.ok(!/GEMINI_API_KEY/.test(message));
+    assert.ok(!/sign in with Google/.test(message));
+  });
+
+  it('reports the adapter idle kill as a timeout, not a credential failure', () => {
+    const { kind, message } = classifyAgyFailure({
+      code: 1,
+      stderr: 'error: interrupted',
+      idleKilled: true,
+      idleSeconds: 300,
+    });
+    assert.equal(kind, 'timeout');
+    assert.match(message, /stopped after 300s with no output/);
+    assert.match(message, /not replayed/);
+    assert.ok(!/GEMINI_API_KEY/.test(message));
+    assert.ok(!/sign in with Google/.test(message));
+  });
+
+  it('does not retry an idle kill as a stale conversation', () => {
+    assert.equal(agyShouldRetryStaleConversation({
+      failed: true, idleKilled: true, hasConversation: true, attempt: 0,
+    }), false);
+    assert.equal(agyShouldRetryStaleConversation({
+      failed: true, idleKilled: false, hasConversation: true, attempt: 0,
+    }), true);
+    assert.equal(agyShouldRetryStaleConversation({
+      failed: true, idleKilled: false, hasConversation: true, attempt: 1,
+    }), false);
   });
 
   it('points an unexplained failure at the sign-in without claiming it is the cause', () => {
