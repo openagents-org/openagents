@@ -10,6 +10,7 @@ import { DesktopComputerStep } from './desktop-computer-step';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 import { SetupEmailButton } from './setup-email-button';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
+import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -42,6 +43,11 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
   );
 
+  useEffect(() => {
+    if (!welcomeDone) capture('welcome_film_started', { source: 'guided_wizard' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Account-level check: another device may already have played the intro.
   // The film starts optimistically; if the server says "seen", end it quietly.
   useEffect(() => {
@@ -63,6 +69,7 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     if (welcomeIdToken) {
       updateAccountProfile(welcomeIdToken, { welcomeSeen: true }).catch(() => {});
     }
+    capture(skipped ? 'welcome_film_skipped' : 'welcome_film_completed', { source: 'guided_wizard' });
     setWelcomeDone(true);
   }, [welcomeIdToken]);
 
@@ -92,6 +99,7 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
     <div className="pt-4 text-center">
       <button
         onClick={() => {
+          capture('welcome_film_replayed', { source: 'guided_wizard' });
           setWelcomeDone(false);
         }}
         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
@@ -201,6 +209,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
     try {
       const code = await workspaceApi.createPairingCode();
       setPairing(code);
+      capture('pairing_code_generated', { source: 'guided_wizard' });
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : '';
       toast.error(/40[13]/.test(msg) ? t('connect.nodePairingForbidden') : t('connect.nodePairingFailed'));
@@ -222,6 +231,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
         const code = await workspaceApi.createPairingCode();
         if (!cancelled) {
           setPairing(code);
+          capture('pairing_code_generated', { source: 'guided_wizard' });
         }
       } catch (err: unknown) {
         if (cancelled) return;
@@ -245,6 +255,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
           setConnectedNodeId(added.nodeId);
           setConnected(true);
           toast.success(t('connect.nodeConnectedToast'));
+          capture('node_connected', { source: 'guided_wizard' });
         }
       } catch { /* transient */ }
     }, 3000);

@@ -25,6 +25,7 @@ vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => ({ email: 'user@example.test', role: 'owner' }) }));
 vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}), useTeamRoster: () => [] }));
 vi.mock('./work-brief', () => ({ useBrief: () => ({ brief: null }) }));
+vi.mock('@/lib/analytics', () => ({ capture: () => {} }));
 vi.mock('@/hooks/use-composing-signal', () => ({
   useComposingSignal: () => ({ notifyFocus: () => {}, notifyBlur: () => {}, notifyTyping: () => {} }),
 }));

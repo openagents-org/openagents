@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
+import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/dialog';
@@ -99,6 +100,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     setLaunching(true);
     try {
       const launched = await workspaceApi.launchHostedAgent(label);
+      capture('hosted_agent_launched', { provider: 'acenta', setup: !!launched.setupUrl, has_account: !!account?.hasAccount });
       if (launched.setupUrl) {
         // Sign-in and payment finish on Acenta, which sends the user back here.
         window.location.assign(launched.setupUrl);
@@ -120,6 +122,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     setAdding(agent.id);
     try {
       await workspaceApi.connectAcentaAgent(agent.id);
+      capture('hosted_agent_added', { provider: 'acenta' });
       toast.success(t('connect.acentaAdded', { name: agent.name }));
       load();
       onChanged();

@@ -8,6 +8,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { sendSetupEmail } from '@/lib/account-api';
+import { capture } from '@/lib/analytics';
 
 /** A phone user can continue setup later on the computer that will run agents. */
 export function SetupEmailButton() {
@@ -25,6 +26,7 @@ export function SetupEmailButton() {
       const result = await sendSetupEmail(idToken, workspace.slug);
       if (!result.emailSent) throw new Error('Setup email was not sent');
       setState('sent');
+      capture('setup_email_sent', { source: 'guided_wizard', is_mobile: true });
     } catch {
       toast.error(t('onboarding.setupEmailFailed'));
       setState('idle');

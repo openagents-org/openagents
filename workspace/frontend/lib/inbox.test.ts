@@ -91,6 +91,10 @@ describe('groupInboxRows', () => {
 });
 
 describe('inboxDestination', () => {
+  it('sends credit notices to the checklist, whatever thread they name', () => {
+    expect(inboxDestination(row({ createdBy: 'system:campaign', channelName: null }))).toEqual({ kind: 'credits' });
+  });
+
   it('tells task threads, DMs and ordinary threads apart', () => {
     expect(inboxDestination(row({ channelName: 'task:42' }))).toEqual({ kind: 'task', channel: 'task:42' });
     expect(inboxDestination(row({ channelName: 'dm:a,b' }))).toEqual({ kind: 'dm', channel: 'dm:a,b' });

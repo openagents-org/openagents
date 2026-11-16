@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
 }));
 const confirm = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
+vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => confirm }));
 vi.mock('@/lib/i18n', () => ({
   useT: () => (key: string) => key,

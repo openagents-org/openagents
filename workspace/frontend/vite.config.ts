@@ -33,6 +33,7 @@ export default defineConfig(({ mode }) => ({
       { find: /^next\/navigation$/, replacement: resolve(__dirname, 'desktop/shims/next-navigation.ts') },
       { find: /^next\/image$/, replacement: resolve(__dirname, 'desktop/shims/next-image.tsx') },
       { find: /^next\/link$/, replacement: resolve(__dirname, 'desktop/shims/next-link.tsx') },
+      { find: /^next\/script$/, replacement: resolve(__dirname, 'desktop/shims/next-script.tsx') },
       { find: /^next\/dynamic$/, replacement: resolve(__dirname, 'desktop/shims/next-dynamic.ts') },
       { find: /^next\/font\/google$/, replacement: resolve(__dirname, 'desktop/shims/next-font-google.ts') },
       // `@/` is the same project-root alias the web build uses (tsconfig paths).
@@ -50,6 +51,10 @@ export default defineConfig(({ mode }) => ({
     // launcher's preload — which runs before any page script — can set it to
     // a self-hosted endpoint first.
     'process.env.NEXT_PUBLIC_API_URL': '__OA_API_URL__',
+    // Analytics is deliberately off in the desktop build; see shims/next-script.
+    'process.env.NEXT_PUBLIC_POSTHOG_KEY': 'undefined',
+    'process.env.NEXT_PUBLIC_POSTHOG_HOST': 'undefined',
+    'process.env.NEXT_PUBLIC_GA_ID': 'undefined',
     // `--mode development` keeps React's development build, whose errors are
     // sentences rather than "Minified React error #NNN" — the difference
     // between an afternoon and a minute when the app only breaks once bundled.

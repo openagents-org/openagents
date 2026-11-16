@@ -5,6 +5,7 @@ import { useT } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { AgentSetup } from '@/components/agents/agent-setup';
 import { useLocalNodeId } from './use-local-node-id';
+import { CAMPAIGN_PROMO_AGENT_TYPES, CampaignPromoAccess } from '@/components/campaign/campaign-feedback';
 import type { CloudAgentProvider } from '@/lib/types';
 import { AddModelAccessDialog } from '@/components/settings/model-access-dialog';
 
@@ -22,5 +23,6 @@ export function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.Com
         await refreshWorkspace();
       },
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
+      promo: (promo) => CAMPAIGN_PROMO_AGENT_TYPES.has(promo.agentType) ? <CampaignPromoAccess {...promo} /> : null,
     }} />;
 }

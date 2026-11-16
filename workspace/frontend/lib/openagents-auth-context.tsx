@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { capture, identify } from './analytics';
 import { desktopHost } from './desktop-host';
 import { workspaceApi } from './api';
 import { clearWorkspaceSession, loadWorkspaceSession, type WorkspaceSession } from './workspace-session';
@@ -71,6 +72,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
         photoURL: null,
       });
       setIdToken(stored.token);
+      identify(stored.email, { email: stored.email, display_name: stored.displayName || stored.email });
       setLoading(false);
       return;
     }
@@ -135,6 +137,20 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
             photoURL: firebaseUser.photoURL,
           });
           setIdToken(token);
+          // Email is the cross-surface person key: identify on every auth
+          // restore so handoff logins (openagents.org → /auth/callback) are
+          // attributed to the same person as their website activity. identify()
+          // is idempotent; the sign_in checkpoint is deduped per browser
+          // session so restores don't inflate the funnel.
+          if (email) {
+            identify(email, { email, display_name: displayName });
+            if (!sessionStorage.getItem('oa_sign_in_tracked')) {
+              sessionStorage.setItem('oa_sign_in_tracked', '1');
+              const method =
+                firebaseUser.providerData[0]?.providerId?.replace('.com', '') || 'handoff';
+              capture('sign_in', { method });
+            }
+          }
         } else {
           setUser(null);
           setIdToken(null);
@@ -191,6 +207,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       photoURL: null,
     });
     setIdToken(session.token);
+    identify(session.email, { email: session.email, display_name: session.displayName || session.email });
     setLoading(false);
   }, []);
 

@@ -39,6 +39,7 @@ def invoked(monkeypatch):
 @pytest.fixture
 def quiet_background(monkeypatch):
     """Stub the other post-event hooks that need a real DATABASE_URL."""
+    import app.services.campaign as campaign
     import app.services.integrations as integrations
     import app.services.push as push
     import app.services.workflow as workflow
@@ -49,6 +50,7 @@ def quiet_background(monkeypatch):
     monkeypatch.setattr(push, "fanout_for_event", noop)
     monkeypatch.setattr(workflow, "advance_workflow", noop)
     monkeypatch.setattr(integrations, "relay_for_event", noop)
+    monkeypatch.setattr(campaign, "on_agent_message", noop)
 
 
 def _hdr(ws):

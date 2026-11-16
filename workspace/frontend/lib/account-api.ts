@@ -120,6 +120,77 @@ export async function joinWorkspaceSelf(
   }
 }
 
+/**
+ * API credits campaign — the signed-in user's milestone checklist. Returns
+ * {enabled:false} on self-hosted deployments (campaign off), in which case the
+ * UI renders nothing. The first call provisions the user's gateway key (the
+ * signup milestone).
+ */
+export interface CampaignStatus {
+  enabled: boolean;
+  /** The campaign has ended; an existing key holder still gets their key and usage (read-only). */
+  ended?: boolean;
+  /** Credits are gated on a verified address: no key and no grants until the
+      user confirms the welcome-email link (Google/Apple sign-ins are verified). */
+  requiresEmailVerification?: boolean;
+  email?: string;
+  /** Ladder total an unverified user may reach before verification is required. */
+  unverifiedAllowanceUsd?: number;
+  apiKey?: string | null;
+  gatewayUrl?: string;
+  capUsd?: number;
+  /** Onboarding-ladder grants only — the figure to compare against capUsd. */
+  totalGrantedUsd?: number;
+  /** Ladder + extras (pilot) — what the key actually holds. */
+  grandTotalUsd?: number;
+  /** Pilot Program bonus, stacked on top of the ladder; null until granted. */
+  pilot?: { amountUsd: number; grantedAt: string | null } | null;
+  milestones?: { key: string; amountUsd: number; grantedAt: string | null }[];
+  daily?: { grantUsd: number; daysGranted: number; todayGranted: boolean };
+  usage?: {
+    costUsdUsed: number;
+    costLimitUsd: number;
+    isActive: boolean;
+    inputTokens?: number | null;
+    outputTokens?: number | null;
+  } | null;
+}
+
+/** Window event carrying every fresh CampaignStatus, whoever fetched it. */
+export const CAMPAIGN_STATUS_EVENT = 'oa:campaign-status';
+
+export async function getCampaignStatus(idToken: string): Promise<CampaignStatus> {
+  const status = await bearerFetch<CampaignStatus>('/v1/campaign/status', idToken);
+  // The milestone toasts, the credits page and the sidebar card each ask on
+  // their own schedule; sharing each answer keeps them showing the same count.
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent<CampaignStatus>(CAMPAIGN_STATUS_EVENT, { detail: status }));
+  }
+  return status;
+}
+
+/** Model ids available on the campaign gateway (proxied by the backend). */
+export function getCampaignModels(idToken: string): Promise<{ models: string[] }> {
+  return bearerFetch<{ models: string[] }>('/v1/campaign/models', idToken);
+}
+
+/**
+ * Ask openagents.org to send the verification email again. The workspace's
+ * Firebase ID token carries the account email as a claim, which is what the
+ * site's backend keys the account on. Returns whether a mail was queued.
+ */
+export async function resendVerificationEmail(idToken: string): Promise<{ sent: boolean; alreadyVerified: boolean }> {
+  const base = process.env.NEXT_PUBLIC_OPENAGENTS_API_URL || 'https://endpoint.openagents.org';
+  const res = await fetch(`${base}/v1/auth/resend-verification`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${idToken}` },
+  });
+  if (!res.ok) throw new Error(`resend failed (${res.status})`);
+  const body = await res.json();
+  const data = body?.data ?? body;
+  return { sent: !!data?.sent, alreadyVerified: !!data?.email_verified };
+}
+
 // ── Agent hub: personal API keys and connected apps (OAuth) ────────────────
 
 export interface HubApiKey { id: string; name: string; prefix: string; created_at: string | null; last_used_at: string | null }

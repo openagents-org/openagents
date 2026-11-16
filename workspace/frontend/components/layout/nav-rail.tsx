@@ -35,6 +35,7 @@ import { NotificationsMenu } from './notifications-menu';
 import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
+import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 import { RAIL_SNAP_POINT, RailResizeHandle } from './rail-resize-handle';
 import { RailAgents } from './rail-agents';
 
@@ -215,6 +216,9 @@ export function NavRail() {
 
       {/* Connect agent + global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        {/* Credits-campaign progress (expanded rail only; self-hides when the
+            campaign is off or complete). */}
+        {showLabels && <CampaignSidebarCard />}
         {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
         <SidebarMenu className="gap-0.5">
           <SidebarMenuItem>

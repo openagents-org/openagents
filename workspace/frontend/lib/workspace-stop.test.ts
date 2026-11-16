@@ -15,6 +15,7 @@ const api = vi.hoisted(() => Object.fromEntries([
 vi.mock('./api', async (importOriginal) => ({
   ...await importOriginal<typeof import('./api')>(), workspaceApi: api,
 }));
+vi.mock('./analytics', () => ({ capture: vi.fn(), group: vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('./openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: null }) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));

@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import {
-  CircleUser, ClipboardCheck, Globe, KeyRound, Lock, MonitorSmartphone, Plug, Settings2,
+  CircleUser, ClipboardCheck, Gift, Globe, KeyRound, Lock, MonitorSmartphone, Plug, Settings2,
   ShieldCheck, SlidersHorizontal, Users, type LucideIcon,
 } from 'lucide-react';
 import { canAccessSettingsSection } from '@/components/settings/admin-context';
@@ -21,6 +21,7 @@ const GROUPS: { labelKey: MessageKey; sections: Section[] }[] = [
       { slug: 'profile', labelKey: 'admin.navProfile', icon: CircleUser },
       { slug: 'preferences', labelKey: 'admin.navPreferences', icon: SlidersHorizontal },
       { slug: 'connected-apps', labelKey: 'admin.navConnectedApps', icon: Plug },
+      { slug: 'api-credits', labelKey: 'admin.navApiCredits', icon: Gift },
     ],
   },
   {

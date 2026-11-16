@@ -11,6 +11,7 @@ import NotFound from '@/app/not-found';
 import WorkspacePage from '@/app/[workspaceId]/page';
 import SettingsLayout from '@/app/[workspaceId]/settings/layout';
 import SettingsIndex from '@/app/[workspaceId]/settings/page';
+import SettingsApiCredits from '@/app/[workspaceId]/settings/api-credits/page';
 import SettingsApprovals from '@/app/[workspaceId]/settings/approvals/page';
 import SettingsConnectedApps from '@/app/[workspaceId]/settings/connected-apps/page';
 import SettingsDevices from '@/app/[workspaceId]/settings/devices/page';
@@ -37,6 +38,9 @@ import { createAppearanceSync } from './appearance-sync';
  * and <body>. Everything BELOW that — the provider stack — is the same, in the
  * same order, and every page component underneath is imported from `app/`
  * untouched.
+ *
+ * The analytics snippets the web layout injects are deliberately absent: a
+ * signed desktop binary should not fetch and run third-party script at start-up.
  */
 
 /**
@@ -146,6 +150,7 @@ const ROUTES: RouteTable = [
     ),
   },
   settingsRoute('/:workspaceId/settings', SettingsIndex),
+  settingsRoute('/:workspaceId/settings/api-credits', SettingsApiCredits),
   settingsRoute('/:workspaceId/settings/approvals', SettingsApprovals),
   settingsRoute('/:workspaceId/settings/connected-apps', SettingsConnectedApps),
   settingsRoute('/:workspaceId/settings/devices', SettingsDevices),

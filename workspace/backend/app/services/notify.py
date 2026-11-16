@@ -75,8 +75,8 @@ def notify(
     transaction — this does not commit.
 
     `push=False` is for notifications that belong in the inbox but do not
-    justify a phone buzzing — worth finding later, not worth interrupting
-    anyone for.
+    justify a phone buzzing: see the campaign credits grant, which is worth
+    finding later and not worth interrupting anyone for.
     """
     record = NotificationRecord(
         workspace_id=str(workspace_id),

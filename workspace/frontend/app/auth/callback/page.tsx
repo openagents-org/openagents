@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
+import { capture } from '@/lib/analytics';
 import { isDesktopSignIn } from '@/lib/desktop-handoff';
 import { landingTarget, markAutoEntered, rememberWorkspaceTokens } from '@/lib/first-workspace';
 import { useT, type MessageKey } from '@/lib/i18n';
@@ -166,7 +167,10 @@ function AuthCallback() {
         rememberWorkspaceTokens(list, handoff.idToken);
         const target = landingTarget(list);
         if (target) {
+          // The home page's checkpoints, since this skips the home page.
+          capture('membership_home_viewed', { workspace_count: list.length, via: 'auth_callback' });
           markAutoEntered(target);
+          capture('first_workspace_auto_entered', { workspace_id: target.workspace.slug, reason: target.reason });
           router.replace(`/${target.workspace.slug}`);
           return;
         }

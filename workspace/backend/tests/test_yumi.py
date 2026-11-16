@@ -569,9 +569,10 @@ def _events(client, data, ch, limit=5):
 @pytest.fixture
 def quiet_background(monkeypatch):
     """POST /v1/events schedules background work after the response (push
-    fan-out, cloud-agent invocation, workflow/relay hooks) that opens
+    fan-out, cloud-agent invocation, workflow/relay/campaign hooks) that opens
     its own DB session against the configured DATABASE_URL — not available in
     unit tests. Stub them so posting a message exercises routing only."""
+    import app.services.campaign as campaign
     import app.services.cloud_agent as cloud_agent
     import app.services.integrations as integrations
     import app.services.push as push
@@ -585,6 +586,7 @@ def quiet_background(monkeypatch):
     monkeypatch.setattr(cloud_agent, "invoke_cloud_agents", noop)
     monkeypatch.setattr(workflow, "advance_workflow", noop)
     monkeypatch.setattr(integrations, "relay_for_event", noop)
+    monkeypatch.setattr(campaign, "on_agent_message", noop)
     monkeypatch.setattr(watches, "notify_watchers", noop)
 
 
