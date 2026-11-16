@@ -1769,6 +1769,149 @@ describe('Daemon', () => {
     }
   });
 
+  // Field report 2026-11-13: an agent added from the workspace answered its
+  // first message with "No response generated (exit code 143)" and two "Task
+  // interrupted — daemon restarting". `agn connect` saves the workspace to
+  // daemon.yaml AND sends restart:<name>; the restart launched the agent, then
+  // the config watch's reload compared against its own stale record (no
+  // workspace yet), saw a change, and restarted it again a second later.
+  it('a reload after restartAgent does not restart the agent a second time', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const reg = new Registry(tmpDir);
+    const daemon = new Daemon(config, env, reg);
+
+    // As create_agent leaves it before `agn connect`: on the device, and
+    // already seen by a reload, but not in a workspace yet.
+    config.addAgent({ name: 'elven-claude', type: 'claude', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._cachedAgentNames = new Set(['elven-claude']);
+    daemon._cachedAgentConfigs = { 'elven-claude': daemon._agentConfigFingerprint(config.getAgent('elven-claude')) };
+
+    const events = [];
+    daemon.stopAgent = async (name) => { events.push(`stop ${name}`); };
+    daemon._launchAgent = (agent) => { events.push(`launch ${agent.name} → ${agent.network || '(local)'}`); };
+    daemon._ensureAdapterCleared = async () => {};
+
+    // `agn connect`: the workspace is saved, then restart:<name> is processed…
+    config.updateAgent('elven-claude', { network: 'ws1', node_id: 'node-1' });
+    await daemon.restartAgent('elven-claude');
+    // …and the config watch's reload of the same write lands a second later.
+    await daemon._reload();
+
+    assert.deepEqual(events, ['stop elven-claude', 'launch elven-claude → ws1']);
+  });
+
+  it('a reload still restarts an agent whose config changed after restartAgent', async () => {
+    const config = new Config(tmpDir);
+    const env = new EnvManager(tmpDir);
+    const reg = new Registry(tmpDir);
+    const daemon = new Daemon(config, env, reg);
+
+    config.addAgent({ name: 'a1', type: 'claude', env: {} });
+    config.updateAgent('a1', { network: 'ws1' });
+    daemon._cachedAgentNames = new Set();
+    daemon._cachedAgentConfigs = {};
+
+    const events = [];
+    daemon.stopAgent = async (name) => { events.push(`stop ${name}`); };
+    daemon._launchAgent = (agent) => { events.push(`launch ${agent.name} ${JSON.stringify(agent.env || {})}`); };
+    daemon._ensureAdapterCleared = async () => {};
+
+    await daemon.restartAgent('a1');
+    config.updateAgentEnv('a1', { LLM_MODEL: 'opus' });
+    await daemon._reload();
+
+    assert.deepEqual(events, [
+      'stop a1', 'launch a1 {}',
+      'stop a1', 'launch a1 {"LLM_MODEL":"opus"}',
+    ]);
+  });
+
+  // The same write, the other way round: the config watch's reload is
+  // already restarting the agent when restart:<name> is processed.
+  function mkLifecycleDaemon(name) {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    config.addAgent({ name, type: 'claude', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    daemon._cachedAgentNames = new Set([name]);
+    daemon._cachedAgentConfigs = { [name]: daemon._agentConfigFingerprint(config.getAgent(name)) };
+    const events = [];
+    let release;
+    daemon.stopGate = new Promise((r) => { release = r; });
+    daemon.releaseStop = release;
+    daemon.stopAgent = async (n) => {
+      events.push(`stop ${n}`);
+      await daemon.stopGate;
+      delete daemon._adapters[n];
+    };
+    daemon._launchAgent = (agent) => {
+      events.push(`launch ${agent.name} → ${agent.network || '(local)'}`);
+      daemon._adapters[agent.name] = {};
+    };
+    daemon._ensureAdapterCleared = async () => {};
+    return { config, daemon, events };
+  }
+
+  it('a restart that arrives while a reload restarts the agent does not restart it again', async () => {
+    const { config, daemon, events } = mkLifecycleDaemon('elven-claude');
+    config.updateAgent('elven-claude', { network: 'ws1', node_id: 'node-1' });
+
+    const reload = daemon._reload();
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(events, ['stop elven-claude']);
+    const restart = daemon.restartAgent('elven-claude');
+    daemon.releaseStop();
+    await Promise.all([reload, restart]);
+
+    assert.deepEqual(events, ['stop elven-claude', 'launch elven-claude → ws1']);
+  });
+
+  it('a reload that arrives while restartAgent is stopping the agent waits for it', async () => {
+    const { config, daemon, events } = mkLifecycleDaemon('elven-claude');
+    config.updateAgent('elven-claude', { network: 'ws1', node_id: 'node-1' });
+
+    const restart = daemon.restartAgent('elven-claude');
+    await new Promise((r) => setImmediate(r));
+    assert.deepEqual(events, ['stop elven-claude']);
+    const reload = daemon._reload();
+    daemon.releaseStop();
+    await Promise.all([reload, restart]);
+
+    assert.deepEqual(events, ['stop elven-claude', 'launch elven-claude → ws1']);
+  });
+
+  // Review of the second fix: the reload's fingerprint leaves out path and
+  // node_id, so a restart for a changed path was taken as already served.
+  for (const [field, value] of [['path', '/new/dir'], ['node_id', 'node-2']]) {
+    it(`a restart for a ${field} change made while a reload ran is not skipped`, async () => {
+      const { config, daemon, events } = mkLifecycleDaemon('a1');
+      daemon._launchAgent = (agent) => {
+        events.push(`launch ${agent.name} ${agent[field] || '-'}`);
+        daemon._adapters[agent.name] = {};
+      };
+      config.updateAgent('a1', { network: 'ws1' });
+
+      const reload = daemon._reload();
+      await new Promise((r) => setImmediate(r));
+      config.updateAgent('a1', { [field]: value });
+      const restart = daemon.restartAgent('a1');
+      daemon.releaseStop();
+      await Promise.all([reload, restart]);
+
+      assert.deepEqual(events.slice(-1), [`launch a1 ${value}`]);
+    });
+  }
+
+  it('an explicit restart after a reload has finished still restarts', async () => {
+    const { config, daemon, events } = mkLifecycleDaemon('a1');
+    daemon.releaseStop();
+    config.updateAgent('a1', { network: 'ws1' });
+    await daemon._reload();
+    await daemon.restartAgent('a1');
+
+    assert.deepEqual(events, ['stop a1', 'launch a1 → ws1', 'stop a1', 'launch a1 → ws1']);
+  });
+
   it('_ensureAdapterCleared force-releases stuck adapter', async () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);

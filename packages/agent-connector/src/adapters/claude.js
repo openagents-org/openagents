@@ -29,6 +29,7 @@ const { isPostinstallStub } = require('../postinstall-stub');
 const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
 
 const IS_WINDOWS = process.platform === 'win32';
+const DAEMON_STOP_NOTICE = 'Task interrupted — daemon restarting. Send another message to continue.';
 
 class ClaudeAdapter extends BaseAdapter {
   /**
@@ -230,13 +231,22 @@ class ClaudeAdapter extends BaseAdapter {
    * 5s to actually finish the cleanup before the parent exits.
    */
   stop() {
+    // One stop, one notice. The daemon stops an agent twice per restart (once
+    // directly, once more from its 1s checkStop poll), and _stopAllProcesses
+    // only forgets a channel after awaiting its kill, so a second pass posted
+    // "Task interrupted" again for the same run.
+    if (this.wasStopRequested()) return;
+    // Marked before the kill: the turn waiting on the process must read its
+    // SIGTERM as this stop, not as a failure ("No response generated (exit
+    // code 143)" on top of the notice below).
+    super.stop();
+    // The channels _stopAllProcesses below tells. A turn still preparing in
+    // another channel gets its notice from _bailOnStopDuringTurn, once.
+    this._daemonStopNotified = new Set(Object.keys(this._channelProcesses));
     for (const channel of Object.keys(this._persistentProcs)) {
       this._killPersistentProc(channel);
     }
-    this._stopAllProcesses(
-      'Task interrupted — daemon restarting. Send another message to continue.'
-    ).catch(() => {});
-    super.stop();
+    this._stopAllProcesses(DAEMON_STOP_NOTICE).catch(() => {});
   }
 
   async _stopProcess(proc) {
@@ -324,13 +334,33 @@ class ClaudeAdapter extends BaseAdapter {
    * stop handler kills whatever process is registered, but a turn still
    * working through its pre-CLI round trips has none yet — so without this
    * it goes on to spawn one and the agent resumes seconds after saying it
-   * stopped. Returns true when the caller should give up.
+   * stopped.
+   *
+   * Returns null to go on, synchronously: an `await` between this check and
+   * the spawn right after it would let a stop land unseen in between.
+   * Otherwise a promise the caller awaits before giving up.
    */
-  async _bailOnStopDuringTurn(msgChannel) {
-    if (!this._stoppedBeforeStart(msgChannel)) return false;
+  _bailOnStopDuringTurn(msgChannel) {
+    if (!this.wasStopRequested() && !this._stopRequestedDuringTurn(msgChannel)) return null;
+    return this._bailOnStop(msgChannel);
+  }
+
+  async _bailOnStop(msgChannel) {
+    // The agent itself was stopped (daemon restart or shutdown) while this
+    // turn was preparing. stop() runs once and found no process here to
+    // kill, so a CLI spawned now would outlive the agent that owns it.
+    if (this.wasStopRequested()) {
+      this._log(`Agent stopped while preparing ${msgChannel} — not starting the run`);
+      const notified = this._daemonStopNotified || (this._daemonStopNotified = new Set());
+      if (!notified.has(msgChannel)) {
+        notified.add(msgChannel);
+        try { await this.sendResponse(msgChannel, DAEMON_STOP_NOTICE); } catch {}
+      }
+      return;
+    }
+    this._stoppedBeforeStart(msgChannel);
     // Deduped: normally the stop handler already announced it.
     await this._finishUserStop(msgChannel);
-    return true;
   }
 
   /**
@@ -1456,7 +1486,8 @@ class ClaudeAdapter extends BaseAdapter {
         } else {
           this._log(`Reusing persistent process for ${msgChannel}`);
         }
-        if (await this._bailOnStopDuringTurn(msgChannel)) return;
+        const bail = this._bailOnStopDuringTurn(msgChannel);
+        if (bail) { await bail; return; }
         this._resetIdleTimer(msgChannel);
         existingPP.msgChannel = msgChannel;
         const result = await this._sendToPersistentProc(existingPP, turnContent);
@@ -1464,6 +1495,9 @@ class ClaudeAdapter extends BaseAdapter {
           await this._finishUserStop(msgChannel);
           return;
         }
+        // Killed by the agent's own stop (daemon restart or shutdown): stop()
+        // has told the channel, and a replacement spawned now would outlive it.
+        if (!result.resultEvent && this.wasStopRequested()) return;
         if (result.resultEvent) {
           const finalResponse = this._composeFinalResponse(existingPP);
           if (this._isPromptTooLong(existingPP, finalResponse) && this._channelSessions[msgChannel]) {
@@ -1542,7 +1576,8 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       try {
-        if (await this._bailOnStopDuringTurn(msgChannel)) return;
+        const bail = this._bailOnStopDuringTurn(msgChannel);
+        if (bail) { await bail; return; }
         const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
         // Remember the spawn-time configuration so the fast-path can detect
         // staleness on later messages — the pinned knowledge and the mode
@@ -1575,6 +1610,11 @@ class ClaudeAdapter extends BaseAdapter {
           await this._finishUserStop(msgChannel);
           break;
         }
+
+        // Killed by the agent's own stop (daemon restart or shutdown): stop()
+        // posts the notice. Read as a failure, the exit posted "No response
+        // generated (exit code 143)" too, or was retried as a stale session.
+        if (result.exited && this.wasStopRequested()) break;
 
         if (result.exited) {
           this._log(`Process exited during first message (attempt ${attempt + 1})`);

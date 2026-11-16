@@ -678,13 +678,15 @@ describe('agent stop control', () => {
     adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
     adapter._markStopRequested('thread');
 
-    assert.equal(await adapter._bailOnStopDuringTurn('thread'), true);
+    const bail = adapter._bailOnStopDuringTurn('thread');
+    assert.ok(bail, 'gives up');
+    await bail;
     assert.deepEqual(cancelled, ['thread']);
     assert.deepEqual(responses, [{ channel: 'thread', content: 'Execution stopped by user.' }]);
 
     // A turn started after the stop is the user asking for new work.
     adapter._channelRunGeneration.thread = adapter._stopGenerationFor('thread');
-    assert.equal(await adapter._bailOnStopDuringTurn('thread'), false);
+    assert.equal(adapter._bailOnStopDuringTurn('thread'), null);
     assert.deepEqual(cancelled, ['thread']);
   });
 
