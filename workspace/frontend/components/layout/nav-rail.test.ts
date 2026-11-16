@@ -7,8 +7,8 @@ import { OnboardingSurfaceContext } from './onboarding-surface';
 
 const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
-  viewMode: 'threads', railViewMode: 'threads', openView: state.openView, isRailExpanded: true, railDragWidth: null, setThreadFilter: vi.fn(),
-}), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 180 }));
+  viewMode: 'threads', railViewMode: 'threads', openView: state.openView, isRailExpanded: true, setThreadFilter: vi.fn(),
+}), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 256 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
   currentUser: { id: 'sam@example.com' }, tasks: [], onlineUsers: [], pendingApprovalsByAgent: {}, unreadDmCounts: {},
@@ -30,6 +30,7 @@ vi.mock('./search-menu', () => ({ SearchMenu: () => null }));
 vi.mock('./notifications-menu', () => ({ NotificationsMenu: () => null }));
 vi.mock('./invite-member-button', () => ({ InviteMemberButton: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
+vi.mock('./rail-edge', () => ({ RailEdge: () => null }));
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 
@@ -82,5 +83,22 @@ it('selects Manage Agents rather than the seeded thread while onboarding owns th
     await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider, { value: { active: false } }, React.createElement(NavRail))));
     expect(threads.getAttribute('data-active')).toBe('true');
     expect(connect.getAttribute('data-active')).toBe('false');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('puts Manage Agents at the top with Inbox as the envelope beside it, as dashboard-01 does', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(React.createElement(NavRail)));
+    const buttons = [...host.querySelectorAll('button')];
+    const manage = buttons.findIndex(b => b.textContent === 'nav.manageAgents');
+    const threads = buttons.findIndex(b => b.textContent?.startsWith('views.threads'));
+    expect(manage).toBeGreaterThanOrEqual(0);
+    expect(manage).toBeLessThan(threads);
+    const inbox = host.querySelectorAll('button[aria-label="views.inbox"]');
+    expect(inbox).toHaveLength(1);
+    await act(async () => (inbox[0] as HTMLButtonElement).click());
+    expect(state.openView).toHaveBeenCalledWith('inbox');
   } finally { await act(async () => root.unmount()); host.remove(); }
 });

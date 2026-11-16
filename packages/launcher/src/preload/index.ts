@@ -94,6 +94,9 @@ contextBridge.exposeInMainWorld('api', {
   // Windows/Linux only: repaints the window-controls overlay while a dialog
   // scrims the page, so the buttons dim with it.
   setChromeDimmed: (dim: boolean) => ipcRenderer.invoke('window:chrome-dim', dim),
+  // Windows/Linux only: paints the overlay in the surface of the bar it sits
+  // in — the sidebar colour on the Workspace side, the page colour elsewhere.
+  setChromeSurface: (surface: 'page' | 'sidebar') => ipcRenderer.invoke('window:chrome-surface', surface),
   getAllSettings: () => ipcRenderer.invoke('settings:get-all'),
   getLocalConnector: () => ipcRenderer.invoke('local-connector:get'),
   setLocalConnector: (enabled: boolean) => ipcRenderer.invoke('local-connector:set', enabled),

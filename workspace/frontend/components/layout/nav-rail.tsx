@@ -7,7 +7,7 @@ import * as React from 'react';
 import Image from 'next/image';
 import {
 BookOpen,Bot,CircleDot,CalendarClock,FileText,Globe,
-Inbox,MessageSquare,Sparkles,Waypoints
+Inbox,Mail,MessageSquare,Sparkles,Waypoints
 } from 'lucide-react';
 import {
 Sidebar,
@@ -21,7 +21,7 @@ SidebarMenu,
 SidebarMenuButton,
 SidebarMenuItem,
 } from '@/components/ui/sidebar';
-import { Separator } from '@/components/ui/separator';
+import { Button } from '@/components/ui/button';
  // v1.1 M1
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -35,7 +35,7 @@ import { NotificationsMenu } from './notifications-menu';
 import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
-import { RAIL_SNAP_POINT, RailResizeHandle } from './rail-resize-handle';
+import { RailEdge } from './rail-edge';
 import { RailAgents } from './rail-agents';
 
 interface RailItem {
@@ -55,7 +55,7 @@ interface RailItem {
  */
 export function NavRail() {
   const {
-    viewMode, railViewMode, openView, setSelectedAgentName, isRailExpanded, railDragWidth, setThreadFilter, openMobileDetail,
+    viewMode, railViewMode, openView, setSelectedAgentName, isRailExpanded, setThreadFilter, openMobileDetail,
   } = useLayout();
   const {
     workspace, agents, unreadThreadsTotal, unreadNotificationCount, pendingApprovalsByAgent,
@@ -106,13 +106,15 @@ export function NavRail() {
   const isConnectActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showFirstDeviceHint = !!setupStep && !isConnectActive;
-  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectFirstAgent');
+  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
-  // Mid-drag the rail previews the state it would snap to, so labels appear
-  // and disappear under the pointer instead of only after the release.
-  const showLabels =
-    railDragWidth !== null ? railDragWidth >= RAIL_SNAP_POINT : isRailExpanded;
+  const showLabels = isRailExpanded;
+  // Expanded, Inbox is the envelope beside Manage Agents (shadcn dashboard-01's
+  // Quick Create row); collapsed there is no room beside it, so it stays a
+  // regular rail item.
+  const navItems = showLabels ? items.filter((item) => item.mode !== 'inbox') : items;
+  const inboxActive = !onboarding && railViewMode === 'inbox';
 
   return (
     /* No trailing border: the list and detail panes beside the rail form an
@@ -122,42 +124,42 @@ export function NavRail() {
       collapsible="none"
       className={cn(
         'relative w-[calc(var(--sidebar-width-icon)+1px)]! shrink-0',
-        // No easing mid-drag: the width has to track the pointer exactly.
-        railDragWidth === null && 'transition-[width] duration-200 ease-linear',
+        'transition-[width] duration-200 ease-linear',
       )}
     >
-      {/* Brand. The expand/collapse control lives in the footer now — a fixed
-          bottom-left button, plus the draggable seam on the trailing edge. */}
-      <SidebarHeader className="py-3">
+      {/* Brand, sized as shadcn dashboard-01's: a 20px mark and the name in
+          text-base. Expanding and collapsing is the trailing edge's job
+          (RailEdge) and Cmd/Ctrl+B. */}
+      <SidebarHeader className="px-1.5 pt-3 pb-0">
         <div
           className={cn(
-            'flex items-center',
-            showLabels ? 'w-full gap-2 px-1' : 'justify-center',
+            'flex h-8 items-center',
+            showLabels ? 'w-full gap-2 p-1.5' : 'justify-center',
           )}
         >
           <span
-            className="flex size-8 shrink-0 items-center justify-center overflow-hidden"
+            className="flex size-5 shrink-0 items-center justify-center overflow-hidden"
             title={workspaceLabel}
           >
             <Image
               src="/logo-black.png"
               alt=""
-              width={32}
-              height={32}
+              width={20}
+              height={20}
               className="size-full object-contain dark:hidden"
             />
             <Image
               src="/logo-white.png"
               alt=""
-              width={32}
-              height={32}
+              width={20}
+              height={20}
               className="hidden size-full object-contain dark:block"
             />
           </span>
 
           {showLabels && (
             <span
-              className="min-w-0 flex-1 truncate text-sm font-semibold"
+              className="min-w-0 flex-1 truncate text-base font-semibold"
               aria-label={workspaceLabel}
               onMouseEnter={(event) => {
                 const label = event.currentTarget;
@@ -178,6 +180,44 @@ export function NavRail() {
 
       {/* View nav + agents */}
       <SidebarContent>
+        {/* The primary action, as dashboard-01's Quick Create row: Manage
+            Agents, with Inbox beside it while there is room. */}
+        <SidebarGroup className="px-1.5 pb-0">
+          {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
+          <SidebarMenu>
+            <SidebarMenuItem className="flex items-center gap-2">
+              <ConnectAgentButton
+                label={connectLabel}
+                active={isConnectActive}
+                showLabels={showLabels}
+                onClick={() => openView('connect')}
+              />
+              {showLabels && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="relative size-8 shrink-0"
+                  aria-label={t('views.inbox')}
+                  aria-current={inboxActive ? 'page' : undefined}
+                  title={t('views.inbox')}
+                  onClick={() => openView('inbox')}
+                >
+                  <Mail />
+                  <span className="sr-only">{t('views.inbox')}</span>
+                  {unreadNotificationCount > 0 && (
+                    <span
+                      className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-white tabular-nums"
+                      aria-label={t('nav.unreadCount', { count: unreadNotificationCount })}
+                    >
+                      {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                    </span>
+                  )}
+                </Button>
+              )}
+            </SidebarMenuItem>
+          </SidebarMenu>
+        </SidebarGroup>
+
         <SidebarGroup className="px-1.5">
           {/* Group labels only make sense once there is room for them — the
               collapsed rail is icon-only, and a 52px column has nowhere to put
@@ -185,7 +225,7 @@ export function NavRail() {
           {showLabels && <SidebarGroupLabel className="px-2">{t('nav.collaboration')}</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {items.map((item) => (
+              {navItems.map((item) => (
                 <SidebarMenuItem key={item.mode}>
                   <SidebarMenuButton
                     className={cn('relative', !showLabels && 'justify-center!')}
@@ -213,24 +253,8 @@ export function NavRail() {
         <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
-      {/* Connect agent + global tools */}
+      {/* Global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
-        {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
-        <SidebarMenu className="gap-0.5">
-          <SidebarMenuItem>
-            <ConnectAgentButton
-              label={connectLabel}
-              active={isConnectActive}
-              showLabels={showLabels}
-              onClick={() => openView('connect')}
-            />
-          </SidebarMenuItem>
-        </SidebarMenu>
-
-        <div className="px-1.5">
-          <Separator />
-        </div>
-
         <div
           className={cn(
             'flex gap-0.5',
@@ -245,7 +269,7 @@ export function NavRail() {
 
       </SidebarFooter>
 
-      <RailResizeHandle />
+      <RailEdge />
     </Sidebar>
   );
 }

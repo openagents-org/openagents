@@ -10,7 +10,6 @@ const h = vi.hoisted(() => ({
   ws: {} as Record<string, unknown>,
   threads: {} as Record<string, unknown[]>,
   seen: [] as unknown[][],
-  steps: [] as boolean[],
   scrollKeys: [] as (number | undefined)[],
   generation: 0,
   openView: vi.fn(),
@@ -57,7 +56,7 @@ vi.mock('@/hooks/use-polling', async () => {
   };
 });
 vi.mock('./chat-messages', () => ({
-  ChatMessages: ({ messages, showAllSteps, scrollKey, onReply }: { messages: unknown[]; showAllSteps: boolean; scrollKey?: number; onReply: (message: WorkspaceMessage) => void }) => { h.steps.push(showAllSteps); h.scrollKeys.push(scrollKey); h.seen.push(messages); h.reply = onReply; return null; },
+  ChatMessages: ({ messages, scrollKey, onReply }: { messages: unknown[]; scrollKey?: number; onReply: (message: WorkspaceMessage) => void }) => { h.scrollKeys.push(scrollKey); h.seen.push(messages); h.reply = onReply; return null; },
 }));
 vi.mock('./chat-input', () => ({
   ChatInput: ({ onSend }: { onSend: (text: string) => Promise<void> }) => { h.send = onSend; return null; },
@@ -118,7 +117,7 @@ beforeEach(() => {
   document.body.appendChild(container);
   root = createRoot(container);
   resetOptimisticStoreForTests();
-  h.steps = []; h.scrollKeys = []; h.generation = 0; h.openView.mockClear();
+  h.scrollKeys = []; h.generation = 0; h.openView.mockClear();
   h.seen = []; h.sent = []; h.reply = null;
   h.threads = {
     'thread-a': [msg('a1', 'thread-a'), step('a2', 'thread-a')],
@@ -257,10 +256,9 @@ it('keeps routing attached to the sent message across thread switches until the 
 });
 
 
-it('defaults to compact steps while keeping messages readable with no connected agent', async () => {
+it('keeps messages readable with no connected agent', async () => {
   h.ws.agents = [];
   await open('thread-a');
-  expect(h.steps.at(-1)).toBe(false);
   expect(shown()).toEqual(['chat', 'status']);
   expect(container.textContent).toContain('chat.connectAgentNotice');
   const connect = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'nav.connectAgent')!;

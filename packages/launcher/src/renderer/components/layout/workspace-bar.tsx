@@ -1,4 +1,5 @@
 import React from "react"
+import { cn } from "@renderer/lib/utils"
 import { LauncherUpdateBanner } from "@renderer/components/LauncherUpdateBanner"
 import { useAccountStore } from "@renderer/store/account"
 import { useWorkspaceTabsStore } from "@renderer/store/workspace-tabs"
@@ -42,8 +43,21 @@ export function WorkspaceBar(): React.JSX.Element {
   // on the row that holds it.
   const [rowRef, rowWidth] = useWidth<HTMLDivElement>()
 
+  // The bar is sidebar-coloured; the OS window buttons drawn over its right
+  // end on Windows/Linux follow it while it is up. `?.` for an older preload.
+  React.useEffect(() => {
+    void window.api?.setChromeSurface?.("sidebar")?.catch(() => {})
+    return () => void window.api?.setChromeSurface?.("page")?.catch(() => {})
+  }, [])
+
   return (
-    <header className="titlebar-drag flex h-(--mode-bar-h) shrink-0 items-center gap-3 border-b bg-background pr-(--window-controls-w) pl-(--traffic-lights-w)">
+    // Sidebar-coloured: over a workspace it runs on into the web app's shell,
+    // which is the same colour, with no seam. All Workspaces is a white page,
+    // so there it keeps a border.
+    <header className={cn(
+      "titlebar-drag flex h-(--mode-bar-h) shrink-0 items-center gap-3 bg-sidebar pr-(--window-controls-w) pl-(--traffic-lights-w)",
+      onHome && "border-b",
+    )}>
       {/* pl-2 after the lights, as the sidebar's row has, so the switch lands
           on the same pixels on both sides. */}
       <div className="flex min-w-0 flex-1 items-center gap-3 pl-2">

@@ -58,10 +58,11 @@ export function isTerminalStatus(msg: WorkspaceMessage) {
 }
 
 /**
- * Skip empty status messages; when "show all steps" is off, only keep status
- * messages after the last chat message.
+ * Drop empty steps and thinking that merely previewed the agent's reply. Every
+ * other step stays: finished runs fold into a "Took N steps" summary line
+ * (see IntermediateSteps) instead of being filtered out.
  */
-export function filterThreadSteps(realMessages: WorkspaceMessage[], showAllSteps: boolean): WorkspaceMessage[] {
+export function filterThreadSteps(realMessages: WorkspaceMessage[]): WorkspaceMessage[] {
   const isStep = (msg: WorkspaceMessage) => msg.messageType === 'status' || msg.messageType === 'thinking' || msg.messageType === 'todos';
 
   // Deduplicate: if a chat message follows thinking from the same agent
@@ -84,40 +85,5 @@ export function filterThreadSteps(realMessages: WorkspaceMessage[], showAllSteps
     return true;
   });
 
-  const nonEmpty = deduped.filter((msg) => !isStep(msg) || msg.content.trim());
-  if (showAllSteps) return nonEmpty;
-
-  let lastChatIndex = -1;
-  for (let i = nonEmpty.length - 1; i >= 0; i--) {
-    if (!isStep(nonEmpty[i])) {
-      lastChatIndex = i;
-      break;
-    }
-  }
-
-  // Check if the very last message is a step (agent still working)
-  const lastIsStep = nonEmpty.length > 0 && isStep(nonEmpty[nonEmpty.length - 1]);
-
-  // Keep: all non-step messages, all thinking messages (they persist),
-  // and trailing status only if agent is still actively working
-  const trailing = nonEmpty.filter((msg, index) => {
-    if (!isStep(msg)) return true;
-    // Always keep thinking and todos — they provide reasoning context
-    if (msg.messageType === 'thinking' || msg.messageType === 'todos') return true;
-    // Only keep trailing status if agent is still working
-    // (last message is a step, meaning no chat response yet)
-    return lastIsStep && index > lastChatIndex;
-  });
-  // Find the last status-only message and keep only that one
-  let lastStatusIndex = -1;
-  for (let i = trailing.length - 1; i >= 0; i--) {
-    if (trailing[i].messageType === 'status') {
-      lastStatusIndex = i;
-      break;
-    }
-  }
-  return trailing.filter((msg, index) => {
-    if (msg.messageType !== 'status') return true;
-    return index === lastStatusIndex;
-  });
+  return deduped.filter((msg) => !isStep(msg) || msg.content.trim());
 }

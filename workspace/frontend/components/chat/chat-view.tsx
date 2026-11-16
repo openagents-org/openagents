@@ -5,7 +5,6 @@ import { AgentMessageAccessProvider } from './agent-message-access';
 import { ThreadResources } from './thread-resources';
 import { useRef, useState, useEffect, useMemo } from 'react';
 import { ChatMessages } from './chat-messages';
-import { hasCollapsedSteps } from './intermediate-steps';
 import { YumiGuide } from './yumi-guide';
 import { ChatInput } from './chat-input';
 import { ReplyCitation, citationFor } from './reply-citation';
@@ -69,8 +68,6 @@ export function ChatView() {
     initialMessages: initialMessagesRef.current,
   });
   const { notifyFocus, notifyBlur, notifyTyping } = useComposingSignal(currentSessionId);
-  // Keep command history out of the conversation by default; opt in with the steps toggle.
-  const [showAllSteps, setShowAllSteps] = useState(false);
   const [shareDialogOpen, setShareDialogOpen] = useState(false);
 
   const workspaceKey = workspace?.workspaceId ?? '';
@@ -124,7 +121,6 @@ export function ChatView() {
     forceRefresh, prevSessionIdRef, setCurrentDraft,
   });
 
-  const hasCollapsibleSteps = hasCollapsedSteps(displayMessages);
 
   if (!currentSessionId) {
     return <NoThreadSelected routines={viewMode === 'routines'} canStart={agents.length > 0} onNewThread={openNewThread} />;
@@ -153,7 +149,6 @@ export function ChatView() {
         session={currentSession}
         dm={dm}
         onOpenProfile={setProfileEmail}
-        stepsToggle={hasCollapsibleSteps ? { showAll: showAllSteps, toggle: () => setShowAllSteps((prev) => !prev) } : null}
         canShare={!personalAssistantConversation}
         onShare={() => setShareDialogOpen(true)}
         routine={currentRoutine}
@@ -179,7 +174,6 @@ export function ChatView() {
           <ChatMessages
             messages={chatLogMessages}
             agents={agents}
-            showAllSteps={showAllSteps}
             scrollKey={scrollKey}
             loadOlder={loadOlder}
             hasOlder={hasOlder}
