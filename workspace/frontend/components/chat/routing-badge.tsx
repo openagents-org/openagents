@@ -11,7 +11,7 @@ const neutralBadgeClass = 'max-w-full text-muted-foreground';
 
 export function RoutingPendingBadge() {
   const t = useT();
-  return <Badge variant="info" className="max-w-full" role="status" aria-live="polite">
+  return <Badge variant="secondary" className="max-w-full" role="status" aria-live="polite">
     <span className="routing-flow mr-1" aria-hidden="true">
       <span className="routing-flow-source" /><span className="routing-flow-track" />
       <span className="routing-flow-signal" /><span className="routing-flow-destination" />

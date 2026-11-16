@@ -969,7 +969,7 @@ it('shows live issue work and requester completion, with active work taking prec
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('button.thread-wip')).toBeNull();
   expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent work finished');
-  expect(host.querySelector('button.bg-warning\\/10')).not.toBeNull();
+  expect(host.querySelector('button.bg-success\\/10')).not.toBeNull();
   mocks.ws.completedSessionIds = new Set(['unrelated-thread']);
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('[role="status"]')).toBeNull();

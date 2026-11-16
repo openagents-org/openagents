@@ -42,7 +42,7 @@ export function AgentRosterHints({ agent, className, showShared = true }: { agen
   if (!(showShared && agent.isShared) && !isDeviceOffline(agent)) return null;
   return (
     <span className={cn('inline-flex shrink-0 items-center gap-1', className)}>
-      {showShared && agent.isShared && <Badge variant="info" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}
+      {showShared && agent.isShared && <Badge variant="secondary" className="shrink-0 font-medium">{t('collab.shared')}</Badge>}
       <DeviceOfflineHint agent={agent} />
     </span>
   );
