@@ -160,6 +160,10 @@ function classifyOutputText(text) {
   // "Reconnecting... waiting for network" until the clock runs out.
   if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer|connection failed|stream disconnected before completion|failed to lookup address|dns error|tls handshake|failed to refresh available models: request timed out|reconnecting\.{3} waiting for network/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
+  // Codex with no sign-in at all sends no credential: "401 Unauthorized:
+  // Missing bearer … authentication", or for a ChatGPT workspace "workspace
+  // routing discovery unauthorized (401)". Nothing to re-enter, a sign-in.
+  if (/missing bearer|workspace routing discovery unauthorized/.test(text)) return CODE.NOT_LOGGED_IN;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   // A sign-in that exists but has run out — Claude Code: "Failed to
   // authenticate: OAuth session expired and could not be refreshed".
@@ -175,7 +179,10 @@ function classifyOutputText(text) {
 
 function classifyFailure(output, { timedOut = false, spawnError = null } = {}) {
   if (spawnError && /ENOENT/.test(String(spawnError))) return CODE.NOT_INSTALLED;
-  const text = String(output || '').toLowerCase();
+  // Notices (see PROBE_NOISE) never decide the verdict: Claude Code's "this
+  // sign-in ends between …, run claude auth login before then" read as
+  // "not logged in" on a sign-in that still worked.
+  const text = withoutProbeNotices(output).toLowerCase();
   if (timedOut) {
     // A CLI that retries a hard API error (bad key, unknown model, quota)
     // until the probe clock runs out is NOT "waiting for interactive input" —
@@ -444,6 +451,64 @@ function mostlyEncoded(line) {
 }
 
 /**
+ * Lines a CLI prints on a run that say nothing about why it failed, so a
+ * failed test never quotes them as the reason, and the classifier never reads
+ * them. Each was quoted as the reason on the daily errors dashboard:
+ * - the `codex exec` banner (version, workdir, model, sandbox, session id)
+ *   and its echo of the prompt;
+ * - Codex's notices about the user's own config.toml (settings it ignores,
+ *   under-development features, a skill file it could not load);
+ * - Gemini's "Ripgrep is not available" and duplicate-skill notices;
+ * - Claude Code's untrusted-folder permissions notice, and its "this sign-in
+ *   ends between …" reminder, which read as "not logged in" though the
+ *   sign-in still worked.
+ */
+const PROBE_NOISE = new RegExp([
+  /^OpenAI Codex v\d/,
+  /^-{4,}$/,
+  /^(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id): \S+$/,
+  /^(user|hi)$/,
+  /^hook: /,
+  /^mcp startup:/,
+  /^warning: Codex is ignoring \d+ unrecognized configuration setting/i,
+  /^(user|project|session-flags)\b.*: `[^`]+` is ignored\.?$/,
+  /Under-development features (enabled|are incomplete)/,
+  /\bfailed to load skill\b/,
+  /^warning: Codex could not find bubblewrap/i,
+  /^WARNING: proceeding, even though we could not create PATH aliases/,
+  /^Ripgrep is not available/,
+  /is overriding the same skill from/,
+  /^Ignoring \d+ permissions\.\w+ entries/,
+  /^Warning: this sign-in ends between/,
+].map((r) => r.source).join('|'), 'i');
+
+/**
+ * Codex prefixes a failed WebSocket attempt's reason with this notice ("…
+ * transport. unexpected status 401 Unauthorized: Missing bearer …"); the
+ * reason after it is what matters.
+ */
+const CODEX_WS_FALLBACK = /^\s*warning: Falling back from WebSockets to HTTPS transport\.\s*/i;
+
+/** One line of CLI output with the notices above taken off; '' when it was only notice. */
+function probeLine(line) {
+  const l = String(line).replace(CODEX_WS_FALLBACK, '').trim();
+  return l && !PROBE_NOISE.test(l) ? l : '';
+}
+
+/** CLI output without the notices above. */
+function withoutProbeNotices(text) {
+  return String(text || '').split(/\r?\n/).map(probeLine).filter(Boolean).join('\n');
+}
+
+/** CLI output without the known-harmless lines (shared and probe-only). */
+function withoutProbeNoise(text) {
+  return withoutProbeNotices(withoutNoise(text));
+}
+
+/** A line that reads as the error itself, when the classifier knows none. */
+const ERRORISH = /\b(error|fatal|failed|failure|denied|refused|unauthorized|forbidden|not supported|no longer supported|invalid|exception)\b/i;
+
+/**
  * The one line worth reporting from a failed run.
  *
  * Stderr used to win outright, so a harmless warning there hid the real error
@@ -472,24 +537,36 @@ function failureMessage(res, code, timeoutMs) {
   // session id) and echoes the prompt. On a probe that timed out with nothing
   // else said, that banner was quoted as the reason — "Timed out after 120s:
   // OpenAI Codex v0.165.0 -------- workdir: …" — which explains nothing.
-  const CODEX_BANNER = /^(OpenAI Codex v\d|-{4,}$|(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id): \S+$|user$|hi$|hook: |mcp startup:)/;
-  const lines = (s) => {
-    const said = String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
-      .filter((l) => l && !BENIGN_OUTPUT.test(l) && !CODEX_BANNER.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
+  // Noise lines (see PROBE_NOISE) are dropped as well.
+  const grouped = (s) => {
+    const said = String(s || '').split(/\r?\n/).map((l) => scrub(probeLine(l)))
+      .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
     const own = said.filter((l) => !SIDE_SERVICE.test(l));
     const kept = own.length ? own : said;
     const plain = kept.filter((l) => !LOG_RECORD.test(l));
     const logged = kept.filter((l) => LOG_RECORD.test(l)).map((l) => l.replace(LOG_RECORD, ''));
-    return [...plain, ...logged];
+    return { plain, logged };
   };
+  const lines = (s) => { const g = grouped(s); return [...g.plain, ...g.logged]; };
   const all = [...lines(res.stderr), ...lines(res.stdout)];
   const telling = all.find((l) => classifyOutputText(l.toLowerCase()) === code);
-  const detail = tail(telling || lines(res.stderr).join('\n') || lines(res.stdout).join('\n'), OUTPUT_CAP);
+  // Nothing the classifier knows: the last line that reads as an error, not
+  // the tail of everything. Gemini dumps its account record before
+  // "IneligibleTierError: This client is no longer supported…", and the tail
+  // began mid-dump.
+  // Plain words rank ahead of log records here too.
+  const lastErrorish = (ls) => [...ls].reverse().find((l) => ERRORISH.test(l));
+  const errorish = (s) => { const g = grouped(s); return lastErrorish(g.plain) || lastErrorish(g.logged); };
+  const fallback = errorish(res.stderr) || errorish(res.stdout)
+    || lines(res.stderr).join('\n') || lines(res.stdout).join('\n');
+  const detail = tail(telling || fallback, OUTPUT_CAP);
   if (res.timedOut) {
     const prefix = `Timed out after ${Math.round(timeoutMs / 1000)}s`;
     return detail ? `${prefix}: ${detail}` : prefix;
   }
-  return detail || `Exited with code ${res.code}`;
+  if (detail) return detail;
+  // "Exited with code 0" said only that the CLI finished.
+  return res.code === 0 ? 'The CLI finished without replying' : `Exited with code ${res.code}`;
 }
 
 /** A model id safe to pass on a command line, through a Windows shell too. */
@@ -722,8 +799,8 @@ async function probeAgentType(connector, type, opts = {}) {
         guidance: buildGuidance(CODE.BAD_MODEL, entry, agentEnv),
       });
     }
-    const output = withoutNoise(`${res.stdout}\n${res.stderr}`);
-    const reply = withoutNoise(res.stdout).trim();
+    const output = withoutProbeNoise(`${res.stdout}\n${res.stderr}`);
+    const reply = withoutProbeNoise(res.stdout).trim();
     if (!res.timedOut && !res.spawnError && res.code === 0 && reply) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
