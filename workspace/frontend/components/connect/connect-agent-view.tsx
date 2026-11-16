@@ -13,10 +13,7 @@ import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
 import { withAgentDisplayNames } from '@/lib/node-agent-labels';
-import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
-import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { CampaignConnectHint } from '@/components/campaign/campaign-feedback';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import type { AgentCatalogEntry, CloudAgentConfig, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
@@ -51,7 +48,6 @@ export function ConnectAgentView({
   const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
-  const { idToken: oaIdToken } = useOpenAgentsAuth();
   const isDesktop = desktopHost() !== null;
 
   const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
@@ -68,12 +64,6 @@ export function ConnectAgentView({
     setSelectedTab('cloud');
     consumeCloudAgents?.();
   }, [cloudAgentsPending, consumeCloudAgents]);
-
-  // Onboarding checkpoint: the user reached the agent-setup surface. One event
-  // per tab so the funnel can split node vs cloud vs local paths.
-  useEffect(() => {
-    capture('connect_agent_viewed', { tab: activeTab });
-  }, [activeTab]);
 
   // Nodes (connect-a-node)
   const [nodes, setNodes] = useState<WorkspaceNode[]>([]);
@@ -196,7 +186,6 @@ export function ConnectAgentView({
         systemPrompt: cfgPrompt || undefined,
       });
       toast.success(t('connect.cloudAgentAdded', { name: cfgName }));
-      capture('cloud_agent_created', { provider: selectedProvider, model: cfgModel });
       refreshWorkspace();
       loadCloudAgents();
       setSelectedProvider(null);
@@ -262,7 +251,6 @@ export function ConnectAgentView({
     setPairing(null);
     setPairedNodeId(nodeId);
     toast.success(t('connect.nodeConnectedToast'));
-    capture('node_connected', { source: 'workspace_ui' });
   }, [t]);
   useEffect(() => {
     if (!pairing) return;
@@ -291,7 +279,6 @@ export function ConnectAgentView({
       const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
       setPairing(code);
-      capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
       setPairingError(true);
       const msg = err instanceof Error ? err.message : '';
@@ -337,17 +324,6 @@ export function ConnectAgentView({
       {/* The desktop app shows both tabs too: most people arrive through it, and
           Cloud Agents is the only place they can find hosted agents. */}
       <ConnectionTabs activeTab={activeTab} onSelect={setSelectedTab} />
-
-      {/* Credits-campaign incentive — Local Agents tab only: the milestone is
-          about launcher/CLI agents, so it would only confuse on the Cloud
-          Agents and Manual Connection tabs. */}
-      {activeTab === 'node' && (
-        <div className="px-6 shrink-0">
-          <div className="mx-auto w-full max-w-2xl">
-            <CampaignConnectHint idToken={oaIdToken} />
-          </div>
-        </div>
-      )}
 
       {/* Tab content */}
       <div className="flex-1 overflow-y-auto">

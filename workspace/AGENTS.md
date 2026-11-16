@@ -1,5 +1,7 @@
 # Workspace development and deployment
 
+Branch model, production promotion and self-hosted releases: see the repo-root [`AGENTS.md`](../AGENTS.md).
+
 Preview at workspace-preview.openagents.org follows `develop` and has its own frontend, backend, PostgreSQL database and file storage on droplet 164.92.127.159. The user authorized this isolation and automated preview database migrations on October 26, 2026.
 
 - Merge preview work into `develop`; the droplet’s `openagents-preview-tracker.timer` checks the public branch every two minutes, builds both images from the same commit and deploys the isolated stack automatically. Production (openagents.org) follows `openagents-release` through the promotion workflow; `release` is reserved for tagged self-hosted releases.

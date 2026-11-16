@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from 'next';
 import { Inter } from 'next/font/google';
-import Script from 'next/script';
-import { workspaceAnalyticsScript } from '@/lib/posthog-config';
 import { ThemeProvider } from 'next-themes';
 import { Toaster } from '@/components/ui/sonner';
 import { OpenAgentsAuthProvider } from '@/lib/openagents-auth-context';
@@ -12,16 +10,6 @@ import { getServerTranslations, resolveLocale } from '@/lib/i18n/server';
 import '@/styles/globals.css';
 
 const inter = Inter({ subsets: ['latin'] });
-
-// Analytics identifiers are injected via Vercel env vars (Project → Settings →
-// Environment Variables) rather than hardcoded. NEXT_PUBLIC_* values are inlined
-// into the client bundle at build time. When a key is unset the corresponding
-// snippet is skipped entirely, so analytics simply no-ops (e.g. local dev or
-// preview deploys without the vars configured).
-const POSTHOG_KEY = process.env.NEXT_PUBLIC_POSTHOG_KEY;
-const POSTHOG_HOST = process.env.NEXT_PUBLIC_POSTHOG_HOST ?? 'https://d.openagents.org';
-const GA_ID = process.env.NEXT_PUBLIC_GA_ID;
-const analyticsScript = workspaceAnalyticsScript(POSTHOG_KEY, POSTHOG_HOST, process.env.VERCEL_ENV);
 
 export async function generateMetadata(): Promise<Metadata> {
   const { t } = await getServerTranslations();
@@ -64,22 +52,7 @@ export default async function RootLayout({
 
   return (
     <html lang={locale} suppressHydrationWarning>
-      <head>
-        {analyticsScript && (
-          <Script id="posthog-init" strategy="afterInteractive">{analyticsScript}</Script>
-        )}
-        {GA_ID && (
-        <>
-        <Script src={`https://www.googletagmanager.com/gtag/js?id=${GA_ID}`} strategy="afterInteractive" />
-        <Script id="gtag-init" strategy="afterInteractive">{`
-          window.dataLayer = window.dataLayer || [];
-          function gtag(){dataLayer.push(arguments);}
-          gtag('js', new Date());
-          gtag('config', '${GA_ID}');
-        `}</Script>
-        </>
-        )}
-      </head>
+      <head />
       {/* `suppressHydrationWarning` here is for the browser, not for us:
           extensions routinely stamp attributes onto <body> (cz-shortcut-listen,
           grammarly-*, …) before React hydrates, and each one raises a mismatch

@@ -17,7 +17,6 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: vi.fn(), isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: null }) }));
-vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => null }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({}) }));
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));

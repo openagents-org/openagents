@@ -1,14 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { inboxDestination, threadFilterFor } from '@/lib/inbox';
 import { requestedResource } from '@/lib/resource-link';
-import { currentRouteSearch } from '@/lib/route-search';
 import type { NotificationItem, WorkspaceSession } from '@/lib/types';
 
 /** How long a thread the list does not have yet may take to turn up. */
@@ -22,8 +20,7 @@ const LOOKUP_TIMEOUT_MS = 8000;
  */
 export function useOpenNotification() {
   const t = useT();
-  const router = useRouter();
-  const { workspace, sessions, setCurrentSessionId, markNotificationRead, refreshAgents } = useWorkspace();
+  const { sessions, setCurrentSessionId, markNotificationRead, refreshAgents } = useWorkspace();
   const { openView, openMobileDetail, setPendingIssueId, threadFilter, setThreadFilter } = useLayout();
   const [waitingFor, setWaitingFor] = useState<string | null>(null);
 
@@ -66,9 +63,6 @@ export function useOpenNotification() {
         openView('issues');
         openMobileDetail();
         return;
-      case 'credits':
-        if (workspace?.slug) router.push(`/${workspace.slug}/settings/api-credits${currentRouteSearch()}`);
-        return;
       case 'task':
         // Task threads are hidden from the Threads list, so open the chat
         // directly instead of looking the thread up there.
@@ -87,5 +81,5 @@ export function useOpenNotification() {
         void refreshAgents();
       }
     }
-  }, [markNotificationRead, workspace?.slug, router, setPendingIssueId, openView, openMobileDetail, showThread, sessions, openSession, refreshAgents]);
+  }, [markNotificationRead, setPendingIssueId, openView, openMobileDetail, showThread, sessions, openSession, refreshAgents]);
 }

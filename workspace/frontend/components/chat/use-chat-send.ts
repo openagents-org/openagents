@@ -3,7 +3,6 @@
 import { useCallback, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import { toast } from 'sonner';
 import { ApiError, workspaceApi } from '@/lib/api';
-import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { dmSessionId } from '@/lib/dm';
 import { acknowledgeMessage } from '@/lib/optimistic-messages';
@@ -126,7 +125,6 @@ export function useChatSend({ currentSessionId, currentSession, currentUser, age
           // channel. Attachments/mentions aren't supported in DMs yet.
           const sent = await workspaceApi.sendDirectMessage(dmCounterpart, content, currentUser.name, currentUser.id, myAddr, replyingTo?.messageId);
           setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, loadingOptimisticMsg));
-          capture('message_sent', { dm: true });
           // A legacy `human:user` conversation: the new message is stored under
           // the viewer's own address, so follow it to the canonical session.
           const canonical = dmSessionId(myAddr, dmCounterpart);
@@ -175,11 +173,6 @@ export function useChatSend({ currentSessionId, currentSession, currentUser, age
         if (maybeQueued && !queuedNow) setPendingQueue((prev) => prev.filter((p) => p.id !== pendingId));
         // The server can also suppress replies (for example, the director rule).
         setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, queuedNow ? undefined : loadingOptimisticMsg));
-        capture('message_sent', {
-          has_attachments: (attachments?.length ?? 0) > 0,
-          has_mentions: mentions.length > 0,
-          attachment_count: attachments?.length ?? 0,
-        });
         forceRefresh();
       } catch (err) {
         if (replyingTo) setReplyTargets(previous => ({ ...previous, [currentSessionId]: previous[currentSessionId] || replyingTo }));

@@ -16,7 +16,6 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => state }));
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ isMobile: false, setSelectedAgentName: profile.openAgent }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('@/lib/api', () => ({ workspaceApi: { listNodes: async () => [] } }));
-vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/hooks/use-polling', () => ({ useMessagePolling: () => ({ messages: [], generation: 0 }) }));
 vi.mock('@/hooks/use-composing-signal', () => ({ useComposingSignal: () => ({}) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => null }));
