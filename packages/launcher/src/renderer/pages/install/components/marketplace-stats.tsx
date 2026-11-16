@@ -45,7 +45,7 @@ export function MarketplaceStats({
   const { t } = useTranslation()
 
   return (
-    <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+    <div className="flex items-center gap-2 text-xs text-muted-foreground">
       {KEYS.map((key, i) => {
         const filter = FILTER[key]
         const isActive = active === filter && filter !== "all"

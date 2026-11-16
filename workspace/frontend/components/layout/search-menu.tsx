@@ -64,7 +64,7 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
         {!iconOnly && (
           <>
             <span className="hidden text-xs lg:inline">{t('search.label')}</span>
-            <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-[10px] lg:inline-flex">
+            <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-xs lg:inline-flex">
               <span className="text-xs">{mod}</span>K
             </kbd>
           </>

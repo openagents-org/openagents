@@ -1,8 +1,9 @@
 "use client";
 import { useState } from 'react';
-import { Download, Loader2 } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { DropdownMenuGroup, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { toast } from 'sonner';
@@ -43,11 +44,11 @@ export function KnowledgeExport({ entry }: { entry: KnowledgeEntry }) {
     finally { setBusy(false); }
   };
   return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" disabled={busy} aria-label={t('knowledge.export')} title={t('knowledge.export')}>
-    {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}<span className="hidden sm:inline">{t('knowledge.export')}</span>
+    {busy ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}<span className="hidden sm:inline">{t('knowledge.export')}</span>
   </Button></DropdownMenuTrigger><DropdownMenuContent align="end">
-    <DropdownMenuItem onSelect={() => void run('md')}>Markdown (.md)</DropdownMenuItem>
+    <DropdownMenuGroup><DropdownMenuItem onSelect={() => void run('md')}>Markdown (.md)</DropdownMenuItem>
     <DropdownMenuItem onSelect={() => void run('txt')}>{t('knowledge.exportText')} (.txt)</DropdownMenuItem>
     <DropdownMenuItem onSelect={() => void run('html')}>HTML (.html)</DropdownMenuItem>
-    <DropdownMenuItem onSelect={() => void run('pdf')}>{t('knowledge.exportPrint')}</DropdownMenuItem>
+    <DropdownMenuItem onSelect={() => void run('pdf')}>{t('knowledge.exportPrint')}</DropdownMenuItem></DropdownMenuGroup>
   </DropdownMenuContent></DropdownMenu>;
 }

@@ -10,7 +10,10 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -67,11 +70,11 @@ export default function ModelAccessSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('admin.modelAccessTitle')} description={t('admin.modelAccessDescription')} />
       {!editable && <ReadOnlyBanner />}
 
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">{t('admin.modelAccessListTitle')}</span>
           <div className="flex items-center gap-1.5">
@@ -88,20 +91,24 @@ export default function ModelAccessSettingsPage() {
 
         {loading && entries.length === 0 ? (
           <div className="flex items-center justify-center py-10">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <Spinner className="size-5 text-muted-foreground" />
           </div>
         ) : entries.length === 0 ? (
-          <div className="rounded-lg border border-dashed px-6 py-10 text-center">
-            <KeyRound className="mx-auto size-6 text-muted-foreground/50" />
-            <p className="mt-2 text-sm text-muted-foreground">{t('admin.modelAccessEmpty')}</p>
+          <Empty className="border">
+            <EmptyHeader>
+              <EmptyMedia variant="icon"><KeyRound /></EmptyMedia>
+              <EmptyDescription>{t('admin.modelAccessEmpty')}</EmptyDescription>
+            </EmptyHeader>
             {editable && (
-              <Button size="sm" className="mt-3" onClick={() => setAdding(true)}>
-                <Plus className="size-3.5 mr-1" />{t('admin.modelAccessAdd')}
-              </Button>
+              <EmptyContent>
+                <Button size="sm" onClick={() => setAdding(true)}>
+                  <Plus data-icon="inline-start" />{t('admin.modelAccessAdd')}
+                </Button>
+              </EmptyContent>
             )}
-          </div>
+          </Empty>
         ) : (
-          <div className="divide-y rounded-lg border">
+          <Card className="gap-0 divide-y py-0">
             {entries.map((e) => (
               <div key={e.id} className="flex items-center gap-3 px-4 py-3">
                 <ProviderIcon name={e.provider} size={32} />
@@ -118,7 +125,7 @@ export default function ModelAccessSettingsPage() {
                 )}
               </div>
             ))}
-          </div>
+          </Card>
         )}
       </div>
 

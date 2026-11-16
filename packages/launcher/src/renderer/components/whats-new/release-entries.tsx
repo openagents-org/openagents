@@ -48,7 +48,7 @@ export function ReleaseEntries({
           <span className="font-mono text-sm font-semibold">
             v{release.version}
           </span>
-          <span className="text-2xs text-muted-foreground">{release.date}</span>
+          <span className="text-xs text-muted-foreground">{release.date}</span>
         </div>
       )}
       {/* A hairline between changes: with only a gap, each title sat as close
@@ -63,7 +63,6 @@ export function ReleaseEntries({
                 "Improved" are not. */}
             <Badge
               variant={TONE[entry.type]}
-              size="sm"
               className="mt-0.5 w-16 shrink-0 justify-center"
             >
               {t(`whatsNew.types.${entry.type}`)}

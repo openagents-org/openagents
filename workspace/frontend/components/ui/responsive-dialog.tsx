@@ -72,7 +72,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
     return (
       <div
         data-slot="dialog-header"
-        className={cn('flex flex-col space-y-1 text-start shrink-0 px-5 pt-1 pb-4', className)}
+        className={cn('flex shrink-0 flex-col gap-2 p-4 text-start', className)}
         {...props}
       />
     );
@@ -86,7 +86,7 @@ function DialogFooter({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
     return (
       <div
         data-slot="dialog-footer"
-        className={cn('flex flex-row gap-2 shrink-0 px-5 pt-4 pb-2 [&>*]:flex-1', className)}
+        className={cn('flex shrink-0 flex-row gap-2 border-t bg-muted/50 p-4 *:flex-1', className)}
         {...props}
       />
     );
@@ -113,7 +113,7 @@ function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement
       <div
         data-slot="dialog-body"
         className={cn(
-          'grow min-h-0 overflow-y-auto overscroll-contain px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          'no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pb-4',
           className,
         )}
         {...props}

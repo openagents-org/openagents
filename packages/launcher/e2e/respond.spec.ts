@@ -13,6 +13,7 @@
 import { test, expect } from "./fixtures"
 import { agentBySlug } from "./agents"
 import { openMarketplace } from "./marketplace"
+import { fillSecret } from "./secret-input"
 import {
   haveWorkspaceCreds,
   haveMemberCreds,
@@ -323,7 +324,11 @@ test.describe("launcher full flow", () => {
         else if (varName.endsWith("_BASE_URL")) val = cred.base
         else if (varName.endsWith("_MODEL")) val = cred.model
         if (!val) continue
-        await page.locator(`[id="${id}"]`).fill(val)
+        const input = page.locator(`[id="${id}"]`)
+        // The key and the gateway URL are secrets: fill() would write them into
+        // the trace that failed runs upload publicly. The model name is not.
+        if (varName.endsWith("_MODEL")) await input.fill(val)
+        else await fillSecret(input, val)
         if (varName.endsWith("_API_KEY")) filledKey = true
       }
       // Adding without a key is not a failure the form reports — the field is
@@ -418,7 +423,8 @@ test.describe("launcher full flow", () => {
       // stays diagnosable.
       const fs = await import("node:fs")
       const p = await import("node:path")
-      const secrets = [cred.key, process.env.E2E_WS_TOKEN].filter(
+      // The gateway URL is a repo secret too (not public), so it is masked as well.
+      const secrets = [cred.key, cred.base, process.env.E2E_WS_TOKEN].filter(
         (v): v is string => !!v,
       )
       // The known values are not the only secrets: pairing mints a per-device

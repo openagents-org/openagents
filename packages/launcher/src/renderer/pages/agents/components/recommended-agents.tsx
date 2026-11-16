@@ -4,6 +4,23 @@ import { ChevronLeft, ChevronRight, Download, Plus } from "lucide-react"
 
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Button } from "@renderer/components/ui/button"
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from "@renderer/components/ui/card"
+import {
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemMedia,
+  ItemTitle,
+} from "@renderer/components/ui/item"
 import { AgentStatusBadge } from "@renderer/pages/install/components/agent-status-badge"
 import { describeEntry, entryStatus } from "@renderer/pages/install/entry-meta"
 import { hasPendingUpdate, useInstallStore } from "@renderer/store/install"
@@ -72,7 +89,7 @@ export function RecommendedAgents({
           {/* Styled like Workspaces' "+ Join workspace": each page's one way
               to add more of what it lists looks the same. */}
           <Button className="shrink-0" onClick={onMore} data-testid="new-agent-open">
-            <Plus />
+            <Plus data-icon="inline-start" />
             {t("agents.shared.recommended.more")}
           </Button>
         </div>
@@ -86,23 +103,23 @@ export function RecommendedAgents({
   }
 
   return (
-    // One panel holds the whole block — heading, cards, arrows and the way into
+    // One card holds the whole block — heading, cards, arrows and the way into
     // the marketplace — so it reads apart from the agent list below.
-    <section
-      className="@container mb-6 rounded-xl border bg-muted/40 p-6"
+    <Card
+      className="@container mb-6"
       aria-label={t("agents.shared.recommended.label")}
       data-testid="recommended-agents"
     >
-      <div className="mb-4">
-        <h2 className="m-0 text-lg font-semibold">{t("agents.shared.recommended.label")}</h2>
-        <p className="m-0 mt-1 text-sm text-muted-foreground">{t("agents.shared.recommended.hint")}</p>
-      </div>
+      <CardHeader>
+        <CardTitle>{t("agents.shared.recommended.label")}</CardTitle>
+        <CardDescription>{t("agents.shared.recommended.hint")}</CardDescription>
+      </CardHeader>
       {shown.length > 0 && (
-        <div className="flex items-center gap-3">
+        <CardContent className="flex items-center gap-3">
           <Button
             variant="outline"
             size="icon-sm"
-            className="shrink-0 rounded-full bg-card"
+            className="shrink-0 rounded-full"
             aria-label={t("agents.shared.recommended.prev")}
             title={t("agents.shared.recommended.prev")}
             disabled={first === 0}
@@ -112,16 +129,16 @@ export function RecommendedAgents({
           </Button>
           {/* Side by side once both cards fit with their name and action;
               stacked below that rather than squeezing the name away. */}
-          <div className="grid min-w-0 flex-1 grid-cols-1 gap-3 @2xl:grid-cols-2">
+          <ItemGroup className="grid min-w-0 flex-1 grid-cols-1 gap-3 @2xl:grid-cols-2">
             {shown.map((entry) => (
               <RecommendedCard key={entry.name} entry={entry} onInstall={() => onInstall(entry.name)}
                 onUpdate={() => onUpdate(entry.name)} />
             ))}
-          </div>
+          </ItemGroup>
           <Button
             variant="outline"
             size="icon-sm"
-            className="shrink-0 rounded-full bg-card"
+            className="shrink-0 rounded-full"
             aria-label={t("agents.shared.recommended.next")}
             title={t("agents.shared.recommended.next")}
             disabled={first >= last}
@@ -129,17 +146,15 @@ export function RecommendedAgents({
           >
             <ChevronRight />
           </Button>
-        </div>
+        </CardContent>
       )}
-      <div className="mt-6 flex justify-center">
-        {/* Taller and wider than `size="lg"` on purpose, set here rather than
-            on the shared size so no other page's buttons grow with it. */}
-        <Button className="h-12 w-full px-8 text-base @md:w-auto @md:min-w-70" onClick={onMore} data-testid="new-agent-open">
-          <Plus />
+      <CardFooter className="justify-center">
+        <Button size="lg" className="w-full @md:w-auto" onClick={onMore} data-testid="new-agent-open">
+          <Plus data-icon="inline-start" />
           {t("agents.shared.recommended.more")}
         </Button>
-      </div>
-    </section>
+      </CardFooter>
+    </Card>
   )
 }
 
@@ -160,15 +175,21 @@ function RecommendedChip({
   const action = t(available ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")
   const name = entry.label || entry.name
   return (
-    <button type="button" onClick={onInstall} title={`${action} · ${name}`} data-testid={`recommended-add-${entry.name}`}
-      className="group flex h-14 min-w-0 items-center gap-3 rounded-lg border bg-card px-3 text-left shadow-xs transition-colors hover:bg-accent">
-      <AgentIcon type={entry.name} size={32} />
-      <span className="min-w-0 flex-1 truncate text-sm font-medium">{name}</span>
-      <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground transition-colors group-hover:text-foreground">
-        {available ? <Download className="size-3.5" /> : <Plus className="size-3.5" />}
-        {action}
-      </span>
-    </button>
+    <Item variant="outline" size="sm" asChild>
+      <button type="button" onClick={onInstall} title={`${action} · ${name}`} data-testid={`recommended-add-${entry.name}`}
+        className="min-w-0 text-left hover:bg-muted">
+        <ItemMedia>
+          <AgentIcon type={entry.name} size={32} />
+        </ItemMedia>
+        <ItemContent className="min-w-0">
+          <ItemTitle className="truncate">{name}</ItemTitle>
+        </ItemContent>
+        <ItemActions className="gap-1 text-xs text-muted-foreground">
+          {available ? <Download className="size-3.5" /> : <Plus className="size-3.5" />}
+          {action}
+        </ItemActions>
+      </button>
+    </Item>
   )
 }
 
@@ -185,14 +206,13 @@ function RecommendedCard({
   const updates = useInstallStore((s) => s.updates)
   const status = entryStatus(entry, hasPendingUpdate(updates, entry.name))
   return (
-    <div
-      data-testid={`recommended-${entry.name}`}
-      className="flex min-w-0 items-center gap-4 rounded-lg border bg-card p-4"
-    >
-      <AgentIcon type={entry.name} size={56} />
-      <div className="min-w-0 flex-1">
-        <div className="flex min-w-0 items-center gap-2">
-          <h3 className="m-0 truncate text-base font-semibold">{entry.label || entry.name}</h3>
+    <Item variant="outline" role="listitem" data-testid={`recommended-${entry.name}`} className="min-w-0 flex-nowrap">
+      <ItemMedia>
+        <AgentIcon type={entry.name} size={48} />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="w-full min-w-0">
+          <span className="truncate">{entry.label || entry.name}</span>
           {status === "update" ? (
             <button type="button" className="shrink-0" onClick={onUpdate} title={t("agents.shared.recommended.update")}
               data-testid={`recommended-update-${entry.name}`}>
@@ -201,18 +221,17 @@ function RecommendedCard({
           ) : status === "installed" ? (
             <AgentStatusBadge status={status} className="shrink-0" />
           ) : null}
-        </div>
-        <p className="m-0 mt-1 truncate text-sm text-muted-foreground" title={describeEntry(entry, t) || undefined}>
+        </ItemTitle>
+        <ItemDescription className="line-clamp-1" title={describeEntry(entry, t) || undefined}>
           {describeEntry(entry, t) || t("install.card.noDescription")}
-        </p>
-      </div>
-      <div className="shrink-0">
-        <Button variant="outline" className="border-primary text-primary hover:bg-(--accent-bg) hover:text-primary" onClick={onInstall}
-          data-testid={`recommended-add-${entry.name}`}>
-          {status === "available" ? <Download /> : <Plus />}
+        </ItemDescription>
+      </ItemContent>
+      <ItemActions>
+        <Button variant="outline" onClick={onInstall} data-testid={`recommended-add-${entry.name}`}>
+          {status === "available" ? <Download data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
           {t(status === "available" ? "agents.shared.recommended.installNow" : "agents.actions.addAgent")}
         </Button>
-      </div>
-    </div>
+      </ItemActions>
+    </Item>
   )
 }

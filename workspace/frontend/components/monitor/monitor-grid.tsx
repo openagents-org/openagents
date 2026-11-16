@@ -1,134 +1,39 @@
 'use client';
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { MessageSquarePlus, Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
-import { workspaceApi } from '@/lib/api';
-import { agentLabel } from '@/lib/helpers';
-import { eventToMessage } from '@/lib/types';
-import type { WorkspaceMessage } from '@/lib/types';
-import { isControlMessage } from '@/lib/control-messages';
-import { MonitorTile } from './monitor-tile';
-import { MonitorOverlay } from './monitor-overlay';
-import { MessageSquarePlus, Search, X } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { cn } from '@/lib/utils';
-import { useFormatters, useT } from '@/lib/i18n';
+import { sessionActivityTime } from '@/lib/conversation-list';
+import { useT } from '@/lib/i18n';
+import { MonitorTile } from './monitor-tile';
+import { MonitorOverlay } from './monitor-overlay';
+import { MonitorSearchPanel } from './monitor-search-panel';
+import { useMonitorTiles } from './use-monitor-tiles';
 
-const POLL_INTERVAL = 5_000;
-
-export interface TileData {
-  lastUserMessage: WorkspaceMessage | null;
-  lastAgentMessage: WorkspaceMessage | null;
-  /** Recent thinking/status steps when agent is actively working (newest first) */
-  recentSteps: WorkspaceMessage[];
-}
+export type { TileData } from './use-monitor-tiles';
 
 export function MonitorGrid() {
   const { sessions, activeSessionIds, completedSessionIds, agents, acknowledgeCompletion, lastMessageBySession, currentSessionId } = useWorkspace();
   const { openNewThread } = useLayout();
   const t = useT();
-  const { timeAgo } = useFormatters();
   const [overlaySessionId, setOverlaySessionId] = useState<string | null>(null);
-  const [tileData, setTileData] = useState<Record<string, TileData>>({});
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const searchInputRef = useRef<HTMLInputElement>(null);
-  // Message cache for instant overlay loading — stores all fetched messages per session (chronological)
-  const messageCacheRef = React.useRef<Record<string, WorkspaceMessage[]>>({});
 
   const activeSessions = useMemo(() => {
     return [...sessions]
       .filter((s) => s.status === 'active' && !s.sessionId.startsWith('routine:'))
-      .sort((a, b) => {
-        const aTime = a.lastEventAt || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const bTime = b.lastEventAt || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-        return bTime - aTime;
-      });
+      .sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
   }, [sessions]);
 
   const tileCount = activeSessions.length >= 9 ? 9 : 6;
   const topSessions = useMemo(() => activeSessions.slice(0, tileCount), [activeSessions, tileCount]);
+  const { tileData, messageCacheRef } = useMonitorTiles(topSessions);
 
-  // Fetch last turn data for all visible tiles
-  const fetchTileData = useCallback(async () => {
-    const results: Record<string, TileData> = {};
-    await Promise.all(
-      topSessions.map(async (session) => {
-        try {
-          const result = await workspaceApi.pollEvents({
-            channel: session.sessionId,
-            type: 'workspace.message',
-            sort: 'desc',
-            limit: 50,
-          });
-          const msgs = result.events.map(eventToMessage);
-
-          // Find indices of key messages (msgs sorted newest-first)
-          // A queue cancel is the user's click, not something they said.
-          const lastUserIdx = msgs.findIndex((m) => m.senderType !== 'agent' && !isControlMessage(m));
-          const lastUser = lastUserIdx >= 0 ? msgs[lastUserIdx] : null;
-
-          // Find last agent chat message (not status/thinking)
-          const lastAgentChatIdx = msgs.findIndex(
-            (m) => m.senderType === 'agent' && m.messageType !== 'status' && m.messageType !== 'thinking'
-          );
-          const lastAgentChat = lastAgentChatIdx >= 0 ? msgs[lastAgentChatIdx] : null;
-
-          // Find last agent status/thinking
-          const lastAgentStatus = msgs.find(
-            (m) => m.senderType === 'agent' && (m.messageType === 'status' || m.messageType === 'thinking')
-          ) || null;
-
-          // If the latest agent message is status/thinking, agent is working — show that
-          // Otherwise show the final chat response
-          const latestAgentAny = msgs.find((m) => m.senderType === 'agent');
-          const agentIsWorking = latestAgentAny && (latestAgentAny.messageType === 'status' || latestAgentAny.messageType === 'thinking');
-
-          // Only show agent chat response if it's newer than the last user message
-          // (lower index = newer in desc-sorted array). If user message is newer,
-          // the old agent response is stale and shouldn't be shown.
-          const agentChatIsStale = lastAgentChat && lastUser && lastAgentChatIdx > lastUserIdx;
-
-          // Collect recent thinking/status steps (newest first, deduplicated)
-          const recentSteps: WorkspaceMessage[] = [];
-          if (agentIsWorking) {
-            const seen = new Set<string>();
-            for (const m of msgs) {
-              if (m.senderType !== 'agent') break; // stop at first non-agent msg
-              if (m.messageType === 'status' || m.messageType === 'thinking') {
-                // Deduplicate by content (status can repeat)
-                const key = m.content.slice(0, 100);
-                if (!seen.has(key) && m.content.trim()) {
-                  seen.add(key);
-                  recentSteps.push(m);
-                }
-              }
-            }
-          }
-
-          results[session.sessionId] = {
-            lastUserMessage: lastUser,
-            lastAgentMessage: agentIsWorking ? lastAgentStatus : (agentChatIsStale ? null : lastAgentChat),
-            recentSteps,
-          };
-
-          // Cache messages in chronological order for instant overlay loading
-          messageCacheRef.current[session.sessionId] = [...msgs].reverse();
-        } catch {
-          // Keep existing data on error
-        }
-      })
-    );
-    setTileData((prev) => ({ ...prev, ...results }));
-  }, [topSessions]);
-
-  // Initial fetch + polling
-  useEffect(() => {
-    if (topSessions.length === 0) return;
-    fetchTileData();
-    const interval = setInterval(fetchTileData, POLL_INTERVAL);
-    return () => clearInterval(interval);
-  }, [fetchTileData, topSessions.length]);
 
   const overlaySession = sessions.find((s) => s.sessionId === overlaySessionId);
 
@@ -198,11 +103,7 @@ export function MonitorGrid() {
   const allActiveSessions = useMemo(() => {
     return [...sessions]
       .filter((s) => s.status === 'active')
-      .sort((a, b) => {
-        const aTime = a.lastEventAt || (a.createdAt ? new Date(a.createdAt).getTime() : 0);
-        const bTime = b.lastEventAt || (b.createdAt ? new Date(b.createdAt).getTime() : 0);
-        return bTime - aTime;
-      });
+      .sort((a, b) => sessionActivityTime(b) - sessionActivityTime(a));
   }, [sessions]);
 
   const filteredSessions = useMemo(() => {
@@ -221,11 +122,15 @@ export function MonitorGrid() {
     handleTileClick(sessionId);
   };
 
+  const closeSearch = () => { setSearchOpen(false); setSearchQuery(''); };
+  const gridIds = useMemo(() => new Set(topSessions.map((s) => s.sessionId)), [topSessions]);
+  const fab = 'absolute bottom-3 z-10 rounded-full shadow-lg';
+
   return (
     <>
-      <div className="relative h-full flex flex-col">
+      <div className="relative flex h-full flex-col">
         {/* Tile grid */}
-        <div className={cn('grid grid-cols-3 gap-2.5 flex-1 min-h-0', tileCount === 9 ? 'grid-rows-3' : 'grid-rows-2')}>
+        <div className={cn('grid min-h-0 flex-1 grid-cols-3 gap-2.5', tileCount === 9 ? 'grid-rows-3' : 'grid-rows-2')}>
           {topSessions.map((session, idx) => (
             <MonitorTile
               key={session.sessionId}
@@ -241,7 +146,7 @@ export function MonitorGrid() {
           {Array.from({ length: Math.max(0, tileCount - topSessions.length) }).map((_, i) => (
             <div
               key={`empty-${i}`}
-              className="border border-dashed border-input rounded-xl flex items-center justify-center text-muted-foreground/40 text-xs"
+              className="flex items-center justify-center rounded-xl border border-dashed border-input text-xs text-muted-foreground/40"
             >
               {t('monitor.noThread')}
             </div>
@@ -251,99 +156,27 @@ export function MonitorGrid() {
         {/* FABs — bottom right: new thread, then search */}
         {!searchOpen && (
           <>
-            <button
-              onClick={openNewThread}
-              className="absolute bottom-3 right-[3.75rem] size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
-              title={t('threads.newThread')}
-              aria-label={t('threads.newThread')}
-            >
-              <MessageSquarePlus className="size-4" />
-            </button>
-            <button
-              onClick={() => { setSearchOpen(true); setSearchQuery(''); }}
-              className="absolute bottom-3 right-3 size-10 rounded-full bg-primary text-primary-foreground shadow-lg flex items-center justify-center hover:bg-primary/90 transition-colors z-10"
-              title={t('monitor.searchThreads')}
-              aria-label={t('monitor.searchThreads')}
-            >
-              <Search className="size-4" />
-            </button>
+            <Button size="icon-lg" onClick={openNewThread} className={cn(fab, 'right-15')} title={t('threads.newThread')} aria-label={t('threads.newThread')}>
+              <MessageSquarePlus />
+            </Button>
+            <Button size="icon-lg" onClick={() => { setSearchOpen(true); setSearchQuery(''); }} className={cn(fab, 'right-3')} title={t('monitor.searchThreads')} aria-label={t('monitor.searchThreads')}>
+              <Search />
+            </Button>
           </>
         )}
 
-        {/* Search panel — bottom right overlay */}
         {searchOpen && (
-          <div className="absolute bottom-3 right-3 w-80 bg-popover border rounded-xl shadow-xl z-20 overflow-hidden">
-            {/* Search input */}
-            <div className="flex items-center gap-2 px-3 py-2.5 border-b">
-              <Search className="size-4 text-muted-foreground shrink-0" />
-              <input
-                ref={searchInputRef}
-                type="text"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Escape') {
-                    setSearchOpen(false);
-                    setSearchQuery('');
-                  }
-                  if (e.key === 'Enter' && filteredSessions.length > 0) {
-                    handleSearchSelect(filteredSessions[0].sessionId);
-                  }
-                }}
-                placeholder={t('monitor.searchPlaceholder')}
-                className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground"
-              />
-              <button
-                onClick={() => { setSearchOpen(false); setSearchQuery(''); }}
-                className="size-5 flex items-center justify-center rounded hover:bg-muted text-muted-foreground"
-              >
-                <X className="size-3.5" />
-              </button>
-            </div>
-
-            {/* Thread list */}
-            <div className="max-h-64 overflow-y-auto">
-              {filteredSessions.length === 0 ? (
-                <p className="text-xs text-muted-foreground text-center py-6">{t('monitor.noThreadsFound')}</p>
-              ) : (
-                filteredSessions.map((session) => {
-                  const isInGrid = topSessions.some((t) => t.sessionId === session.sessionId);
-                  const preview = lastMessageBySession[session.sessionId];
-                  const activityMs = session.lastEventAt;
-                  const displayTime = activityMs
-                    ? timeAgo(new Date(activityMs).toISOString())
-                    : session.createdAt ? timeAgo(session.createdAt) : '';
-                  return (
-                    <button
-                      key={session.sessionId}
-                      onClick={() => handleSearchSelect(session.sessionId)}
-                      className="w-full text-left px-3 py-2 hover:bg-accent transition-colors flex flex-col gap-0.5"
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium truncate flex-1">
-                          {session.title || t('monitor.untitled')}
-                        </span>
-                        {isInGrid && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium shrink-0">
-                            in grid
-                          </span>
-                        )}
-                        <span className="text-[10px] text-muted-foreground shrink-0">{displayTime}</span>
-                      </div>
-                      {preview?.content && (
-                        <p className="text-[11px] text-muted-foreground truncate">
-                          {(() => {
-                            const a = agents.find((x) => x.agentName === preview.senderName);
-                            return a ? agentLabel(a) : preview.senderName;
-                          })()}: {preview.content}
-                        </p>
-                      )}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-          </div>
+          <MonitorSearchPanel
+            inputRef={searchInputRef}
+            query={searchQuery}
+            onQuery={setSearchQuery}
+            sessions={filteredSessions}
+            gridIds={gridIds}
+            lastMessageBySession={lastMessageBySession}
+            agents={agents}
+            onSelect={handleSearchSelect}
+            onClose={closeSearch}
+          />
         )}
       </div>
 

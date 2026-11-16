@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { playNotificationSound } from '@/lib/notification-audio';
-import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SectionHeader } from '@/components/settings/section-chrome';
-import { useT } from '@/lib/i18n';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
+import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
 
 /**
@@ -22,7 +24,7 @@ const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 const SPLIT_KEY = 'x-split-browser';
 
 export default function PreferencesSettingsPage() {
-  const t = useT();
+  const { t, locale, setLocale, isAutoDetected } = useI18n();
   const [sound, setSound] = useState(true);
   const [signalSound, setSignalSound] = useState(true);
   const [split, setSplit] = useState(false);
@@ -51,43 +53,56 @@ export default function PreferencesSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader
         title={t('admin.preferencesTitle')}
         description={t(desktopHost() ? 'admin.preferencesDescriptionDesktop' : 'admin.preferencesDescription')}
       />
 
-      <Button variant="outline" onClick={async () => {
-        if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
-      }}>{t('settings.testSound')}</Button>
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <div className="space-y-0.5">
-          <Label>{t('settings.notificationSound')}</Label>
-          <p className="text-xs text-muted-foreground">{t('settings.notificationSoundHint')}</p>
-        </div>
-        <Switch checked={sound} onCheckedChange={toggleSound} size="sm" />
-      </div>
+      {/* Applies immediately; nothing to save. */}
+      <SettingsCard
+        title={t('language.label')}
+        description={isAutoDetected ? t('language.autoHint') : t('language.description')}
+      >
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          value={locale}
+          onValueChange={(value) => { if (value && isLocale(value)) setLocale(value); }}
+          aria-label={t('language.label')}
+        >
+          {LOCALES.map((option) => (
+            <ToggleGroupItem key={option} value={option}>{LOCALE_LABELS[option]}</ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </SettingsCard>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <div className="space-y-0.5">
-          <Label>{t('slackSignals.soundLabel')}</Label>
-          <p className="text-xs text-muted-foreground">{t('slackSignals.soundHint')}</p>
-        </div>
-        <Switch checked={signalSound} onCheckedChange={toggleSignalSound} size="sm" />
-      </div>
+      <SettingsCard
+        title={t('admin.notificationsTitle')}
+        description={t('admin.notificationsHint')}
+        action={(
+          <Button variant="outline" size="sm" onClick={async () => {
+            if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
+          }}>
+            <Volume2 data-icon="inline-start" />
+            {t('settings.testSound')}
+          </Button>
+        )}
+      >
+        <SettingsRow label={t('settings.notificationSound')} description={t('settings.notificationSoundHint')} htmlFor="pref-sound">
+          <Switch id="pref-sound" checked={sound} onCheckedChange={toggleSound} />
+        </SettingsRow>
+        <SettingsRow label={t('slackSignals.soundLabel')} description={t('slackSignals.soundHint')} htmlFor="pref-signal-sound">
+          <Switch id="pref-signal-sound" checked={signalSound} onCheckedChange={toggleSignalSound} />
+        </SettingsRow>
+      </SettingsCard>
 
-      <div className="flex items-center justify-between gap-4 rounded-lg border border-input px-4 py-3">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <Label>{t('settings.splitBrowser')}</Label>
-            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-              {t('settings.experimental')}
-            </span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('settings.splitBrowserHint')}</p>
-        </div>
-        <Switch checked={split} onCheckedChange={toggleSplit} size="sm" />
-      </div>
+      <SettingsCard title={t('settings.experimental')}>
+        <SettingsRow label={t('settings.splitBrowser')} description={t('settings.splitBrowserHint')} htmlFor="pref-split-browser">
+          <Switch id="pref-split-browser" checked={split} onCheckedChange={toggleSplit} />
+        </SettingsRow>
+      </SettingsCard>
     </div>
   );
 }

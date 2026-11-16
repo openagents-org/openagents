@@ -144,22 +144,20 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
     <DialogsContext.Provider value={api}>
       {children}
       <Dialog open={!!pending} onOpenChange={handleOpenChange}>
-        {/* Roomier than the shared dialog defaults: this box holds two short
-            lines and two buttons, so tight padding makes it read as cramped
-            rather than compact. Overrides stay local to confirm/prompt. */}
+        {/* Sized like the nova AlertDialog: two short lines and two buttons
+            don't need the full dialog width, and no close X — the footer
+            already says how to back out. */}
         {pending && (
-          <DialogContent className="max-w-lg">
-            <DialogHeader className="space-y-3 px-7 pt-7 pb-2">
-              <DialogTitle className="text-xl">{pending.title}</DialogTitle>
+          <DialogContent className="sm:max-w-md" showCloseButton={false}>
+            <DialogHeader>
+              <DialogTitle>{pending.title}</DialogTitle>
               {pending.description && (
-                <DialogDescription className="text-[15px] leading-relaxed">
-                  {pending.description}
-                </DialogDescription>
+                <DialogDescription>{pending.description}</DialogDescription>
               )}
             </DialogHeader>
 
             {pending.kind === 'prompt' && (
-              <DialogBody className="px-7 py-2">
+              <DialogBody>
                 <Input
                   ref={inputRef}
                   value={value}
@@ -175,14 +173,15 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 />
                 {/* Reserve the line so the footer doesn't jump the moment a
                     name turns out to be taken. */}
-                <p className="mt-2 min-h-4 text-xs text-destructive">{promptError}</p>
+                <p className="mt-2 min-h-4 text-xs text-destructive" role={promptError ? 'alert' : undefined}>
+                  {promptError}
+                </p>
               </DialogBody>
             )}
 
-            <DialogFooter className="px-7 pt-7 pb-7 sm:space-x-3">
+            <DialogFooter>
               <Button
                 variant="outline"
-                className="min-w-24"
                 onClick={() => settle(cancelResult)}
               >
                 {/* Callers name their confirm action but almost never pass
@@ -192,8 +191,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
                 {pending.cancelText ?? t('common.cancel')}
               </Button>
               <Button
-                variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'primary'}
-                className="min-w-24"
+                variant={pending.kind === 'confirm' && pending.destructive ? 'destructive' : 'default'}
                 disabled={!canSubmit}
                 onClick={submit}
               >

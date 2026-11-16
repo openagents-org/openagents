@@ -190,11 +190,11 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
           />
           <Tabs value={providerFilter} onValueChange={setProviderFilter}>
             <TabsList className="flex-wrap">
-              <TabsTrigger value="all" className="text-2xs">
+              <TabsTrigger value="all" className="text-xs">
                 {t("credentials.filterAll")}
               </TabsTrigger>
               {providers.map((p) => (
-                <TabsTrigger key={p} value={p} className="text-2xs">
+                <TabsTrigger key={p} value={p} className="text-xs">
                   {getPlatform(p)?.label || p}
                 </TabsTrigger>
               ))}
@@ -263,7 +263,7 @@ export default function Credentials({ showToast }: Props): React.JSX.Element {
           <p className="text-xs leading-relaxed text-muted-foreground">
             {t("credentials.storage.description", { keychain: keychainName(t) })}
           </p>
-          <p className="text-2xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {t("credentials.storage.platformsSupported", { count: PLATFORMS.length })}
           </p>
         </Card>

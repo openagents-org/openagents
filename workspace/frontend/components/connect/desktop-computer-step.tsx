@@ -2,9 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, Laptop, Loader2, Monitor, Server } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 import { workspaceApi } from '@/lib/api';
-import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import type { DesktopComputer, DesktopHost } from '@/lib/desktop-host';
 
@@ -83,7 +82,6 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
         const reported = !!node?.fs?.home || (!!node?.lastHeartbeatAt && node.lastHeartbeatAt !== firstHeartbeat);
         if (node?.status === 'online' && reported) {
           clearTimeout(timeout);
-          capture('node_connected', { source: 'desktop_onboarding' });
           onConnected(computer.nodeId!);
           return;
         }

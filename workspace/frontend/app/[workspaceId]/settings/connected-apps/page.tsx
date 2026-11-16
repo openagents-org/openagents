@@ -1,9 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { Check, Copy, Download, ExternalLink, KeyRound, Loader2, LogIn, RefreshCw } from 'lucide-react';
+import { Check, Copy, Download, ExternalLink, KeyRound, LogIn, RefreshCw } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { SectionHeader } from '@/components/settings/section-chrome';
@@ -49,7 +52,7 @@ function CopyField({ value, label }: { value: string; label?: string }) {
 }
 
 function Steps({ children }: { children: React.ReactNode }) {
-  return <ol className="list-decimal space-y-3 ps-5 text-sm marker:text-muted-foreground">{children}</ol>;
+  return <ol className="list-decimal flex flex-col gap-3 ps-5 text-sm marker:text-muted-foreground">{children}</ol>;
 }
 
 /**
@@ -63,17 +66,20 @@ function ApiKeyBox({ apiKey, fresh, busy, onCreate }: {
   const date = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '');
   if (fresh) {
     return (
-      <div className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-3 dark:border-amber-900/50 dark:bg-amber-900/20">
-        <p className="text-sm font-medium">{t('hubApps.newKeyTitle')}</p>
-        <p className="text-xs text-muted-foreground">{t('hubApps.newKeyHint')}</p>
-        <CopyField value={fresh} label={t('hubApps.keysTitle')} />
-      </div>
+      <Alert>
+        <KeyRound className="text-warning" />
+        <AlertTitle>{t('hubApps.newKeyTitle')}</AlertTitle>
+        <AlertDescription className="flex flex-col gap-2">
+          {t('hubApps.newKeyHint')}
+          <CopyField value={fresh} label={t('hubApps.keysTitle')} />
+        </AlertDescription>
+      </Alert>
     );
   }
   if (!apiKey) {
     return (
       <Button onClick={() => onCreate(false)} disabled={busy}>
-        {busy ? <Loader2 className="size-4 animate-spin" /> : <KeyRound className="size-4" />}{t('hubApps.createKey')}
+        {busy ? <Spinner /> : <KeyRound className="size-4" />}{t('hubApps.createKey')}
       </Button>
     );
   }
@@ -87,7 +93,7 @@ function ApiKeyBox({ apiKey, fresh, busy, onCreate }: {
         </div>
       </div>
       <Button variant="outline" size="sm" onClick={() => onCreate(true)} disabled={busy}>
-        {busy ? <Loader2 className="size-3.5 animate-spin" /> : <RefreshCw className="size-3.5" />}{t('hubApps.regenerateKey')}
+        {busy ? <Spinner className="size-3.5" /> : <RefreshCw className="size-3.5" />}{t('hubApps.regenerateKey')}
       </Button>
     </div>
   );
@@ -116,17 +122,17 @@ export default function ConnectedAppsPage() {
 
   if (!authLoading && !user) {
     return (
-      <div className="space-y-8">
+      <div className="flex flex-col gap-8">
         <SectionHeader title={t('hubApps.title')} description={t('hubApps.description')} />
-        <div className="flex flex-col items-start gap-3 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex flex-col items-start gap-3">
           <p className="text-sm text-muted-foreground">{t('hubApps.signInPrompt')}</p>
           <Button size="sm" onClick={() => goToCentralLogin(signIn)}><LogIn className="size-4" />{t('userMenu.signIn')}</Button>
-        </div>
+        </CardContent></Card>
       </div>
     );
   }
   if (!data) {
-    return <div className="flex items-center justify-center py-16"><Loader2 className="size-5 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex items-center justify-center py-16"><Spinner className="size-5 text-muted-foreground" /></div>;
   }
 
   const apiKey = data.api_keys[0] ?? null;
@@ -162,21 +168,21 @@ export default function ConnectedAppsPage() {
     chatgpt: (
       <Steps>
         <li>{t('hubApps.chatgptStep1')}</li>
-        <li className="space-y-2"><span>{t('hubApps.pasteUrl')}</span><CopyField value={data.mcp_url} /></li>
+        <li className="flex flex-col gap-2"><span>{t('hubApps.pasteUrl')}</span><CopyField value={data.mcp_url} /></li>
         <li>{t('hubApps.signInAllow')}</li>
       </Steps>
     ),
     claude: (
       <Steps>
         <li>{t('hubApps.claudeStep1')}</li>
-        <li className="space-y-2"><span>{t('hubApps.pasteUrl')}</span><CopyField value={data.mcp_url} /></li>
+        <li className="flex flex-col gap-2"><span>{t('hubApps.pasteUrl')}</span><CopyField value={data.mcp_url} /></li>
         <li>{t('hubApps.signInAllow')}</li>
       </Steps>
     ),
     muse: (
       <Steps>
-        <li className="space-y-2"><span>{t('hubApps.keyStep')}</span>{keyBox}</li>
-        <li className="space-y-2">
+        <li className="flex flex-col gap-2"><span>{t('hubApps.keyStep')}</span>{keyBox}</li>
+        <li className="flex flex-col gap-2">
           <span>{t('hubApps.museStep2')}</span>
           <CopyField value={t('hubApps.instructions', { docs: data.docs_url, key: keyValue })} />
         </li>
@@ -185,7 +191,7 @@ export default function ConnectedAppsPage() {
     ),
     coding: (
       <Steps>
-        <li className="space-y-2">
+        <li className="flex flex-col gap-2">
           <span>{t('hubApps.skillHint')}</span>
           <div>
             <Button variant="outline" size="sm" asChild>
@@ -195,8 +201,8 @@ export default function ConnectedAppsPage() {
           <p className="text-xs text-muted-foreground">{t('hubApps.skillInstallLabel')}</p>
           <CopyField value={`mkdir -p ~/.claude/skills && curl -fsSL ${data.skill_url} -o /tmp/openagents-skill.zip && unzip -o /tmp/openagents-skill.zip -d ~/.claude/skills`} />
         </li>
-        <li className="space-y-2"><span>{t('hubApps.keyStep')}</span>{keyBox}</li>
-        <li className="space-y-2"><span>{t('hubApps.envLabel')}</span><CopyField value={`export OPENAGENTS_API_KEY=${keyValue}`} /></li>
+        <li className="flex flex-col gap-2"><span>{t('hubApps.keyStep')}</span>{keyBox}</li>
+        <li className="flex flex-col gap-2"><span>{t('hubApps.envLabel')}</span><CopyField value={`export OPENAGENTS_API_KEY=${keyValue}`} /></li>
       </Steps>
     ),
     slack: (
@@ -217,10 +223,10 @@ export default function ConnectedAppsPage() {
   const selected = HUB_APPS.find((a) => a.id === app)!;
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('hubApps.title')} description={t('hubApps.description')} />
 
-      <section className="space-y-4">
+      <section className="flex flex-col gap-4">
         <h3 className="text-sm font-medium">{t('hubApps.pickTitle')}</h3>
         <div role="tablist" aria-label={t('hubApps.pickTitle')} className="grid grid-cols-3 gap-2 sm:grid-cols-6">
           {HUB_APPS.map((option) => (
@@ -241,22 +247,22 @@ export default function ConnectedAppsPage() {
             </button>
           ))}
         </div>
-        <div role="tabpanel" className="space-y-4 rounded-lg border p-4">
+        <Card size="sm" role="tabpanel"><CardContent className="flex flex-col gap-4">
           <div className="flex items-center gap-2">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={selected.icon} alt="" className="size-5" />
             <h4 className="text-sm font-medium">{t('hubApps.connectTitle', { app: selected.label })}</h4>
           </div>
           {instructions[app]}
-        </div>
+        </CardContent></Card>
       </section>
 
-      <section className="space-y-3">
+      <section className="flex flex-col gap-3">
         <h3 className="text-sm font-medium">{t('hubApps.appsTitle')}</h3>
-        <ul className="divide-y rounded-md border">
-          {data.connected_apps.length === 0 && !apiKey && <li className="px-3 py-2.5 text-sm text-muted-foreground">{t('hubApps.appsEmpty')}</li>}
+        <Card className="gap-0 divide-y py-0" role="list">
+          {data.connected_apps.length === 0 && !apiKey && <div role="listitem" className="px-3 py-2.5 text-sm text-muted-foreground">{t('hubApps.appsEmpty')}</div>}
           {data.connected_apps.map((connected) => (
-            <li key={connected.client_id} className="flex items-center gap-3 px-3 py-2.5">
+            <div role="listitem" key={connected.client_id} className="flex items-center gap-3 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{connected.name}</div>
                 <div className="text-xs text-muted-foreground">
@@ -264,10 +270,10 @@ export default function ConnectedAppsPage() {
                 </div>
               </div>
               <Button variant="outline" size="sm" onClick={() => revoke(connected.id, t('hubApps.disconnectConfirm', { name: connected.name }))}>{t('hubApps.disconnect')}</Button>
-            </li>
+            </div>
           ))}
           {apiKey && (
-            <li className="flex items-center gap-3 px-3 py-2.5">
+            <div role="listitem" className="flex items-center gap-3 px-3 py-2.5">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">{t('hubApps.keysTitle')} <code className="ms-1 text-xs text-muted-foreground">{apiKey.prefix}…</code></div>
                 <div className="text-xs text-muted-foreground">
@@ -275,9 +281,9 @@ export default function ConnectedAppsPage() {
                 </div>
               </div>
               <Button variant="outline" size="sm" onClick={() => revoke(apiKey.id, t('hubApps.revokeConfirm', { name: t('hubApps.keysTitle') }))}>{t('hubApps.revoke')}</Button>
-            </li>
+            </div>
           )}
-        </ul>
+        </Card>
         <a href={data.docs_url} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
           {t('hubApps.docsLink')}<ExternalLink className="size-3" />
         </a>

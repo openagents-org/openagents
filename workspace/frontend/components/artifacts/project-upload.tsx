@@ -1,6 +1,7 @@
 'use client';
 import { useRef, useState } from 'react';
-import { FolderUp, Loader2, X } from 'lucide-react';
+import { FolderUp, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -35,14 +36,14 @@ export function ProjectUpload({ projectId, revision, onPublished }: {projectId?:
       setEntry(selected.find(f=>f.path==='index.html')?.path || selected.find(f=>/\.html?$/i.test(f.path))?.path || '');
       event.target.value='';
     }} />
-    {!files.length ? <Button size="sm" variant="outline" onClick={()=>input.current?.click()}><FolderUp className="size-4" />{t(projectId?'webProject.update':'webProject.upload')}</Button> : <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
-      <div className="flex items-center justify-between"><strong className="text-sm">{t(projectId?'webProject.update':'webProject.upload')}</strong><Button size="sm" mode="icon" variant="ghost" disabled={busy} aria-label={t('artifactPanel.close')} onClick={()=>setFiles([])}><X className="size-4" /></Button></div>
-      <label className="block space-y-1 text-xs">{t('webProject.name')}<Input value={title} maxLength={120} disabled={busy} onChange={e=>setTitle(e.target.value)} /></label>
-      <label className="block space-y-1 text-xs">{t('webProject.entry')}<select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={entry} disabled={busy} onChange={e=>setEntry(e.target.value)}>{files.filter(f=>/\.html?$/i.test(f.path)).map(f=><option key={f.path}>{f.path}</option>)}</select></label>
+    {!files.length ? <Button size="sm" variant="outline" onClick={()=>input.current?.click()}><FolderUp className="size-4" />{t(projectId?'webProject.update':'webProject.upload')}</Button> : <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3">
+      <div className="flex items-center justify-between"><strong className="text-sm">{t(projectId?'webProject.update':'webProject.upload')}</strong><Button size="icon-sm" variant="ghost" disabled={busy} aria-label={t('artifactPanel.close')} onClick={()=>setFiles([])}><X className="size-4" /></Button></div>
+      <label className="flex flex-col gap-1 text-xs">{t('webProject.name')}<Input value={title} maxLength={120} disabled={busy} onChange={e=>setTitle(e.target.value)} /></label>
+      <label className="flex flex-col gap-1 text-xs">{t('webProject.entry')}<select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={entry} disabled={busy} onChange={e=>setEntry(e.target.value)}>{files.filter(f=>/\.html?$/i.test(f.path)).map(f=><option key={f.path}>{f.path}</option>)}</select></label>
       <p className="text-xs leading-5 text-muted-foreground">{files.length} {t('webProject.files')} · {t(projectId?'webProject.keepsSharing':currentSessionId&&!currentSessionId.startsWith('dm:')?'webProject.threadSharing':'webProject.private')}</p>
       <p className="text-xs leading-5 text-muted-foreground">{t('webProject.help')}</p>
       {!entry && <p role="alert" className="text-xs text-destructive">{t('webProject.noHtml')}</p>}
-      <Button size="sm" disabled={busy || !entry || !title.trim()} onClick={()=>void publish()}>{busy&&<Loader2 className="size-4 animate-spin" />}{t('webProject.publish')}</Button>
+      <Button size="sm" disabled={busy || !entry || !title.trim()} onClick={()=>void publish()}>{busy&&<Spinner />}{t('webProject.publish')}</Button>
     </div>}
   </div>;
 }

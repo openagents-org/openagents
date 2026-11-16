@@ -1,11 +1,7 @@
 'use client';
 
 import { applyMessageRecalls } from '@/lib/message-recall';
-import { requestedMessageId } from '@/lib/thread-link';
-import { desktopHost } from '@/lib/desktop-host';
-import { MESSAGE_TARGET_EVENT, takeMessageTarget } from '@/lib/message-target';
 import { workspaceApi } from '@/lib/api';
-import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { MessageReactionsProvider } from './message-reactions';
 import { ChatMessage } from './chat-message';
@@ -13,95 +9,17 @@ import { IntermediateSteps } from './intermediate-steps';
 import { ThinkingMessage } from './thinking-message';
 import { WorkingBubble } from './working-bubble';
 import { Button } from '@/components/ui/button';
+import { Marker, MarkerContent } from '@/components/ui/marker';
+import { Spinner } from '@/components/ui/spinner';
 import { ArrowDown } from 'lucide-react';
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { isControlMessage } from '@/lib/control-messages';
 import { useT } from '@/lib/i18n';
-
-// ── Message Grouping ──
-
-type MessageGroup =
-  | { type: 'chat'; message: WorkspaceMessage }
-  | { type: 'thinking'; sender: string; messages: WorkspaceMessage[] }
-  | { type: 'steps'; messages: WorkspaceMessage[] };
-
-function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
-  const groups: MessageGroup[] = [];
-  let currentSteps: WorkspaceMessage[] = [];
-
-  const flushSteps = () => {
-    if (currentSteps.length > 0) {
-      groups.push({ type: 'steps', messages: [...currentSteps] });
-      currentSteps = [];
-    }
-  };
-
-  messages.forEach((msg) => {
-    if (msg.messageType === 'thinking') {
-      // Thinking is a first-level block (shown with its author), so flush any
-      // pending sub-level steps first to keep ordering. Consecutive thinking
-      // chunks from the same sender collapse into one block.
-      flushSteps();
-      const last = groups[groups.length - 1];
-      if (last && last.type === 'thinking' && last.sender === msg.senderName) {
-        last.messages.push(msg);
-      } else {
-        groups.push({ type: 'thinking', sender: msg.senderName, messages: [msg] });
-      }
-    } else if (msg.messageType === 'status' || msg.messageType === 'todos') {
-      // Tool calls / status / todos stay clustered at the sub level.
-      currentSteps.push(msg);
-    } else {
-      flushSteps();
-      groups.push({ type: 'chat', message: msg });
-    }
-  });
-
-  flushSteps();
-  return groups;
-}
-
-// Stable key for a group
-function groupKey(group: MessageGroup): string {
-  if (group.type === 'chat') return group.message.messageId;
-  if (group.type === 'thinking') return `thinking-${group.messages[0].messageId}`;
-  return `steps-${group.messages[0].messageId}`;
-}
-
-function isTerminalStatus(msg: WorkspaceMessage) {
-  return (
-    msg.messageType === 'status' &&
-    /stopped|stopping failed/i.test(msg.content)
-  );
-}
-
-// Scroll diagnostics. Always on in dev; in production it's opt-in via
-// `localStorage.setItem('oa_debug_scroll','1')` so we can diagnose the rare
-// scroll-jump in the wild (e.g. on network reconnect) without shipping console
-// noise to every user. Evaluated once at module load.
-const DEBUG_SCROLL =
-  process.env.NODE_ENV !== 'production' ||
-  (() => {
-    try {
-      return typeof window !== 'undefined' && window.localStorage.getItem('oa_debug_scroll') === '1';
-    } catch {
-      return false;
-    }
-  })();
-function scrollDebug(source: string, el: HTMLElement | null, extra?: Record<string, unknown>) {
-  if (!DEBUG_SCROLL || !el) return;
-  const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-  // eslint-disable-next-line no-console
-  console.debug('[chat-scroll]', source, {
-    scrollTop: el.scrollTop,
-    scrollHeight: el.scrollHeight,
-    clientHeight: el.clientHeight,
-    isNearBottom,
-    ...extra,
-  });
-}
+import { filterThreadSteps, groupKey, groupMessages, isTerminalStatus } from './chat-message-groups';
+import { useChatScroll } from './use-chat-scroll';
+import { useMessageTarget, useScrollToTarget } from './use-message-target';
 
 // ── Component ──
 
@@ -128,46 +46,9 @@ interface ChatMessagesProps {
 
 function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, targetSessionId }: ChatMessagesProps) {
   const t = useT();
-  const [targetMessage, setTargetMessage] = useState(() => {
-    if (typeof window === 'undefined') return null;
-    // The desktop app routes in the hash, so its message links live there.
-    return requestedMessageId(desktopHost() ? window.location.hash.slice(1) : window.location.href);
-  });
-  const [highlightedMessage, setHighlightedMessage] = useState<string | null>(null);
-  const targetPendingRef = useRef(targetMessage);
-  targetPendingRef.current = targetMessage;
-  const lastTargetPageRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (targetSessionId === undefined) return;
-    const take = () => {
-      const id = takeMessageTarget(targetSessionId);
-      if (!id) return;
-      lastTargetPageRef.current = null;
-      setTargetMessage(id);
-    };
-    take();
-    window.addEventListener(MESSAGE_TARGET_EVENT, take);
-    return () => window.removeEventListener(MESSAGE_TARGET_EVENT, take);
-  }, [targetSessionId]);
+  const target = useMessageTarget(targetSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
-  const scrollFrameRef = useRef<number | null>(null);
-  const [showScrollBtn, setShowScrollBtn] = useState(false);
-
-  const prevLengthRef = useRef(0);
-  // Track first/last message identity to distinguish prepend (older history
-  // loaded at the top) from append (new message at the bottom).
-  const prevFirstIdRef = useRef<string | null>(null);
-  const prevLastIdRef = useRef<string | null>(null);
-  // Track the last scrollKey value so the force-scroll effect only fires when
-  // scrollKey *actually* changes — not when scrollToBottom's identity changes
-  // (which it does on every message-count change, including history prepend).
-  const prevScrollKeyRef = useRef(scrollKey);
-  // Track session identity to reset scroll state on thread switch
-  const prevSessionRef = useRef<string | null>(null);
-  // True when the user has intentionally scrolled away from the bottom.
-  // Prevents auto-scroll from yanking them back while reading history.
-  const userScrolledUpRef = useRef(false);
 
   // Separate loading indicators (optimistic) from real messages
   const [locallyRecalled, setLocallyRecalled] = useState<Set<string>>(new Set());
@@ -187,66 +68,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
   ), [visibleMessages]);
 
   // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
-  const filteredMessages = useMemo(() => {
-    const isStep = (msg: WorkspaceMessage) => msg.messageType === 'status' || msg.messageType === 'thinking' || msg.messageType === 'todos';
-
-    // Deduplicate: if a chat message follows thinking from the same agent
-    // with matching content, hide the thinking (it was the final answer
-    // streamed early as "thinking" before being posted as "chat").
-    const deduped = realMessages.filter((msg, i) => {
-      if (msg.messageType !== 'thinking') return true;
-      // Look ahead for a chat message from the same agent
-      for (let j = i + 1; j < realMessages.length; j++) {
-        const next = realMessages[j];
-        if (next.senderName !== msg.senderName) continue;
-        if (next.messageType === 'status' || next.messageType === 'thinking') continue;
-        // Found a chat message from the same agent — check content overlap.
-        // Thinking is truncated to 500 chars + "...", so check if chat
-        // starts with the thinking text (minus trailing "...").
-        const thinkText = msg.content.replace(/\.\.\.$/,'').trim();
-        if (thinkText && next.content.startsWith(thinkText)) return false;
-        break;
-      }
-      return true;
-    });
-
-    const nonEmpty = deduped.filter((msg) => !isStep(msg) || msg.content.trim());
-    if (showAllSteps) return nonEmpty;
-
-    let lastChatIndex = -1;
-    for (let i = nonEmpty.length - 1; i >= 0; i--) {
-      if (!isStep(nonEmpty[i])) {
-        lastChatIndex = i;
-        break;
-      }
-    }
-
-    // Check if the very last message is a step (agent still working)
-    const lastIsStep = nonEmpty.length > 0 && isStep(nonEmpty[nonEmpty.length - 1]);
-
-    // Keep: all non-step messages, all thinking messages (they persist),
-    // and trailing status only if agent is still actively working
-    const trailing = nonEmpty.filter((msg, index) => {
-      if (!isStep(msg)) return true;
-      // Always keep thinking and todos — they provide reasoning context
-      if (msg.messageType === 'thinking' || msg.messageType === 'todos') return true;
-      // Only keep trailing status if agent is still working
-      // (last message is a step, meaning no chat response yet)
-      return lastIsStep && index > lastChatIndex;
-    });
-    // Find the last status-only message and keep only that one
-    let lastStatusIndex = -1;
-    for (let i = trailing.length - 1; i >= 0; i--) {
-      if (trailing[i].messageType === 'status') {
-        lastStatusIndex = i;
-        break;
-      }
-    }
-    return trailing.filter((msg, index) => {
-      if (msg.messageType !== 'status') return true;
-      return index === lastStatusIndex;
-    });
-  }, [realMessages, showAllSteps]);
+  const filteredMessages = useMemo(() => filterThreadSteps(realMessages, showAllSteps), [realMessages, showAllSteps]);
 
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
@@ -269,263 +91,12 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
     },
   });
 
-  // A settle-to-bottom pass is in progress. Any real user scroll gesture
-  // cancels it (see the wheel/touch/mousedown listeners below) so we never
-  // fight the user, and it self-terminates once the height stabilizes.
-  const settlingRef = useRef(false);
-
-  const scrollToBottom = useCallback(() => {
-    if (totalCount === 0 || targetPendingRef.current) return;
-    // Land on the estimated bottom synchronously. On a thread switch the
-    // layout effect below runs before paint; waiting for the first animation
-    // frame would briefly show the top of a long conversation.
-    const initialElement = containerRef.current;
-    if (initialElement) initialElement.scrollTop = initialElement.scrollHeight;
-    // Why a loop and not a single scrollTop=scrollHeight: the virtualizer
-    // estimates every unmeasured row at 80px, so one corrective pin lands at
-    // the *estimated* bottom. The real bottom rows (tall markdown, tables) are
-    // then measured, the total height grows, and the view is left ABOVE the
-    // true bottom — the visible "flash then not at the bottom". Two frames
-    // isn't enough for tall rows to finish measuring. So re-pin every frame
-    // until scrollHeight stops changing (measurement done), with a safety cap
-    // to guarantee termination.
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    userScrolledUpRef.current = false;
-    settlingRef.current = true;
-    let lastHeight = -1;
-    let stableFrames = 0;
-    let frames = 0;
-    const step = () => {
-      scrollFrameRef.current = null;
-      const el = containerRef.current;
-      if (!el || !settlingRef.current || userScrolledUpRef.current) return;
-      el.scrollTop = el.scrollHeight;
-      setShowScrollBtn(false);
-      if (el.scrollHeight === lastHeight) {
-        stableFrames += 1;
-      } else {
-        stableFrames = 0;
-        lastHeight = el.scrollHeight;
-      }
-      frames += 1;
-      // Done once the height has held steady for a few frames, or after a
-      // ~1s cap (60 frames) as an unconditional backstop.
-      if (stableFrames >= 3 || frames >= 60) {
-        settlingRef.current = false;
-        scrollDebug('scroll-settled', el, { frames, scrollHeight: el.scrollHeight });
-        return;
-      }
-      scrollFrameRef.current = requestAnimationFrame(step);
-    };
-    scrollFrameRef.current = requestAnimationFrame(step);
-  }, [totalCount]);
-
-  // Images and virtual rows can change height long after the initial settle.
-  // Keep following layout changes until a user gesture leaves the bottom.
-  useEffect(() => {
-    const el = containerRef.current;
-    const content = contentRef.current;
-    if (!el || !content) return;
-    const observer = new ResizeObserver(() => {
-      if (!userScrolledUpRef.current && !loadingOlderInternalRef.current) scrollToBottom();
-    });
-    observer.observe(content);
-    observer.observe(el);
-    return () => {
-      observer.disconnect();
-      settlingRef.current = false;
-      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    };
-  }, [scrollToBottom]);
-
-  // Derive the current session + first/last message identity from messages.
-  const currentSessionId = targetSessionId ?? (messages.length > 0 ? messages[0].sessionId : prevSessionRef.current);
-  const firstId = messages.length > 0 ? messages[0].messageId : null;
-  const lastId = messages.length > 0 ? messages[messages.length - 1].messageId : null;
-
-  // Auto-scroll on new messages — but NOT when the user has scrolled up to read
-  // history, and NOT when older history is prepended at the top.
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    // ① Thread switch (incl. first mount, cache-seeded switch): always scroll
-    //    to bottom. This is the only scroll-to-bottom source for cache-hit
-    //    switches, where scrollKey may not change.
-    if (currentSessionId !== prevSessionRef.current) {
-      prevSessionRef.current = currentSessionId;
-      prevLengthRef.current = messages.length;
-      prevFirstIdRef.current = firstId;
-      prevLastIdRef.current = lastId;
-      userScrolledUpRef.current = false;
-      scrollDebug('session-switch', el, { messageCount: messages.length, totalCount });
-      scrollToBottom();
-      return;
-    }
-
-    // ② Prepend detection: count grew, the first message changed, but the last
-    //    message is unchanged → older history loaded at the top. Never scroll.
-    const grew = messages.length > prevLengthRef.current;
-    const isPrepend = grew && firstId !== prevFirstIdRef.current && lastId === prevLastIdRef.current;
-    prevLengthRef.current = messages.length;
-    prevFirstIdRef.current = firstId;
-    prevLastIdRef.current = lastId;
-    if (isPrepend) {
-      scrollDebug('history-prepend', el, { messageCount: messages.length, totalCount });
-      return;
-    }
-
-    // ③ Append / replace / new (streamed) message: follow only when the user is
-    //    already near the bottom.
-    if (userScrolledUpRef.current) {
-      scrollDebug('append-skip-userUp', el, { messageCount: messages.length, totalCount });
-      return;
-    }
-    scrollDebug('append-follow', el, { messageCount: messages.length, totalCount });
-    scrollToBottom();
-  }, [messages.length, currentSessionId, firstId, lastId, totalCount, scrollToBottom]);
-
-  // Force scroll when scrollKey *actually* changes (user sent a message, clicked
-  // "New messages"). Guard on the real value so a mere
-  // scrollToBottom identity change (from a message-count change such as history
-  // prepend) does not re-trigger a scroll-to-bottom.
-  useEffect(() => {
-    if (scrollKey !== prevScrollKeyRef.current) {
-      prevScrollKeyRef.current = scrollKey;
-      userScrolledUpRef.current = false;
-      scrollDebug('scrollKey-change', containerRef.current, { scrollKey });
-      scrollToBottom();
-    }
-  }, [scrollKey, scrollToBottom]);
-
-  // Track scroll position for "scroll to bottom" button + infinite scroll upward
-  const loadingOlderInternalRef = useRef(false);
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    let resumeOnScroll = false;
-    let scrollbarDragging = false;
-    let lastScrollTop = el.scrollTop;
-    let lastTouchY: number | null = null;
-
-    const onScroll = async () => {
-      const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
-      const movingDown = el.scrollTop > lastScrollTop;
-      lastScrollTop = el.scrollTop;
-      setShowScrollBtn(!isNearBottom);
-      // A reflow/programmatic scroll is not evidence of user intent. Only
-      // resume following here after an actual gesture has scrolled back down.
-      if (userScrolledUpRef.current && isNearBottom && (resumeOnScroll || (scrollbarDragging && movingDown))) {
-        userScrolledUpRef.current = false;
-      }
-      resumeOnScroll = false;
-
-      // Infinite scroll: load older messages when near the top
-      if (
-        !targetPendingRef.current &&
-        userScrolledUpRef.current &&
-        el.scrollTop < 100 &&
-        hasOlder &&
-        !loadingOlder &&
-        !loadingOlderInternalRef.current &&
-        loadOlder
-      ) {
-        loadingOlderInternalRef.current = true;
-        const prevScrollHeight = el.scrollHeight;
-        const prevScrollTop = el.scrollTop;
-        const loadingSession = prevSessionRef.current;
-        scrollDebug('load-older-start', el, { prevScrollHeight });
-        await loadOlder();
-        // Maintain scroll position after prepending older messages
-        requestAnimationFrame(() => {
-          if (containerRef.current !== el || prevSessionRef.current !== loadingSession) { loadingOlderInternalRef.current = false; return; }
-          const newScrollHeight = el.scrollHeight;
-          el.scrollTop = prevScrollTop + newScrollHeight - prevScrollHeight;
-          loadingOlderInternalRef.current = false;
-          scrollDebug('load-older-compensate', el, { prevScrollHeight, newScrollHeight, delta: newScrollHeight - prevScrollHeight });
-        });
-      }
-    };
-
-    // A real user scroll gesture cancels any in-flight settle-to-bottom so we
-    // never yank them back while they're reading. Measurement-driven reflows
-    // (which are what the settle loop exists to absorb) don't fire these.
-    const cancelSettle = (allowResume = false) => {
-      settlingRef.current = false;
-      userScrolledUpRef.current = true;
-      resumeOnScroll = allowResume;
-      if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    };
-    const onWheel = (event: WheelEvent) => {
-      const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 1;
-      if (event.deltaY < 0 || !atBottom) cancelSettle(event.deltaY > 0);
-    };
-    const onMouseDown = (event: MouseEvent) => {
-      if (event.target === el) { scrollbarDragging = true; cancelSettle(); }
-    };
-    const onMouseUp = () => { scrollbarDragging = false; };
-    const onTouchStart = (event: TouchEvent) => { lastTouchY = event.touches[0]?.clientY ?? null; };
-    const onTouchMove = (event: TouchEvent) => {
-      const y = event.touches[0]?.clientY ?? null;
-      cancelSettle(y !== null && lastTouchY !== null && y < lastTouchY);
-      lastTouchY = y;
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].includes(event.key)
-        && event.target === el) cancelSettle(['ArrowDown', 'PageDown', 'End'].includes(event.key) || (event.key === ' ' && !event.shiftKey));
-    };
-
-    el.addEventListener('scroll', onScroll);
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: true });
-    el.addEventListener('mousedown', onMouseDown);
-    window.addEventListener('mouseup', onMouseUp);
-    el.addEventListener('keydown', onKeyDown);
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('mousedown', onMouseDown);
-      window.removeEventListener('mouseup', onMouseUp);
-      el.removeEventListener('keydown', onKeyDown);
-    };
-  }, [hasOlder, loadingOlder, loadOlder]);
-
-  useEffect(() => {
-    if (!targetMessage || !realMessages.length || loadingOlder) return;
-    userScrolledUpRef.current = true;
-    settlingRef.current = false;
-    if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
-    const index = groups.findIndex(group => group.type === 'chat' ? group.message.messageId === targetMessage : group.messages.some(message => message.messageId === targetMessage));
-    if (index >= 0) {
-      let frame = 0;
-      let stable = 0;
-      let lastTop = -1;
-      let id = 0;
-      const settle = () => {
-        virtualizer.scrollToIndex(index, { align: 'center' });
-        const top = containerRef.current?.scrollTop ?? 0;
-        stable = top === lastTop ? stable + 1 : 0;
-        lastTop = top;
-        if (++frame < 60 && stable < 4) { id = requestAnimationFrame(settle); return; }
-        setHighlightedMessage(groupKey(groups[index]));
-        setTargetMessage(null);
-      };
-      id = requestAnimationFrame(settle);
-      return () => cancelAnimationFrame(id);
-    }
-    if (hasOlder && loadOlder) {
-      const page = realMessages[0].messageId;
-      if (lastTargetPageRef.current === page) return;
-      lastTargetPageRef.current = page;
-      void loadOlder().catch(() => { setTargetMessage(null); toast.error(t('reactions.linkMissing')); });
-    } else {
-      setTargetMessage(null);
-      toast.error(t('reactions.linkMissing'));
-    }
-  }, [targetMessage, realMessages, groups, hasOlder, loadingOlder, loadOlder, virtualizer, t]);
+  const { showScrollBtn, userScrolledUpRef, settlingRef, scrollFrameRef, loadOlderFromTop, jumpToLatest } = useChatScroll({
+    containerRef, contentRef, messages, totalCount, scrollKey, loadOlder, hasOlder, loadingOlder, targetSessionId,
+    targetPendingRef: target.targetPendingRef,
+  });
+  useScrollToTarget({ target, containerRef, userScrolledUpRef, settlingRef, scrollFrameRef, virtualizer, realMessages, groups, loadOlder, hasOlder, loadingOlder });
+  const { highlightedMessage } = target;
 
   return (
     <div className="relative flex-1 min-h-0">
@@ -535,30 +106,16 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
         className={cn('h-full overflow-y-auto', className)}
       >
         {loadingOlder && (
-          <div className="flex items-center justify-center py-3">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div className="flex items-center justify-center py-3 text-muted-foreground">
+            <Spinner />
           </div>
         )}
         {hasOlder && !loadingOlder && loadOlder && (
-          <button
-            onClick={async () => {
-              const el = containerRef.current;
-              if (!el) return;
-              userScrolledUpRef.current = true;
-              settlingRef.current = false;
-              const prevScrollHeight = el.scrollHeight;
-              scrollDebug('load-older-start(button)', el, { prevScrollHeight });
-              await loadOlder();
-              requestAnimationFrame(() => {
-                const newScrollHeight = el.scrollHeight;
-                el.scrollTop = newScrollHeight - prevScrollHeight;
-                scrollDebug('load-older-compensate(button)', el, { prevScrollHeight, newScrollHeight, delta: newScrollHeight - prevScrollHeight });
-              });
-            }}
-            className="flex items-center justify-center py-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {t('chat.loadOlderMessages')}
-          </button>
+          <Marker variant="separator" asChild className="py-2 transition-colors hover:text-foreground">
+            <button type="button" onClick={() => { void loadOlderFromTop(); }}>
+              <MarkerContent>{t('chat.loadOlderMessages')}</MarkerContent>
+            </button>
+          </Marker>
         )}
         <div
           ref={contentRef}
@@ -654,9 +211,9 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
             variant="secondary"
             size="sm"
             className="rounded-full shadow-lg"
-            onClick={() => { scrollDebug('user-click-scroll-bottom', containerRef.current); userScrolledUpRef.current = false; scrollToBottom(); }}
+            onClick={jumpToLatest}
           >
-            <ArrowDown className="size-4 mr-1" />
+            <ArrowDown data-icon="inline-start" />
             {t('chat.newMessages')}
           </Button>
         </div>

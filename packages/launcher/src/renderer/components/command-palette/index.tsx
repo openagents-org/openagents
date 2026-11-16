@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react"
 import { useTranslation } from "react-i18next"
 
 import {
+  Command as CommandRoot,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -18,7 +19,7 @@ import { PALETTE_SHORTCUT } from "@renderer/lib/platform"
 function PaletteFooter(): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="flex items-center justify-between border-t px-3 py-2 text-3xs text-muted-foreground">
+    <div className="flex items-center justify-between border-t px-3 py-2 text-xs text-muted-foreground">
       <div className="flex items-center gap-3">
         <span className="flex items-center gap-1">
           <Kbd>↑↓</Kbd>
@@ -89,6 +90,7 @@ export function CommandPalette(): React.JSX.Element {
       showCloseButton={false}
       className="sm:max-w-2xl"
     >
+      <CommandRoot>
       <CommandInput
         value={query}
         onValueChange={setQuery}
@@ -108,7 +110,7 @@ export function CommandPalette(): React.JSX.Element {
                 <cmd.icon />
                 <span className="flex-1 truncate">{cmd.title}</span>
                 {cmd.subtitle && (
-                  <span className="shrink-0 text-2xs text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground">
                     {cmd.subtitle}
                   </span>
                 )}
@@ -118,6 +120,7 @@ export function CommandPalette(): React.JSX.Element {
         ))}
       </CommandList>
       <PaletteFooter />
+      </CommandRoot>
     </CommandDialog>
   )
 }

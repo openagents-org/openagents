@@ -3,6 +3,13 @@ import { Trans, useTranslation } from "react-i18next"
 
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Checkbox } from "@renderer/components/ui/checkbox"
+import {
+  Field,
+  FieldContent,
+  FieldDescription,
+  FieldLabel,
+  FieldTitle,
+} from "@renderer/components/ui/field"
 import { ConfirmDialog } from "@renderer/components/ui-kit"
 import type { CatalogEntry } from "@renderer/types"
 
@@ -52,19 +59,22 @@ export function UninstallDialog({
       }}
       onCancel={close}
     >
-      {/* A <label> makes the whole block a hit target while the checkbox stays
-          the real control. */}
-      <label className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted/70">
-        <Checkbox
-          checked={wipeEnv}
-          onCheckedChange={(v) => setWipeEnv(v === true)}
-          className="mt-0.5"
-        />
-        <span className="text-xs leading-snug text-muted-foreground">
-          {t("agents.detail.alsoRemoveEnv")}{" "}
-          <span className="opacity-70">{t("agents.detail.alsoRemoveEnvHint")}</span>
-        </span>
-      </label>
+      {/* A choice card: the whole bordered row toggles the box. */}
+      <FieldLabel htmlFor="uninstall-wipe-env">
+        <Field orientation="horizontal">
+          <Checkbox
+            id="uninstall-wipe-env"
+            checked={wipeEnv}
+            onCheckedChange={(v) => setWipeEnv(v === true)}
+          />
+          <FieldContent>
+            <FieldTitle>{t("agents.detail.alsoRemoveEnv")}</FieldTitle>
+            <FieldDescription>
+              {t("agents.detail.alsoRemoveEnvHint")}
+            </FieldDescription>
+          </FieldContent>
+        </Field>
+      </FieldLabel>
     </ConfirmDialog>
   )
 }

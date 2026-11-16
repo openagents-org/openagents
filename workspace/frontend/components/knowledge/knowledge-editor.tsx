@@ -12,13 +12,18 @@ import {
   DialogFooter,
 } from '@/components/ui/responsive-dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Button } from '@/components/ui/button';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { ArtifactVisibility, KnowledgeEntry } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { Globe, Lock } from 'lucide-react';
-import { cn } from '@/lib/utils';
+
+/** The root folder, as a value a Select can hold (Radix reserves ''). */
+const ROOT_FOLDER = '__root__';
 
 interface KnowledgeEditorProps {
   open: boolean;
@@ -92,59 +97,71 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
           <DialogTitle>{isEditing ? t('knowledge.editorTitleEdit') : t('knowledge.editorTitleNew')}</DialogTitle>
         </DialogHeader>
 
-        <DialogBody className="space-y-4 py-1">
-          <div className="space-y-2"><Label htmlFor="kb-folder">{t('knowledge.folder')}</Label>
-            <select id="kb-folder" value={folderPath} onChange={event => setFolderPath(event.target.value)} className="h-9 w-full rounded-md border bg-background px-3 text-sm">
-              <option value="">{t('knowledge.rootFolder')}</option>
-              {folders.map(path => <option key={path} value={path}>/{path}</option>)}
-            </select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="kb-title">{t('knowledge.fieldTitle')}</Label>
-            <Input
-              id="kb-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('knowledge.fieldTitlePlaceholder')}
-            />
-          </div>
+        <DialogBody>
+          <FieldGroup className="gap-4">
+            <Field>
+              <FieldLabel htmlFor="kb-folder">{t('knowledge.folder')}</FieldLabel>
+              <Select
+                value={folderPath || ROOT_FOLDER}
+                onValueChange={(v) => setFolderPath(v === ROOT_FOLDER ? '' : v)}
+              >
+                <SelectTrigger id="kb-folder" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value={ROOT_FOLDER}>{t('knowledge.rootFolder')}</SelectItem>
+                    {folders.map((path) => (
+                      <SelectItem key={path} value={path}>/{path}</SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="kb-title">{t('knowledge.fieldTitle')}</FieldLabel>
+              <Input
+                id="kb-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('knowledge.fieldTitlePlaceholder')}
+              />
+            </Field>
 
-          <div className="space-y-2">
-            <Label>{t('artifactAccess.visibility')}</Label>
-            <div className="flex gap-1.5" role="radiogroup" aria-label={t('artifactAccess.visibility')}>
-              {(['private', 'public'] as const).map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  role="radio"
-                  aria-checked={visibility === v}
-                  onClick={() => setVisibility(v)}
-                  className={cn(
-                    'flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors',
-                    visibility === v ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted',
-                  )}
-                >
-                  {v === 'private' ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}
-                  {t(v === 'private' ? 'artifactAccess.private' : 'artifactAccess.public')}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {visibility === 'private' ? t('artifactAccess.privateHint') : t('artifactAccess.publicHint')}
-              {!isEditing && ` ${t('artifactAccess.newEntryVisibilityHint')}`}
-            </p>
-          </div>
+            <Field>
+              <FieldLabel>{t('artifactAccess.visibility')}</FieldLabel>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={visibility}
+                onValueChange={(v) => { if (v) setVisibility(v as ArtifactVisibility); }}
+                aria-label={t('artifactAccess.visibility')}
+                className="w-full"
+              >
+                {(['private', 'public'] as const).map((v) => (
+                  <ToggleGroupItem key={v} value={v} className="flex-1">
+                    {v === 'private' ? <Lock /> : <Globe />}
+                    {t(v === 'private' ? 'artifactAccess.private' : 'artifactAccess.public')}
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+              <FieldDescription>
+                {visibility === 'private' ? t('artifactAccess.privateHint') : t('artifactAccess.publicHint')}
+                {!isEditing && ` ${t('artifactAccess.newEntryVisibilityHint')}`}
+              </FieldDescription>
+            </Field>
 
-          <div className="space-y-2">
-            <Label htmlFor="kb-content">{t('knowledge.fieldContent')}</Label>
-            <textarea
-              id="kb-content"
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder={t('knowledge.fieldContentPlaceholder')}
-              className="w-full min-h-[300px] rounded-md border border-input bg-background px-3 py-2 text-sm font-mono resize-y focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            />
-          </div>
+            <Field>
+              <FieldLabel htmlFor="kb-content">{t('knowledge.fieldContent')}</FieldLabel>
+              <Textarea
+                id="kb-content"
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                placeholder={t('knowledge.fieldContentPlaceholder')}
+                className="min-h-72 resize-y font-mono"
+              />
+            </Field>
+          </FieldGroup>
         </DialogBody>
 
         <DialogFooter>

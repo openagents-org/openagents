@@ -2,7 +2,9 @@ import React from "react"
 import { AlertCircle, ExternalLink, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { Alert, AlertDescription, AlertTitle } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
+import { Card, CardContent } from "@renderer/components/ui/card"
 import { Input } from "@renderer/components/ui/input"
 import {
   workspaceDisplayHost,
@@ -93,12 +95,12 @@ export function PairNodeStep({
         className="h-14 text-center font-mono text-2xl tracking-widest uppercase"
       />
       {error ? (
-        <p className="mt-2.5 mb-0 flex items-center gap-2 text-2xs text-(--danger-text)">
+        <p className="mt-2.5 mb-0 flex items-center gap-2 text-xs text-destructive">
           <AlertCircle className="size-3.5 shrink-0" />
           {error}
         </p>
       ) : (
-        <p className="mt-2.5 mb-0 text-2xs text-(--text-tertiary)">
+        <p className="mt-2.5 mb-0 text-xs text-muted-foreground">
           {t("onboarding.flow.pairNode.codeHint")}
         </p>
       )}
@@ -120,7 +122,7 @@ export function PairNodeStep({
           status?.hostname || t("onboarding.flow.pairNode.devicePlaceholder")
         }
       />
-      <p className="mt-2.5 mb-0 text-2xs text-(--text-tertiary)">
+      <p className="mt-2.5 mb-0 text-xs text-muted-foreground">
         {t("onboarding.flow.pairNode.deviceHint")}
       </p>
 
@@ -129,10 +131,9 @@ export function PairNodeStep({
           of them stay live. It stopped being a warning when that changed, so it
           is drawn as a note, not a caution. */}
       {status?.connected && (
-        <div className="mt-7 flex items-start gap-2.5 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-3">
-          <Info className="mt-0.5 size-3.5 shrink-0 text-(--text-tertiary)" />
-          <div className="min-w-0">
-            <div className="text-xs font-medium">
+        <Alert className="mt-7">
+          <Info />
+          <AlertTitle>
               {(status.workspaces?.length ?? 0) > 1
                 ? t("onboarding.flow.pairNode.alreadyPairedTitleMany", {
                     count: status.workspaces.length,
@@ -140,12 +141,11 @@ export function PairNodeStep({
                 : t("onboarding.flow.pairNode.alreadyPairedTitle", {
                     name: status.workspaceName || status.workspaceSlug || "",
                   })}
-            </div>
-            <p className="m-0 mt-1 text-2xs text-(--text-secondary)">
-              {t("onboarding.flow.pairNode.alreadyPairedBody")}
-            </p>
-          </div>
-        </div>
+          </AlertTitle>
+          <AlertDescription>
+            {t("onboarding.flow.pairNode.alreadyPairedBody")}
+          </AlertDescription>
+        </Alert>
       )}
     </>
   )
@@ -161,20 +161,20 @@ function StartGuide({ onOpen }: { onOpen: () => void }): React.JSX.Element {
   const host = workspaceDisplayHost()
 
   return (
-    <div className="rounded-lg border border-(--border) bg-(--bg-card) p-5">
+    <Card><CardContent>
       <div className="text-sm font-semibold">
         {t("onboarding.flow.pairNode.start.title")}
       </div>
-      <p className="m-0 mt-1 text-xs text-(--text-secondary)">
+      <p className="m-0 mt-1 text-xs text-muted-foreground">
         {t("onboarding.flow.pairNode.start.desc")}
       </p>
       <ol className="m-0 mt-4 flex list-none flex-col gap-2.5 p-0">
         {START_IDS.map((id, i) => (
           <li key={id} className="flex items-center gap-2.5 text-sm">
-            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-(--accent-bg) font-mono text-2xs font-bold text-(--accent)">
+            <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/5 font-mono text-xs font-bold text-primary">
               {i + 1}
             </span>
-            <span className="text-(--text-secondary)">
+            <span className="text-muted-foreground">
               {t(`onboarding.flow.pairNode.start.steps.${id}`, { host })}
             </span>
           </li>
@@ -192,6 +192,6 @@ function StartGuide({ onOpen }: { onOpen: () => void }): React.JSX.Element {
         <ExternalLink className="size-4" />
         {t("onboarding.flow.pairNode.start.open", { host })}
       </Button>
-    </div>
+    </CardContent></Card>
   )
 }

@@ -239,6 +239,13 @@ describe('workspace tabs', () => {
     expect(fakes.views).toHaveLength(2)
     expect(last(host).active).toBe(last(host).tabs[0].id)
   })
+  it('titles a tab opened from the list with the name it was given', () => {
+    const host = makeHost(); host.show(null, bounds)
+    host.openRoute(contents(0) as never, '/acme', 'Acme Corp')
+    expect(last(host).tabs.map((t: { title: string }) => t.title)).toEqual(['Acme Corp'])
+    host.openRoute(contents(0) as never, '/beta', 42)
+    expect(last(host).tabs.map((t: { title: string }) => t.title)).toEqual(['Acme Corp', 'beta'])
+  })
   it('walks an open tab to a deeper route in place, and refuses routes that are not a workspace', () => {
     const host = makeHost(); host.show(null, bounds); host.show('acme', bounds)
     host.openRoute(contents(0) as never, '/acme/settings/members')

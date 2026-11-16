@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from '@/components/chat/human-avatar';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import type { AssigneeChoice } from './issue-assignee-picker';
@@ -51,26 +52,26 @@ export function IssueAssigneeFilter({ value, onChange }: { value: AssigneeFilter
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
+        <Button
+          variant={value ? 'secondary' : 'ghost'}
+          size="sm"
           aria-label={t('issues.filterByAssignee')}
-          className={cn(
-            'flex h-7 max-w-44 shrink-0 items-center gap-1.5 rounded-md border px-2 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            value ? 'border-foreground/20 bg-muted/60 font-medium text-foreground' : 'border-transparent bg-muted/40 text-muted-foreground hover:text-foreground',
-          )}
+          className={cn('max-w-44 shrink-0 text-xs', !value && 'text-muted-foreground')}
         >
-          <UserRound className="size-3.5 shrink-0" />
+          <UserRound data-icon="inline-start" />
           <span className="truncate">{value ? label : t('issues.assignee')}</span>
-          <ChevronDown className="size-3 shrink-0" />
-        </button>
+          <ChevronDown data-icon="inline-end" />
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={6} className="w-64 gap-0 overflow-hidden p-0">
         <Command loop>
           <CommandInput placeholder={t('issues.searchAssignees')} aria-label={t('issues.searchAssignees')} className="text-xs" />
           <CommandList className="max-h-72 p-1.5">
             <CommandEmpty className="px-3 py-6 text-xs">{t('issues.noAssignees')}</CommandEmpty>
-            {item('', t('issues.anyAssignee'), <span className="size-5 shrink-0" />)}
-            {item('none', t('issues.unassigned'), <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-muted-foreground"><UserRound className="size-3" /></span>)}
+            <CommandGroup>
+              {item('', t('issues.anyAssignee'), <span className="size-5 shrink-0" />)}
+              {item('none', t('issues.unassigned'), <span className="flex size-5 shrink-0 items-center justify-center rounded-full border border-dashed text-muted-foreground"><UserRound className="size-3" /></span>)}
+            </CommandGroup>
             {people.length > 0 && (
               <CommandGroup heading={t('issues.people')}>
                 {people.map((p) => item(p.id, p.name, <HumanAvatar email={p.id.slice(6)} />, [p.id.slice(6)]))}

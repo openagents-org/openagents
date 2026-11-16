@@ -58,7 +58,7 @@ export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.El
       {entry.tags.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {entry.tags.map((tag) => (
-            <Badge key={tag.key} variant="muted" size="sm" className="font-mono">
+            <Badge key={tag.key} variant="secondary" className="font-mono">
               <span className="text-muted-foreground">{t(`logs.tag.${tag.key}`)}</span>
               {tag.value}
             </Badge>
@@ -107,14 +107,14 @@ export function LogDetail({ entry, onCopy, onShowContext }: Props): React.JSX.El
                   {t("logs.detail.stack")}
                 </button>
                 {stackOpen && (
-                  <pre className="m-0 max-h-56 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-2xs leading-relaxed">
+                  <pre className="m-0 max-h-56 overflow-auto rounded-md bg-background px-3 py-2 font-mono text-xs leading-relaxed">
                     {entry.stack.join("\n")}
                   </pre>
                 )}
               </>
             )}
             {entry.json !== null && (
-              <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-background px-3 py-2 text-2xs">
+              <pre className="mt-2 max-h-56 overflow-auto rounded-md bg-background px-3 py-2 text-xs">
                 <JsonViewer value={entry.json} collapsed={false} />
               </pre>
             )}

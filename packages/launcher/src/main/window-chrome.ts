@@ -65,13 +65,14 @@ export const TITLEBAR_HEIGHT = 40
 let chromeDimmed = false
 
 /**
- * A colour with the dialog overlay laid over it — `bg-black/50`, the same 50%
- * black the renderer paints across the page, applied by hand because the
- * buttons are not part of the page.
+ * A colour with the dialog overlay laid over it — `bg-black/10`, the same 10%
+ * black the renderer paints across the page (radix-nova's overlay), applied by
+ * hand because the buttons are not part of the page. The overlay's backdrop
+ * blur has no counterpart here; over a flat fill it would change nothing.
  */
 function dimmed(hex: string): string {
   const n = parseInt(hex.slice(1), 16)
-  const mix = (shift: number): number => ((n >> shift) & 0xff) >> 1
+  const mix = (shift: number): number => Math.round(((n >> shift) & 0xff) * 0.9)
   const out = (mix(16) << 16) | (mix(8) << 8) | mix(0)
   return `#${out.toString(16).padStart(6, "0")}`
 }

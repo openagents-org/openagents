@@ -5,10 +5,12 @@ import { Plus, RefreshCw } from "lucide-react"
 import { PageHeader } from "@renderer/components/layout/page-header"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
+import { ItemGroup } from "@renderer/components/ui/item"
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
+  EmptyMedia,
 } from "@renderer/components/ui/empty"
 import { WorkspaceCard } from "@renderer/components/workspaces/workspace-card"
 import { WorkspaceQuickConnect } from "@renderer/components/workspaces/WorkspaceQuickConnect"
@@ -162,12 +164,19 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         // it stays in reach while the toolbar is hidden.
         actions={
           <div className="flex items-center gap-2">
-            <Button variant="outline" disabled={refreshing} onClick={runRefresh}>
-              <RefreshCw className={cn(refreshing && "animate-spin")} />
+            <Button
+              variant="outline"
+              disabled={refreshing}
+              onClick={runRefresh}
+            >
+              <RefreshCw
+                data-icon="inline-start"
+                className={cn(refreshing && "animate-spin")}
+              />
               {t("workspaces.refresh")}
             </Button>
             <Button data-testid="workspace-join-open" onClick={openQuick}>
-              <Plus />
+              <Plus data-icon="inline-start" />
               {t("workspaces.join")}
             </Button>
           </div>
@@ -201,7 +210,9 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
         {loading ? (
           <Empty>
             <EmptyHeader>
-              <Spinner />
+              <EmptyMedia>
+                <Spinner />
+              </EmptyMedia>
               <EmptyDescription>{t("workspaces.loading")}</EmptyDescription>
             </EmptyHeader>
           </Empty>
@@ -213,7 +224,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
             onShowAll={() => setFilter("all")}
           />
         ) : (
-          <div className="flex flex-col gap-3">
+          <ItemGroup className="gap-3">
             {filtered.map((c) => (
               <WorkspaceCard
                 key={c.ws.id}
@@ -233,7 +244,7 @@ export default function Workspaces({ showToast }: Props): React.JSX.Element {
                 onRepair={openQuick}
               />
             ))}
-          </div>
+          </ItemGroup>
         )}
       </div>
 

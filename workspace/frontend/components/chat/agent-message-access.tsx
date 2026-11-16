@@ -9,6 +9,8 @@ import { useT } from '@/lib/i18n';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import type { ChannelParticipants, WorkspaceAgent } from '@/lib/types';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 
 type Access = ChannelParticipants['agents'][number];
@@ -75,9 +77,9 @@ export function AgentOwnershipBadge({ agent, compact = false }: { agent: Workspa
   const ownerName = access?.owner_display_name || context.humanNames[owner.toLowerCase()] ||
     (mine && currentUser.name !== owner ? currentUser.name : null) || owner;
   const label = `${ownerName}${mine ? ` (${t('threads.you')})` : ''}`;
-  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[10px] text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
+  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
     {!compact && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
-    {status && <span className="rounded bg-muted px-1.5 py-0.5">{status}</span>}
+    {status && <Badge variant="secondary">{status}</Badge>}
   </span>;
 }
 
@@ -86,9 +88,9 @@ export function AgentSharingAction({ agentName }: { agentName: string }) {
   const t = useT();
   const agent = context?.agents.find(item => item.agent_name === agentName);
   if (!context || context.people < 2 || !agent?.can_request_sharing || agent.request_access !== 'no') return null;
-  return <button type="button" title={context.supported ? undefined : t('messageAgentAccess.rolloutPending')} disabled={!context.supported || !!context.busy || agent.thread_access_requested} onClick={() => void context.request(agent)} className="flex h-6 items-center gap-1 rounded px-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-60">
-    <UserPlus className="size-3" />{agent.thread_access_requested ? t('messageAgentAccess.requested') : t('messageAgentAccess.request')}
-  </button>;
+  return <Button variant="ghost" size="xs" className="text-muted-foreground" title={context.supported ? undefined : t('messageAgentAccess.rolloutPending')} disabled={!context.supported || !!context.busy || agent.thread_access_requested} onClick={() => void context.request(agent)}>
+    <UserPlus data-icon="inline-start" />{agent.thread_access_requested ? t('messageAgentAccess.requested') : t('messageAgentAccess.request')}
+  </Button>;
 }
 
 

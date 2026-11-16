@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { ArrowRight, Check, CircleHelp, Loader2, X } from 'lucide-react';
+import { ArrowRight, Check, CircleHelp, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { NodeProbe } from '@/lib/types';
-import type { AgentSetupApi } from './agent-setup';
+import type { AgentSetupApi } from './agent-setup-types';
 
 /** How long to wait for the device to report back before calling it a timeout. */
 const RESULT_TIMEOUT_MS = 150_000;
@@ -87,20 +88,20 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
   const failed = outcome.kind !== 'never' && outcome.probe.ok === false;
 
   return (
-    <div className="rounded-xl border px-4 py-3 space-y-2">
+    <div className="rounded-xl border px-4 py-3 flex flex-col gap-2">
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-2 min-w-0 text-xs">
           <span className="font-medium shrink-0">{t('connect.smokeTestTitle')}</span>
           {testing ? (
             <span className="inline-flex items-center gap-1.5 text-muted-foreground">
-              <Loader2 className="size-3 animate-spin" />{t('connect.smokeTestRunning')}
+              <Spinner className="size-3" />{t('connect.smokeTestRunning')}
             </span>
           ) : timedOut ? (
-            <span className="text-amber-600 dark:text-amber-400">{t('connect.smokeTestTimedOut')}</span>
+            <span className="text-warning">{t('connect.smokeTestTimedOut')}</span>
           ) : outcome.kind === 'never' ? (
             <span className="text-muted-foreground">{t('connect.smokeTestNever')}</span>
           ) : unconfirmed ? (
-            <span className="inline-flex items-center gap-1.5 min-w-0 text-amber-600 dark:text-amber-400">
+            <span className="inline-flex items-center gap-1.5 min-w-0 text-warning">
               <CircleHelp className="size-3 shrink-0" />
               {t('connect.smokeTestUnconfirmed')}
               <span className="text-muted-foreground truncate">
@@ -110,7 +111,7 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
           ) : (
             <span className={cn(
               'inline-flex items-center gap-1.5 min-w-0',
-              failed ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400',
+              failed ? 'text-destructive' : 'text-success',
             )}>
               {failed ? <X className="size-3 shrink-0" /> : <Check className="size-3 shrink-0" />}
               {outcome.kind === 'static'
@@ -133,7 +134,7 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
         <p className="text-xs text-muted-foreground">{t('connect.smokeTestStaticHint')}</p>
       )}
       {!testing && !timedOut && unconfirmed && (
-        <div className="space-y-1">
+        <div className="flex flex-col gap-1">
           <p className="text-xs text-muted-foreground">{t('connect.smokeTestUnconfirmedHint')}</p>
           {outcome.probe.message && (
             <p className="text-xs text-muted-foreground break-words">{outcome.probe.message}</p>
@@ -141,12 +142,12 @@ export function SmokeTestPanel({ api, nodeId, agentName, probe, onChanged }: {
         </div>
       )}
       {!testing && !timedOut && outcome.kind !== 'never' && failed && (
-        <div className="space-y-1.5">
+        <div className="flex flex-col gap-1.5">
           {outcome.probe.message && (
-            <p className="text-xs text-red-600/90 dark:text-red-400/90 break-words">{outcome.probe.message}</p>
+            <p className="text-xs text-destructive/90 break-words">{outcome.probe.message}</p>
           )}
           {(outcome.probe.guidance || []).length > 0 && (
-            <ul className="space-y-1">
+            <ul className="flex flex-col gap-1">
               {(outcome.probe.guidance || []).map((line, i) => (
                 <li key={i} className="text-xs text-muted-foreground leading-relaxed flex gap-1.5">
                   <ArrowRight className="size-3 mt-0.5 shrink-0" />

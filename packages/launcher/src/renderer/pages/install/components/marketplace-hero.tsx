@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
+import { Card, CardContent, CardFooter } from "@renderer/components/ui/card"
 import { cn } from "@renderer/lib/utils"
 import type {
   AgentUpdateInfo,
@@ -50,8 +51,8 @@ export function MarketplaceHero({
   if (slides.length === 0) return null
 
   return (
-    <section
-      data-slot="hero"
+    <Card
+      role="region"
       aria-roledescription="carousel"
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
@@ -64,16 +65,15 @@ export function MarketplaceHero({
         if (e.key === "ArrowLeft") { e.preventDefault(); prev() }
         if (e.key === "ArrowRight") { e.preventDefault(); next() }
       }}
-      // A plain card, like every other surface in the app. It was a tinted
-      // panel with the arrows on either side of the slide, which left a wide
-      // empty margin at its top-left and let a long slide run under an arrow.
-      className="overflow-hidden rounded-xl border bg-card shadow-xs"
+      // A plain card, like every other surface in the app, with the slide
+      // controls on its footer.
+      className="shrink-0"
     >
       {/* Every slide is laid into the same grid cell, so the banner is always
           as tall as its tallest slide; the others stay in place but invisible,
           hidden from screen readers and out of the tab order. `grid-cols-1` is
           `minmax(0, 1fr)`, which keeps a long title from widening the cell. */}
-      <div className="grid grid-cols-1 p-6">
+      <CardContent className="grid grid-cols-1">
         {slides.map((slide, i) => (
           <HeroSlide
             key={slide.name}
@@ -84,12 +84,12 @@ export function MarketplaceHero({
             onOpen={onOpen}
           />
         ))}
-      </div>
+      </CardContent>
 
       {/* The controls on a footer of their own — they are the one thing that
           must not move when the slide does. */}
       {slides.length > 1 && (
-        <div className="flex items-center justify-between border-t px-6 py-3">
+        <CardFooter className="justify-between">
           <div className="flex items-center gap-1.5">
             {slides.map((slide, i) => (
               <button
@@ -116,9 +116,9 @@ export function MarketplaceHero({
               <ChevronRight />
             </Button>
           </div>
-        </div>
+        </CardFooter>
       )}
-    </section>
+    </Card>
   )
 }
 
@@ -177,7 +177,7 @@ function HeroSlide({
           {tags.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-3">
               {tags.map((tag) => (
-                <Badge key={tag} variant="muted" size="sm" className="font-mono">
+                <Badge key={tag} variant="secondary" className="font-mono">
                   {tag}
                 </Badge>
               ))}

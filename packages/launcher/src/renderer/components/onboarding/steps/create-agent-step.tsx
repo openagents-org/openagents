@@ -87,7 +87,7 @@ export function CreateAgentStep({
         onChange={(e) => setAgentName(e.target.value)}
         placeholder={t("onboarding.flow.createAgent.namePlaceholder")}
       />
-      <p className="mt-2 mb-0 text-2xs text-(--text-tertiary)">
+      <p className="mt-2 mb-0 text-xs text-muted-foreground">
         {t("onboarding.flow.createAgent.nameHint")}
       </p>
 
@@ -110,7 +110,7 @@ export function CreateAgentStep({
             {t("onboarding.flow.createAgent.browse")}
           </Button>
         </div>
-        <p className="mt-2 mb-0 text-2xs text-(--text-tertiary)">
+        <p className="mt-2 mb-0 text-xs text-muted-foreground">
           {t("onboarding.flow.createAgent.folderHint")}
         </p>
       </div>
@@ -118,18 +118,18 @@ export function CreateAgentStep({
       <SectionLabel className="mt-9">
         {t("onboarding.flow.sections.launchPreview")}
       </SectionLabel>
-      <div className="rounded-lg border border-(--border) bg-(--bg-card) p-4 font-mono text-xs">
+      <div className="rounded-lg border border-border bg-card p-4 font-mono text-xs">
         {lines.map((line, i) => (
           <div key={line.text} className={i > 0 ? "mt-2 flex gap-2" : "flex gap-2"}>
             {line.ok ? (
-              <Check className="mt-0.5 size-3 shrink-0 text-(--success)" />
+              <Check className="mt-0.5 size-3 shrink-0 text-success" />
             ) : (
-              <span className="text-(--text-tertiary)">○</span>
+              <span className="text-muted-foreground">○</span>
             )}
             <span
               className={cn(
                 "break-all",
-                line.ok ? "text-(--text-secondary)" : "text-(--text-tertiary)",
+                line.ok ? "text-muted-foreground" : "text-muted-foreground",
               )}
             >
               {line.text}

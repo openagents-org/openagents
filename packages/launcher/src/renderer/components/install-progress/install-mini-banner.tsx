@@ -51,8 +51,8 @@ export function InstallMiniBanner({
         </span>
         <span
           className={cn(
-            "shrink-0 font-mono text-3xs",
-            errored ? "text-(--danger-text)" : "text-muted-foreground",
+            "shrink-0 font-mono text-xs",
+            errored ? "text-destructive" : "text-muted-foreground",
           )}
         >
           {status}
@@ -69,7 +69,7 @@ export function InstallMiniBanner({
         />
       </div>
 
-      <span className="truncate text-2xs text-muted-foreground" title={job.detail}>
+      <span className="truncate text-xs text-muted-foreground" title={job.detail}>
         {errored
           ? job.error || t("install.progress.failed")
           : job.detail || t("install.progress.starting")}

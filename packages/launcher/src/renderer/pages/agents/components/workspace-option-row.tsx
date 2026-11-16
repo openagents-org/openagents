@@ -41,7 +41,7 @@ export function WorkspaceOptionRow({
       className={cn(
         "flex w-full shrink-0 items-center gap-3 rounded-md border px-3 py-2.5 text-left transition-colors",
         selected
-          ? "border-primary bg-(--accent-bg)"
+          ? "border-primary/30 bg-primary/5 dark:border-primary/20 dark:bg-primary/10"
           : "border-border hover:bg-row-hover",
       )}
     >

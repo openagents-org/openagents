@@ -145,8 +145,9 @@ contextBridge.exposeInMainWorld("__oaHost__", {
   tab: () => config?.scope
     ? config.scope.kind === "home" ? { kind: "home" } : { kind: "workspace", aliases: [...aliases] }
     : null,
-  /** Hand a route that belongs to another tab to the launcher. */
-  openRoute: (route: string) => ipcRenderer.send("workspace-view:open-route", route),
+  /** Hand a route that belongs to another tab to the launcher, with what to
+   * call the tab until its page names it, when the page knows. */
+  openRoute: (route: string, title?: string) => ipcRenderer.send("workspace-view:open-route", route, title),
   /** Name this tab, and let it answer to both the workspace's slug and its id. */
   reportWorkspace: (info: { id: string; slug: string; name: string }) => {
     if (config?.scope?.kind !== "workspace") return

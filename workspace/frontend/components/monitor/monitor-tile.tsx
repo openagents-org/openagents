@@ -7,7 +7,6 @@ import {
   Activity,
   Brain,
   CheckCircle2,
-  Loader2,
   Pencil,
   RefreshCw,
   Search,
@@ -17,8 +16,9 @@ import {
   Wrench,
   Eye,
 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import type { WorkspaceAgent, WorkspaceMessage, WorkspaceSession } from '@/lib/types';
-import type { TileData } from './monitor-grid';
+import type { TileData } from './use-monitor-tiles';
 
 interface MonitorTileProps {
   session: WorkspaceSession;
@@ -139,31 +139,31 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
     <button
       onClick={onClick}
       className={cn(
-        'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md',
+        'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-md',
         isActive && 'thread-wip',
-        isCompleted && 'bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200/60 dark:ring-amber-700/40 animate-[glow_2s_ease-in-out_infinite]',
+        isCompleted && 'bg-warning/10 ring-1 ring-warning/30 animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       {/* Header: avatars + title + time */}
       <div className="flex items-center gap-2 mb-2 shrink-0">
-        <div className="flex -space-x-1.5 shrink-0">
+        <div className="flex *:not-first:-ml-1.5 shrink-0">
           {sessionAgents.slice(0, 3).map((agent) => (
             <div key={agent.agentName} className="border-2 border-background rounded-full">
               <AgentAvatar name={agent.agentName} size={18} />
             </div>
           ))}
         </div>
-        {session.starred && <Star className="size-3 text-amber-400 fill-amber-400 shrink-0" />}
+        {session.starred && <Star className="size-3 text-warning fill-warning shrink-0" />}
         <span className="text-xs font-medium text-foreground truncate flex-1 min-w-0">
           {session.title || t('monitor.untitled')}
         </span>
         {isCompleted ? (
-          <CheckCircle2 className="size-3.5 shrink-0 text-amber-500" />
+          <CheckCircle2 className="size-3.5 shrink-0 text-warning" />
         ) : (
-          <span className="text-[10px] text-muted-foreground shrink-0">{displayTime}</span>
+          <span className="text-xs text-muted-foreground shrink-0">{displayTime}</span>
         )}
         {shortcutKey && (
-          <kbd className="size-4 flex items-center justify-center rounded text-[9px] font-mono font-medium bg-muted text-muted-foreground border border-input shrink-0">
+          <kbd className="size-4 flex items-center justify-center rounded text-xs font-mono font-medium bg-muted text-muted-foreground border border-input shrink-0">
             {shortcutKey}
           </kbd>
         )}
@@ -189,7 +189,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
         {agentIsWorking && recentSteps.length > 0 ? (
           <div className="flex-1 min-h-0 overflow-hidden flex flex-col justify-end">
             {/* Show steps from bottom up, newest at bottom — reversed to fill from bottom */}
-            <div className="overflow-hidden space-y-0.5">
+            <div className="overflow-hidden flex flex-col gap-0.5">
               {[...recentSteps].reverse().map((step) => {
                 const parsed = parseStep(step);
                 const Icon = parsed.type === 'tool_call' ? getToolIcon(parsed.label) : STEP_ICONS[parsed.type];
@@ -197,15 +197,15 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
                   <div key={step.messageId} className="flex items-center gap-1.5 min-w-0">
                     <Icon className={cn(
                       'size-3 shrink-0',
-                      parsed.type === 'thinking' && 'text-amber-500',
+                      parsed.type === 'thinking' && 'text-warning',
                       parsed.type === 'tool_call' && 'text-foreground/80',
-                      parsed.type === 'status' && 'text-emerald-500',
-                      parsed.type === 'compacting' && 'text-violet-500 animate-spin',
+                      parsed.type === 'status' && 'text-success',
+                      parsed.type === 'compacting' && 'animate-spin text-info',
                     )} />
                     <span className={cn(
-                      'text-[11px] truncate min-w-0 text-muted-foreground',
+                      'text-xs truncate min-w-0 text-muted-foreground',
                       parsed.type === 'thinking' && 'italic',
-                      parsed.type === 'compacting' && 'italic text-violet-500/80',
+                      parsed.type === 'compacting' && 'text-info/80 italic',
                     )}>
                       {parsed.label}
                     </span>
@@ -215,7 +215,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
             </div>
             {/* Activity dots */}
             <div className="shrink-0 mt-0.5">
-              <Loader2 className="size-3 text-muted-foreground/50 animate-spin" />
+              <Spinner className="size-3 text-muted-foreground/50" />
             </div>
           </div>
         ) : lastAgent ? (

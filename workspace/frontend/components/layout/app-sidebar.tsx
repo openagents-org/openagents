@@ -50,7 +50,7 @@ function SidebarRailToggle() {
         />
       </span>
 
-      <span className="pointer-events-none absolute left-full -ml-2 -translate-x-0.5 rounded-md border border-border bg-foreground px-2 py-0.5 text-[11px] font-medium whitespace-nowrap text-background opacity-0 shadow-xs shadow-black/5 transition-all duration-200 ease-out group-hover/rail:translate-x-0 group-hover/rail:opacity-100">
+      <span className="pointer-events-none absolute left-full -ml-2 -translate-x-0.5 rounded-md border border-border bg-foreground px-2 py-0.5 text-xs font-medium whitespace-nowrap text-background opacity-0 shadow-xs shadow-black/5 transition-all duration-200 ease-out group-hover/rail:translate-x-0 group-hover/rail:opacity-100">
         {label}
       </span>
     </button>
@@ -79,7 +79,7 @@ export function AppSidebar() {
         collapsible="none"
         className={cn(
           // Fills the shell, which is already the viewport minus any banner.
-          'h-full shrink-0 overflow-hidden border-e',
+          'h-full shrink-0 overflow-hidden',
           // Dragging the rail's edge drives this width too — easing it would
           // make the shell lag a frame behind the pointer.
           railDragWidth === null && 'transition-[width] duration-200 ease-linear',

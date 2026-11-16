@@ -98,7 +98,7 @@ export function ClearLogsDialog({ open, onClose, onConfirm }: Props): React.JSX.
               onChange={(e) => setRange((r) => ({ ...r, end: e.target.value }))}
             />
           </Field>
-          {error && <p className="text-xs text-(--danger-text)">{error}</p>}
+          {error && <p className="text-xs text-destructive">{error}</p>}
         </DialogBody>
 
         <DialogFooter>

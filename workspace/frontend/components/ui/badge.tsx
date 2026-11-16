@@ -1,242 +1,56 @@
-import * as React from 'react';
-import { cva, type VariantProps } from 'class-variance-authority';
-import { Slot as SlotPrimitive } from 'radix-ui';
-import { cn } from '@/lib/utils';
-
-export interface BadgeProps
-  extends React.HTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeVariants> {
-  asChild?: boolean;
-  dotClassName?: string;
-  disabled?: boolean;
-}
-
-export interface BadgeButtonProps
-  extends React.ButtonHTMLAttributes<HTMLDivElement>,
-    VariantProps<typeof badgeButtonVariants> {
-  asChild?: boolean;
-}
-
-export type BadgeDotProps = React.HTMLAttributes<HTMLSpanElement>;
+import * as React from "react"
+import { cva, type VariantProps } from "class-variance-authority"
+import { cn } from "@/lib/utils"
+import { Slot } from "radix-ui"
 
 const badgeVariants = cva(
-  'inline-flex items-center justify-center border border-transparent font-medium focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 [&_svg]:-ms-px [&_svg]:shrink-0',
+  "group/badge inline-flex h-5 w-fit shrink-0 items-center justify-center gap-1 overflow-hidden rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium whitespace-nowrap transition-all focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&>svg]:pointer-events-none [&>svg]:size-3!",
   {
     variants: {
       variant: {
-        primary: 'bg-primary text-primary-foreground',
-        secondary: 'bg-secondary text-secondary-foreground',
-        success:
-          'bg-[var(--color-success-accent,var(--color-green-500))] text-[var(--color-success-foreground,var(--color-white))]',
-        warning:
-          'bg-[var(--color-warning-accent,var(--color-yellow-500))] text-[var(--color-warning-foreground,var(--color-white))]',
-        info: 'bg-[var(--color-info-accent,var(--color-violet-500))] text-[var(--color-info-foreground,var(--color-white))]',
+        default: "bg-primary text-primary-foreground [a]:hover:bg-primary/80",
+        secondary:
+          "bg-secondary text-secondary-foreground [a]:hover:bg-secondary/80",
+        destructive:
+          "bg-destructive/10 text-destructive focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:focus-visible:ring-destructive/40 [a]:hover:bg-destructive/20",
         outline:
-          'bg-transparent border border-border text-secondary-foreground',
-        destructive: 'bg-destructive text-destructive-foreground',
-      },
-      appearance: {
-        default: '',
-        light: '',
-        outline: '',
-        ghost: 'border-transparent bg-transparent',
-      },
-      disabled: {
-        true: 'opacity-50 pointer-events-none',
-      },
-      size: {
-        lg: 'rounded-md px-[0.5rem] h-7 min-w-7 gap-1.5 text-xs [&_svg]:size-3.5',
-        md: 'rounded-md px-[0.45rem] h-6 min-w-6 gap-1.5 text-xs [&_svg]:size-3.5 ',
-        sm: 'rounded-sm px-[0.325rem] h-5 min-w-5 gap-1 text-[0.6875rem] leading-[0.75rem] [&_svg]:size-3',
-        xs: 'rounded-sm px-[0.25rem] h-4 min-w-4 gap-1 text-[0.625rem] leading-[0.5rem] [&_svg]:size-3',
-      },
-      shape: {
-        default: '',
-        circle: 'rounded-full',
-      },
-    },
-    compoundVariants: [
-      /* Light */
-      {
-        variant: 'primary',
-        appearance: 'light',
-        className:
-          'text-[var(--color-primary-accent,var(--color-zinc-800))] bg-[var(--color-primary-soft,var(--color-zinc-100))] dark:bg-[var(--color-primary-soft,var(--color-zinc-800))] dark:text-[var(--color-primary-soft,var(--color-zinc-200))]',
-      },
-      {
-        variant: 'secondary',
-        appearance: 'light',
-        className:
-          'bg-secondary dark:bg-secondary/50 text-secondary-foreground',
-      },
-      {
-        variant: 'success',
-        appearance: 'light',
-        className:
-          'text-[var(--color-success-accent,var(--color-green-800))] bg-[var(--color-success-soft,var(--color-green-100))] dark:bg-[var(--color-success-soft,var(--color-green-950))] dark:text-[var(--color-success-soft,var(--color-green-600))]',
-      },
-      {
-        variant: 'warning',
-        appearance: 'light',
-        className:
-          'text-[var(--color-warning-accent,var(--color-yellow-700))] bg-[var(--color-warning-soft,var(--color-yellow-100))] dark:bg-[var(--color-warning-soft,var(--color-yellow-950))] dark:text-[var(--color-warning-soft,var(--color-yellow-600))]',
-      },
-      {
-        variant: 'info',
-        appearance: 'light',
-        className:
-          'text-[var(--color-info-accent,var(--color-violet-700))] bg-[var(--color-info-soft,var(--color-violet-100))] dark:bg-[var(--color-info-soft,var(--color-violet-950))] dark:text-[var(--color-info-soft,var(--color-violet-400))]',
-      },
-      {
-        variant: 'destructive',
-        appearance: 'light',
-        className:
-          'text-[var(--color-destructive-accent,var(--color-red-700))] bg-[var(--color-destructive-soft,var(--color-red-50))] dark:bg-[var(--color-destructive-soft,var(--color-red-950))] dark:text-[var(--color-destructive-soft,var(--color-red-600))]',
-      },
-      /* Outline */
-      {
-        variant: 'primary',
-        appearance: 'outline',
-        className:
-          'text-[var(--color-primary-accent,var(--color-zinc-800))] border-[var(--color-primary-soft,var(--color-zinc-200))] bg-[var(--color-primary-soft,var(--color-zinc-50))] dark:bg-[var(--color-primary-soft,var(--color-zinc-900))] dark:border-[var(--color-primary-soft,var(--color-zinc-700))] dark:text-[var(--color-primary-soft,var(--color-zinc-200))]',
-      },
-      {
-        variant: 'success',
-        appearance: 'outline',
-        className:
-          'text-[var(--color-success-accent,var(--color-green-700))] border-[var(--color-success-soft,var(--color-green-200))] bg-[var(--color-success-soft,var(--color-green-50))] dark:bg-[var(--color-success-soft,var(--color-green-950))] dark:border-[var(--color-success-soft,var(--color-green-900))] dark:text-[var(--color-success-soft,var(--color-green-600))]',
-      },
-      {
-        variant: 'warning',
-        appearance: 'outline',
-        className:
-          'text-[var(--color-warning-accent,var(--color-yellow-700))] border-[var(--color-warning-soft,var(--color-yellow-200))] bg-[var(--color-warning-soft,var(--color-yellow-50))] dark:bg-[var(--color-warning-soft,var(--color-yellow-950))] dark:border-[var(--color-warning-soft,var(--color-yellow-900))] dark:text-[var(--color-warning-soft,var(--color-yellow-600))]',
-      },
-      {
-        variant: 'info',
-        appearance: 'outline',
-        className:
-          'text-[var(--color-info-accent,var(--color-violet-700))] border-[var(--color-info-soft,var(--color-violet-100))] bg-[var(--color-info-soft,var(--color-violet-50))] dark:bg-[var(--color-info-soft,var(--color-violet-950))] dark:border-[var(--color-info-soft,var(--color-violet-900))] dark:text-[var(--color-info-soft,var(--color-violet-400))]',
-      },
-      {
-        variant: 'destructive',
-        appearance: 'outline',
-        className:
-          'text-[var(--color-destructive-accent,var(--color-red-700))] border-[var(--color-destructive-soft,var(--color-red-100))] bg-[var(--color-destructive-soft,var(--color-red-50))] dark:bg-[var(--color-destructive-soft,var(--color-red-950))] dark:border-[var(--color-destructive-soft,var(--color-red-900))] dark:text-[var(--color-destructive-soft,var(--color-red-600))]',
-      },
-      /* Ghost */
-      {
-        variant: 'primary',
-        appearance: 'ghost',
-        className: 'text-primary',
-      },
-      {
-        variant: 'secondary',
-        appearance: 'ghost',
-        className: 'text-secondary-foreground',
-      },
-      {
-        variant: 'success',
-        appearance: 'ghost',
-        className: 'text-[var(--color-success-accent,var(--color-green-500))]',
-      },
-      {
-        variant: 'warning',
-        appearance: 'ghost',
-        className: 'text-[var(--color-warning-accent,var(--color-yellow-500))]',
-      },
-      {
-        variant: 'info',
-        appearance: 'ghost',
-        className: 'text-[var(--color-info-accent,var(--color-violet-500))]',
-      },
-      {
-        variant: 'destructive',
-        appearance: 'ghost',
-        className: 'text-destructive',
-      },
-
-      { size: 'lg', appearance: 'ghost', className: 'px-0' },
-      { size: 'md', appearance: 'ghost', className: 'px-0' },
-      { size: 'sm', appearance: 'ghost', className: 'px-0' },
-      { size: 'xs', appearance: 'ghost', className: 'px-0' },
-    ],
-    defaultVariants: {
-      variant: 'primary',
-      appearance: 'default',
-      size: 'md',
-    },
-  },
-);
-
-const badgeButtonVariants = cva(
-  'cursor-pointer transition-all inline-flex items-center justify-center leading-none size-3.5 [&>svg]:opacity-100! [&>svg]:size-3.5! p-0 rounded-md -me-0.5 opacity-60 hover:opacity-100',
-  {
-    variants: {
-      variant: {
-        default: '',
+          "border-border text-foreground [a]:hover:bg-muted [a]:hover:text-muted-foreground",
+        ghost:
+          "hover:bg-muted hover:text-muted-foreground dark:hover:bg-muted/50",
+        // Status tints, built like `destructive`. The registry leaves status
+        // colours to the app; these read from the theme's --success /
+        // --warning / --info tokens.
+        success:
+          "bg-success/10 text-success dark:bg-success/20 [a]:hover:bg-success/20",
+        warning:
+          "bg-warning/10 text-warning dark:bg-warning/20 [a]:hover:bg-warning/20",
+        info: "bg-info/10 text-info dark:bg-info/20 [a]:hover:bg-info/20",
+        link: "text-primary underline-offset-4 hover:underline",
       },
     },
     defaultVariants: {
-      variant: 'default',
+      variant: "default",
     },
-  },
-);
+  }
+)
 
 function Badge({
   className,
-  variant,
-  size,
-  appearance,
-  shape,
+  variant = "default",
   asChild = false,
-  disabled,
   ...props
-}: React.ComponentProps<'span'> &
+}: React.ComponentProps<"span"> &
   VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? SlotPrimitive.Slot : 'span';
+  const Comp = asChild ? Slot.Root : "span"
 
   return (
     <Comp
       data-slot="badge"
-      className={cn(
-        badgeVariants({ variant, size, appearance, shape, disabled }),
-        className,
-      )}
+      data-variant={variant}
+      className={cn(badgeVariants({ variant }), className)}
       {...props}
     />
-  );
+  )
 }
 
-function BadgeButton({
-  className,
-  variant,
-  asChild = false,
-  ...props
-}: React.ComponentProps<'button'> &
-  VariantProps<typeof badgeButtonVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? SlotPrimitive.Slot : 'span';
-  return (
-    <Comp
-      data-slot="badge-button"
-      className={cn(badgeButtonVariants({ variant, className }))}
-      role="button"
-      {...props}
-    />
-  );
-}
-
-function BadgeDot({ className, ...props }: React.ComponentProps<'span'>) {
-  return (
-    <span
-      data-slot="badge-dot"
-      className={cn(
-        'size-1.5 rounded-full bg-[currentColor] opacity-75',
-        className,
-      )}
-      {...props}
-    />
-  );
-}
-
-export { Badge, BadgeButton, BadgeDot, badgeVariants };
+export { Badge, badgeVariants }

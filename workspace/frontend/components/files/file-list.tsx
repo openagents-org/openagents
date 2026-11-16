@@ -1,70 +1,34 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import {
-  Search,
-  Files,
-  FolderOpen,
-  Folder,
-  FolderPlus,
-  Loader2,
-  MoreVertical,
-  Pencil,
-  Trash2,
-} from "lucide-react"
+import { Files, FolderOpen, FolderPlus, Search, Trash2 } from "lucide-react"
 import { personalFolder } from '@/lib/personal-files'
 import { useTeamRoster } from '@/hooks/use-team-roster'
 import { HumanAvatar } from '@/components/chat/human-avatar'
 import { useWorkspace } from "@/lib/workspace-context"
 import { useLayout } from "@/components/layout/layout-context"
 import { ListToggleButton } from "@/components/layout/list-collapse-button"
-import { useConfirm, usePrompt } from "@/components/ui/dialogs-provider"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
 import { cn } from "@/lib/utils"
-import { toast } from "sonner"
 import { useT } from "@/lib/i18n"
-import { basename, dirname, isKeepFile } from "./file-utils"
+import { dirname, isKeepFile } from "./file-utils"
+import { FolderTreeRow } from "./folder-tree-row"
+import { useFolderActions } from "./use-folder-actions"
 
-interface FolderNode {
-  path: string
-  depth: number
-  count: number
+/** A section label in the panel: personal folders, folders, trash. */
+function PanelSection({ label, className }: { label: string; className?: string }) {
+  return (
+    <div className={cn("px-2 pb-1", className)}>
+      <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{label}</span>
+    </div>
+  )
 }
 
-/**
- * Longest folder name we accept.
- *
- * The panel is a fixed-width column and a folder name is one line of it —
- * past this everything is ellipsis, and a tree of truncated names is a tree
- * you can't read. Nesting multiplies it: the full path travels in every
- * filename, and the breadcrumb has to spell it out.
- */
-const MAX_FOLDER_NAME = 20
-
 export function FileList() {
-  const {
-    files,
-    selectedFileId,
-    setSelectedFileId,
-    currentFilePath,
-    setCurrentFilePath,
-    createFolder,
-    renameFolder,
-    deleteFolder,
-    pendingFolderPaths,
-    trashEntries,
-  } = useWorkspace()
-  const { isMobile, openMobileDetail, filesSection, setFilesSection } =
-    useLayout()
-  const confirm = useConfirm()
-  const prompt = usePrompt()
+  const { files, selectedFileId, currentFilePath, pendingFolderPaths, trashEntries } = useWorkspace()
+  const { filesSection } = useLayout()
   const t = useT()
   const team = useTeamRoster()
   const [search, setSearch] = useState("")
@@ -123,149 +87,7 @@ export function FileList() {
     [allFolders],
   )
 
-  const openFolder = (path: string) => {
-    setFilesSection("folders")
-    setCurrentFilePath(path)
-    // Drop any open file so the detail pane shows the folder, not a preview
-    setSelectedFileId(null)
-    if (isMobile) openMobileDetail()
-  }
-
-  const openTrash = () => {
-    setFilesSection("trash")
-    setSelectedFileId(null)
-    if (isMobile) openMobileDetail()
-  }
-
-  /** A path segment can't hold a separator; it would nest a folder instead. */
-  const sanitizeName = (name: string) => name.trim().replace(/[/\\]/g, "-")
-
-  /**
-   * Names are checked before the folder exists, so the limit is a rule rather
-   * than a truncation: a name cut down to fit is a different name than the one
-   * you typed, and you'd only find out after it was created.
-   */
-  const checkName = (value: string, taken: (path: string) => boolean) => {
-    const candidate = sanitizeName(value)
-    if (candidate.length > MAX_FOLDER_NAME) {
-      return t("folders.nameTooLong", {
-        max: MAX_FOLDER_NAME,
-        length: candidate.length,
-      })
-    }
-    return taken(candidate) ? t("folders.nameTaken") : null
-  }
-
-  /**
-   * Create a folder under `parent` — the top level by default.
-   *
-   * The parent is passed in rather than read off the selection: the header
-   * button is the panel's own action and always makes a top-level folder,
-   * while a row's menu makes one inside that row. Taking it from whatever
-   * happened to be selected left no way to get back to the top level at all.
-   */
-  const handleCreateFolder = async (parent = "") => {
-    const name = await prompt({
-      title: parent
-        ? t("folders.newFolderIn", { parent: basename(parent) })
-        : t("folders.newFolder"),
-      description: parent
-        ? t("folders.createdInside", { parent })
-        : t("folders.createdAtTopLevel"),
-      placeholder: t("folders.namePlaceholder"),
-      confirmText: t("common.create"),
-      validate: (value) =>
-        checkName(value, (candidate) =>
-          folderPaths.has(parent ? `${parent}/${candidate}` : candidate),
-        ),
-    })
-    if (!name?.trim()) return
-    const sanitized = sanitizeName(name)
-    const path = parent ? `${parent}/${sanitized}` : sanitized
-
-    // The folder is on screen — and open — before the request goes out; if it
-    // fails it disappears again, so the view has to leave with it.
-    const previousPath = currentFilePath
-    const previousSection = filesSection
-    openFolder(path)
-    try {
-      await createFolder(path)
-    } catch (err) {
-      setFilesSection(previousSection)
-      setCurrentFilePath(previousPath)
-      toast.error(
-        err instanceof Error ? err.message : t("folders.createFailed"),
-      )
-    }
-  }
-
-  const handleRenameFolder = async (path: string) => {
-    const currentName = basename(path)
-    const parent = dirname(path)
-    const next = await prompt({
-      title: t("folders.renameTitle"),
-      description: t("folders.renameDescription"),
-      defaultValue: currentName,
-      placeholder: t("folders.namePlaceholder"),
-      confirmText: t("common.rename"),
-      validate: (value) =>
-        checkName(value, (candidate) =>
-          // Its own name isn't taken — leaving it alone is a no-op, not a clash.
-          candidate !== currentName &&
-          folderPaths.has(parent ? `${parent}/${candidate}` : candidate),
-        ),
-    })
-    if (!next?.trim()) return
-    const sanitized = sanitizeName(next)
-    if (sanitized === currentName) return
-    const newPath = parent ? `${parent}/${sanitized}` : sanitized
-
-    // Follow the folder if we were standing in it (or below it), and follow it
-    // back if the rename doesn't take.
-    const previousPath = currentFilePath
-    const wasInside =
-      currentFilePath === path || currentFilePath.startsWith(`${path}/`)
-    if (wasInside)
-      setCurrentFilePath(newPath + currentFilePath.slice(path.length))
-    try {
-      await renameFolder(path, newPath)
-    } catch (err) {
-      if (wasInside) setCurrentFilePath(previousPath)
-      toast.error(
-        err instanceof Error ? err.message : t("folders.renameFailed"),
-      )
-    }
-  }
-
-  const handleDeleteFolder = async (path: string, count: number) => {
-    const ok = await confirm({
-      title: t("folders.deleteTitle"),
-      description:
-        count > 0
-          ? t("folders.deleteDescriptionWithItems", {
-              name: basename(path),
-              count: t("folders.itemCount", { count }),
-            })
-          : t("folders.deleteDescription", { name: basename(path) }),
-      confirmText: t("common.delete"),
-      destructive: true,
-    })
-    if (!ok) return
-
-    const previousPath = currentFilePath
-    const wasInside =
-      currentFilePath === path || currentFilePath.startsWith(`${path}/`)
-    if (wasInside) openFolder(dirname(path))
-    try {
-      await deleteFolder(path)
-      toast.success(t("files.movedToTrash", { name: basename(path) }))
-    } catch (err) {
-      if (wasInside) setCurrentFilePath(previousPath)
-      toast.error(
-        err instanceof Error ? err.message : t("folders.deleteFailed"),
-      )
-    }
-  }
+  const { openFolder, openTrash, createFolder, renameFolder, deleteFolder } = useFolderActions(folderPaths)
 
   const isFoldersSection = filesSection === "folders"
   // Delete actions, not files: a deleted folder counts once, the same way it
@@ -278,7 +100,7 @@ export function FileList() {
       {/* Same shape as the Threads/Knowledge panels: a --header-height title row
           that lines up with the rail and the detail header, then the search on
           its own row below. */}
-      <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
+      <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b px-3">
         {/* No count here — this panel is about folders, and the detail header
             counts the files you're actually looking at. */}
         <div className="flex min-w-0 items-center gap-1.5">
@@ -287,24 +109,26 @@ export function FileList() {
         </div>
         {/* This panel owns the folder structure; uploading a file belongs to
             the folder you're looking at, so it lives in the detail toolbar. */}
-        <Button size="sm" className="shrink-0 gap-1.5 font-semibold" onClick={() => handleCreateFolder()}>
-          <FolderPlus className="size-4" />
+        <Button size="sm" className="shrink-0" onClick={() => createFolder()}>
+          <FolderPlus data-icon="inline-start" />
           {t("folders.newFolder")}
         </Button>
       </div>
 
       {/* ── Search ── */}
-      <div className="shrink-0 border-b border-border/60 px-3 py-2">
-        <div className="relative">
-          <Search className="pointer-events-none absolute top-1/2 left-2.5 size-3 -translate-y-1/2 text-muted-foreground/50" />
-          <Input
+      <div className="shrink-0 border-b px-3 py-2">
+        <InputGroup className="h-7">
+          <InputGroupAddon>
+            <Search className="size-3" />
+          </InputGroupAddon>
+          <InputGroupInput
             placeholder={t("files.searchFoldersPlaceholder")}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             aria-label={t("files.searchFoldersLabel")}
-            className="h-7 pl-7 text-xs"
+            className="text-xs"
           />
-        </div>
+        </InputGroup>
       </div>
 
       {/* ── Folders ── */}
@@ -327,18 +151,18 @@ export function FileList() {
               // right edge up with the folder counts above it.
               "w-full flex items-center gap-2.5 py-2 pl-2 pr-9 rounded-lg text-left transition-colors cursor-pointer",
               isFoldersSection && !currentFilePath && !selectedFileId
-                ? "bg-zinc-100 dark:bg-zinc-800"
-                : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                ? "bg-muted"
+                : "hover:bg-muted",
             )}
           >
             <Files className="size-4 shrink-0 text-muted-foreground" />
-            <span className="flex-1 truncate text-[13px] font-medium">
+            <span className="flex-1 truncate text-sm font-medium">
               {t("files.allFiles")}
             </span>
           </button>
         )}
 
-        <div className="px-2 pb-1 pt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">{t('files.personalFolders')}</div>
+        <PanelSection label={t("files.personalFolders")} className="pt-3" />
         {team.filter(person => !search || `${person.displayName || ''} ${person.email}`.toLowerCase().includes(search.toLowerCase())).map(person => {
           const path = personalFolder(person.email)
           return <button key={person.email} type="button" onClick={() => openFolder(path)} title={person.email}
@@ -348,128 +172,46 @@ export function FileList() {
           </button>
         })}
 
-        <div
-          className={cn(
-            "px-2 pb-1",
-            // The rule separates this section from the recent row; with that
-            // row hidden during a search there is nothing above to separate.
-            search ? "pt-1" : "mt-3 border-t border-border/60 pt-3",
-          )}
-        >
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-            {t("folders.sectionLabel")}
-          </span>
-        </div>
+        {/* The rule separates this section from the rows above; with the
+            recent row hidden during a search there is less to separate. */}
+        <PanelSection
+          label={t("folders.sectionLabel")}
+          className={search ? "pt-1" : "mt-3 border-t pt-3"}
+        />
 
-        {folders.map((folder) => {
-          const isActive =
-            isFoldersSection &&
-            currentFilePath === folder.path &&
-            !selectedFileId
-          // Create and rename show up instantly and are still on their way to
-          // the server; the spinner is what says "not saved yet" without taking
-          // the row away or blocking the click that opens it.
-          const pending = pendingFolderPaths.get(folder.path)
-          return (
-            <div
-              key={folder.path}
-              className={cn(
-                "group flex items-center rounded-lg transition-colors",
-                isActive
-                  ? "bg-zinc-100 dark:bg-zinc-800"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
-              )}
-              style={{ paddingLeft: `${folder.depth * 12}px` }}
-            >
-              <button
-                type="button"
-                onClick={() => openFolder(folder.path)}
-                className="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 px-2 py-2 text-left"
-              >
-                <Folder className="size-4 shrink-0 text-amber-500" />
-                <span
-                  className={cn(
-                    "flex-1 truncate text-[13px] font-medium transition-opacity",
-                    pending && "opacity-60",
-                  )}
-                >
-                  {basename(folder.path)}
-                </span>
-                {pending ? (
-                  <Loader2
-                    className="size-3 shrink-0 animate-spin text-muted-foreground"
-                    aria-label={pending === "create" ? t("common.creating") : t("common.saving")}
-                  />
-                ) : (
-                  <span className="text-[11px] text-muted-foreground tabular-nums">
-                    {folder.count || ""}
-                  </span>
-                )}
-              </button>
-
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    mode="icon"
-                    size="sm"
-                    disabled={Boolean(pending)}
-                    aria-label={t("folders.actionsFor", { name: basename(folder.path) })}
-                    className="mr-1 size-6 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 data-[state=open]:opacity-100 disabled:opacity-0"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <MoreVertical className="size-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-44">
-                  <DropdownMenuItem
-                    onSelect={() => handleCreateFolder(folder.path)}
-                  >
-                    <FolderPlus className="size-4" />
-                    {t("folders.newFolderInside")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onSelect={() => handleRenameFolder(folder.path)}
-                  >
-                    <Pencil className="size-4" />
-                    {t("common.rename")}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onSelect={() =>
-                      handleDeleteFolder(folder.path, folder.count)
-                    }
-                  >
-                    <Trash2 className="size-4" />
-                    {t("common.delete")}
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          )
-        })}
+        {folders.map((folder) => (
+          <FolderTreeRow
+            key={folder.path}
+            path={folder.path}
+            depth={folder.depth}
+            count={folder.count}
+            active={isFoldersSection && currentFilePath === folder.path && !selectedFileId}
+            pending={pendingFolderPaths.get(folder.path)}
+            onOpen={() => openFolder(folder.path)}
+            onCreateInside={() => createFolder(folder.path)}
+            onRename={() => renameFolder(folder.path)}
+            onDelete={() => deleteFolder(folder.path, folder.count)}
+          />
+        ))}
 
         {folders.length === 0 && (
-          <div className="flex flex-col items-center gap-2 px-4 py-10 text-center text-muted-foreground">
-            <FolderOpen className="size-9 opacity-30" />
-            <p className="text-sm font-medium">
-              {search ? t("folders.noMatches") : t("folders.empty")}
-            </p>
-            <p className="text-xs">
-              {search ? t("folders.noMatchesHint") : t("folders.emptyHint")}
-            </p>
+          <Empty className="px-4 py-10">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FolderOpen />
+              </EmptyMedia>
+              <EmptyTitle>{search ? t("folders.noMatches") : t("folders.empty")}</EmptyTitle>
+              <EmptyDescription>{search ? t("folders.noMatchesHint") : t("folders.emptyHint")}</EmptyDescription>
+            </EmptyHeader>
             {!search && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="mt-1"
-                onClick={() => handleCreateFolder()}
-              >
-                <FolderPlus className="size-3.5" />
-                {t("folders.newFolder")}
-              </Button>
+              <EmptyContent>
+                <Button variant="outline" size="sm" onClick={() => createFolder()}>
+                  <FolderPlus data-icon="inline-start" />
+                  {t("folders.newFolder")}
+                </Button>
+              </EmptyContent>
             )}
-          </div>
+          </Empty>
         )}
 
         {/* ── Trash ── */}
@@ -477,30 +219,26 @@ export function FileList() {
             live, and what it holds can't be browsed into. */}
         {!search && (
           <>
-            <div className="mt-3 border-t border-border/60 px-2 pt-3 pb-1">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                {t("trash.title")}
-              </span>
-            </div>
+            <PanelSection label={t("trash.title")} className="mt-3 border-t pt-3" />
             <button
               type="button"
               onClick={openTrash}
               className={cn(
                 // pr-9, not pr-2: a folder row's count is pushed in by its
-                // actions button (size-6 + mr-1) even while that button is
+                // actions button (size-6 + me-1) even while that button is
                 // invisible. This row has no menu, so it reserves the same
                 // 28px and every count in the panel lines up on one edge.
                 "w-full flex items-center gap-2.5 py-2 pl-2 pr-9 rounded-lg text-left transition-colors cursor-pointer",
                 filesSection === "trash"
-                  ? "bg-zinc-100 dark:bg-zinc-800"
-                  : "hover:bg-zinc-50 dark:hover:bg-zinc-800/50",
+                  ? "bg-muted"
+                  : "hover:bg-muted",
               )}
             >
-              <Trash2 className="size-4 shrink-0 text-muted-foreground text-red-500" />
-              <span className="flex-1 truncate text-[13px] font-medium">
+              <Trash2 className="size-4 shrink-0 text-muted-foreground" />
+              <span className="flex-1 truncate text-sm font-medium">
                 {t("trash.recentlyDeleted")}
               </span>
-              <span className="text-[11px] text-muted-foreground tabular-nums">
+              <span className="text-xs text-muted-foreground tabular-nums">
                 {trashCount || ""}
               </span>
             </button>

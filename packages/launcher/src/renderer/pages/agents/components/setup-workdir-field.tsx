@@ -54,7 +54,7 @@ export function SetupWorkdirField({ value, onChange }: {
           </Tooltip>
         </TooltipProvider>
       </div>
-      <FieldDescription className="text-2xs">{t("agents.shared.folderHint")}</FieldDescription>
+      <FieldDescription>{t("agents.shared.folderHint")}</FieldDescription>
     </Field>
   )
 }

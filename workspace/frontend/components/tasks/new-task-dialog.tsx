@@ -12,10 +12,11 @@ import {
   DialogDescription,
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
+import { Spinner } from '@/components/ui/spinner';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  Select,
+  SelectGroup, Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
@@ -24,80 +25,16 @@ import {
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
-import { cn } from '@/lib/utils';
-import { BookOpen, Check } from 'lucide-react';
+import { CircleAlert } from 'lucide-react';
 import type { KanbanTask } from '@/lib/types';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { AttachmentPicker } from './attachment-picker';
+import { KnowledgeContextPicker } from './knowledge-context-picker';
 
-/**
- * Multi-select of knowledge-base entries to attach as task context. Rendered
- * INLINE (a checkbox list) rather than as a portal dropdown — a nested Radix
- * portal inside the modal was easy to miss and flaky on mobile drawers. The
- * backend cites each entry as @knowledge:<slug> in the kickoff. Renders
- * nothing when the knowledge base is empty.
- */
-export function KnowledgeContextPicker({
-  value,
-  onChange,
-}: {
-  value: string[];
-  onChange: (ids: string[]) => void;
-}) {
-  const t = useT();
-  const { knowledge } = useWorkspace();
-  if (knowledge.length === 0) return null;
-
-  const toggle = (id: string) =>
-    onChange(value.includes(id) ? value.filter((x) => x !== id) : [...value, id]);
-
-  return (
-    <div className="space-y-1.5">
-      <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-        <BookOpen className="size-3.5" />
-        {t('tasks.fieldContext')}
-        {value.length > 0 && (
-          <span className="font-normal text-muted-foreground/70">
-            · {t('tasks.contextCount', { count: value.length })}
-          </span>
-        )}
-      </label>
-      <div className="max-h-40 overflow-y-auto rounded-md border border-input divide-y divide-border/60">
-        {knowledge.map((entry) => {
-          const checked = value.includes(entry.id);
-          return (
-            <button
-              key={entry.id}
-              type="button"
-              onClick={() => toggle(entry.id)}
-              className={cn(
-                'flex w-full items-start gap-2.5 px-3 py-2 text-left transition-colors hover:bg-muted/50',
-                checked && 'bg-primary/5',
-              )}
-            >
-              <span
-                className={cn(
-                  'mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-sm border transition-colors',
-                  checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input',
-                )}
-              >
-                {checked && <Check className="size-3" strokeWidth={3} />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">{entry.title}</span>
-                {entry.description && (
-                  <span className="block truncate text-[10px] text-muted-foreground">{entry.description}</span>
-                )}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="text-[11px] text-muted-foreground/70">{t('tasks.contextHint')}</p>
-    </div>
-  );
-}
-
-export { AttachmentPicker };
+// Re-exported: workflows and issues import both pickers from here.
+export { AttachmentPicker, KnowledgeContextPicker };
 
 interface NewTaskDialogProps {
   open: boolean;
@@ -176,104 +113,120 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
   return (
     <Dialog open={open} onOpenChange={next => { if (!saving) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-lg">
-        <DialogHeader className="space-y-2 px-7 pt-7 pb-2">
-          <DialogTitle className="text-xl">{t(isEdit ? 'issueWork.edit' : issueTitle ? 'issueWork.add' : 'tasks.newTaskTitle')}</DialogTitle>
+        <DialogHeader>
+          <DialogTitle>{t(isEdit ? 'issueWork.edit' : issueTitle ? 'issueWork.add' : 'tasks.newTaskTitle')}</DialogTitle>
           {!isEdit && (
-            <DialogDescription className="text-sm leading-relaxed">
+            <DialogDescription>
               {t(issueTitle ? 'issueWork.setupHint' : 'tasks.newTaskDescription')}
             </DialogDescription>
           )}
         </DialogHeader>
 
-        <DialogBody className="space-y-4 px-7 py-2">
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('tasks.fieldDescription')}</label>
-            <Textarea
-              autoFocus
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('tasks.fieldDescriptionPlaceholder')}
-              rows={5}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
-              }}
-            />
-          </div>
+        <DialogBody>
+          <FieldGroup className="gap-4">
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="new-task-description" className="text-xs text-muted-foreground">
+                {t('tasks.fieldDescription')}
+              </FieldLabel>
+              <Textarea
+                id="new-task-description"
+                autoFocus
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('tasks.fieldDescriptionPlaceholder')}
+                rows={5}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) handleSubmit();
+                }}
+              />
+            </Field>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">
-              {t('tasks.fieldTitle')}{' '}
-              <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
-            </label>
-            <Input
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder={t('tasks.fieldTitlePlaceholder')}
-            />
-          </div>
+            <Field className="gap-1.5">
+              <FieldLabel htmlFor="new-task-title" className="text-xs text-muted-foreground">
+                {t('tasks.fieldTitle')}
+                <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
+              </FieldLabel>
+              <Input
+                id="new-task-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder={t('tasks.fieldTitlePlaceholder')}
+              />
+            </Field>
 
-          <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
-          <AttachmentPicker value={fileIds} onChange={setFileIds} />
+            <KnowledgeContextPicker value={knowledgeIds} onChange={setKnowledgeIds} />
+            <AttachmentPicker value={fileIds} onChange={setFileIds} />
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t('tasks.runWith')}</label>
-            <div className="flex gap-2">
-              {(['agent', 'workflow'] as const).map((k) => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setRunWith(k)}
-                  className={cn(
-                    'flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors',
-                    runWith === k
-                      ? 'border-primary bg-primary/10 text-foreground'
-                      : 'border-input text-muted-foreground hover:bg-muted/50',
-                  )}
-                >
-                  {t(k === 'agent' ? 'tasks.runWithAgent' : 'tasks.runWithWorkflow')}
-                </button>
-              ))}
-            </div>
+            <Field className="gap-1.5">
+              <FieldLabel className="text-xs text-muted-foreground">{t('tasks.runWith')}</FieldLabel>
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                size="sm"
+                value={runWith}
+                onValueChange={(v) => { if (v) setRunWith(v as 'agent' | 'workflow'); }}
+                className="w-full"
+              >
+                <ToggleGroupItem value="agent" className="flex-1">{t('tasks.runWithAgent')}</ToggleGroupItem>
+                <ToggleGroupItem value="workflow" className="flex-1">{t('tasks.runWithWorkflow')}</ToggleGroupItem>
+              </ToggleGroup>
 
-            {runWith === 'agent' ? (
-              <Select value={assignee} onValueChange={setAssignee}>
-                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
-                  {onlineAgents.map((a) => (
-                    <SelectItem key={a.agentName} value={a.agentName}>
-                      <span className="flex items-center gap-2">
-                        <AgentAvatar name={a.agentName} size={18} />
-                        <span className="truncate">{agentLabel(a)}</span>
-                      </span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            ) : (
-              <Select value={workflowId} onValueChange={setWorkflowId}>
-                <SelectTrigger className="w-full"><SelectValue placeholder={t('tasks.pickWorkflow')} /></SelectTrigger>
-                <SelectContent>
-                  {workflows.length === 0 ? (
-                    <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noWorkflows')}</div>
-                  ) : (
-                    workflows.map((w) => (
-                      <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
-            )}
-            <p className="text-[11px] text-muted-foreground/70">{t('tasks.assigneeHint')}</p>
-          </div>
+              {runWith === 'agent' ? (
+                <Select value={assignee} onValueChange={setAssignee}>
+                  <SelectTrigger className="w-full" aria-label={t('tasks.runWithAgent')}><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectItem value={UNASSIGNED}>{t('tasks.assigneeUnassigned')}</SelectItem>
+                      {onlineAgents.map((a) => (
+                        <SelectItem key={a.agentName} value={a.agentName}>
+                          <span className="flex items-center gap-2">
+                            <AgentAvatar name={a.agentName} size={18} />
+                            <span className="truncate">{agentLabel(a)}</span>
+                          </span>
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Select value={workflowId} onValueChange={setWorkflowId}>
+                  <SelectTrigger className="w-full" aria-label={t('tasks.runWithWorkflow')}>
+                    <SelectValue placeholder={t('tasks.pickWorkflow')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      {workflows.length === 0 ? (
+                        <div className="px-2 py-1.5 text-xs text-muted-foreground">{t('tasks.noWorkflows')}</div>
+                      ) : (
+                        workflows.map((w) => (
+                          <SelectItem key={w.id} value={w.id}>{w.name}</SelectItem>
+                        ))
+                      )}
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+              )}
+              <FieldDescription className="text-xs">{t('tasks.assigneeHint')}</FieldDescription>
+            </Field>
+          </FieldGroup>
         </DialogBody>
 
-        {error && <p role="alert" className="px-7 text-sm text-destructive">{error}</p>}
-        <DialogFooter className="px-7 pt-4 pb-7 sm:space-x-3">
+        {/* Outside the scrolling body, so a failed save is never below the fold. */}
+        {error && (
+          <div className="shrink-0 px-4 pb-3">
+            <Alert variant="destructive">
+              <CircleAlert />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          </div>
+        )}
+
+        <DialogFooter>
           <Button variant="outline" className="min-w-24" disabled={saving} onClick={() => onOpenChange(false)}>
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={handleSubmit} disabled={saving || !description.trim()}>
+            {saving && <Spinner data-icon="inline-start" />}
             {t(saving ? 'common.saving' : isEdit ? 'common.save' : 'tasks.create')}
           </Button>
         </DialogFooter>

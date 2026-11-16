@@ -79,7 +79,7 @@ export function PlatformConnectDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="sm:max-w-xl">
-        <DialogHeader className="flex-row items-center gap-3 space-y-0">
+        <DialogHeader className="flex-row items-center gap-3">
           <PlatformLogo platform={platform} size={44} />
           <div className="min-w-0">
             <DialogTitle>
@@ -100,12 +100,12 @@ export function PlatformConnectDialog({
           />
 
           {scopes && scopes.length > 0 && (
-            <p className="text-2xs text-muted-foreground">
+            <p className="text-xs text-muted-foreground">
               {t("connections.dialog.suggestedScopes")}
               {scopes.map((s) => (
                 <code
                   key={s}
-                  className="ml-1 rounded-sm bg-muted px-1 py-0.5 font-mono text-3xs"
+                  className="ml-1 rounded-sm bg-muted px-1 py-0.5 font-mono text-xs"
                 >
                   {s}
                 </code>

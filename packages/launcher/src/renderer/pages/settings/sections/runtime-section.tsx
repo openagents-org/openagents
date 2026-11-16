@@ -73,7 +73,7 @@ export function RuntimeSection({
       {/* The poll interval belongs to the whole page — three of the four cards
           below are live readings — so it is stated once, up here, instead of
           under the one card that used to carry it. */}
-      <p className="mb-4 flex items-center gap-1.5 text-2xs text-muted-foreground">
+      <p className="mb-4 flex items-center gap-1.5 text-xs text-muted-foreground">
         <RefreshCw className="size-3" />
         {t("settings.runtime.refreshNote")}
       </p>
@@ -101,7 +101,7 @@ export function RuntimeSection({
           trailing={
             runtimeInfo?.coreVersion && runtimeInfo.latestVersion && !coreUpToDate ? (
               <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="size-1.5 rounded-full bg-(--warning)" />
+                <span className="size-1.5 rounded-full bg-warning" />
                 {t("settings.runtime.updateTo", { version: runtimeInfo.latestVersion })}
               </span>
             ) : undefined
@@ -206,7 +206,7 @@ export function RuntimeSection({
 /** In place of a version: not on this machine, in the words that need acting on. */
 function Missing(): React.JSX.Element {
   const { t } = useTranslation()
-  return <span className="font-sans text-(--danger-text)">{t("common.notInstalled")}</span>
+  return <span className="font-sans text-destructive">{t("common.notInstalled")}</span>
 }
 
 function formatUptime(seconds: number): string {

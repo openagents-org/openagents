@@ -125,17 +125,6 @@ def workspace(client, db):
     }
 
 
-# ---------------------------------------------------------------------------
-# Never emit product analytics from the test suite (see app/services/analytics.py).
-# ---------------------------------------------------------------------------
-
-@pytest.fixture(autouse=True)
-def disable_analytics(monkeypatch):
-    from app.config import config as _cfg
-    monkeypatch.setattr(_cfg, "ANALYTICS_ENABLED", False)
-    yield
-
-
 def acting_api(workspace_id, email="test@example.com", role="owner"):
     """Yumi's in-process API client working for `email`, who is made a member
     of the workspace with `role` (default: the creator's owner role)."""

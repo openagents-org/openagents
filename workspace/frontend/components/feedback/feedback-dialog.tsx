@@ -10,7 +10,8 @@ import { getApiBaseUrl } from '@/lib/api-base';
  */
 
 import { useState } from 'react';
-import { Bug, Lightbulb, Loader2, Send } from 'lucide-react';
+import { Bug, Lightbulb, Send } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -65,7 +66,7 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="w-full max-w-md space-y-4 rounded-2xl border bg-background p-6 shadow-xl"
+        className="w-full max-w-md flex flex-col gap-4 rounded-2xl border bg-background p-6 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div>
@@ -105,11 +106,11 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
         />
 
         <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-muted-foreground">{t('feedback.contextNote')}</span>
+          <span className="text-xs text-muted-foreground">{t('feedback.contextNote')}</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose} disabled={sending}>{t('connect.nodeCancel')}</Button>
             <Button onClick={submit} disabled={!message.trim() || sending}>
-              {sending ? <Loader2 className="mr-1.5 size-4 animate-spin" /> : <Send className="mr-1.5 size-4" />}
+              {sending ? <Spinner data-icon="inline-start" /> : <Send className="mr-1.5 size-4" />}
               {t('feedback.submit')}
             </Button>
           </div>

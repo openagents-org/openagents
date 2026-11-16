@@ -2,6 +2,11 @@ import React, { useState } from "react"
 import { Check, Copy, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import {
+  Alert,
+  AlertDescription,
+  AlertTitle,
+} from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
 import type { AgentUpdateTarget, CatalogEntry } from "@renderer/types"
 
@@ -36,37 +41,33 @@ export function UnmanagedNotice({
   const original = target?.kind === "original" ? target : null
 
   return (
-    <div className="rounded-lg border bg-muted/40 px-3.5 py-3">
-      <div className="flex items-start gap-2">
-        <Info className="mt-0.5 size-4 shrink-0 text-(--warning)" />
-        <div className="min-w-0 flex-1">
-          <p className="m-0 text-xs font-semibold">
-            {t("agents.unmanaged.title")}
+    <Alert>
+      <Info className="text-warning" />
+      <AlertTitle>{t("agents.unmanaged.title")}</AlertTitle>
+      <AlertDescription className="min-w-0">
+        {target && (
+          <p className="m-0">
+            {original
+              ? t("agents.unmanaged.originalBody", { name })
+              : t("agents.unmanaged.managedBody", { name })}
+            {original?.elevation === "prompt" &&
+              ` ${t("agents.unmanaged.adminPrompt")}`}
           </p>
-          {target && (
-            <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
-              {original
-                ? t("agents.unmanaged.originalBody", { name })
-                : t("agents.unmanaged.managedBody", { name })}
-              {original?.elevation === "prompt" &&
-                ` ${t("agents.unmanaged.adminPrompt")}`}
-            </p>
-          )}
+        )}
 
-          <PathLine
-            label={t("agents.unmanaged.installPath")}
-            value={original?.prefix || binaryPath}
+        <PathLine
+          label={t("agents.unmanaged.installPath")}
+          value={original?.prefix || binaryPath}
+        />
+
+        {original?.elevation === "manual" && (
+          <CommandBox
+            hint={t("agents.unmanaged.adminManual")}
+            command={original.command}
           />
-
-          {original?.elevation === "manual" && (
-            <CommandBox
-              hint={t("agents.unmanaged.adminManual")}
-              command={original.command}
-            />
-          )}
-        </div>
-      </div>
-    </div>
+        )}
+      </AlertDescription>
+    </Alert>
   )
 }
 
@@ -80,7 +81,7 @@ function PathLine({
   if (!value) return null
   return (
     <p
-      className="m-0 mt-2 truncate font-mono text-2xs text-muted-foreground"
+      className="m-0 mt-2 truncate font-mono text-xs text-muted-foreground"
       title={value}
     >
       <span className="font-sans">{label}</span>
@@ -111,9 +112,12 @@ function CommandBox({
 
   return (
     <>
-      <p className="m-0 mt-2.5 text-2xs text-muted-foreground">{hint}</p>
-      <div className="mt-1.5 flex items-center gap-1.5 rounded-md border bg-card py-1 pr-1 pl-2.5">
-        <code className="min-w-0 flex-1 truncate font-mono text-2xs" title={command}>
+      <p className="m-0 mt-2.5 text-xs text-muted-foreground">{hint}</p>
+      <div className="mt-1.5 flex items-center gap-1.5 rounded-md border bg-background py-1 pr-1 pl-2.5 text-foreground">
+        <code
+          className="min-w-0 flex-1 truncate font-mono text-xs"
+          title={command}
+        >
           {command}
         </code>
         <Button

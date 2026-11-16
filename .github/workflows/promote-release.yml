@@ -1,12 +1,23 @@
-name: Promote develop to release
+name: Promote develop to openagents-release
 
-# The only sanctioned way to move `release`.
+# The only sanctioned way to ship develop to hosted production.
 #
-# `release` triggers the DigitalOcean backend deployment and Vercel frontend deployment. It must always be a fast-forward of
-# `develop`: never a merge commit, never a commit that isn't on develop. A
-# ruleset on `release` blocks direct pushes from everyone; this workflow pushes
-# with a dedicated deploy key (RELEASE_PROMOTE_SSH_KEY) that the ruleset lets
-# through, and it refuses to push anything that isn't a clean fast-forward.
+# Branch roles:
+#   develop             open-source mainline (no hosted-only code)
+#   openagents-release  hosted openagents.org production = develop + the hosted
+#                       layer (campaign, analytics, ...). A push here deploys the
+#                       DigitalOcean backend and the Vercel frontend.
+#   release             tagged self-hosted releases (selfhost-release.yml)
+#
+# Because openagents-release carries hosted-only commits, promotion MERGES a
+# develop commit into it (it is no longer a fast-forward). If the merge
+# conflicts, nothing is pushed: resolve it in a PR into openagents-release.
+# After merging, the hosted-layer guard fails the run if any hosted-only file
+# would disappear from production (e.g. a develop deletion leaking through).
+#
+# A ruleset on openagents-release requires PRs for humans; this workflow pushes
+# with the dedicated deploy key (RELEASE_PROMOTE_SSH_KEY) that the ruleset lets
+# through.
 #
 # Run it from the Actions tab or:  gh workflow run promote-release.yml
 # Optionally pass `ref` to promote an older develop commit instead of HEAD.
@@ -26,59 +37,79 @@ concurrency:
   group: promote-release
   cancel-in-progress: false
 
+env:
+  # Files that only exist on openagents-release. Keep in sync with the hosted
+  # layer; promotion refuses to push a production tree that lacks any of them.
+  HOSTED_LAYER_FILES: |
+    workspace/backend/app/services/campaign.py
+    workspace/backend/app/services/analytics.py
+    workspace/frontend/lib/posthog-config.ts
+
 jobs:
   promote:
-    name: Fast-forward release
+    name: Merge develop into openagents-release
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: develop
+          ref: openagents-release
           fetch-depth: 0
 
-      - name: Resolve and validate target
+      - name: Resolve target and merge
         id: target
         run: |
           set -euo pipefail
-          git fetch --quiet origin develop release
+          git fetch --quiet origin develop openagents-release
+          git config user.name "openagents-release-bot"
+          git config user.email "release-bot@openagents.org"
           TARGET="${{ inputs.ref }}"
           if [ -z "$TARGET" ]; then TARGET="origin/develop"; fi
           TARGET_SHA=$(git rev-parse --verify "${TARGET}^{commit}")
-          RELEASE_SHA=$(git rev-parse origin/release)
+          PROD_SHA=$(git rev-parse origin/openagents-release)
 
           if ! git merge-base --is-ancestor "$TARGET_SHA" origin/develop; then
             echo "::error::$TARGET_SHA is not on develop. Only develop commits can be promoted."
             exit 1
           fi
-          if [ "$TARGET_SHA" = "$RELEASE_SHA" ]; then
-            echo "release is already at $TARGET_SHA — nothing to do."
+          if git merge-base --is-ancestor "$TARGET_SHA" "$PROD_SHA"; then
+            echo "$TARGET_SHA is already in openagents-release — nothing to do."
             echo "noop=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          if ! git merge-base --is-ancestor "$RELEASE_SHA" "$TARGET_SHA"; then
-            echo "::error::release ($RELEASE_SHA) has commits that are not on develop; a fast-forward is impossible."
-            echo "Commits on release but not on develop:"
-            git log --oneline "$TARGET_SHA..$RELEASE_SHA"
-            echo "Reconcile by merging release into develop (usually a no-content merge), then re-run."
+
+          if ! git merge --no-ff --no-edit -m "Promote develop ${TARGET_SHA:0:9} to openagents-release" "$TARGET_SHA"; then
+            echo "::error::Merging $TARGET_SHA into openagents-release conflicts. Nothing was pushed."
+            git diff --name-only --diff-filter=U | sed 's/^/  conflict: /'
+            echo "Resolve it in a PR into openagents-release (merge develop, fix conflicts), then re-run."
             exit 1
           fi
 
-          echo "target=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          MISSING=0
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            if [ ! -e "$f" ]; then echo "::error::hosted-layer file missing after merge: $f"; MISSING=1; fi
+          done <<< "$HOSTED_LAYER_FILES"
+          if [ "$MISSING" = 1 ]; then
+            echo "Refusing to deploy a production tree without the hosted layer. Restore it in a PR into openagents-release first."
+            exit 1
+          fi
+
+          echo "merged=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
           {
-            echo "## Promoting develop → release"
+            echo "## Promoting develop → openagents-release"
             echo ""
-            echo "\`$RELEASE_SHA\` → \`$TARGET_SHA\`"
+            echo "\`$PROD_SHA\` + develop \`$TARGET_SHA\` → \`$(git rev-parse --short HEAD)\`"
             echo ""
             echo "### Commits shipped"
-            git log --format='- %h %s (%an)' "$RELEASE_SHA..$TARGET_SHA" | head -100
+            git log --no-merges --format='- %h %s (%an)' "$PROD_SHA..$TARGET_SHA" | head -100
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Push fast-forward with the promotion deploy key
+      - name: Push with the promotion deploy key
         if: steps.target.outputs.noop != 'true'
         env:
           SSH_KEY: ${{ secrets.RELEASE_PROMOTE_SSH_KEY }}
-          TARGET: ${{ steps.target.outputs.target }}
+          MERGED: ${{ steps.target.outputs.merged }}
         run: |
           set -euo pipefail
           if [ -z "$SSH_KEY" ]; then
@@ -89,6 +120,6 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/promote_key && chmod 600 ~/.ssh/promote_key
           ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
           export GIT_SSH_COMMAND="ssh -i ~/.ssh/promote_key -o IdentitiesOnly=yes"
-          # A plain (non-force) push: the server rejects anything but a fast-forward.
-          git push "git@github.com:${{ github.repository }}.git" "$TARGET:refs/heads/release"
-          echo "release is now at $TARGET"
+          # Plain (non-force) push: fails if openagents-release moved meanwhile.
+          git push "git@github.com:${{ github.repository }}.git" "$MERGED:refs/heads/openagents-release"
+          echo "openagents-release is now at $MERGED"

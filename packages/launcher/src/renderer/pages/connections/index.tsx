@@ -95,7 +95,7 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
         title={t("connections.title")}
         subtitle={t("connections.subtitle")}
         actions={
-          <div className="flex items-center gap-2 text-2xs text-muted-foreground">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="flex items-center gap-1.5">
               <span className="size-1.5 rounded-full bg-success" />
               <span className="font-semibold text-foreground">
@@ -157,7 +157,7 @@ export default function Connections({ showToast }: Props): React.JSX.Element {
 
         {/* A footnote, not a fourth panel — it explains where secrets live and
             then gets out of the way. */}
-        <p className="mt-3 flex items-center gap-2 text-2xs text-muted-foreground">
+        <p className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
           <ShieldCheck className="size-3.5 shrink-0" />
           {t("connections.security.body")}
         </p>

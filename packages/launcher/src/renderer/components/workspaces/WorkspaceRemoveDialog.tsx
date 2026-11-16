@@ -2,7 +2,9 @@ import React, { useEffect, useState } from "react"
 import { AlertTriangle } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { Alert, AlertDescription } from "../ui/alert"
 import { Checkbox } from "../ui/checkbox"
+import { Field, FieldLabel } from "../ui/field"
 import { ConfirmDialog } from "../ui-kit"
 import type { Workspace } from "../../types"
 
@@ -121,25 +123,28 @@ export function WorkspaceRemoveDialog({
     >
       <Effects keys={EFFECT_KEYS} />
 
-      <label className="flex cursor-pointer items-start gap-2.5 rounded-md border bg-muted/40 px-3 py-2.5 transition-colors hover:bg-muted/70">
-        <Checkbox
-          checked={deleteRemote}
-          disabled={busy}
-          onCheckedChange={(v) => setDeleteRemote(v === true)}
-          className="mt-0.5"
-        />
-        <span className="text-xs leading-snug text-muted-foreground">
-          {t("workspaces.remove.alsoDelete")}
-        </span>
-      </label>
+      {/* A choice card: the whole bordered row toggles the box. */}
+      <FieldLabel htmlFor="workspace-remove-remote">
+        <Field orientation="horizontal" data-disabled={busy || undefined}>
+          <Checkbox
+            id="workspace-remove-remote"
+            checked={deleteRemote}
+            disabled={busy}
+            onCheckedChange={(v) => setDeleteRemote(v === true)}
+          />
+          <span className="font-normal text-muted-foreground">
+            {t("workspaces.remove.alsoDelete")}
+          </span>
+        </Field>
+      </FieldLabel>
 
       {deleteRemote && (
-        <div className="flex items-start gap-2.5 rounded-md border border-(--danger-border) bg-(--danger-bg) px-3 py-2.5">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-(--danger-text)" />
-          <span className="text-xs leading-snug text-(--danger-text)">
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertDescription>
             {t("workspaces.remove.alsoDeleteWarning")}
-          </span>
-        </div>
+          </AlertDescription>
+        </Alert>
       )}
     </ConfirmDialog>
   )
@@ -148,7 +153,7 @@ export function WorkspaceRemoveDialog({
 function Effects({ keys }: { keys: string[] }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <ul className="space-y-1.5 rounded-md border bg-muted/40 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
+    <ul className="m-0 flex flex-col gap-1.5 rounded-lg bg-muted/50 px-3 py-2.5 text-xs leading-snug text-muted-foreground">
       {keys.map((key) => (
         <li key={key} className="flex items-start gap-2">
           <span className="mt-1.5 size-1 shrink-0 rounded-full bg-current" />

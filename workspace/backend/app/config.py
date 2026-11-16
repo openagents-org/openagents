@@ -185,14 +185,6 @@ class Config:
     EMAIL_FROM: str = os.environ.get("EMAIL_FROM", "OpenAgents <noreply@openagents.org>")
     INVITE_TTL_DAYS: int = int(os.environ.get("INVITE_TTL_DAYS", "7"))
 
-    # Server-side product analytics (PostHog). Authoritative funnel
-    # checkpoints keyed by account email — see app/services/analytics.py.
-    # Explicit opt-in: local checkouts, tests and self-hosted instances must
-    # never send synthetic activity into the hosted production project.
-    POSTHOG_API_KEY: str = os.environ.get("POSTHOG_API_KEY", "")
-    POSTHOG_HOST: str = os.environ.get("POSTHOG_HOST", "https://us.i.posthog.com")
-    ANALYTICS_ENABLED: bool = os.environ.get("ANALYTICS_ENABLED", "false").lower() in ("1", "true")
-
     # Chat-platform integrations (Slack / Telegram bridges). The public base
     # URL is what external platforms call back to — Telegram setWebhook and
     # the Slack Events API URL both derive from it.
@@ -214,62 +206,6 @@ class Config:
     SLACK_CLIENT_ID: str = os.environ.get("SLACK_CLIENT_ID", "")
     SLACK_CLIENT_SECRET: str = os.environ.get("SLACK_CLIENT_SECRET", "")
     SLACK_SIGNING_SECRET: str = os.environ.get("SLACK_SIGNING_SECRET", "")
-
-    # API credits campaign — grants free model-gateway credits as users hit
-    # onboarding milestones (see app/services/campaign.py). DISABLED by
-    # default: self-hosted deployments have no gateway master key and should
-    # never see the campaign UI. The official deployment enables it via env.
-    CAMPAIGN_ENABLED: bool = os.environ.get("CAMPAIGN_ENABLED", "false").lower() in ("true", "1", "yes")
-    CAMPAIGN_GATEWAY_URL: str = os.environ.get("CAMPAIGN_GATEWAY_URL", "https://api-gateway.openagents.org")
-    CAMPAIGN_GATEWAY_MASTER_KEY: str = os.environ.get("CAMPAIGN_GATEWAY_MASTER_KEY", "")
-    CAMPAIGN_TOTAL_CAP_USD: float = float(os.environ.get("CAMPAIGN_TOTAL_CAP_USD", "100"))
-    CAMPAIGN_DAILY_GRANT_USD: float = float(os.environ.get("CAMPAIGN_DAILY_GRANT_USD", "10"))
-    # Anti-farming (2026-09-20 incident: 700 bot accounts on a catch-all domain
-    # scripted the ladder for $23k of limits). Credits require a verified email
-    # (Google/Apple sign-in counts; email/password users confirm the welcome
-    # link), and blocked/disposable domains never get a key or a grant.
-    # Unverified users still receive the signup credit ($5) and their key the
-    # moment they sign up; every further reward needs a verified address
-    # (decision 2026-09-20). Expressed as a ladder-total allowance so a future
-    # signup amount needs no code change. 0 = nothing before verification.
-    CAMPAIGN_UNVERIFIED_ALLOWANCE_USD: float = float(os.environ.get("CAMPAIGN_UNVERIFIED_ALLOWANCE_USD", "5"))
-    CAMPAIGN_REQUIRE_VERIFIED_EMAIL: bool = os.environ.get("CAMPAIGN_REQUIRE_VERIFIED_EMAIL", "true").lower() in ("true", "1", "yes")
-    # openagents.org account API (openagents-web backend) — consulted once per
-    # unverified user's status fetch to learn whether the address was confirmed
-    # there (covers sessions established before the handoff carried the claim).
-    ACCOUNT_API_URL: str = os.environ.get("ACCOUNT_API_URL", "https://endpoint.openagents.org")
-    CAMPAIGN_BLOCKED_EMAIL_DOMAINS: str = os.environ.get("CAMPAIGN_BLOCKED_EMAIL_DOMAINS", "000-webmail.myhome-server.de,myhome-server.de,temp-mail-free.dedyn.io")
-    # Only addresses at these common mailbox providers earn credits (decision
-    # 2026-10-08): every farm since 09-18 used catch-all domains on email
-    # sign-up, solving the captcha and rotating proxies past the per-IP cap.
-    # Exact domain match. Other domains can sign up and use the product but
-    # get no key and no grants. Empty string turns the restriction off.
-    CAMPAIGN_ALLOWED_EMAIL_DOMAINS: str = os.environ.get(
-        "CAMPAIGN_ALLOWED_EMAIL_DOMAINS",
-        "gmail.com,googlemail.com,"
-        "qq.com,vip.qq.com,foxmail.com,163.com,vip.163.com,126.com,yeah.net,"
-        "sina.com,sina.cn,aliyun.com,139.com,"
-        "outlook.com,hotmail.com,live.com,msn.com,"
-        "icloud.com,me.com,mac.com,privaterelay.appleid.com,"
-        "yahoo.com,aol.com,proton.me,protonmail.com,pm.me,"
-        "naver.com,mail.ru,yandex.ru,yandex.com,gmx.de,gmx.com,web.de",
-    )
-
-    # Pilot User Program admin console (internal.openagents.org/pages/pilot-console).
-    # Endpoints under /v1/admin/pilot are enabled ONLY when PILOT_ADMIN_SECRET is
-    # set; every call must present it in X-Admin-Secret. Amount is fixed
-    # server-side (never client-supplied). Eligibility = a launcher/CLI agent
-    # connected in an owned workspace + one real conversation with it (a human
-    # message and a qualifying agent reply). PILOT_MIN_ACTIVE_DAYS optionally
-    # adds a distinct-active-days requirement within PILOT_WINDOW_DAYS.
-    PILOT_ADMIN_SECRET: str = os.environ.get("PILOT_ADMIN_SECRET", "")
-    PILOT_GRANT_USD: float = float(os.environ.get("PILOT_GRANT_USD", "300"))
-    # 0 = no day requirement (decision 2026-09-15: one real conversation is enough).
-    # >0 re-enables the "N distinct active UTC days in the window" rule.
-    PILOT_MIN_ACTIVE_DAYS: int = int(os.environ.get("PILOT_MIN_ACTIVE_DAYS", "0"))
-    PILOT_WINDOW_DAYS: int = int(os.environ.get("PILOT_WINDOW_DAYS", "30"))
-    # Blast-radius cap for the grant endpoint (per process, sliding hour).
-    PILOT_MAX_GRANTS_PER_HOUR: int = int(os.environ.get("PILOT_MAX_GRANTS_PER_HOUR", "30"))
 
     # "Connect a computer" reminder emails 24h/72h after a workspace is created
     # without a device (app/services/onboarding_reminders.py). Off by default:

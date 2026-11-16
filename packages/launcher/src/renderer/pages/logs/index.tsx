@@ -15,6 +15,7 @@ import {
   EmptyTitle,
 } from "@renderer/components/ui/empty"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -154,7 +155,7 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
               <Download />
               {t("logs.actions.export")}
             </Button>
-            <Button variant="destructive-ghost" onClick={() => setClearOpen(true)}>
+            <Button variant="destructive" onClick={() => setClearOpen(true)}>
               <Trash2 />
               {t("logs.actions.clear")}
             </Button>
@@ -179,37 +180,41 @@ export default function Logs({ showToast }: LogsProps): React.JSX.Element {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-3 px-9 pt-4 pb-5">
-          <LogsFilterBar
-            leading={
-              <Select
-                value={filters.range}
-                onValueChange={(v) => update({ range: v as RangeKey, brush: null })}
-              >
-                <SelectTrigger className="w-36 shrink-0">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
+        <LogsFilterBar
+          leading={
+            <Select
+              value={filters.range}
+              onValueChange={(v) =>
+                update({ range: v as RangeKey, brush: null })
+              }
+            >
+              <SelectTrigger className="w-36 shrink-0">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
                   {RANGES.map((range) => (
                     <SelectItem key={range} value={range}>
                       {t(`logs.range.${range}`)}
                     </SelectItem>
                   ))}
-                </SelectContent>
-              </Select>
-            }
-            agents={agents}
-            agentFilter={filters.agent}
-            onAgentFilterChange={(agent) => update({ agent })}
-            search={filters.search}
-            onSearchChange={(search) => update({ search })}
-            levels={filters.levels}
-            onLevelsChange={setLevels}
-            levelCounts={view.levelCounts}
-            eventTypes={filters.eventTypes}
-            onEventTypesChange={(eventTypes) => update({ eventTypes })}
-            onlyWithStack={filters.onlyWithStack}
-            onOnlyWithStackChange={(onlyWithStack) => update({ onlyWithStack })}
-          />
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          }
+          agents={agents}
+          agentFilter={filters.agent}
+          onAgentFilterChange={(agent) => update({ agent })}
+          search={filters.search}
+          onSearchChange={(search) => update({ search })}
+          levels={filters.levels}
+          onLevelsChange={setLevels}
+          levelCounts={view.levelCounts}
+          eventTypes={filters.eventTypes}
+          onEventTypesChange={(eventTypes) => update({ eventTypes })}
+          onlyWithStack={filters.onlyWithStack}
+          onOnlyWithStackChange={(onlyWithStack) => update({ onlyWithStack })}
+        />
 
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border bg-card">
 

@@ -1,11 +1,13 @@
 import React from "react"
-import { Check, Info, Loader2, X } from "lucide-react"
+import { Check, Info, X } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { useTranslation } from "react-i18next"
 
 import { CliLoginPanel } from "@renderer/components/agent-auth/cli-login-panel"
 import { ImportCredentialsPrompt } from "@renderer/components/credential-import/import-credentials-prompt"
 import { ModelField } from "@renderer/components/model-field"
 import { Button } from "@renderer/components/ui/button"
+import { Card, CardContent } from "@renderer/components/ui/card"
 import { Input } from "@renderer/components/ui/input"
 import { PasswordInput } from "@renderer/components/ui-kit"
 import { envFieldHint, envFieldLabel, envFieldPlaceholder } from "@renderer/lib/agent-meta"
@@ -36,8 +38,8 @@ export function ApiKeyStep({
   return (
     <>
       {!entry ? (
-        <div className="flex items-center gap-2 py-8 text-xs text-(--text-tertiary)">
-          <Loader2 className="size-4 animate-spin" />
+        <div className="flex items-center gap-2 py-8 text-xs text-muted-foreground">
+          <Spinner className="size-4" />
           {t("onboarding.flow.apiKey.loadingConfiguration")}
         </div>
       ) : (
@@ -45,9 +47,9 @@ export function ApiKeyStep({
           {mode === "login" && <LoginPanel entry={entry} auth={auth} />}
 
           {mode === "none" && !hasEnvFields && (
-            <div className="rounded-lg border bg-card p-5 text-sm">
+            <Card><CardContent>
               {t("onboarding.flow.apiKey.noConfigNeeded")}
-            </div>
+            </CardContent></Card>
           )}
 
           {hasEnvFields && (
@@ -92,7 +94,7 @@ export function ApiKeyStep({
                 >
                   {auth.testing ? (
                     <>
-                      <Loader2 className="animate-spin" />
+                      <Spinner data-icon="inline-start" />
                       {t("onboarding.flow.apiKey.testing")}
                     </>
                   ) : (
@@ -197,7 +199,7 @@ function EnvRow({
         />
       )}
       {hint && (
-        <p className="mt-1.5 mb-0 text-2xs leading-relaxed text-(--text-tertiary)">
+        <p className="mt-1.5 mb-0 text-xs leading-relaxed text-muted-foreground">
           {hint}
         </p>
       )}
@@ -213,11 +215,11 @@ function TestStatus({ auth }: { auth: OnboardingAuthApi }): React.JSX.Element {
     <div
       className={cn(
         "flex min-w-0 flex-1 items-center gap-2 rounded-md border px-3 py-2 text-xs",
-        !testResult && "border-(--border) text-(--text-tertiary)",
-        testResult?.ok && "border-(--border) text-foreground",
+        !testResult && "border-border text-muted-foreground",
+        testResult?.ok && "border-border text-foreground",
         testResult &&
           !testResult.ok &&
-          "border-(--danger-border) bg-(--danger-bg) text-(--danger-text)",
+          "border-destructive/30 bg-destructive/10 text-destructive",
       )}
     >
       {testResult ? (

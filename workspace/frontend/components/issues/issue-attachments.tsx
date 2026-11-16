@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Paperclip } from 'lucide-react';
+import { Skeleton } from '@/components/ui/skeleton';
+import { cn } from '@/lib/utils';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { VideoStage } from '@/components/files/media-stage';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
@@ -24,7 +26,7 @@ function AttachmentVideo({ file }: { file: Attachment }) {
   const t = useT();
   const { url, failed } = useFileObjectUrl(file.file_id);
   if (failed) return <span className="p-3 text-xs text-muted-foreground" role="status">{t('files.loadFailed')}</span>;
-  if (!url) return <span className="block h-full w-full animate-pulse bg-muted" aria-label={t('common.loading')} />;
+  if (!url) return <Skeleton className="block size-full rounded-none" aria-label={t('common.loading')} />;
   return <VideoStage src={url} filename={file.filename} contentType={file.content_type} size={file.size} infoOpen={false} />;
 }
 
@@ -43,7 +45,7 @@ export function IssueAttachments({ files, workspaceId }: {
       const cardClass ="group min-w-0 overflow-hidden rounded-lg border bg-background transition-colors hover:border-primary/40 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
       const content = <>
         {image && <div className="flex aspect-[4/3] items-center justify-center overflow-hidden border-b bg-muted/30 p-1.5">
-          <AuthenticatedImage fileId={file.file_id} alt={name} loading="lazy" className="h-full w-full object-contain" />
+          <AuthenticatedImage fileId={file.file_id} alt={name} loading="lazy" className="size-full object-contain" />
         </div>}
         <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-xs">
           <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
@@ -51,7 +53,7 @@ export function IssueAttachments({ files, workspaceId }: {
         </div>
       </>;
       return previewable
-        ? <button key={file.file_id} type="button" title={file.filename} className={`${cardClass} text-left ${image ? 'cursor-zoom-in' : ''}`} onClick={() => setPreviewId(file.file_id)}>{content}</button>
+        ? <button key={file.file_id} type="button" title={file.filename} className={cn(cardClass, 'text-left', image && 'cursor-zoom-in')} onClick={() => setPreviewId(file.file_id)}>{content}</button>
         : <a key={file.file_id} href={resourcePath(workspaceId, 'files', file.file_id)} title={file.filename} className={cardClass}>{content}</a>;
     })}
   </div>

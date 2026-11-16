@@ -3,9 +3,11 @@ import { useTranslation } from "react-i18next"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
+import { Label } from "@renderer/components/ui/label"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -32,11 +34,13 @@ export function AgentsPagination({
   const { t } = useTranslation()
 
   return (
-    <div className="mt-3 flex items-center justify-between gap-4 text-2xs text-muted-foreground">
+    <div className="mt-3 flex items-center justify-between gap-4 text-sm text-muted-foreground">
       <span>{t("agents.list.totalCount", { count: total })}</span>
 
       <div className="flex items-center gap-2">
-        <span>{t("agents.list.perPage")}</span>
+        <Label htmlFor="agents-page-size" className="font-normal">
+          {t("agents.list.perPage")}
+        </Label>
         <Select
           value={String(pageSize)}
           onValueChange={(v) => {
@@ -44,15 +48,17 @@ export function AgentsPagination({
             onPage(1)
           }}
         >
-          <SelectTrigger size="sm" className="w-20">
+          <SelectTrigger id="agents-page-size" size="sm" className="w-20">
             <SelectValue />
           </SelectTrigger>
-          <SelectContent>
-            {PAGE_SIZES.map((n) => (
-              <SelectItem key={n} value={String(n)}>
-                {n}
-              </SelectItem>
-            ))}
+          <SelectContent size="sm">
+            <SelectGroup>
+              {PAGE_SIZES.map((n) => (
+                <SelectItem key={n} value={String(n)}>
+                  {n}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
 

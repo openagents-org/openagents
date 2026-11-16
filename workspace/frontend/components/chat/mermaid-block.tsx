@@ -4,6 +4,8 @@ import { useTheme } from "next-themes";
 import { useEffect, useId, useRef, useState } from "react";
 import { sanitizeMermaidSource } from "./mermaid-utils";
 import { useT } from "@/lib/i18n";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Spinner } from "@/components/ui/spinner";
 
 let mermaidRenderQueue: Promise<void> = Promise.resolve();
 let mermaidInitializedTheme: "default" | "dark" | null = null;
@@ -122,20 +124,22 @@ export function MermaidBlock({
 
 	if (error) {
 		return (
-			<div className="my-2 rounded-md border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 p-3">
-				<p className="mb-2 text-xs font-medium text-red-700 dark:text-red-300">
-					Unable to render Mermaid diagram: {error}
-				</p>
-				<pre className="overflow-x-auto text-[13px] leading-relaxed font-mono text-red-950 dark:text-red-100">
-					<code>{chart}</code>
-				</pre>
-			</div>
+			<Alert variant="destructive" className="my-2">
+				<AlertTitle>{t("chat.diagramRenderFailed")}</AlertTitle>
+				<AlertDescription>
+					<p>{error}</p>
+					<pre className="w-full overflow-x-auto font-mono text-sm leading-relaxed">
+						<code>{chart}</code>
+					</pre>
+				</AlertDescription>
+			</Alert>
 		);
 	}
 
 	if (!svg) {
 		return (
-			<div className="my-2 rounded-md border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-900 p-3 text-xs text-muted-foreground">
+			<div className="my-2 flex items-center gap-2 rounded-md border border-border bg-muted p-3 text-xs text-muted-foreground">
+				<Spinner className="size-3.5" />
 				{t("chat.renderingDiagram")}
 			</div>
 		);
@@ -144,7 +148,7 @@ export function MermaidBlock({
 	return (
 		<div
 			ref={containerRef}
-			className="my-2 overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-950 p-3 [&_svg]:mx-auto [&_svg]:max-w-full"
+			className="my-2 overflow-x-auto rounded-md border border-border bg-card p-3 [&_svg]:mx-auto [&_svg]:max-w-full"
 		/>
 	);
 }

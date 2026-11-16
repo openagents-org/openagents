@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -56,11 +57,13 @@ export function MarketplaceToolbar({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {SORTS.map((key) => (
-            <SelectItem key={key} value={key}>
-              {t("install.sort.prefix", { label: t(`install.sort.${key}`) })}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {SORTS.map((key) => (
+              <SelectItem key={key} value={key}>
+                {t("install.sort.prefix", { label: t(`install.sort.${key}`) })}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 

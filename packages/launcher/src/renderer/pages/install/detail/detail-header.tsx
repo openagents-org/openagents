@@ -81,7 +81,7 @@ export function DetailHeader({
           {describeEntry(entry, t) || t("agents.header.noDescription")}
         </p>
 
-        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-2xs text-muted-foreground">
+        <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5 font-mono text-xs text-muted-foreground">
           {meta.map((m, i) => (
             <React.Fragment key={m}>
               {i > 0 && <span className="opacity-40">/</span>}

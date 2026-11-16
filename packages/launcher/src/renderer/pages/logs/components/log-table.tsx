@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, ChevronsUpDown } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import { LogLevelBadge } from "@renderer/components/logs/LogLevelBadge"
+import { Button } from "@renderer/components/ui/button"
 import {
   Table,
   TableBody,
@@ -27,7 +28,7 @@ const DENSITY_CLASS: Record<Density, string> = {
 /** Message colour per level — errors stand out, debug/trace recede. A
  *  warning is marked by its level's dot, not by colouring the whole line. */
 const LEVEL_TEXT: Record<LogLevel, string> = {
-  error: "text-(--danger-text)",
+  error: "text-destructive",
   warn: "text-foreground",
   info: "text-foreground",
   debug: "text-muted-foreground",
@@ -74,18 +75,19 @@ export function LogTable({
 
   return (
     <Table>
-      <TableHeader className="sticky top-0 z-10 bg-card">
+      <TableHeader className="sticky top-0 z-10 bg-muted">
         <TableRow>
           <TableHead className="w-28">
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="-ml-2 text-muted-foreground"
               onClick={onToggleSort}
-              className="inline-flex items-center gap-1 border-0 bg-transparent p-0 text-xs font-medium text-muted-foreground"
               title={t(`logs.sort.${sort}`)}
             >
               {t("logs.columns.time")}
-              <ChevronsUpDown className="size-3" />
-            </button>
+              <ChevronsUpDown data-icon="inline-end" />
+            </Button>
           </TableHead>
           <TableHead className="w-20 text-xs">{t("logs.columns.level")}</TableHead>
           <TableHead className="w-32 text-xs">{t("logs.columns.agent")}</TableHead>
@@ -105,11 +107,16 @@ export function LogTable({
                 onClick={() => onToggleExpand(entry.id)}
                 className={cn(
                   "cursor-pointer",
-                  entry.level === "error" && "bg-(--danger-bg)/40",
+                  entry.level === "error" && "bg-destructive/5",
                   highlightId === entry.id && "bg-primary/10",
                 )}
               >
-                <TableCell className={cn(cell, "text-2xs tabular-nums text-muted-foreground")}>
+                <TableCell
+                  className={cn(
+                    cell,
+                    "text-xs tabular-nums text-muted-foreground",
+                  )}
+                >
                   {formatClock(entry.time, true)}
                 </TableCell>
                 <TableCell className={cell}>

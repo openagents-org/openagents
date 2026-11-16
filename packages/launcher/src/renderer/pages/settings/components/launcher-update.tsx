@@ -5,10 +5,10 @@ import {
   CheckCircle2,
   Download,
   ExternalLink,
-  Loader2,
   RefreshCw,
   Sparkles,
 } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 
 import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
@@ -109,7 +109,7 @@ export function LauncherUpdate({
         action={
           downloading ? (
             <Button size="sm" disabled>
-              <Loader2 className="animate-spin" />
+              <Spinner data-icon="inline-start" />
               {t("settings.updates.actionDownloading")}
             </Button>
           ) : status === "downloaded" ? (
@@ -163,7 +163,7 @@ export function LauncherUpdate({
       tone="neutral"
       icon={
         checking ? (
-          <Loader2 className="size-5 animate-spin" />
+          <Spinner className="size-5" />
         ) : (
           <CheckCircle2 className="size-5" />
         )
@@ -197,14 +197,15 @@ export function LauncherUpdate({
 function ReleaseNotesLink(): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <button
-      type="button"
-      className="flex items-center gap-1 border-0 bg-transparent p-0 text-2xs text-(--accent) hover:underline"
+    <Button
+      variant="link"
+      size="xs"
+      className="h-auto px-0"
       onClick={() => window.api.openExternal(RELEASES_URL)}
     >
       {t("settings.updates.releaseNotes")}
-      <ExternalLink className="size-3" />
-    </button>
+      <ExternalLink data-icon="inline-end" />
+    </Button>
   )
 }
 
@@ -213,14 +214,14 @@ function ReleaseNotesLink(): React.JSX.Element {
 const TONE: Record<string, string> = {
   accent: "",
   warning: "",
-  danger: "border-(--danger-border) bg-(--danger-bg)",
+  danger: "border-destructive/30 bg-destructive/10",
   neutral: "",
 }
 
 const ICON_TONE: Record<string, string> = {
   accent: "bg-muted text-foreground",
-  warning: "bg-muted text-(--warning)",
-  danger: "bg-(--danger-bg) text-(--danger-text)",
+  warning: "bg-muted text-warning",
+  danger: "bg-destructive/10 text-destructive",
   neutral: "bg-muted text-muted-foreground",
 }
 
@@ -263,7 +264,7 @@ function Panel({
         <div className="min-w-0 flex-1 pt-1">
           <div className="text-sm font-semibold">{title}</div>
           {subtitle && (
-            <div className="mt-1 text-2xs text-muted-foreground">{subtitle}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{subtitle}</div>
           )}
         </div>
 

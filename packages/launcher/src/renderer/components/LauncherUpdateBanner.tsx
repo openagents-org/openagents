@@ -1,5 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+import { Button } from "@renderer/components/ui/button"
 import { AlertTriangle, Download, RefreshCw } from "lucide-react"
 import { useLauncherUpdate } from "../hooks/useLauncherUpdate"
 import { useUiStore } from "../store/ui"
@@ -81,24 +82,24 @@ export function LauncherUpdateBanner({
   const installBroken =
     !!state.installFailedVersion && state.installFailedVersion === version
 
-  let icon = <Download className="h-4 w-4 text-(--accent)" />
+  let icon = <Download className="h-4 w-4 text-primary" />
   let message = t("settings.updates.bannerAvailable", { version })
   let action: React.JSX.Element
 
   if (installBroken) {
-    icon = <AlertTriangle className="h-4 w-4 text-(--danger-text)" />
+    icon = <AlertTriangle className="h-4 w-4 text-destructive" />
     message = t("settings.updates.bannerInstallFailed", { version })
     action = (
       <button
         type="button"
-        className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+        className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
         onClick={() => window.api.openExternal(state.downloadUrl)}
       >
         {t("settings.updates.downloadPage")}
       </button>
     )
   } else if (status === "downloading") {
-    icon = <Download className="h-4 w-4 animate-pulse text-(--accent)" />
+    icon = <Download className="h-4 w-4 animate-pulse text-primary" />
     message = t("settings.updates.bannerDownloading", {
       version,
       percent: state.percent ?? 0,
@@ -110,7 +111,7 @@ export function LauncherUpdateBanner({
       />
     )
   } else if (status === "downloaded") {
-    icon = <RefreshCw className="h-4 w-4 text-(--accent)" />
+    icon = <RefreshCw className="h-4 w-4 text-primary" />
     message = t("settings.updates.bannerReady", { version })
     action = (
       <>
@@ -124,7 +125,7 @@ export function LauncherUpdateBanner({
         )}
         <button
           type="button"
-          className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
           onClick={() => void install()}
         >
           {t("settings.updates.actionRestartInstall")}
@@ -144,7 +145,7 @@ export function LauncherUpdateBanner({
         )}
         <button
           type="button"
-          className="rounded-md bg-(--accent) px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
           onClick={() => {
             // Start the download AND navigate, so the progress the user was just
             // promised is on screen immediately rather than behind a second click.
@@ -166,22 +167,23 @@ export function LauncherUpdateBanner({
     <div
       className={
         inline
-          ? "flex h-7 min-w-0 items-center gap-2 rounded-md border border-(--border) bg-(--bg-card) px-2 [&_button]:py-0.5"
-          : "absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-(--border) bg-(--bg-card) px-4 py-2 shadow-lg"
+          ? "flex h-7 min-w-0 items-center gap-2 rounded-md border border-border bg-card px-2 [&_button]:py-0.5"
+          : "absolute top-(--mode-bar-h) left-1/2 z-50 mt-3 flex max-w-[calc(100%-2rem)] -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card px-4 py-2 shadow-lg"
       }
     >
       <span className="shrink-0">{icon}</span>
-      <span className="min-w-0 truncate text-sm text-(--text-primary)">
+      <span className="min-w-0 truncate text-sm text-foreground">
         {message}
       </span>
       <div className="flex shrink-0 items-center gap-2">{action}</div>
-      <button
-        type="button"
-        className="shrink-0 text-xs text-(--text-secondary) hover:text-(--text-primary)"
+      <Button
+        size="xs"
+        variant="ghost"
+        className="shrink-0 text-muted-foreground"
         onClick={() => setDismissed(key)}
       >
         {t("settings.updates.bannerDismiss")}
-      </button>
+      </Button>
     </div>
   )
 }
@@ -195,12 +197,8 @@ function WhatsNewButton({
   label: string
 }): React.JSX.Element {
   return (
-    <button
-      type="button"
-      className="rounded-md border border-(--border) px-3 py-1 text-xs font-medium text-(--text-primary) hover:bg-(--bg-hover)"
-      onClick={onClick}
-    >
+    <Button size="xs" variant="outline" onClick={onClick}>
       {label}
-    </button>
+    </Button>
   )
 }

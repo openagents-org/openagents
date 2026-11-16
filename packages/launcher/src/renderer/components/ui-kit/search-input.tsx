@@ -23,9 +23,6 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
 
     return (
       <InputGroup className={wrapperClassName}>
-        <InputGroupAddon align="inline-start">
-          <Search />
-        </InputGroupAddon>
         <InputGroupInput
           ref={ref}
           // Deliberately `text`, not `search`: WebKit paints its own cancel
@@ -35,6 +32,11 @@ export const SearchInput = React.forwardRef<HTMLInputElement, SearchInputProps>(
           className={className}
           {...props}
         />
+        {/* After the input in the DOM, before it on screen: InputGroup keeps
+            the field first in focus order and places addons by `align`. */}
+        <InputGroupAddon align="inline-start">
+          <Search />
+        </InputGroupAddon>
         {value && onClear && (
           <InputGroupAddon align="inline-end">
             <InputGroupButton

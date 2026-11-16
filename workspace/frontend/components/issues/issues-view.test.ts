@@ -77,9 +77,6 @@ vi.mock('@/components/chat/markdown-content', () => ({
     createElement('div', {}, content),
 }));
 vi.mock('@/components/files/authenticated-image', () => ({ AuthenticatedImage: () => null }));
-vi.mock('@/components/tasks/task-chat-popup', () => ({
-  TaskChatPopup: () => null,
-}));
 vi.mock('@/components/ui/responsive-dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
     open ? createElement('div', { role: 'dialog' }, children) : null,
@@ -972,7 +969,7 @@ it('shows live issue work and requester completion, with active work taking prec
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('button.thread-wip')).toBeNull();
   expect(host.querySelector('[role="status"]')?.textContent).toBe('Agent work finished');
-  expect(host.querySelector('button.bg-amber-50')).not.toBeNull();
+  expect(host.querySelector('button.bg-warning\\/10')).not.toBeNull();
   mocks.ws.completedSessionIds = new Set(['unrelated-thread']);
   await act(async () => root.render(createElement(IssuesView)));
   expect(host.querySelector('[role="status"]')).toBeNull();

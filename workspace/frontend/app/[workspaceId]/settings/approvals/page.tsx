@@ -1,8 +1,10 @@
 'use client';
 import { threadPath } from '@/lib/thread-link';
+import { Card } from '@/components/ui/card';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ExternalLink, Lock, X } from 'lucide-react';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { toast } from 'sonner';
 import { CustomPolicyEditor, type CustomPolicy } from '@/components/settings/custom-policy-editor';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -108,16 +110,14 @@ export default function ApprovalsSettingsPage() {
     r === 'admin' ? t('approvals.roleAdmin') : r === 'owner' ? t('approvals.roleOwner') : t('approvals.roleAny');
 
   return (
-    <div className="space-y-8">
-      <div className="space-y-3 border-b pb-4">
-        <h2 className="text-lg font-semibold">{t('admin.approvalsTitle')}</h2>
-        <div role="note" className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-300">
-          <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <div className="space-y-1">
-            <p className="font-medium">{t('approvals.advisoryWarning')}</p>
-            <p>{t('admin.approvalsDescription')}</p>
-          </div>
-        </div>
+    <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-3 border-b pb-4">
+        <h2 className="font-heading text-lg font-medium">{t('admin.approvalsTitle')}</h2>
+        <Alert role="note">
+          <AlertTriangle aria-hidden="true" className="text-warning" />
+          <AlertTitle>{t('approvals.advisoryWarning')}</AlertTitle>
+          <AlertDescription>{t('admin.approvalsDescription')}</AlertDescription>
+        </Alert>
       </div>
       {!editable && <ReadOnlyBanner />}
 
@@ -126,16 +126,16 @@ export default function ApprovalsSettingsPage() {
           <TabsTrigger value="policy">{t('approvals.policyTitle')}</TabsTrigger>
           <TabsTrigger value="pending">{t('approvals.pendingTab')}{!!pending?.length && <span className="rounded-full bg-muted px-1.5 text-xs">{pending.length}</span>}</TabsTrigger>
         </TabsList>
-      <TabsContent value="pending" className="space-y-3 pt-4">
+      <TabsContent value="pending" className="flex flex-col gap-3 pt-4">
         <h2 className="text-sm font-semibold">
           {t('approvals.pendingTitle')}
           {pending && pending.length > 0 && (
-            <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800 dark:bg-amber-500/15 dark:text-amber-200">
+            <span className="ml-2 rounded-full bg-warning/10 px-2 py-0.5 text-xs font-semibold text-warning">
               {pending.length}
             </span>
           )}
         </h2>
-        <div className="divide-y rounded-lg border">
+        <Card className="gap-0 divide-y py-0">
           {pending === null ? (
             <p className="px-4 py-3 text-sm text-muted-foreground">{t('admin.loading')}</p>
           ) : pending.length === 0 ? (
@@ -144,7 +144,7 @@ export default function ApprovalsSettingsPage() {
             const allowed = canActOnApproval(me, a, workspace.requireLogin);
             return (
               <div key={a.id} className="flex flex-wrap items-start gap-3 px-4 py-3">
-                <Lock className="mt-0.5 size-4 shrink-0 text-amber-600" />
+                <Lock className="mt-0.5 size-4 shrink-0 text-warning" />
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-baseline gap-x-2">
                     <span className="text-sm font-medium">{a.action}</span>
@@ -154,13 +154,13 @@ export default function ApprovalsSettingsPage() {
                     </span>
                   </div>
                   {a.details && (
-                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted px-2 py-1 font-mono text-[11px]">
+                    <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words rounded bg-muted px-2 py-1 font-mono text-xs">
                       {a.details}
                     </pre>
                   )}
                   {!!a.policyRequirements?.approved_by.length && <p className="mt-1 text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: a.policyRequirements.approved_by.join(', ') })}</p>}
                   {a.note && <p className="mt-1 text-xs text-muted-foreground">{a.note}</p>}
-                  <button
+                  <Button
                     type="button"
                     onClick={async () => {
                       try {
@@ -168,10 +168,10 @@ export default function ApprovalsSettingsPage() {
                         window.location.assign(`${threadPath(workspaceId, link.id)}${query}`);
                       } catch { toast.error(t('share.threadUnavailable')); }
                     }}
-                    className="mt-1 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+                    variant="link" size="xs" className="mt-1 h-auto self-start px-0 text-muted-foreground"
                   >
                     {t('approvals.openThread')} <ExternalLink className="size-3" />
-                  </button>
+                  </Button>
                 </div>
                 {allowed && (
                   <div className="flex shrink-0 items-center gap-2">
@@ -186,10 +186,10 @@ export default function ApprovalsSettingsPage() {
               </div>
             );
           })}
-        </div>
+        </Card>
       </TabsContent>
 
-      <TabsContent value="policy" className="space-y-3 pt-4">
+      <TabsContent value="policy" className="flex flex-col gap-3 pt-4">
         <div className="flex items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{t('approvals.policyTitle')}</h2>

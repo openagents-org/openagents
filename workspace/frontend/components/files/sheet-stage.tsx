@@ -70,15 +70,15 @@ export function SheetStage({ content, delimiter }: { content: string; delimiter:
 
   return (
     <div className="p-4">
-      <div className="overflow-hidden rounded-lg border border-border">
+      <div className="overflow-hidden rounded-lg border">
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 bg-muted/70 backdrop-blur">
             <tr>
-              <th className="w-10 border-b border-border px-2 py-1.5 text-right font-normal text-muted-foreground/60 tabular-nums" />
+              <th className="w-10 border-b px-2 py-1.5 text-right font-normal text-muted-foreground/60 tabular-nums" />
               {header.map((cell, i) => (
                 <th
                   key={i}
-                  className="border-b border-l border-border px-2.5 py-1.5 text-left font-semibold whitespace-nowrap"
+                  className="border-b border-l px-2.5 py-1.5 text-left font-semibold whitespace-nowrap"
                 >
                   {cell}
                 </th>

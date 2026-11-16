@@ -1,13 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  AlertTriangle,
-  CheckCircle2,
-  Globe,
-  Loader2,
-  Terminal,
-} from "lucide-react"
+import { AlertTriangle, CheckCircle2, Globe, Terminal } from "lucide-react"
 import { Button } from "@renderer/components/ui/button"
+import { Card, CardContent } from "@renderer/components/ui/card"
 import { Spinner } from "@renderer/components/ui/spinner"
 import { CliLoginPanel, UseTerminalButton } from "./cli-login-panel"
 import { needsRealTerminal } from "../../../shared/agent-login"
@@ -31,8 +26,11 @@ export function AuthStatusBanner({
       (authInfo.authMode && authLabels[authInfo.authMode]) ||
       t("agents.configureDialog.authReadyGeneric")
     return (
-      <div className="flex items-center gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-foreground">
-        <CheckCircle2 className="w-4 h-4 shrink-0 text-(--success)" strokeWidth={2} />
+      <div className="flex items-center gap-2 p-3 rounded-lg bg-muted text-sm text-foreground">
+        <CheckCircle2
+          className="w-4 h-4 shrink-0 text-success"
+          strokeWidth={2}
+        />
         <span>
           {t("agents.configureDialog.authReadyPrefix")} {detected}
         </span>
@@ -40,8 +38,11 @@ export function AuthStatusBanner({
     )
   }
   return (
-    <div className="flex items-start gap-2 p-3 rounded-(--radius) bg-(--bg-input) text-sm text-foreground">
-      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-(--warning)" strokeWidth={2} />
+    <div className="flex items-start gap-2 p-3 rounded-lg bg-muted text-sm text-foreground">
+      <AlertTriangle
+        className="w-4 h-4 mt-0.5 shrink-0 text-warning"
+        strokeWidth={2}
+      />
       <span>
         {authInfo.message || t("agents.configureDialog.authNotReadyGeneric")}
       </span>
@@ -77,7 +78,7 @@ export function LoginStatusRow({
   if (loginPhase === "checking" || loggedIn === null) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Loader2 className="size-3.5 shrink-0 animate-spin" strokeWidth={2} />
+        <Spinner className="size-3.5 shrink-0" />
         <span>{t("agents.loginStatus.checking")}</span>
       </div>
     )
@@ -85,14 +86,20 @@ export function LoginStatusRow({
   if (loggedIn) {
     return (
       <div className="flex items-center gap-1.5 text-xs text-foreground">
-        <CheckCircle2 className="size-3.5 shrink-0 text-(--success)" strokeWidth={2} />
+        <CheckCircle2
+          className="size-3.5 shrink-0 text-success"
+          strokeWidth={2}
+        />
         <span>{t("agents.loginStatus.signedIn")}</span>
       </div>
     )
   }
   return (
     <div className="flex items-center gap-1.5 text-xs text-foreground">
-      <AlertTriangle className="size-3.5 shrink-0 text-(--warning)" strokeWidth={2} />
+      <AlertTriangle
+        className="size-3.5 shrink-0 text-warning"
+        strokeWidth={2}
+      />
       <span>{t("agents.loginStatus.notSignedIn")}</span>
     </div>
   )
@@ -107,13 +114,10 @@ export function LoginStatusCard({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="flex items-center gap-2 p-3 rounded-(--radius) bg-(--bg-input)">
+    <div className="flex items-center gap-2 p-3 rounded-lg bg-muted">
       {loginPhase === "checking" || loggedIn === null ? (
         <>
-          <Loader2
-            className="w-5 h-5 shrink-0 text-(--text-tertiary) animate-spin"
-            strokeWidth={2}
-          />
+          <Spinner className="size-5 shrink-0 text-muted-foreground" />
           <strong className="text-sm">
             {t("agents.loginStatus.checking")}
           </strong>
@@ -121,7 +125,7 @@ export function LoginStatusCard({
       ) : loggedIn ? (
         <>
           <CheckCircle2
-            className="w-5 h-5 shrink-0 text-(--success)"
+            className="w-5 h-5 shrink-0 text-success"
             strokeWidth={2}
           />
           <strong className="text-sm">
@@ -131,7 +135,7 @@ export function LoginStatusCard({
       ) : (
         <>
           <AlertTriangle
-            className="w-5 h-5 shrink-0 text-(--warning)"
+            className="w-5 h-5 shrink-0 text-warning"
             strokeWidth={2}
           />
           <strong className="text-sm">
@@ -187,7 +191,8 @@ export function CliLoginBlock({
   // terminal thing" no matter what the words say.
   const viaTerminal = needsRealTerminal(agentType, loginCmd)
   return (
-    <div className="rounded-lg border border-primary/25 bg-primary/5 p-3.5">
+    <Card size="sm">
+      <CardContent>
       <div className="mb-3 flex items-start gap-3">
         <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-background text-primary shadow-sm">
           {viaTerminal ? (
@@ -200,7 +205,7 @@ export function CliLoginBlock({
           <p className="m-0 text-sm font-semibold">
             {t("agents.loginStatus.signInWithCli")}
           </p>
-          <p className="m-0 mt-1 text-2xs leading-relaxed text-muted-foreground">
+          <p className="m-0 mt-1 text-xs leading-relaxed text-muted-foreground">
             {t(
               viaTerminal
                 ? "agents.loginStatus.opensTerminalTerminalPrefix"
@@ -220,7 +225,7 @@ export function CliLoginBlock({
 
       {loginPhase === "awaiting" ? (
         <>
-          <p className="m-0 mb-3 text-2xs text-muted-foreground">
+          <p className="m-0 mb-3 text-xs text-muted-foreground">
             {t("agents.loginStatus.finishThenConfirm")}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -248,7 +253,7 @@ export function CliLoginBlock({
           <div className="flex shrink-0 flex-wrap items-center gap-1">
             {canInstall ? (
               <Button size="sm" variant="outline" disabled={installing} onClick={onInstall}>
-                {installing && <Spinner />}
+                {installing && <Spinner data-icon="inline-start" />}
                 {t(installing ? "agents.shared.installing" : "agents.shared.installAndSignIn")}
               </Button>
             ) : (
@@ -286,6 +291,7 @@ export function CliLoginBlock({
           onUseTerminal={() => onStartLogin({ terminal: true })}
         />
       )}
-    </div>
+      </CardContent>
+    </Card>
   )
 }

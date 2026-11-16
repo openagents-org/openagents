@@ -3,8 +3,8 @@
 import React from 'react';
 import { ArrowRight, Clock, Loader2, Plus, RotateCw } from 'lucide-react';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/reui/button';
+import { Input } from '@/components/ui/reui/input';
 import type { AccountWorkspace } from '@/lib/account-api';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 

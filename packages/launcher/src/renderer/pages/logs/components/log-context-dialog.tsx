@@ -59,7 +59,7 @@ export function LogContextDialog({
         </DialogHeader>
 
         <DialogBody>
-          <pre className="m-0 font-mono text-2xs leading-relaxed">
+          <pre className="m-0 font-mono text-xs leading-relaxed">
             {slice.map((line, i) => {
               const focused = i >= focusOffset && i <= stackEnd
               return (

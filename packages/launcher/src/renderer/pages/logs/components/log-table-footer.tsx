@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -46,12 +47,12 @@ export function LogTableFooter({
 
   return (
     <div className="flex shrink-0 flex-wrap items-center gap-3 border-t px-4 py-2.5">
-      <span className="text-2xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground">
         {t("logs.footer.loaded", { count: loaded })}
       </span>
 
       <div className="ml-auto flex items-center gap-2">
-        <span className="text-2xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {t("logs.footer.pageSize")}
         </span>
         <Select
@@ -62,17 +63,19 @@ export function LogTableFooter({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {PAGE_SIZES.map((size) => (
-              <SelectItem key={size} value={String(size)}>
-                {size}
-              </SelectItem>
-            ))}
+            <SelectGroup>
+              {PAGE_SIZES.map((size) => (
+                <SelectItem key={size} value={String(size)}>
+                  {size}
+                </SelectItem>
+              ))}
+            </SelectGroup>
           </SelectContent>
         </Select>
       </div>
 
       <div className="flex items-center gap-2">
-        <span className="text-2xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           {t("logs.footer.density")}
         </span>
         <IconToggle
@@ -95,7 +98,7 @@ export function LogTableFooter({
         >
           <ChevronLeft />
         </Button>
-        <span className="min-w-16 text-center text-2xs tabular-nums text-muted-foreground">
+        <span className="min-w-16 text-center text-xs tabular-nums text-muted-foreground">
           {page} / {pageCount}
         </span>
         <Button

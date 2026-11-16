@@ -10,10 +10,10 @@ interface Props {
 }
 
 function tokenClass(t: string): string {
-  if (t === "string") return "text-(--success-text)"
-  if (t === "number") return "text-(--accent)"
-  if (t === "boolean" || t === "null") return "text-(--warning-text)"
-  return "text-(--text-primary)"
+  if (t === "string") return "text-success-foreground"
+  if (t === "number") return "text-primary"
+  if (t === "boolean" || t === "null") return "text-warning-foreground"
+  return "text-foreground"
 }
 
 export function JsonViewer({
@@ -39,7 +39,7 @@ export function JsonViewer({
         <button
           type="button"
           onClick={() => setOpen((o) => !o)}
-          className="inline-flex items-center align-middle border-0 bg-transparent p-0 text-(--text-secondary)"
+          className="inline-flex items-center align-middle border-0 bg-transparent p-0 text-muted-foreground"
           aria-label={t("logs.json.toggle")}
         >
           {open ? (
@@ -48,7 +48,7 @@ export function JsonViewer({
             <ChevronRight className="w-3 h-3" />
           )}
         </button>
-        <span> [{!open && <span className="text-(--text-tertiary)"> {value.length} items </span>}{open && "\n"}</span>
+        <span> [{!open && <span className="text-muted-foreground"> {value.length} items </span>}{open && "\n"}</span>
         {open && (
           <span className="block pl-3">
             {value.map((v, i) => (
@@ -73,7 +73,7 @@ export function JsonViewer({
           type="button"
           onClick={() => setOpen((o) => !o)}
           className={cn(
-            "inline-flex items-center align-middle border-0 bg-transparent p-0 text-(--text-secondary)",
+            "inline-flex items-center align-middle border-0 bg-transparent p-0 text-muted-foreground",
           )}
           aria-label={t("logs.json.toggle")}
         >
@@ -85,14 +85,14 @@ export function JsonViewer({
         </button>
         <span>
           {" {"}
-          {!open && <span className="text-(--text-tertiary)"> {keys.length} keys </span>}
+          {!open && <span className="text-muted-foreground"> {keys.length} keys </span>}
           {open && "\n"}
         </span>
         {open && (
           <span className="block pl-3">
             {keys.map((k, i) => (
               <span key={k} className="block">
-                <span className="text-(--accent)">"{k}"</span>:{" "}
+                <span className="text-primary">"{k}"</span>:{" "}
                 <JsonViewer value={obj[k]} depth={depth + 1} />
                 {i < keys.length - 1 ? "," : ""}
               </span>

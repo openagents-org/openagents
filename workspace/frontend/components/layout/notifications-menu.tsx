@@ -68,14 +68,14 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         >
           <Bell className="size-4" />
           {unreadNotificationCount > 0 && (
-            <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-medium text-destructive-foreground tabular-nums">
+            <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-destructive-foreground tabular-nums">
               {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
             </span>
           )}
         </button>
       </PopoverTrigger>
 
-      <PopoverContent side={side} align={align} sideOffset={8} className="w-[380px] p-0">
+      <PopoverContent side={side} align={align} sideOffset={8} className="w-95 p-0">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{t('notifications.title')}</span>
@@ -108,7 +108,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         {items.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.allCaughtUp')}</div>
         ) : (
-          <ScrollArea className="max-h-[420px]">
+          <ScrollArea className="max-h-105">
             <div className="divide-y divide-border">
               {items.map((n) => (
                 <div key={n.id} className={cn('group', !n.isRead && 'bg-accent/50 dark:bg-accent/20')}>

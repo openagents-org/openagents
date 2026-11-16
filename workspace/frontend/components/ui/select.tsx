@@ -1,11 +1,10 @@
 "use client"
 
 import * as React from "react"
-import { Select as SelectPrimitive } from "radix-ui"
-
 import { cn } from "@/lib/utils"
-import { usePortalContainer } from "@/components/ui/portal-container"
+import { Select as SelectPrimitive } from "radix-ui"
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from "lucide-react"
+import { usePortalContainer } from "@/components/ui/portal-container"
 
 function Select({
   ...props
@@ -40,15 +39,12 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
   size?: "sm" | "default"
 }) {
-  // The default height is a plain `h-8`, not `data-[size=default]:h-8`: the
-  // attribute selector outranked a caller's `h-10`, so every trigger given its
-  // own height stayed 32px and sat short of the buttons beside it.
   return (
     <SelectPrimitive.Trigger
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+        "flex w-fit items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 data-placeholder:text-muted-foreground data-[size=default]:h-8 data-[size=sm]:h-7 data-[size=sm]:rounded-[min(var(--radius-md),10px)] *:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5 dark:bg-input/30 dark:hover:bg-input/50 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
         className
       )}
       {...props}
@@ -62,18 +58,16 @@ function SelectTrigger({
 }
 
 /**
- * Three deliberate departures from the registry default:
- *
  * `position` defaults to "popper" rather than "item-aligned". Item-aligned
  * positions the panel by measuring the trigger and offsetting so the selected
  * row lands on it — arithmetic that assumes an untransformed ancestor. Our
- * dialogs centre themselves with `translate-x-[-50%] translate-y-[-50%]`, so
- * the measurement came out wrong and the panel landed in the page corner.
- * Popper goes through Floating UI, which resolves against the viewport.
+ * dialogs centre themselves with a translate, so the measurement came out
+ * wrong and the panel landed in the page corner. Popper goes through Floating
+ * UI, which resolves against the viewport.
  *
- * `z-70` rather than `z-50` because Dialog and Drawer here sit at `z-60` (the
- * registry has them at 50). A portalled panel is a sibling of the dialog, not
- * a child, so at 50 it renders behind the very dialog that opened it.
+ * `z-70` because dialogs and drawers here sit at `z-60`: a portalled panel is
+ * a sibling of the dialog, not a child, so lower it would render behind the
+ * very dialog that opened it. Menus, popovers and tooltips share the layer.
  *
  * The height cap takes the smaller of Radix's available-height and 18rem.
  * Available-height alone only promises the panel fits the viewport, so a
@@ -97,18 +91,11 @@ function SelectContent({
         {...props}
       >
         <SelectScrollUpButton />
-        {/*
-          `min-h` where the registry has `h`. The registry only ever ships this
-          rule behind `position === "popper"`, which its default of
-          "item-aligned" never reaches — so a hard height there is untested. Now
-          that popper is our default it does apply, and a fixed height equal to
-          the trigger collapses the panel to a single scrolling row. The floor
-          is what was wanted: never shorter than the control it belongs to.
-        */}
         <SelectPrimitive.Viewport
           data-position={position}
           className={cn(
-            "data-[position=popper]:min-h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)"
+            "data-[position=popper]:h-(--radix-select-trigger-height) data-[position=popper]:w-full data-[position=popper]:min-w-(--radix-select-trigger-width)",
+            position === "popper" && ""
           )}
         >
           {children}

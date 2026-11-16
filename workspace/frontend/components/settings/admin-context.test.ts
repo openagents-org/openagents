@@ -8,7 +8,7 @@ it.each(['member', 'viewer'] as const)('does not elevate a signed-in %s with an 
   for (const section of ['general', 'members', 'security', 'approvals', 'private-threads', 'devices', 'model-access', 'integrations']) {
     expect(canAccessSettingsSection(person, section)).toBe(false);
   }
-  for (const section of ['profile', 'preferences', 'api-credits']) expect(canAccessSettingsSection(person, section)).toBe(true);
+  for (const section of ['profile', 'preferences']) expect(canAccessSettingsSection(person, section)).toBe(true);
 });
 it('allows administrators and legacy token-only access, and denies an unresolved identity', () => {
   expect(canAdminister(me('admin'))).toBe(true);

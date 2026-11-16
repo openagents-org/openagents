@@ -112,7 +112,7 @@ export function DataSection({
               neutral outline made them read as ordinary settings controls. */}
           <Button
             size="sm"
-            variant="destructive-ghost"
+            variant="destructive"
             disabled={clearingCache}
             onClick={() => void clearCache()}
           >
@@ -124,7 +124,7 @@ export function DataSection({
           label={t("settings.data.resetLocal")}
           desc={t("settings.data.resetLocalDesc")}
         >
-          <Button size="sm" variant="destructive-ghost" onClick={openLocalReset}>
+          <Button size="sm" variant="destructive" onClick={openLocalReset}>
             <Palette />
             {t("common.reset")}
           </Button>
@@ -144,7 +144,7 @@ export function DataSection({
               dialog behind it carries the solid `destructive`. The card title
               and the red label already mark the danger; a frame on top of them
               made this the one odd button in the family. */}
-          <Button size="sm" variant="destructive-ghost" onClick={openReset}>
+          <Button size="sm" variant="destructive" onClick={openReset}>
             <RotateCcw />
             {t("common.reset")}
           </Button>
