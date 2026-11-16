@@ -76,7 +76,7 @@ function DialogContent({
         {children}
         {showCloseButton && (
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
-            <Button variant="ghost" className="absolute top-2 right-2" size="icon-sm">
+            <Button variant="ghost" className="absolute top-5 right-5" size="icon-sm">
               <XIcon />
               <span className="sr-only">Close</span>
             </Button>
@@ -92,7 +92,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-header"
       className={cn(
-        "flex shrink-0 flex-col gap-2 p-4 pr-10 text-left",
+        "flex shrink-0 flex-col gap-2 p-6 pr-14 text-left",
         className
       )}
       {...props}
@@ -110,7 +110,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-body"
       className={cn(
-        "no-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-4 pb-4",
+        "no-scrollbar flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto px-6 pb-6",
         className
       )}
       {...props}
@@ -141,7 +141,7 @@ function DialogFooter({
         // different kind of control, and which dialogs had which was pure
         // accident. `AlertDialogCancel` defaults to `outline` for the same
         // reason, so confirmations and forms agree.
-        "flex shrink-0 flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:*:flex-1",
+        "flex shrink-0 flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 px-6 py-4 sm:flex-row sm:*:flex-1",
         className
       )}
       {...props}

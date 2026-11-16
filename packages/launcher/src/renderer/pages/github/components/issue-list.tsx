@@ -82,7 +82,7 @@ export function IssueList({
                       // Label colours come from the GitHub API, so they can only
                       // be applied inline. `33` is ~20% alpha.
                       style={{
-                        background: l.color ? `#${l.color}33` : "var(--bg-input)",
+                        background: l.color ? `#${l.color}33` : "var(--muted)",
                       }}
                     >
                       {l.name}

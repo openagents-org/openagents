@@ -1,23 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import {
-  Check,
-  ChevronDown,
-  CircleAlert,
-  KeyRound,
-  PencilLine,
-  RefreshCw,
-  Terminal,
-} from "lucide-react"
+import { ChevronDown } from "lucide-react"
 
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@renderer/components/ui/command"
+import { ModelFieldList } from "@renderer/components/model-field-list"
 import {
   InputGroup,
   InputGroupAddon,
@@ -31,7 +16,6 @@ import {
   PopoverTrigger,
 } from "@renderer/components/ui/popover"
 import { Spinner } from "@renderer/components/ui/spinner"
-import { cn } from "@renderer/lib/utils"
 import type { ModelListPath, ModelListResult } from "@renderer/types"
 
 /**
@@ -161,38 +145,6 @@ export function ModelField({
     onChangeRef.current(recommended)
   }, [prefill, result])
 
-  const hasModels = !!result?.models.length
-  // A CLI's list is usually its signed-in account's. OpenCode's is not — it
-  // also carries OpenCode Zen's free models, signed in or not — so an agent can
-  // say what its own list is. On the key path a CLI answers for the key typed
-  // into the form (Cursor, CodeArts), which is not "your signed-in account".
-  const genericSource =
-    result && path === "key" && result.source === "cli" ? "cliKey" : result?.source
-  const sourceLabel = result
-    ? t(`agents.envFields.model.sourceByAgent.${agentType}.${result.source}`, {
-        defaultValue: t(`agents.envFields.model.source.${genericSource}`),
-      })
-    : ""
-  // A known reason gets the user's language and names the one thing that would
-  // fix it; anything else falls back to what the provider actually said.
-  const emptyMessage = loading
-    ? t("agents.envFields.model.loading")
-    : result?.code
-      ? t(`agents.envFields.model.${result.code}`, {
-          detail: result.error || "",
-        })
-      : result?.error || t("agents.envFields.model.empty")
-  // The icon says which kind of "no list" this is at a glance: something to
-  // fill in, somewhere to sign in, or nothing to expect at all.
-  const EmptyIcon =
-    result?.code === "need_key"
-      ? KeyRound
-      : result?.code === "need_login"
-        ? Terminal
-        : result?.code === "no_list"
-          ? PencilLine
-          : CircleAlert
-
   return (
     <Popover open={open} onOpenChange={onOpenChange} modal>
       {/* The whole field is the anchor, not the small chevron that opens it:
@@ -229,91 +181,20 @@ export function ModelField({
       </PopoverAnchor>
       <PopoverContent
         align="start"
-        // Bracket form on purpose: this tailwind-merge does not read the v4
-        // `w-(--var)` shorthand as a width, so it kept PopoverContent's own
-        // `w-72` beside it and the list stayed 288px wide.
-        className="w-[var(--radix-popover-trigger-width)] min-w-64 overflow-hidden p-0"
+        className="w-(--radix-popover-trigger-width) min-w-64 overflow-hidden p-0"
       >
-        {/* A search box over nothing, and a full-width sentence set in the
-            list's own type, is what an empty picker used to look like. When
-            there is no list there is nothing to search — so the popover
-            becomes one quiet line saying what would produce one. */}
-        {hasModels ? (
-          <Command>
-            <CommandInput placeholder={t("agents.envFields.model.search")} />
-            <CommandList>
-              <CommandEmpty>{t("agents.envFields.model.noMatch")}</CommandEmpty>
-              <CommandGroup heading={sourceLabel}>
-                {result!.models.map((m) => {
-                  const detail = [
-                    m.label,
-                    m.note,
-                    m.id === result!.recommended
-                      ? t("agents.envFields.model.recommended")
-                      : "",
-                  ].filter(Boolean)
-                  return (
-                    <CommandItem
-                      key={m.id}
-                      value={`${m.id} ${m.label || ""}`}
-                      onSelect={() => {
-                        onChange(m.id)
-                        setOpen(false)
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "size-3.5",
-                          m.id === value ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                      <span className="flex min-w-0 flex-col">
-                        <span className="truncate font-mono text-xs">{m.id}</span>
-                        {detail.length > 0 && (
-                          <span
-                            className={cn(
-                              "truncate text-xs",
-                              "text-muted-foreground",
-                            )}
-                          >
-                            {detail.join(" — ")}
-                          </span>
-                        )}
-                      </span>
-                    </CommandItem>
-                  )
-                })}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        ) : (
-          <div className="flex max-h-48 items-start gap-2 overflow-y-auto px-3 py-3 text-xs leading-relaxed text-muted-foreground">
-            {loading ? (
-              <Spinner className="mt-px size-3.5 shrink-0" />
-            ) : (
-              <EmptyIcon className="mt-px size-3.5 shrink-0" />
-            )}
-            {/* A provider's error is one long unbroken token often enough
-                (a JSON envelope, a request id) that it has to be allowed
-                to break mid-word, or it runs straight out of the popover. */}
-            <span className="min-w-0 break-words">{emptyMessage}</span>
-          </div>
-        )}
-        <div className="flex items-center justify-between gap-2 border-t px-2 py-1.5">
-          <span className="truncate text-xs text-muted-foreground">
-            {loading
-              ? t("agents.envFields.model.loading")
-              : t("agents.envFields.model.freeform")}
-          </span>
-          <InputGroupButton
-            size="xs"
-            disabled={loading}
-            onClick={() => void load(true)}
-          >
-            <RefreshCw />
-            {t("agents.envFields.model.refresh")}
-          </InputGroupButton>
-        </div>
+        <ModelFieldList
+          agentType={agentType}
+          path={path}
+          value={value}
+          loading={loading}
+          result={result}
+          onPick={(model) => {
+            onChange(model)
+            setOpen(false)
+          }}
+          onRefresh={() => void load(true)}
+        />
       </PopoverContent>
     </Popover>
   )

@@ -1,11 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowLeft, ChevronRight, FilterX, SearchX } from "lucide-react"
+import { ArrowLeft, ChevronRight } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
-import { Card } from "@renderer/components/ui/card"
-import { Skeleton } from "@renderer/components/ui/skeleton"
-import { EmptyState } from "@renderer/components/ui-kit"
 import AgentDetail from "./detail"
 import { InstallConfirmDialog } from "./detail/install-confirm-dialog"
 import { hasPendingUpdate, useInstallStore, useOnUninstalled } from "@renderer/store/install"
@@ -17,7 +14,8 @@ import {
   type StatusFilter,
 } from "./use-marketplace"
 import { useInstallActions } from "./use-install-actions"
-import { GRID, MarketplaceGrid } from "./components/marketplace-grid"
+import { MarketplaceGrid } from "./components/marketplace-grid"
+import { MarketplaceEmpty, MarketplaceSkeleton } from "./components/marketplace-placeholder"
 import { MarketplaceCategories } from "./components/marketplace-categories"
 import { MarketplaceHero } from "./components/marketplace-hero"
 import { MarketplaceStats } from "./components/marketplace-stats"
@@ -238,44 +236,22 @@ export default function Install({ showToast }: InstallProps): React.JSX.Element 
         </div>
 
         {market.loading ? (
-          <div className={GRID}>
-            {Array.from({ length: 6 }, (_, i) => (
-              <Card key={i} className="min-h-42 gap-2 px-4.5 py-4">
-                <Skeleton className="mb-2 h-3 w-3/5" />
-                <Skeleton className="h-2 w-4/5" />
-                <Skeleton className="h-2 w-2/5" />
-                <Skeleton className="mt-auto h-2 w-3/5" />
-              </Card>
-            ))}
-          </div>
+          <MarketplaceSkeleton />
         ) : market.rows.length === 0 ? (
-          <EmptyState
-            icon={market.search.trim() ? <SearchX /> : <FilterX />}
-            title={
-              market.search.trim()
-                ? t("install.empty.noQueryMatchTitle")
-                : t("install.empty.noMatchTitle")
-            }
-            description={
-              market.search.trim()
-                ? t("install.empty.noQueryMatch", { query: market.search.trim() })
-                : t("install.empty.noMatch")
-            }
-            action={
+          <MarketplaceEmpty
+            search={market.search}
+            onReset={
               market.search ||
               prefs.category !== "all" ||
               market.statusFilter !== "all"
-                ? {
-                    label: t("install.empty.resetFilters"),
-                    onClick: () => {
-                      market.setSearch("")
-                      setCategory("all")
-                      // The header counters are a filter like any other, so
-                      // "clear filters" has to clear them too — otherwise the
-                      // button appears to do nothing when a counter is what
-                      // emptied the list.
-                      market.setStatusFilter("all")
-                    },
+                ? () => {
+                    market.setSearch("")
+                    setCategory("all")
+                    // The header counters are a filter like any other, so
+                    // "clear filters" has to clear them too — otherwise the
+                    // button appears to do nothing when a counter is what
+                    // emptied the list.
+                    market.setStatusFilter("all")
                   }
                 : undefined
             }

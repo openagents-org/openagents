@@ -170,7 +170,7 @@ export function WorkspaceCard({
       </ItemContent>
 
       {agents.length > 0 && (
-        <div className="hidden shrink-0 items-center -space-x-1.5 md:flex" title={agents.map((a) => a.displayName || a.name).join(", ")}>
+        <div className="hidden shrink-0 items-center *:not-first:-ml-1.5 md:flex" title={agents.map((a) => a.displayName || a.name).join(", ")}>
           {agents.slice(0, AGENTS_SHOWN).map((a) => (
             <AgentIcon key={a.name} type={a.type} size={24} chip className="outline-2 outline-card" />
           ))}

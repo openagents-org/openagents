@@ -946,6 +946,10 @@ select optgroup {
   --panel-muted: #737373;
 }
 
-/* Shared Workspace agent setup is also rendered by This Computer. */
-@source "../../../../workspace/frontend/components/agents/agent-setup.tsx";
+/* Shared Workspace agent setup is also rendered by This Computer. Keep these
+   globs covering every workspace file listed in tsconfig.web.json "include":
+   a file missing here builds fine but silently loses its classes. */
+@source "../../../../workspace/frontend/components/agents/agent-setup*.tsx";
+@source "../../../../workspace/frontend/components/agents/smoke-test-panel.tsx";
+@source "../../../../workspace/frontend/components/icons/agent-icons.tsx";
 @source "../../../../workspace/frontend/components/ui";

@@ -1,20 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertCircle, CheckCircle2, Info, ShieldCheck } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 import { AgentSetup, type AgentSetupApi } from "@/components/agents/agent-setup"
 import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
-import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@renderer/components/ui/select"
-import { Alert, AlertDescription, AlertTitle } from "@renderer/components/ui/alert"
-import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from "@renderer/components/ui/item"
-import { Field, FieldDescription, FieldLabel } from "@renderer/components/ui/field"
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import { AuthStatusBanner, CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
 import { Spinner } from "@renderer/components/ui/spinner"
-import { cn } from "@renderer/lib/utils"
 import { hasModelPicker } from "@renderer/lib/model-fields"
 import { isCliLoginDetected, modelsForTab, preferredAuthTab } from "@renderer/lib/agent-auth"
 import { isCliLogin } from "../../../shared/agent-auth-mode"
@@ -24,6 +20,7 @@ import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { SetupAside } from "./components/setup-aside"
 import { SetupWorkdirField } from "./components/setup-workdir-field"
+import { CodexWireApiField, CredentialCheck, type CredentialTestResult } from "./components/setup-credential-check"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
 export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreated, onChanged, onManage, onOpenType }: {
@@ -156,7 +153,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   // A required field the last save stopped on; its message sits under it and it takes focus.
   const [invalid, setInvalid] = useState<{ name: string; nonce: number } | null>(null)
   const reveal = (field: string): void => setInvalid((prev) => ({ name: field, nonce: (prev?.nonce ?? 0) + 1 }))
-  const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
+  const [testResult, setTestResult] = useState<CredentialTestResult | null>(null)
   const entry = catalog.find((item) => item.name === type)
   const loginCmd = entry?.check_ready?.login_command || null
   const installed = health?.installed ?? entry?.installed ?? false
@@ -281,44 +278,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
     </p>}
-    {customCodex && <Field>
-      <FieldLabel htmlFor="local-codex-wire-api">{t("agents.codexApiMode.label")}</FieldLabel>
-      <Select value={codexWireApi} onValueChange={(value) => change("CODEX_WIRE_API", value)}>
-        <SelectTrigger id="local-codex-wire-api" aria-label={t("agents.codexApiMode.label")} className="w-full"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectGroup>
-            <SelectItem value="responses">{t("agents.codexApiMode.responses")}</SelectItem>
-            <SelectItem value="chat">{t("agents.codexApiMode.chat")}</SelectItem>
-          </SelectGroup>
-        </SelectContent>
-      </Select>
-      <FieldDescription>{t(codexWireApi === "responses" ? "agents.codexApiMode.responsesHint" : "agents.codexApiMode.chatHint")}</FieldDescription>
-    </Field>}
-    {/* A test that can only fail is replaced by how this agent's credential IS verified. */}
-    {keyForm && fields.length > 0 && (unprobeable
-      ? <Alert role="note">
-        <Info />
-        <AlertTitle>{t("agents.credentials.unprobeableTitle")}</AlertTitle>
-        {unprobeableReason && <AlertDescription>{t(`agents.credentials.unprobeable.${unprobeableReason}`)}</AlertDescription>}
-      </Alert>
-      : <Item variant="outline" size="sm">
-        <ItemMedia variant="icon" className={cn(testResult?.kind === "success" && "text-success", testResult?.kind === "error" && "text-destructive", !testResult && "text-muted-foreground")}>
-          {testResult?.kind === "success" ? <CheckCircle2 /> : testResult?.kind === "error" ? <AlertCircle /> : <ShieldCheck />}
-        </ItemMedia>
-        <ItemContent className="min-w-0">
-          <ItemTitle>{t("agents.shared.verifyApiSettings")}</ItemTitle>
-          <ItemDescription role={testResult ? "status" : undefined}
-            className={cn("text-xs", testResult?.kind === "success" && "text-foreground", testResult?.kind === "error" && "text-destructive")}>
-            {testResult?.message || t("agents.shared.verifyApiSettingsHint")}
-          </ItemDescription>
-        </ItemContent>
-        <ItemActions>
-          <Button size="sm" variant="outline" onClick={() => void test()} disabled={testing}>
-            {testing && <Spinner data-icon="inline-start" />}
-            {testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}
-          </Button>
-        </ItemActions>
-      </Item>)}
+    {customCodex && <CodexWireApiField value={codexWireApi} onChange={(value) => change("CODEX_WIRE_API", value)} />}
+    {keyForm && fields.length > 0 && <CredentialCheck unprobeable={unprobeable} unprobeableReason={unprobeableReason}
+      testing={testing} result={testResult} onTest={() => void test()} />}
   </div>
 }
 
