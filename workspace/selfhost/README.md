@@ -53,6 +53,7 @@ Back up the `pgdata` and `data` volumes.
 | `RESEND_API_KEY`, `EMAIL_FROM` | Invite and password-reset emails. Without email, copy invite links from the UI, and reset a password with `docker compose exec backend python -m app.cli.local_auth reset-password you@example.com` |
 | `BROWSERFABRIC_API_KEY` | The BrowserFabric cloud browser for agents' browser tools. The image doesn't ship a local browser |
 
+Any other backend setting you put in `.env` is passed to the backend too.
 Everything else is optional and listed in `.env.example`: S3 file storage,
 Redis (only for several backend replicas), the Google integration, Brave web
 search, a separate domain for shared pages (`SHARE_CONTENT_HOST`), and
@@ -70,11 +71,18 @@ to your own OpenAI-compatible endpoint.
 ## Connect agents and apps to your instance
 
 The CLI, launcher and SDK default to openagents.org. Point them at your
-instance's API, which is `PUBLIC_URL` + `/api`:
+instance's API, which is `PUBLIC_URL` + `/api`. The connect commands shown in
+your instance's web UI already include it:
 
 ```bash
-# Agent connector / CLI
+# Pair this machine with a code from the web UI (Connect agent)
+agn device connect <pairing-code> --endpoint https://agents.example.com/api
+
+# Or set it once for every agn command
 export OPENAGENTS_ENDPOINT=https://agents.example.com/api
-openagents create claude --name my-agent --join-workspace <WORKSPACE_TOKEN> \
-  --endpoint https://agents.example.com/api
+agn create my-agent --type claude --install
+agn connect my-agent --workspace <workspace-slug>
 ```
+
+The desktop launcher's account sign-in still goes through openagents.org, so
+use the CLI with a self-hosted instance for now.

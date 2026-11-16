@@ -32,20 +32,8 @@ x-backend-env: &backend-env
   MESSAGE_ROUTER_BASE_URL: ${MESSAGE_ROUTER_BASE_URL:-https://router-llm-api.openagents.org/v1}
   MESSAGE_ROUTER_MODEL: ${MESSAGE_ROUTER_MODEL:-openagents-routing-qwen3.5-2b}
   MESSAGE_ROUTER_API_KEY: ${MESSAGE_ROUTER_API_KEY:-rk-community-YvCnZ92BNRTDAsXwGpb1PX3j}
-  # Optional integrations (empty = off).
-  BROWSERFABRIC_API_KEY: ${BROWSERFABRIC_API_KEY:-}
-  RESEND_API_KEY: ${RESEND_API_KEY:-}
-  EMAIL_FROM: ${EMAIL_FROM:-}
-  LOCAL_SIGNUP: ${LOCAL_SIGNUP:-open}
-  S3_BUCKET: ${S3_BUCKET:-}
-  S3_REGION: ${S3_REGION:-us-east-1}
-  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
-  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
-  REDIS_URL: ${REDIS_URL:-}
-  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:-}
-  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:-}
-  BRAVE_SEARCH_API_KEY: ${BRAVE_SEARCH_API_KEY:-}
-  SHARE_CONTENT_HOST: ${SHARE_CONTENT_HOST:-}
+  # Any other backend setting (RESEND_API_KEY, BROWSERFABRIC_API_KEY, S3_*,
+  # REDIS_URL, tuning knobs...) is passed through from .env via env_file.
 
 services:
   db:
@@ -69,6 +57,9 @@ services:
       context: ../backend
       dockerfile: production.Dockerfile
     restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
     # Apply database migrations, then start the API.
     entrypoint: ["sh", "-c", "alembic upgrade head && exec ./entrypoint.sh"]
     environment: *backend-env

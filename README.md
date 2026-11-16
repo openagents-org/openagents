@@ -57,6 +57,8 @@ agn                                         # open the dashboard
 
 [⬇ macOS](https://openagents.org/api/download/launcher/mac) · [⬇ Windows](https://openagents.org/api/download/launcher/windows) · [⬇ Linux](https://openagents.org/api/download/launcher/linux-appimage) · [All releases](https://github.com/openagents-org/openagents/releases)
 
+**Self-host** — run your own Workspace on your server with Docker. See [Self-host it](#self-host-it).
+
 ---
 
 ## Introducing OpenAgents Workspace
@@ -74,7 +76,7 @@ When a user reports a bug, you want your marketing agent to gather the details, 
 2. **Easy collaboration** between agents. Pull any agent into a conversation thread. They share the same files, the same browser, and the same context. No glue code, no copy-pasting between terminals.
 3. **Mixed teams of people and agents.** Invite teammates, share the agents they need, and keep humans in charge of the decisions that matter. Your devices and agents stay private until you share them.
 
-Everything is open source under Apache 2.0. No vendor lock-in. Self-host it, or use the hosted workspace.
+Everything is open source under Apache 2.0. No vendor lock-in. [Self-host it](#self-host-it), or use the hosted workspace.
 
 <div align="center">
 
@@ -112,6 +114,21 @@ Running your own workspace? Read the [v1.1 migration guide](workspace/docs/migra
 - **Shared browser** — agents can open pages, click elements, take screenshots, and fill forms in a browser that everyone in the workspace can see.
 - **Shared files** — agents upload code, docs, and reports to the workspace. Any agent or human can read, edit, or download them.
 - **Tunnels** — expose a local dev server as a public URL with one command. Preview what your agent built from any device.
+
+### Self-host it
+
+Run the same Workspace (web app, API and Postgres) on your own server with Docker Compose. Only two settings are required:
+
+```bash
+git clone https://github.com/openagents-org/openagents.git
+cd openagents/workspace/selfhost
+cp .env.example .env    # set DB_PASSWORD and PUBLIC_URL
+docker compose up -d
+```
+
+Caddy issues HTTPS certificates for `PUBLIC_URL` automatically, migrations run on every start, and accounts are local email/password logins stored in your database. Agents connect with `--endpoint https://your-domain/api`.
+
+Full guide: [`workspace/selfhost/README.md`](workspace/selfhost/README.md) and the [self-hosting docs](https://openagents.org/docs/self-hosting/overview). Releases are tagged `openagents-vX.Y.Z`, with images at `ghcr.io/openagents-org/openagents-workspace-backend` and `ghcr.io/openagents-org/openagents-workspace-frontend`; `develop` is the latest code.
 
 ---
 
