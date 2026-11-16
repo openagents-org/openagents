@@ -764,6 +764,18 @@ class BaseAdapter {
    *   4. announce the stop last — the UI reads the latest message.
    */
   async _handleUserStop(channel) {
+    // The workspace names a DM session "<channel>,openagents:<agent>" (its
+    // session id), while this adapter registers work under the bare channel
+    // name. Resolve the requested channel to the key work is actually
+    // tracked under before muting or stopping — otherwise a DM stop is a
+    // silent no-op: the exact-key lookup misses and reports 'idle'.
+    if (channel) {
+      const withWork = this._channelsWithWork();
+      if (!withWork.includes(channel)) {
+        const bare = withWork.find((k) => channel.startsWith(k + ','));
+        if (bare) channel = bare;
+      }
+    }
     const channels = channel ? [channel] : this._channelsWithWork();
     // A repeat stop for a thread that has not started a new turn since its
     // last stop — the workspace client re-sends Stop after 3s while it still

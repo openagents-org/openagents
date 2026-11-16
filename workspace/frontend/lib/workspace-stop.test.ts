@@ -120,3 +120,30 @@ describe('workspace Stop', () => {
     expect(api.sendAgentControl).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('workspace Stop in DM sessions', () => {
+  it('targets the working agent when the DM has no participant list', async () => {
+    essentials();
+    await render();
+    api.sendAgentControl.mockResolvedValue({});
+    vi.useFakeTimers();
+    const dm = 'dm:human:a@b.c,openagents:helper';
+    await act(async () => state?.setSessionActive(dm, true));
+    // The agent status message that marked this DM session active.
+    await act(async () => state?.updateLastMessage(dm, 'helper', 'thinking...', true, true));
+    await act(async () => { await state?.stopAllAgents(dm); });
+    expect(state?.stoppingSessionIds.has(dm)).toBe(true);
+    expect(api.sendAgentControl).toHaveBeenCalledWith('helper', 'stop', { channel: dm });
+  });
+
+  it('never broadcasts when the DM has no targetable working agent', async () => {
+    essentials();
+    await render();
+    const dm = 'dm:human:a@b.c,openagents:helper';
+    await act(async () => state?.setSessionActive(dm, true));
+    await act(async () => state?.updateLastMessage(dm, 'human:a@b.c', 'hello', false, false));
+    await act(async () => { await state?.stopAllAgents(dm); });
+    expect(api.sendAgentControl).not.toHaveBeenCalled();
+    expect(state?.stoppingSessionIds.has(dm)).toBe(false);
+  });
+});
