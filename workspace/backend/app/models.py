@@ -1885,3 +1885,19 @@ class OAuthAuthorizationCode(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class LocalCredential(Base):
+    """An email + password login for a User on a self-hosted instance.
+
+    Only used when local auth is enabled (app/services/local_auth.py); the
+    hosted deployment signs people in through Firebase / Apple and never
+    writes here. One row per user. `password_hash` is a versioned scrypt
+    string (``scrypt$N$r$p$salt$hash``), never the password itself.
+    """
+    __tablename__ = "local_credentials"
+
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    password_hash = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))

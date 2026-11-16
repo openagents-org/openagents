@@ -160,7 +160,7 @@ Sources: [transaction limits](../../../workspace/backend/app/db_timeouts.py),
    hosted-only layer: campaign, analytics, ...), which is protected; do not replace
    this with a direct or force push. Hosted-only changes go through a PR into
    `openagents-release`, never into develop. `release` is the self-hosted track
-   (`selfhost-release.yml`, tags `workspace-vX.Y.Z`) and deploys nothing.
+   (`selfhost-release.yml`, tags `openagents-vX.Y.Z`) and deploys nothing.
 3. `.github/workflows/deploy-digitalocean.yml` builds the exact release with
    `workspace/backend/production.Dockerfile` and locked production dependencies.
 4. The coordinator validates the candidate and database compatibility, drains and

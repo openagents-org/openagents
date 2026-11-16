@@ -1,5 +1,5 @@
 import { normalizePolicyRequirements } from './approvals';
-import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
+import { absoluteApiUrl, getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type {
@@ -1118,12 +1118,13 @@ class WorkspaceApi {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
   }
 
-  /** Get the download URL for a file. */
+  /** Get the download URL for a file. Absolute even with a same-origin API
+   *  base: it is also stored on message attachments that agents fetch. */
   getFileUrl(fileId: string): string {
     const params = new URLSearchParams();
     if (this.token) params.set('token', this.token);
     const qs = params.toString();
-    return `${API_URL}/v1/files/${fileId}${qs ? `?${qs}` : ''}`;
+    return absoluteApiUrl(`${API_URL}/v1/files/${fileId}${qs ? `?${qs}` : ''}`);
   }
 
   /** Delete a file. */

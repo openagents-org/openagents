@@ -51,18 +51,7 @@ function runOpencodeCli(args, { env, cwd }) {
   });
 }
 
-/**
- * Browser URL of a workspace, matching the TUI's convention: a localhost/dev
- * endpoint serves its own web app; everything else lives on the hosted
- * dashboard.
- */
-function workspaceWebUrl(slug, endpoint) {
-  const ep = String(endpoint || '');
-  const isLocal = ep.includes('localhost') || ep.includes('127.0.0.1');
-  return isLocal
-    ? `${ep.replace(/\/+$/, '')}/${slug}`
-    : `https://workspace.openagents.org/${slug}`;
-}
+const { workspaceWebUrl } = require('./web-url');
 
 /**
  * Redeem a pairing code and record the pairing: node.json, plus the workspace

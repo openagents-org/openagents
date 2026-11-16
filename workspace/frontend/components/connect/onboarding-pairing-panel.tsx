@@ -1,5 +1,6 @@
 'use client';
 
+import { connectorEndpointFlag } from '@/lib/api-base';
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
 import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
@@ -169,7 +170,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
             {terminal && (
               <details className="rounded-lg bg-muted/35 px-3 py-2.5">
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">{t('onboarding.cliPairingFallback')}</summary>
-                <div className="mt-3"><SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /></div>
+                <div className="mt-3"><SetupCommand command={`agn device connect ${pairing.code}${connectorEndpointFlag()}`} disabled={expired} /></div>
               </details>
             )}
           </div>

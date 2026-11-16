@@ -1,5 +1,7 @@
 'use strict';
 
+const { workspaceWebBase } = require('./web-url');
+
 const https = require('https');
 const http = require('http');
 
@@ -133,9 +135,7 @@ class WorkspaceClient {
     const data = await this._post('/v1/workspaces', payload);
     const result = data.data || data;
 
-    const frontendUrl = this.endpoint
-      .replace('workspace-endpoint', 'workspace')
-      .replace('/v1', '');
+    const frontendUrl = workspaceWebBase(this.endpoint);
 
     return {
       workspaceId: result.workspaceId,

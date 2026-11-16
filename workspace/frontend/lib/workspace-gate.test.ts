@@ -6,7 +6,7 @@ import Page from '../app/[workspaceId]/page';
 import { clearWorkspaceSnapshots } from './workspace-snapshot';
 const mocks = vi.hoisted(() => ({ token: 'A', list: vi.fn() }));
 vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams() }));
-vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user:{email:'test@example.test'}, idToken:mocks.token, loading:false, isOpenAgentsDomain:true }) }));
+vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user:{email:'test@example.test'}, idToken:mocks.token, loading:false, isOpenAgentsDomain:true, loginRequired:true, authMode:'hosted' }) }));
 vi.mock('@/lib/account-api', () => ({ listAccountWorkspaces: (...args: unknown[]) => mocks.list(...args) }));
 vi.mock('@/lib/workspace-context', () => ({ WorkspaceProvider: ({children}:React.PropsWithChildren) => children, useWorkspace: () => ({currentUser:{name:'Test'},setUserName:vi.fn()}) }));
 vi.mock('@/components/layout/layout-context', () => ({ LayoutProvider: ({children}:React.PropsWithChildren) => children }));

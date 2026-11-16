@@ -60,6 +60,21 @@ class Config:
         os.environ.get("WORKSPACE_SESSION_MAX_AGE_DAYS", "90")
     )
 
+    # Local email + password login for self-hosted instances (app/services/
+    # local_auth.py, /v1/auth/local/*). "true"/"false"; unset = automatic: on
+    # exactly when FIREBASE_PROJECT_ID is empty, so the hosted deployment
+    # (which sets it) never exposes these endpoints. Kept as the raw string;
+    # resolve with app.services.local_auth.local_auth_enabled().
+    LOCAL_AUTH_ENABLED: str = os.environ.get("LOCAL_AUTH_ENABLED", "").strip().lower()
+    # Who may create a local account: "open" (anyone who can reach the
+    # instance) or "invite" (the very first account, then only holders of a
+    # pending workspace invite).
+    LOCAL_SIGNUP: str = os.environ.get("LOCAL_SIGNUP", "open").strip().lower()
+    # Persistent state directory. With local auth on and no
+    # WORKSPACE_SESSION_SECRET, a generated secret is kept in
+    # ${DATA_DIR}/session_secret so sessions survive restarts.
+    DATA_DIR: str = os.environ.get("DATA_DIR", "/data")
+
     # Sign in with Apple. Native ("Sign in with Apple" on the iOS app) issues an
     # identity token whose `aud` is the app's bundle id; web/services flows use
     # the Services ID instead. Accept a comma-separated allowlist so both work.

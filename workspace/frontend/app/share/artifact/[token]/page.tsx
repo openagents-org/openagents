@@ -94,7 +94,7 @@ export default function SharedArtifactPage({ params }: { params: Promise<{ token
       const meta = json.data as PublicShareInfo;
       // Links now live on the share domain; one handed out as this page
       // before the move goes there.
-      if (meta.public_url && new URL(meta.public_url).origin !== window.location.origin) {
+      if (meta.public_url && new URL(meta.public_url, window.location.href).origin !== window.location.origin) {
         window.location.replace(meta.public_url);
         return;
       }

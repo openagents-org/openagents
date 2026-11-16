@@ -6,7 +6,7 @@
 |---|---|---|
 | `develop` | The open-source, self-hostable mainline. Default branch; all normal PRs target it. | Preview at workspace-preview.openagents.org (see `workspace/AGENTS.md`); npm publish of the agent connector on version bumps. |
 | `openagents-release` | Hosted openagents.org production = `develop` **plus the hosted layer** (code that only applies to the openagents.org platform). | Deploys production: DigitalOcean backend (`deploy-digitalocean.yml`) and the Vercel frontend (project `openagents-workspace`, production branch). |
-| `release` | Self-hosted release track. Always a fast-forward of `develop`; each release is tagged `workspace-vX.Y.Z`. | Nothing deploys. Vercel skips it on purpose. |
+| `release` | Self-hosted release track. Always a fast-forward of `develop`; each release is tagged `openagents-vX.Y.Z`. | Nothing deploys. Vercel skips it on purpose. |
 
 Never push directly to `openagents-release` or `release`; rulesets block it.
 
@@ -33,11 +33,11 @@ Never push directly to `openagents-release` or `release`; rulesets block it.
 `gh workflow run selfhost-release.yml -R openagents-org/openagents -f version=X.Y.Z` (optional `-f ref=<develop sha>`). It:
 
 - fast-forwards `release` to that `develop` commit,
-- tags `workspace-vX.Y.Z`,
+- tags `openagents-vX.Y.Z`,
 - pushes `ghcr.io/openagents-org/openagents-workspace-backend:X.Y.Z` (and `:latest` unless it's a pre-release such as `1.0.0-rc.1`),
 - creates a GitHub Release.
 
-Self-hosters build the frontend from source with `workspace/docker-compose.prod.yml`, because its API URL is baked in at build time. Self-hosting docs are in `workspace/README.md`.
+It also pushes `ghcr.io/openagents-org/openagents-workspace-frontend:X.Y.Z`, built with `NEXT_PUBLIC_API_URL=/api` so one image works on any domain. The self-host bundle is `workspace/selfhost/` (Docker Compose + Caddy; only `DB_PASSWORD` and `PUBLIC_URL` are required); keep `workspace/selfhost/README.md` and `.env.example` current when adding settings a self-hoster might need. Local email/password login is on automatically when Firebase isn't configured (`LOCAL_AUTH_ENABLED`); production keeps Firebase.
 
 ## Other release tracks
 

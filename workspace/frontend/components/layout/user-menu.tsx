@@ -48,7 +48,7 @@ const THEME_OPTIONS = [
 
 export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
   const { workspace, token } = useWorkspace();
-  const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
+  const { user, loginRequired, signIn, signOut } = useOpenAgentsAuth();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
   const isAdmin = canAdminister(me);
   const [showFeedback, setShowFeedback] = useState(false);
@@ -152,7 +152,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             </>
           )}
 
-          {isOpenAgentsDomain && user && (
+          {loginRequired && user && (
             <>
               <DropdownMenuGroup>
                 <DropdownMenuItem onClick={() => router.push('/')}>
@@ -231,7 +231,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           </DropdownMenuItem>
           </DropdownMenuGroup>
 
-          {isOpenAgentsDomain && (
+          {loginRequired && (
             <>
               <DropdownMenuSeparator />
               <DropdownMenuGroup>
