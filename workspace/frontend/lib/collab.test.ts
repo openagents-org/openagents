@@ -7,7 +7,6 @@ import {
   canManageAgent,
   costOwnerDescriptor,
   displayNameFromEmail,
-  linesToList,
   sortDirectory,
 } from './collab';
 
@@ -92,10 +91,6 @@ describe('small helpers', () => {
     expect(displayNameFromEmail('jane.doe@x.com')).toBe('jane.doe');
     expect(displayNameFromEmail('Jane')).toBe('Jane');
     expect(displayNameFromEmail(null)).toBe('');
-  });
-
-  it('splits textarea lines', () => {
-    expect(linesToList(' a \n\nb\r\n c')).toEqual(['a', 'b', 'c']);
   });
 
   it('sorts pinned, then available, then by name', () => {

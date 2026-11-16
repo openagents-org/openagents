@@ -4,7 +4,7 @@ import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia } from '
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { CatalogState } from './agent-setup';
+import type { CatalogState } from './agent-setup-types';
 
 /**
  * What to show while the catalog is empty because it has not loaded: a

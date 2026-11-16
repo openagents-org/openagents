@@ -8,7 +8,7 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { NodeProbe } from '@/lib/types';
-import type { AgentSetupApi } from './agent-setup';
+import type { AgentSetupApi } from './agent-setup-types';
 
 /** How long to wait for the device to report back before calling it a timeout. */
 const RESULT_TIMEOUT_MS = 150_000;

@@ -73,7 +73,7 @@ export function MobileHeader() {
                   <Menu className="size-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
+              <SheetContent className="p-0 gap-0 w-70 h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
                 <SheetHeader className="p-0 flex flex-col gap-0">
                   <SheetTitle className="sr-only">{t('nav.navigation')}</SheetTitle>
                 </SheetHeader>

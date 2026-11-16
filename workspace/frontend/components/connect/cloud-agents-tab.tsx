@@ -27,7 +27,7 @@ SelectValue,
 } from '@/components/ui/select';
 
 function CategoryIcon({ category, className }: { category: string; className?: string }) {
-  if (category === 'image') return <ImageIcon className={cn('text-violet-500', className)} />;
+  if (category === 'image') return <ImageIcon className={cn('text-info', className)} />;
   if (category === 'audio') return <Volume2 className={cn('text-warning', className)} />;
   return <MessageSquare className={cn('text-foreground/70', className)} />;
 }

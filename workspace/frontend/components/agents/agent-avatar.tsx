@@ -37,7 +37,7 @@ export function AgentAvatar({ name, size = 28, status, showStatus = false, class
       </div>
       {showStatus && (
         <span className={cn(
-          'absolute -bottom-0.5 -right-0.5 rounded-full border-[1.5px] border-background',
+          'absolute -bottom-0.5 -right-0.5 rounded-full border-2 border-background',
           size >= 28 ? 'size-2.5' : 'size-2',
           // Same dots for everyone: green online, amber waiting for a person
           // (a pending approval), grey offline.

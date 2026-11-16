@@ -101,17 +101,24 @@ export function RailResizeHandle() {
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerCancel}
       onDoubleClick={toggleRail}
-      style={{ left: 'var(--sidebar-width-icon)' }}
+      // Centred on the inset card's leading border (one pixel past the rail)
+      // and only as tall as the card, so it never reaches into the gaps above
+      // and below it (the maintenance banner, when shown, sits above the card).
+      style={{
+        left: 'calc(var(--sidebar-width-icon) + 1.5px)',
+        top: 'calc(var(--oa-banner-h, 0px) + 0.5rem)',
+      }}
       className={cn(
-        'group/seam fixed inset-y-0 z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none select-none',
+        'group/seam fixed bottom-2 z-30 w-3 -translate-x-1/2 cursor-col-resize touch-none select-none',
         railDragWidth === null && 'transition-[left] duration-200 ease-linear',
       )}
     >
-      {/* The seam lights up while it is hovered or being dragged */}
+      {/* Hovered or dragged, the card's own border darkens: the line sits
+          exactly on it and stops short of the rounded corners. */}
       <span
         aria-hidden="true"
         className={cn(
-          'absolute inset-y-0 left-1/2 w-0.5 -translate-x-1/2 bg-primary/50 opacity-0 transition-opacity',
+          'absolute inset-y-4 left-1/2 w-px -translate-x-1/2 bg-ring opacity-0 transition-opacity',
           'group-hover/seam:opacity-100',
           isDragging && 'opacity-100',
         )}

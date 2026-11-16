@@ -75,7 +75,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         </button>
       </PopoverTrigger>
 
-      <PopoverContent side={side} align={align} sideOffset={8} className="w-[380px] p-0">
+      <PopoverContent side={side} align={align} sideOffset={8} className="w-95 p-0">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <span className="text-sm font-semibold">{t('notifications.title')}</span>
@@ -108,7 +108,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         {items.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.allCaughtUp')}</div>
         ) : (
-          <ScrollArea className="max-h-[420px]">
+          <ScrollArea className="max-h-105">
             <div className="divide-y divide-border">
               {items.map((n) => (
                 <div key={n.id} className={cn('group', !n.isRead && 'bg-accent/50 dark:bg-accent/20')}>

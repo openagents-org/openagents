@@ -111,7 +111,7 @@ function DialogContent({
           <DialogPrimitive.Close data-slot="dialog-close" asChild>
             <Button
               variant="ghost"
-              className="absolute top-2 right-2"
+              className="absolute top-5 right-5"
               size="icon-sm"
             >
               <XIcon />
@@ -128,7 +128,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex shrink-0 flex-col gap-2 p-4 pr-10", className)}
+      className={cn("flex shrink-0 flex-col gap-2 p-6 pr-14", className)}
       {...props}
     />
   )
@@ -140,7 +140,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-body"
       className={cn(
-        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pb-4",
+        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-6 pb-6",
         className
       )}
       {...props}
@@ -160,7 +160,7 @@ function DialogFooter({
     <div
       data-slot="dialog-footer"
       className={cn(
-        "flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/50 p-4 sm:flex-row sm:justify-end",
+        "flex shrink-0 flex-col-reverse gap-2 border-t bg-muted/50 px-6 py-4 sm:flex-row sm:justify-end",
         className
       )}
       {...props}

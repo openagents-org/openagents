@@ -83,7 +83,7 @@ export function NodeSummary({
           {agents.length > 0 ? (
             // What runs here at a glance: overlapping type marks and a count.
             <div className="flex items-center gap-2">
-              <div className="flex -space-x-1.5">
+              <div className="flex *:not-first:-ml-1.5">
                 {previewAgents.map((a) => (
                   <div key={a.name} className="relative flex" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
                     <AgentIcon name={a.type} size={20} chip className="outline-2 outline-background" />

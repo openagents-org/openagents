@@ -1,8 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Copy, Laptop, RefreshCw, Terminal } from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
+import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
 import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobileDevice } from '@/hooks/use-mobile-device';
@@ -16,10 +15,10 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-xl bg-[#101828] p-2.5 text-slate-100">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-sm leading-6">{command}</code>
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-[13px] leading-6">{command}</code>
       <button type="button" disabled={disabled} onClick={() => copyToClipboard(command)}
         aria-label={t('connect.nodeCopyCommand')} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40">
-        {isCopied ? <Check className="size-3.5 text-success" /> : <Copy className="size-3.5" />}
+        {isCopied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
         <span>{t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCommand')}</span>
       </button>
     </div>
@@ -59,7 +58,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   const terminal = method === 'terminal';
   const fromAgent = method === 'agent';
   const expiryBadge = (
-    <span className={cn('rounded-full px-2 py-1 text-xs font-medium', expired ? 'bg-destructive/5 text-destructive' : remaining < 300000 ? 'bg-warning/10 text-warning' : 'bg-muted/70 text-muted-foreground')} role="timer">
+    <span className={cn('rounded-full px-2 py-1 text-[11px] font-medium', expired ? 'bg-destructive/5 text-destructive' : remaining < 300000 ? 'bg-amber-50 text-amber-700' : 'bg-muted/70 text-muted-foreground')} role="timer">
       {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
     </span>
   );
@@ -70,9 +69,9 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   return (
     <section className="overflow-hidden rounded-2xl border border-border/80 bg-background shadow-[0_4px_24px_-12px_#17255426]" aria-label={t('onboarding.setupComputer')}>
       <div className="border-b border-border/70 px-5 py-5 sm:px-6">
-        <p className="mb-2 text-xs font-medium text-muted-foreground">{stepLabel ?? t('onboarding.deviceStepLabel')}</p>
+        <p className="mb-2 text-[11px] font-medium text-muted-foreground">{stepLabel ?? t('onboarding.deviceStepLabel')}</p>
         <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
-        <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
+        <p className="mt-1 text-[13px] leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
         <div className="mt-4 grid gap-3 sm:grid-cols-3" role="group" aria-label={t('onboarding.setupMethod')}>
           {([
             { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
@@ -106,20 +105,20 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
 
       {fromAgent ? (
       <div className="p-5 sm:p-6">
-        <div className="min-w-0 flex flex-col gap-2.5">
+        <div className="min-w-0 space-y-2.5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-sm font-semibold leading-7">{t('connect.agentJoinStepTitle')}</h3>
             {expiryBadge}
           </div>
           <AgentJoinInstruction code={pairing.code} disabled={expired} />
-          <p className="text-sm leading-6 text-muted-foreground">{t('connect.agentJoinHint')}</p>
+          <p className="text-[13px] leading-6 text-muted-foreground">{t('connect.agentJoinHint')}</p>
         </div>
       </div>
       ) : (
-      <div className="flex flex-col gap-6 p-5 sm:p-6">
+      <div className="space-y-6 p-5 sm:p-6">
         <div className="flex gap-3">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2f6bff]/[0.07] text-xs font-semibold text-[#2f6bff]">1</span>
-          <div className="min-w-0 flex-1 flex flex-col gap-2.5">
+          <div className="min-w-0 flex-1 space-y-2.5">
             <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.installCliTitle' : 'onboarding.installAppTitle')}</h3>
             {terminal ? (
               <>
@@ -147,13 +146,13 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
                 ))}
               </div>
             )}
-            <p className="text-sm leading-6 text-muted-foreground">{t(terminal ? 'onboarding.installCliHint' : 'onboarding.installAppHint')}</p>
+            <p className="text-[13px] leading-6 text-muted-foreground">{t(terminal ? 'onboarding.installCliHint' : 'onboarding.installAppHint')}</p>
           </div>
         </div>
 
         <div className="flex gap-3">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-[#2f6bff]/[0.07] text-xs font-semibold text-[#2f6bff]">2</span>
-          <div className="min-w-0 flex-1 flex flex-col gap-2.5">
+          <div className="min-w-0 flex-1 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.connectCliTitle' : 'onboarding.enterAppCode')}</h3>
               {expiryBadge}
@@ -162,11 +161,11 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
                 className="group flex w-full flex-wrap items-center justify-center gap-x-4 gap-y-2 rounded-xl border border-[#2f6bff]/20 bg-[#2f6bff]/[0.025] px-3 py-4 transition-colors hover:border-[#2f6bff]/40 hover:bg-[#2f6bff]/[0.05] disabled:opacity-40">
                 <span className="font-mono text-2xl font-semibold tracking-[0.12em] tabular-nums sm:text-3xl">{pairing.code}</span>
                 <span className="flex items-center gap-1.5 text-xs font-medium text-[#2f6bff]">
-                  {isCopied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}
+                  {isCopied ? <Check className="size-4 text-emerald-600" /> : <Copy className="size-4" />}
                   {t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCode')}
                 </span>
             </button>
-            <p className="text-sm leading-6 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
+            <p className="text-[13px] leading-6 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
             {terminal && (
               <details className="rounded-lg bg-muted/35 px-3 py-2.5">
                 <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">{t('onboarding.cliPairingFallback')}</summary>
@@ -180,9 +179,9 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-5 py-3 sm:px-6">
         <div className="flex min-w-[180px] flex-1 items-start gap-3" role="status">
-          {!expired && <Spinner className="mt-0.5 shrink-0 text-[#2f6bff]" />}
+          {!expired && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-[#2f6bff]" />}
           <div>
-            <p className="text-sm font-medium">{t(expired ? 'connect.nodePairingExpired' : fromAgent ? 'connect.agentJoinWaiting' : 'onboarding.waitingComputerHint')}</p>
+            <p className="text-[13px] font-medium">{t(expired ? 'connect.nodePairingExpired' : fromAgent ? 'connect.agentJoinWaiting' : 'onboarding.waitingComputerHint')}</p>
             <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(expired ? (onRegenerate ? 'onboarding.renewCodeHint' : 'onboarding.expiredHint') : fromAgent ? 'connect.agentJoinNext' : 'onboarding.nextAgentBody')}</p>
           </div>
         </div>

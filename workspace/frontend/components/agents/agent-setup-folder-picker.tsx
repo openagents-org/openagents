@@ -3,11 +3,10 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Folder, CornerLeftUp, HardDrive } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { WorkspaceNode } from '@/lib/types';
 import { joinNodePath } from '@/lib/node-path';
-import { AgentSetupApi } from './agent-setup';
+import type { AgentSetupApi } from './agent-setup-types';
 
 // Model options come from GET /v1/agent-catalog/{type} — the registry resolves
 // each agent's supported models server-side, so the dropdown is always current
@@ -20,6 +19,9 @@ import { AgentSetupApi } from './agent-setup';
  * home level shows instantly from the node's heartbeat snapshot; drilling
  * deeper runs a list_dir command on the device (a short wait).
  */
+/** A full-width folder row in the list. */
+const ROW = 'w-full justify-start rounded-none px-3 text-xs font-normal';
+
 export function FolderPicker({
   api,
   node,
@@ -69,15 +71,15 @@ export function FolderPicker({
   };
 
   return (
-    <div className="rounded-xl border bg-background overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
-      <div className="px-3 py-2 border-b flex items-center justify-between gap-2 bg-muted/40">
-        <span className="text-xs font-medium truncate">{t('connect.nodePickerTitle')}</span>
-        <button onClick={onClose} className="shrink-0 text-muted-foreground hover:text-foreground"><X className="size-3.5" /></button>
+    <div className="overflow-hidden rounded-xl border bg-background animate-in duration-150 fade-in slide-in-from-top-1">
+      <div className="flex items-center justify-between gap-2 border-b bg-muted/40 px-3 py-1.5">
+        <span className="truncate text-xs font-medium">{t('connect.nodePickerTitle')}</span>
+        <Button variant="ghost" size="icon-xs" onClick={onClose} className="text-muted-foreground" aria-label={t('connect.nodeCancel')}><X /></Button>
       </div>
 
       {/* Current path */}
-      <div className="px-3 py-2 border-b bg-zinc-950 dark:bg-black">
-        <code className="text-xs font-mono text-zinc-100 break-all">{path || '—'}</code>
+      <div className="border-b bg-muted px-3 py-2">
+        <code className="font-mono text-xs break-all">{path || '—'}</code>
       </div>
 
       <div className="max-h-56 overflow-y-auto">
@@ -86,56 +88,49 @@ export function FolderPicker({
             <Spinner /><span className="text-xs">{t('connect.nodePickerLoading')}</span>
           </div>
         ) : unavailable ? (
-          <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerUnavailable')}</p>
+          <p className="px-3 py-6 text-center text-xs text-muted-foreground">{t('connect.nodePickerUnavailable')}</p>
         ) : (
           <div className="py-1">
             {roots.length > 0 && (
-              <div className="px-3 py-2 border-b mb-1">
-                <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground mb-1.5">
+              <div className="mb-1 flex flex-col gap-1.5 border-b px-3 py-2">
+                <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
                   {t('connect.nodePickerLocations')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   {roots.map((root) => (
-                    <button
+                    <Button
                       key={root}
+                      variant={path === root ? 'secondary' : 'outline'}
+                      size="xs"
+                      aria-pressed={path === root}
                       onClick={() => browse(root)}
-                      className={cn(
-                        'inline-flex items-center gap-1.5 rounded-md border px-2 py-1 text-xs font-mono transition-colors hover:bg-muted/60',
-                        path === root && 'bg-muted border-foreground/20',
-                      )}
+                      className="font-mono"
                     >
-                      <HardDrive className="size-3.5 text-muted-foreground" />{root}
-                    </button>
+                      <HardDrive data-icon="inline-start" className="text-muted-foreground" />{root}
+                    </Button>
                   ))}
                 </div>
               </div>
             )}
             {parent && (
-              <button
-                onClick={() => browse(parent)}
-                className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
-              >
-                <CornerLeftUp className="size-4 text-muted-foreground" />{t('connect.nodePickerUp')}
-              </button>
+              <Button variant="ghost" size="sm" onClick={() => browse(parent)} className={ROW}>
+                <CornerLeftUp data-icon="inline-start" className="text-muted-foreground" />{t('connect.nodePickerUp')}
+              </Button>
             )}
             {dirs.length === 0 && !parent ? (
-              <p className="text-xs text-muted-foreground px-3 py-6 text-center">{t('connect.nodePickerEmpty')}</p>
+              <p className="px-3 py-6 text-center text-xs text-muted-foreground">{t('connect.nodePickerEmpty')}</p>
             ) : (
               dirs.map((d) => (
-                <button
-                  key={d}
-                  onClick={() => path && browse(joinNodePath(path, d))}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-xs hover:bg-muted/60 transition-colors"
-                >
-                  <Folder className="size-4 text-info" /><span className="truncate">{d}</span>
-                </button>
+                <Button key={d} variant="ghost" size="sm" onClick={() => path && browse(joinNodePath(path, d))} className={ROW}>
+                  <Folder data-icon="inline-start" className="text-info" /><span className="truncate">{d}</span>
+                </Button>
               ))
             )}
           </div>
         )}
       </div>
 
-      <div className="px-3 py-2 border-t flex items-center justify-end gap-2">
+      <div className="flex items-center justify-end gap-2 border-t px-3 py-2">
         <Button size="sm" variant="ghost" onClick={onClose}>{t('connect.nodeCancel')}</Button>
         <Button size="sm" disabled={!path} onClick={() => { if (path) { onPick(path); onClose(); } }}>
           {t('connect.nodePickerUseThis')}

@@ -6,7 +6,8 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
-import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { AgentCatalogEntry } from '@/lib/types';
 import { MarketLogo, type CatalogState } from './agent-setup';
 import { CatalogStateNotice, MarketStatusBadge, marketStatusMeta, type GalleryStatus } from './agent-setup-status';
@@ -192,7 +193,7 @@ export function MarketGallery({
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={onReDetect} disabled={detecting}>
-          <RefreshCw className={cn(detecting && 'animate-spin')} />
+          <RefreshCw data-icon="inline-start" className={cn(detecting && 'animate-spin')} />
           {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
         </Button>
       </div>
@@ -201,33 +202,27 @@ export function MarketGallery({
 
       {/* Toolbar: search + category chips */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
+        <InputGroup className="flex-1">
+          <InputGroupAddon><Search /></InputGroupAddon>
+          <InputGroupInput
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             placeholder={t('connect.marketSearch')}
             aria-label={t('connect.marketSearch')}
-            className="pl-9"
           />
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        </InputGroup>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          value={category}
+          onValueChange={(v) => v && onCategory(v)}
+          className="shrink-0 overflow-x-auto"
+        >
           {categories.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => onCategory(c.key)}
-              aria-pressed={category === c.key}
-              className={cn(
-                'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                category === c.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {c.label}
-            </button>
+            <ToggleGroupItem key={c.key} value={c.key} className="px-3 whitespace-nowrap">{c.label}</ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
 
       {/* An empty catalog is a load that has not landed (or failed), never a

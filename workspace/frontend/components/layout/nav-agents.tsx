@@ -136,7 +136,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         />
                         <span
                           className={cn(
-                            'absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-[1.5px] border-background',
+                            'absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background',
                             availabilityDotClass(availability),
                           )}
                         />

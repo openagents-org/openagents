@@ -148,7 +148,7 @@ export function DialogsProvider({ children }: { children: React.ReactNode }) {
             don't need the full dialog width, and no close X — the footer
             already says how to back out. */}
         {pending && (
-          <DialogContent className="sm:max-w-sm" showCloseButton={false}>
+          <DialogContent className="sm:max-w-md" showCloseButton={false}>
             <DialogHeader>
               <DialogTitle>{pending.title}</DialogTitle>
               {pending.description && (

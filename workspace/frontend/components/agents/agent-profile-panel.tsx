@@ -2,74 +2,29 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { X, Copy, Check, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2, KeyRound, RefreshCw, Sparkles, ExternalLink, Pencil, Cpu } from 'lucide-react';
+import { X, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
-import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
-import { AccessExplainer } from '@/components/sharing/access-explainer';
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { agentLabel } from '@/lib/helpers';
 import { isOwnedAgent } from '@/lib/sidebar-agents';
-import { curatedModelsFitEndpoint } from '@/lib/model-picker';
 import { toast } from 'sonner';
-import type { CloudAgentConfig, AgentCatalogModel, NodeCommand, WorkspaceNode } from '@/lib/types';
+import type { CloudAgentConfig } from '@/lib/types';
 import { useT } from '@/lib/i18n';
-import { Input } from '@/components/ui/input';
-import {
-  SelectGroup, Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-
-/** "Provider default", as a value a Select can hold. See NO_AGENT elsewhere. */
-const DEFAULT_MODEL = '__default__';
-
-/** Picking this in the list switches the field to a typed model id. */
-const CUSTOM_MODEL = '__custom__';
-
-/**
- * Ask the agent's node which models its endpoint serves. The node holds the
- * key, so this is a node command, answered on the node's next heartbeat.
- */
-async function listNodeAgentModels(
-  nodeId: string,
-  agentName: string,
-  isCancelled: () => boolean,
-): Promise<{ models: AgentCatalogModel[] | null; error: string | null }> {
-  let commandId: string;
-  try {
-    commandId = (await workspaceApi.enqueueNodeCommand(nodeId, 'list_models', { name: agentName })).commandId;
-  } catch (e) {
-    return { models: null, error: e instanceof Error ? e.message : null };
-  }
-  for (let i = 0; i < 20 && !isCancelled(); i++) {
-    await new Promise((r) => setTimeout(r, 1500));
-    const cmds = await workspaceApi.listNodeCommands(nodeId).catch((): NodeCommand[] => []);
-    const c = cmds.find((x) => x.commandId === commandId);
-    if (!c || (c.status !== 'done' && c.status !== 'error')) continue;
-    const models = (c.result?.data as { models?: AgentCatalogModel[] } | undefined)?.models || [];
-    return c.result?.ok && models.length
-      ? { models, error: null }
-      : { models: null, error: c.result?.message || null };
-  }
-  return { models: null, error: null };
-}
+import { AgentProfileHeader } from './agent-profile-header';
+import { AgentDescriptionCard } from './agent-profile-description';
+import { ModelCard, ReadOnlyModelCard } from './agent-profile-model-card';
+import { InstalledSkillsCard } from './agent-profile-skills';
+import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem } from './agent-profile-sections';
+import { useAgentModelOptions } from './use-agent-model-options';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
     selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
   } = useLayout();
   const { agents, refreshWorkspace, createSession, currentUser } = useWorkspace();
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
   const confirm = useConfirm();
   const t = useT();
 
@@ -79,11 +34,15 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
   // Cloud agent config
   const [cloudConfig, setCloudConfig] = useState<CloudAgentConfig | null>(null);
-  useEffect(() => {
-    if (!isCloud || !agent) { setCloudConfig(null); return; }
+  const loadCloudConfig = useCallback(() => {
+    if (!agent) return;
     workspaceApi.listCloudAgents().then((configs) => {
       setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
     }).catch(() => {});
+  }, [agent?.agentName]);
+  useEffect(() => {
+    if (!isCloud || !agent) { setCloudConfig(null); return; }
+    loadCloudConfig();
   }, [isCloud, agent?.agentName]);
 
   // The built-in assistant (Yumi) is server-managed: its model and
@@ -96,6 +55,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   // ownership and stays editable, as the server allows.
   const canManage = !agent?.ownerEmail || isOwnedAgent(agent, currentUser.id);
   const modelReadOnly = isManaged || !canManage;
+  const models = useAgentModelOptions({ agent, isCloud, cloudConfig, setCloudConfig, refreshWorkspace });
 
   const handleRemoveCloudAgent = useCallback(async () => {
     if (!agent) return;
@@ -129,266 +89,6 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     }
   }, [agent, confirm, t, setSelectedAgentName, refreshWorkspace]);
 
-  // Inline API key update
-  const [editingKey, setEditingKey] = useState(false);
-  const [newApiKey, setNewApiKey] = useState('');
-  const [savingKey, setSavingKey] = useState(false);
-
-  const handleUpdateApiKey = useCallback(async () => {
-    if (!agent || !newApiKey) return;
-    setSavingKey(true);
-    try {
-      await workspaceApi.updateCloudAgent(agent.agentName, { apiKey: newApiKey });
-      toast.success(t('agents.apiKeyUpdated'));
-      setEditingKey(false);
-      setNewApiKey('');
-      workspaceApi.listCloudAgents().then((configs) => {
-        setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
-      }).catch(() => {});
-    } catch {
-      toast.error(t('agents.apiKeyFailed'));
-    } finally {
-      setSavingKey(false);
-    }
-  }, [agent, newApiKey]);
-
-  useEffect(() => { setEditingKey(false); setNewApiKey(''); }, [agent?.agentName]);
-
-  // Model picker — options come from the agent catalog (node agents) or the
-  // cloud provider catalog (cloud agents). Saving PATCHes the member for node
-  // agents (the launcher applies it on the next reply) or the cloud config.
-  const [modelOptions, setModelOptions] = useState<AgentCatalogModel[] | null>(null);
-  const [savingModel, setSavingModel] = useState(false);
-  const agentType = agent?.agentType || null;
-  const agentName = agent?.agentName || null;
-  // Some node agents never read the model picked here (for example Gemini): their
-  // CLI takes the model from the agent's own configuration. Saying "switches
-  // on the next reply" for those was untrue, so the picker is only offered
-  // where the registry says the adapter applies it.
-  const [modelApplies, setModelApplies] = useState(true);
-  // A node agent pointed at a relay or another vendor's endpoint can't use the
-  // catalog's ids: picking one failed its next task. Its node reports the
-  // endpoint host; when the catalog isn't that endpoint's, the node is asked
-  // which models the endpoint serves, and failing that the model is typed.
-  // A launcher too old to report a host keeps the catalog list.
-  const [endpointHost, setEndpointHost] = useState<string | null>(null);
-  const [catalogFits, setCatalogFits] = useState(true);
-  const [liveModels, setLiveModels] = useState<AgentCatalogModel[] | null>(null);
-  const [liveLoading, setLiveLoading] = useState(false);
-  const [liveError, setLiveError] = useState<string | null>(null);
-  // A node agent on its CLI's own sign-in (a ChatGPT or Claude subscription)
-  // has no endpoint to list. Its node asks the CLI what that account is
-  // offered and reports it on the roster; the catalog's list, kept by hand,
-  // stays the fallback for a launcher that does not report one.
-  const [accountModels, setAccountModels] = useState<AgentCatalogModel[] | null>(null);
-  const [manualEntry, setManualEntry] = useState(false);
-  const [modelLoadError, setModelLoadError] = useState<string | null>(null);
-  const [modelReload, setModelReload] = useState(0);
-  useEffect(() => {
-    setModelOptions(null);
-    setModelApplies(true);
-    setEndpointHost(null);
-    setCatalogFits(true);
-    setLiveModels(null);
-    setLiveLoading(false);
-    setLiveError(null);
-    setAccountModels(null);
-    setManualEntry(false);
-    setModelLoadError(null);
-    if (!agentType || !agentName) return;
-    let cancelled = false;
-    const isCancelled = () => cancelled;
-    if (agentType.startsWith('cloud:')) {
-      const provider = agentType.replace('cloud:', '');
-      workspaceApi.getCloudProviders().then((provs) => {
-        if (cancelled) return;
-        const p = provs.find((x) => x.name === provider);
-        setModelOptions((p?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-      }).catch((e) => {
-        if (cancelled) return;
-        setLiveLoading(false);
-        setModelOptions([]);
-        setModelLoadError(e instanceof Error ? e.message : String(e));
-      });
-    } else {
-      Promise.all([
-        workspaceApi.getAgentCatalogDetail(agentType),
-        workspaceApi.listNodes().catch((): WorkspaceNode[] => []),
-      ]).then(async ([detail, nodes]) => {
-        if (cancelled) return;
-        setModelOptions((detail?.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-        setModelApplies(detail?.workspace_model === true);
-        if (detail?.workspace_model !== true) return;
-        const node = nodes.find((n) => (n.agents || []).some((a) => a.name === agentName));
-        const hosted = node?.agents.find((a) => a.name === agentName);
-        const host = hosted?.baseUrlHost || null;
-        if (!node || !host) {
-          setAccountModels(hosted?.cliModels?.length ? hosted.cliModels : null);
-          return;
-        }
-        const providers = detail?.models_provider
-          ? await workspaceApi.getCloudProviders().catch(() => [])
-          : [];
-        if (cancelled) return;
-        setEndpointHost(host);
-        const fits = curatedModelsFitEndpoint({
-          baseUrlHost: host,
-          modelsProvider: detail?.models_provider,
-          providers,
-        });
-        setCatalogFits(fits);
-        if (fits) return;
-        setLiveLoading(true);
-        const live = await listNodeAgentModels(node.nodeId, agentName, isCancelled);
-        if (cancelled) return;
-        setLiveLoading(false);
-        setLiveModels(live.models);
-        setLiveError(live.error);
-      }).catch((e) => {
-        if (cancelled) return;
-        setLiveLoading(false);
-        setModelOptions([]);
-        setModelLoadError(e instanceof Error ? e.message : String(e));
-      });
-    }
-    return () => { cancelled = true; };
-  }, [agentType, agentName, modelReload]);
-
-  // A cloud agent on a custom endpoint gets that endpoint's own list; the
-  // provider catalog is the vendor's line-up, which a relay may not serve.
-  const cloudBaseUrl = cloudConfig?.baseUrl || null;
-  const cloudProvider = cloudConfig?.provider || null;
-  const [cloudLiveModels, setCloudLiveModels] = useState<AgentCatalogModel[] | null>(null);
-  useEffect(() => {
-    setCloudLiveModels(null);
-    if (!isCloud || !agentName) return;
-    if (!cloudBaseUrl && cloudProvider !== 'custom' && cloudProvider !== 'custom-anthropic') return;
-    let cancelled = false;
-    workspaceApi.listCloudAgentModels(agentName).then((r) => {
-      if (cancelled || r.source !== 'live') return;
-      setCloudLiveModels((r.models || []).filter((m) => (m.category ?? 'chat') === 'chat'));
-    }).catch(() => {});
-    return () => { cancelled = true; };
-  }, [isCloud, agentName, cloudBaseUrl, cloudProvider]);
-
-  const currentModel = isCloud ? (cloudConfig?.model || '') : (agent?.model || '');
-  const [modelDraft, setModelDraft] = useState(currentModel);
-  useEffect(() => { setModelDraft(currentModel); }, [currentModel]);
-  const pickerOptions = isCloud
-    ? (cloudLiveModels?.length ? cloudLiveModels : modelOptions)
-    : catalogFits
-      ? (accountModels?.length ? accountModels : modelOptions)
-      : liveModels;
-  const modelLoading = modelOptions === null || liveLoading;
-  const typeModel = modelApplies && !modelLoading && (
-    manualEntry
-    || Boolean(modelLoadError)
-    || (pickerOptions?.length ?? 0) === 0
-    || (!catalogFits && !liveModels?.length)
-  );
-
-  const handleModelChange = useCallback(async (value: string) => {
-    if (!agent) return;
-    setSavingModel(true);
-    try {
-      if (isCloud) {
-        await workspaceApi.updateCloudAgent(agent.agentName, { model: value });
-        const configs = await workspaceApi.listCloudAgents();
-        setCloudConfig(configs.find((c) => c.agentName === agent.agentName) || null);
-      } else {
-        await workspaceApi.updateMember(agent.agentName, { model: value });
-        await refreshWorkspace();
-      }
-      toast.success(t('agents.modelSaved'));
-    } catch {
-      toast.error(t('agents.modelSaveFailed'));
-    } finally {
-      setSavingModel(false);
-    }
-  }, [agent, isCloud, refreshWorkspace, t]);
-
-  // Display name — inline edit in the header. Any script is allowed (the
-  // ASCII agentName stays the @mention token); empty clears back to agentName.
-  const [editingName, setEditingName] = useState(false);
-  const [nameDraft, setNameDraft] = useState('');
-  const [savingName, setSavingName] = useState(false);
-
-  useEffect(() => {
-    setEditingName(false);
-    setNameDraft(agent?.displayName || '');
-  }, [agent?.agentName, agent?.displayName]);
-
-  const handleSaveDisplayName = useCallback(async () => {
-    if (!agent) return;
-    const trimmed = nameDraft.trim();
-    if (trimmed === (agent.displayName || '')) {
-      setEditingName(false);
-      return;
-    }
-    setSavingName(true);
-    try {
-      await workspaceApi.updateMember(agent.agentName, { display_name: trimmed });
-      await refreshWorkspace();
-      setEditingName(false);
-      toast.success(t('agents.displayNameSaved'));
-    } catch (err) {
-      // Surface the server's reason (length cap, clash with another agent's name)
-      const raw = err instanceof Error ? err.message : '';
-      const detail = raw.match(/"message"\s*:\s*"([^"]+)"/)?.[1];
-      toast.error(detail || t('agents.displayNameSaveFailed'));
-    } finally {
-      setSavingName(false);
-    }
-  }, [agent, nameDraft, refreshWorkspace, t]);
-
-  // Description state — local draft + save
-  const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [descDirty, setDescDirty] = useState(false);
-  const [generatingDesc, setGeneratingDesc] = useState(false);
-
-  // Sync description when agent changes
-  useEffect(() => {
-    if (agent) {
-      setDescription(agent.description || '');
-      setDescDirty(false);
-    }
-  }, [agent?.agentName, agent?.description]);
-
-  const handleSaveDescription = useCallback(async () => {
-    if (!agent || !descDirty) return;
-    setSaving(true);
-    try {
-      await workspaceApi.updateMember(agent.agentName, { description });
-      await refreshWorkspace();
-      setDescDirty(false);
-      toast.success(t('agents.descriptionSaved'));
-    } catch {
-      toast.error(t('agents.descriptionSaveFailed'));
-    } finally {
-      setSaving(false);
-    }
-  }, [agent, description, descDirty, refreshWorkspace]);
-
-  const handleGenerateDescription = useCallback(async () => {
-    if (!agent) return;
-    setGeneratingDesc(true);
-    try {
-      const suggestion = await workspaceApi.generateMemberDescription(agent.agentName);
-      if (suggestion) {
-        setDescription(suggestion);
-        setDescDirty(true);
-        toast.success(t('agents.autoGenerated'));
-      } else {
-        toast.error(t('agents.autoGenerateEmpty'));
-      }
-    } catch {
-      toast.error(t('agents.autoGenerateFailed'));
-    } finally {
-      setGeneratingDesc(false);
-    }
-  }, [agent]);
-
   const handleStartThread = useCallback(async () => {
     if (!agent) return;
     await createSession({ master: agent.agentName, participants: [agent.agentName] });
@@ -402,26 +102,26 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
   if (!agent) return null;
 
-  const isOnline = agent.status === 'online';
-
   // Capitalize agent type for display (e.g. "claude" → "Claude", "cloud:openai" → "Cloud: OpenAI")
+  const cloudType = (agent.agentType || '').replace('cloud:', '');
   const displayType = isCloud
-    ? `Cloud: ${(agent.agentType || '').replace('cloud:', '').charAt(0).toUpperCase()}${(agent.agentType || '').replace('cloud:', '').slice(1)}`
+    ? `Cloud: ${cloudType.charAt(0).toUpperCase()}${cloudType.slice(1)}`
     : agent.agentType
       ? agent.agentType.charAt(0).toUpperCase() + agent.agentType.slice(1)
       : t('common.unknown');
 
-  const infoItems = isCloud
+  const agentId: InfoItem = { icon: <UserRoundCog className="size-3.5" />, label: t('agents.fieldAgentId'), value: `openagents:${agent.agentName}`, copyable: true };
+  const infoItems: InfoItem[] = isCloud
     ? [
         { icon: <Cloud className="size-3.5" />, label: t('agents.fieldType'), value: displayType },
         { icon: <Globe className="size-3.5" />, label: t('agents.fieldApiKey'), value: cloudConfig?.apiKeyMasked || '—' },
-        { icon: <UserRoundCog className="size-3.5" />, label: t('agents.fieldAgentId'), value: `openagents:${agent.agentName}`, copyable: true },
+        agentId,
       ]
     : [
         { icon: <Monitor className="size-3.5" />, label: t('agents.fieldType'), value: displayType },
         { icon: <Globe className="size-3.5" />, label: t('agents.fieldServer'), value: agent.serverHost || '—' },
         { icon: <Folder className="size-3.5" />, label: t('agents.fieldFolder'), value: agent.workingDir || '—' },
-        { icon: <UserRoundCog className="size-3.5" />, label: t('agents.fieldAgentId'), value: `openagents:${agent.agentName}`, copyable: true },
+        agentId,
       ];
 
   return (
@@ -430,18 +130,18 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
           the content (e.g. next to the agent's DM) and must not block it. */}
       {!docked && (
         <div
-          className="absolute inset-0 bg-black/10 z-10"
+          className="absolute inset-0 z-10 bg-black/10"
           onClick={() => setSelectedAgentName(null)}
         />
       )}
 
-      {/* Panel — docked 320px column beside the thread, or a slide-over
-          (full-width on mobile, 320px on desktop). */}
+      {/* Panel — docked 20rem column beside the thread, or a slide-over
+          (full-width on mobile, 20rem on desktop). */}
       <div className={cn(
-        'bg-background border-l flex flex-col animate-in slide-in-from-right duration-200',
+        'flex flex-col border-l bg-background animate-in slide-in-from-right duration-200',
         docked
-          ? 'relative h-full w-[320px] shrink-0'
-          : cn('absolute top-0 right-0 bottom-0 shadow-xl z-20', isMobile ? 'left-0 w-full' : 'w-[320px]'),
+          ? 'relative h-full w-80 shrink-0'
+          : cn('absolute top-0 right-0 bottom-0 z-20 shadow-xl', isMobile ? 'left-0 w-full' : 'w-80'),
       )}>
         {/* Close button */}
         <div className="flex items-center justify-end px-3 pt-3">
@@ -449,462 +149,38 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             onClick={() => setSelectedAgentName(null)}
             variant="ghost" size="icon-sm" className="text-muted-foreground"
             title={t('common.close')}
+            aria-label={t('common.close')}
           >
-            <X className="size-4" />
+            <X />
           </Button>
         </div>
 
-        {/* Profile header */}
-        <div className="px-5 pb-4">
-          <div className="flex items-center gap-3">
-            <AgentAvatar name={agent.agentName} size={40} status={agent.status} showStatus />
-            <div className="flex-1 min-w-0">
-              {editingName ? (
-                <div className="flex items-center gap-1.5">
-                  <input
-                    value={nameDraft}
-                    onChange={(e) => setNameDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.nativeEvent.isComposing) return;
-                      if (e.key === 'Enter') handleSaveDisplayName();
-                      if (e.key === 'Escape') { setEditingName(false); setNameDraft(agent.displayName || ''); }
-                    }}
-                    placeholder={agent.agentName}
-                    maxLength={64}
-                    className="min-w-0 flex-1 rounded border bg-transparent px-1.5 py-0.5 text-sm font-semibold outline-none focus:ring-1 focus:ring-foreground/20"
-                    autoFocus
-                  />
-                  <Button
-                    onClick={handleSaveDisplayName}
-                    disabled={savingName}
-                    size="xs" className="shrink-0"
-                  >
-                    {savingName ? t('common.saving') : t('common.save')}
-                  </Button>
-                </div>
-              ) : (
-                <div className="group/name flex items-center gap-1.5 min-w-0">
-                  <h3 className="text-sm font-semibold leading-tight truncate">{agentLabel(agent)}</h3>
-                  {canManage && <button
-                    onClick={() => setEditingName(true)}
-                    className="shrink-0 text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover/name:opacity-100"
-                    title={t('agents.editDisplayName')}
-                  >
-                    <Pencil className="size-3" />
-                  </button>}
-                </div>
-              )}
-              {agent.displayName && agent.displayName !== agent.agentName && (
-                <p className="mt-0.5 truncate text-xs text-muted-foreground">@{agent.agentName}</p>
-              )}
-              <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                <span className={cn(
-                  'inline-flex items-center gap-1 text-xs px-1.5 py-px rounded font-medium',
-                  isOnline ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'
-                )}>
-                  <span className={cn('size-1.5 rounded-full', isOnline ? 'bg-success' : 'bg-muted-foreground/60')} />
-                  {agent.status}
-                </span>
-                {/* Permission model v1.1: who can use it (replaces the personal badge) */}
-                <AgentUsabilityLine agentName={agent.agentName} />
-                <DeviceOfflineHint agent={agent} withLabel />
-                <AccessExplainer resourceKind="agent" resourceId={agent.agentName} className="basis-full" />
-              </div>
-            </div>
-          </div>
-        </div>
+        <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 
         {/* Scrollable content */}
-        <div className="flex-1 overflow-y-auto px-3.5 flex flex-col gap-3">
+        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3.5">
           <AgentSharingButton agentName={agent.agentName} />
-          {/* Description */}
-          <Card size="sm" className="gap-0 py-0">
-            <CardHeader className="border-b flex items-center justify-between gap-2 py-2.5">
-              <span className="text-xs font-medium">{t('agents.description')}</span>
-              {canManage && <Button
-                variant="ghost"
-                size="xs"
-                onClick={handleGenerateDescription}
-                disabled={generatingDesc}
-                className="shrink-0 text-muted-foreground"
-                title={t('agents.autoGenerateHint')}
-              >
-                {generatingDesc
-                  ? <RefreshCw data-icon="inline-start" className="animate-spin" />
-                  : <Sparkles data-icon="inline-start" className="text-warning" />}
-                {generatingDesc ? 'Generating…' : t('agents.autoGenerate')}
-              </Button>}
-            </CardHeader>
-            <CardContent className="py-3">
-              <textarea
-                className="w-full text-sm leading-relaxed bg-transparent resize-none outline-none placeholder:text-muted-foreground/50 min-h-16"
-                placeholder={t('agents.descriptionPlaceholder', { agent: agent.agentName })}
-                value={description}
-                onChange={(e) => {
-                  setDescription(e.target.value);
-                  setDescDirty(true);
-                }}
-                onBlur={canManage ? handleSaveDescription : undefined}
-                readOnly={!canManage}
-                rows={3}
-              />
-              <p className="text-xs text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
-              {descDirty && (
-                <div className="flex justify-end mt-1.5">
-                  <Button size="xs" onClick={handleSaveDescription} disabled={saving}>
-                    {saving ? t('common.saving') : t('common.save')}
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+          <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+          <ConnectionDetailsCard items={infoItems} />
 
-          {/* Connection Details */}
-          <Card size="sm" className="gap-0 py-0">
-            <CardHeader className="border-b py-2.5">
-              <span className="text-xs font-medium">{t('agents.connectionDetails')}</span>
-            </CardHeader>
-            <CardContent className="divide-y py-3">
-              {infoItems.map((item) => (
-                <div key={item.label} className="flex items-start gap-3 px-3.5 py-3">
-                  <div className="flex items-center gap-1.5 shrink-0 w-[80px] pt-px">
-                    <span className="text-muted-foreground">{item.icon}</span>
-                    <span className="text-xs text-muted-foreground">{item.label}</span>
-                  </div>
-                  <div className="flex-1 min-w-0 flex items-start gap-1">
-                    <span className={cn(
-                      'text-sm break-all leading-snug',
-                      item.label !== 'Type' ? 'font-mono' : 'font-medium capitalize'
-                    )}>
-                      {item.value}
-                    </span>
-                    {item.copyable && (
-                      <Button
-                        variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground"
-                        title={t('agents.copyField', { field: item.label })}
-                        onClick={() => copyToClipboard(item.value)}
-                      >
-                        {isCopied ? <Check className="size-3" /> : <Copy className="size-3" />}
-                      </Button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-
-          {/* Model — picker fed by the agent/provider catalog, by the list a
-              signed-in agent's CLI reports for its account, or by the
-              endpoint's own list when the catalog isn't for that endpoint;
-              free-form ids stay selectable (prepended when not listed).
-              The built-in assistant shows its server-set model read-only. */}
-          {modelReadOnly ? (
-            <Card size="sm" className="gap-0 py-0">
-              <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
-                <Cpu className="size-3 text-muted-foreground" />
-                <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-1.5 py-3">
-                <div className="text-xs font-mono">{currentModel || '—'}</div>
-                <p className="text-xs text-muted-foreground leading-relaxed">{t(isManaged ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card size="sm" className="gap-0 py-0">
-              <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
-                <Cpu className="size-3 text-muted-foreground" />
-                <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
-                {(savingModel || modelLoading) && <RefreshCw className="size-3 animate-spin text-muted-foreground ml-auto" />}
-              </CardHeader>
-              <CardContent className="flex flex-col gap-1.5 py-3">
-                {modelLoading ? (
-                  <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelLoading')}</p>
-                ) : !modelApplies ? (
-                  <>
-                    {/* Only the way back to the default is offered: a model
-                        saved here earlier is shown, and can be cleared. */}
-                    {currentModel && (
-                      <Select
-                        value={currentModel}
-                        onValueChange={(v) => handleModelChange(v === DEFAULT_MODEL ? '' : v)}
-                        disabled={savingModel}
-                      >
-                        <SelectTrigger className="w-full">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectGroup><SelectItem value={DEFAULT_MODEL}>{t('agents.modelDefault')}</SelectItem>
-                          <SelectItem value={currentModel}>{currentModel}</SelectItem></SelectGroup>
-                        </SelectContent>
-                      </Select>
-                    )}
-                    <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelNotApplied')}</p>
-                  </>
-                ) : typeModel ? (
-                  <>
-                    <Input
-                      aria-label={t('agents.fieldModel')}
-                      value={modelDraft}
-                      onChange={(e) => { setModelDraft(e.target.value); setManualEntry(true); }}
-                      onBlur={() => {
-                        const next = modelDraft.trim();
-                        if (next !== currentModel) void handleModelChange(next);
-                      }}
-                      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
-                      placeholder={t('agents.modelCustomPlaceholder')}
-                      disabled={savingModel}
-                      className="h-9 text-sm font-mono"
-                    />
-                    {liveModels?.length ? (
-                      <Button
-                        type="button"
-                        onClick={() => { setManualEntry(false); setModelDraft(currentModel); }}
-                        variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
-                      >
-                        {t('agents.modelPickFromList')}
-                      </Button>
-                    ) : null}
-                  </>
-                ) : (
-                  <Select
-                    value={currentModel || DEFAULT_MODEL}
-                    onValueChange={(v) => {
-                      if (v === CUSTOM_MODEL) { setManualEntry(true); return; }
-                      void handleModelChange(v === DEFAULT_MODEL ? '' : v);
-                    }}
-                    disabled={savingModel || (isCloud && !cloudConfig)}
-                  >
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>{!isCloud && (
-                        <SelectItem value={DEFAULT_MODEL}>
-                          {t('agents.modelDefault')}
-                        </SelectItem>
-                      )}
-                      {/* A model the agent is on but the list does not have
-                          — a hand-edited config, or one the provider dropped.
-                          Listing it is what keeps the picker from silently
-                          showing something the agent is not running. */}
-                      {currentModel && !(pickerOptions || []).some((m) => m.id === currentModel) && (
-                        <SelectItem value={currentModel}>{currentModel}</SelectItem>
-                      )}
-                      {(pickerOptions || []).map((m) => (
-                        <SelectItem key={m.id} value={m.id}>
-                          {m.label || m.id}
-                        </SelectItem>
-                      ))}
-                      {!catalogFits && (
-                        <SelectItem value={CUSTOM_MODEL}>{t('agents.modelEnterCustom')}</SelectItem>
-                      )}</SelectGroup>
-                    </SelectContent>
-                  </Select>
-                )}
-                {modelApplies && !catalogFits && endpointHost && (
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {liveLoading
-                      ? t('agents.modelLiveLoading', { host: endpointHost })
-                      : typeModel
-                        ? t('agents.modelCustomHint', { host: endpointHost })
-                        : t('agents.modelLiveHint', { host: endpointHost })}
-                  </p>
-                )}
-                {modelApplies && !typeModel && !modelLoading && catalogFits && accountModels?.length ? (
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    {t('agents.modelAccountHint')}
-                  </p>
-                ) : null}
-                {modelApplies && typeModel && !liveLoading && liveError && (
-                  <p className="text-xs text-muted-foreground leading-relaxed break-words">
-                    {t('agents.modelLiveFailed', { error: liveError })}
-                  </p>
-                )}
-                {modelLoadError && (
-                  <div className="flex flex-col gap-1.5">
-                    <p className="text-xs text-muted-foreground leading-relaxed break-words">
-                      {t('agents.modelLiveFailed', { error: modelLoadError })}
-                    </p>
-                    <Button
-                      type="button"
-                      onClick={() => setModelReload((value) => value + 1)}
-                      variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
-                    >
-                      {t('agents.modelRetry')}
-                    </Button>
-                  </div>
-                )}
-                {!isCloud && modelApplies && (
-                  <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.modelHint')}</p>
-                )}
-              </CardContent>
-            </Card>
-          )}
+          {/* The built-in assistant shows its server-set model read-only. */}
+          {modelReadOnly
+            ? <ReadOnlyModelCard model={models.currentModel} managed={isManaged} />
+            : <ModelCard m={models} />}
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}
           {isCloud && cloudConfig && !isManaged && canManage && (
-            <Card size="sm" className="gap-0 py-0">
-              <CardHeader className="border-b py-2.5">
-                <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>
-              </CardHeader>
-              <CardContent className="flex flex-col gap-3 py-3">
-                {/* API Key */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-xs text-muted-foreground">{t('agents.fieldApiKey')}</span>
-                    {!editingKey && (
-                      <Button
-                        onClick={() => setEditingKey(true)}
-                        variant="link" size="xs" className="h-auto px-0 text-muted-foreground"
-                      >
-                        <KeyRound className="size-2.5" />
-                        {t('agents.apiKeyUpdate')}
-                      </Button>
-                    )}
-                  </div>
-                  {editingKey ? (
-                    <div className="flex gap-1.5">
-                      <input
-                        type="password"
-                        value={newApiKey}
-                        onChange={(e) => setNewApiKey(e.target.value)}
-                        placeholder={t('agents.apiKeyPlaceholder')}
-                        className="flex-1 min-w-0 px-2 py-1.5 text-xs font-mono rounded border bg-transparent outline-none focus:ring-1 focus:ring-foreground/20"
-                        autoFocus
-                      />
-                      <Button
-                        onClick={handleUpdateApiKey}
-                        disabled={savingKey || !newApiKey}
-                        size="xs"
-                      >
-                        {savingKey ? <RefreshCw className="size-2.5 animate-spin" /> : 'Save'}
-                      </Button>
-                      <Button
-                        onClick={() => { setEditingKey(false); setNewApiKey(''); }}
-                        variant="outline" size="xs"
-                      >
-                        {t('common.cancel')}
-                      </Button>
-                    </div>
-                  ) : (
-                    <span className="text-xs font-mono text-muted-foreground">{cloudConfig.apiKeyMasked}</span>
-                  )}
-                </div>
-
-                {/* System prompt (if set) */}
-                {cloudConfig.systemPrompt && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">{t('agents.systemPrompt')}</span>
-                    <p className="text-xs text-foreground mt-1 whitespace-pre-wrap line-clamp-3">{cloudConfig.systemPrompt}</p>
-                  </div>
-                )}
-              </CardContent>
-            </Card>
+            <CloudConfigCard agentName={agent.agentName} config={cloudConfig} onUpdated={loadCloudConfig} />
           )}
 
-          {/* Installed Skills */}
-          {(() => {
-            const installed: string[] = (agent.enabledSkills as Record<string, unknown>)?.installed as string[] || [];
-            if (installed.length === 0) return null;
-            const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons';
-            const SKILL_LOGOS: Record<string, { name: string; logo: string }> = {
-              'claude-api': { name: 'Claude API', logo: `${SI}/anthropic.svg` },
-              'openai-sdk': { name: 'OpenAI SDK', logo: `${SI}/openai.svg` },
-              'langchain': { name: 'LangChain', logo: `${SI}/langchain.svg` },
-              'mcp-builder': { name: 'MCP Builder', logo: `${SI}/anthropic.svg` },
-              'skill-creator': { name: 'Skill Creator', logo: `${SI}/anthropic.svg` },
-              'ai-sdk': { name: 'Vercel AI SDK', logo: `${SI}/vercel.svg` },
-              'nextjs': { name: 'Next.js', logo: `${SI}/nextdotjs.svg` },
-              'angular': { name: 'Angular', logo: `${SI}/angular.svg` },
-              'vue': { name: 'Vue.js', logo: `${SI}/vuedotjs.svg` },
-              'svelte': { name: 'Svelte', logo: `${SI}/svelte.svg` },
-              'tailwindcss': { name: 'Tailwind CSS', logo: `${SI}/tailwindcss.svg` },
-              'frontend-design': { name: 'Frontend Design', logo: `${SI}/anthropic.svg` },
-              'fastapi': { name: 'FastAPI', logo: `${SI}/fastapi.svg` },
-              'django': { name: 'Django', logo: `${SI}/django.svg` },
-              'graphql': { name: 'GraphQL', logo: `${SI}/graphql.svg` },
-              'postgresql': { name: 'PostgreSQL', logo: `${SI}/postgresql.svg` },
-              'mongodb': { name: 'MongoDB', logo: `${SI}/mongodb.svg` },
-              'redis': { name: 'Redis', logo: `${SI}/redis.svg` },
-              'prisma': { name: 'Prisma', logo: `${SI}/prisma.svg` },
-              'supabase': { name: 'Supabase', logo: `${SI}/supabase.svg` },
-              'firebase': { name: 'Firebase', logo: `${SI}/firebase.svg` },
-              'github-actions': { name: 'GitHub Actions', logo: `${SI}/githubactions.svg` },
-              'sentry': { name: 'Sentry', logo: `${SI}/sentry.svg` },
-              'jest': { name: 'Jest', logo: `${SI}/jest.svg` },
-              'pytest': { name: 'pytest', logo: `${SI}/pytest.svg` },
-              'cypress': { name: 'Cypress', logo: `${SI}/cypress.svg` },
-              'stripe': { name: 'Stripe', logo: `${SI}/stripe.svg` },
-              'notion': { name: 'Notion', logo: `${SI}/notion.svg` },
-              'jira': { name: 'Jira', logo: `${SI}/jira.svg` },
-              'shopify': { name: 'Shopify', logo: `${SI}/shopify.svg` },
-              'zapier': { name: 'Zapier', logo: `${SI}/zapier.svg` },
-              'docx': { name: 'Word Documents', logo: `${SI}/microsoftword.svg` },
-              'xlsx': { name: 'Spreadsheets', logo: `${SI}/microsoftexcel.svg` },
-              'pptx': { name: 'Presentations', logo: `${SI}/microsoftpowerpoint.svg` },
-              'pdf': { name: 'PDF Processing', logo: `${SI}/adobeacrobatreader.svg` },
-              'sn-deep-research': { name: 'SenseNova Deep Research', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-              'sn-infographic': { name: 'SenseNova Infographic', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-              'sn-ppt-entry': { name: 'SenseNova PPT', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-              'sn-da-excel-workflow': { name: 'SenseNova Excel Analysis', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-              'sn-image-base': { name: 'SenseNova Image Gen', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-              'sn-md-to-html-report': { name: 'SenseNova HTML Report', logo: 'https://avatars.githubusercontent.com/u/215225587' },
-            };
-            return (
-              <Card size="sm" className="gap-0 py-0">
-                <CardHeader className="border-b flex items-center gap-1.5 py-2.5">
-                  <Sparkles className="size-3 text-warning" />
-                  <span className="text-xs font-medium">{t('agents.installedSkills')}</span>
-                  <span className="text-xs text-muted-foreground ml-auto">{installed.length}</span>
-                </CardHeader>
-                <CardContent className="divide-y py-3">
-                  {installed.map(skillId => {
-                    const info = SKILL_LOGOS[skillId];
-                    return (
-                      <div key={skillId} className="flex items-center gap-2.5 px-3.5 py-2.5">
-                        <div className="size-6 rounded bg-muted/60 flex items-center justify-center shrink-0">
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          {info ? <img src={info.logo} alt="" className="h-3.5 w-3.5 object-contain dark:invert" /> : <Sparkles className="size-3 text-muted-foreground" />}
-                        </div>
-                        <span className="text-sm font-medium flex-1 truncate">{info?.name || skillId}</span>
-                        <a
-                          href={`https://github.com/${skillId.includes('-') ? 'TerminalSkills/skills/tree/main/skills/' : 'anthropics/skills/tree/main/skills/'}${skillId}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-muted-foreground hover:text-foreground transition-colors"
-                        >
-                          <ExternalLink className="size-3" />
-                        </a>
-                      </div>
-                    );
-                  })}
-                </CardContent>
-              </Card>
-            );
-          })()}
+          <InstalledSkillsCard agent={agent} />
 
-          {/* Danger zone — remove this agent from the workspace (node/local
-              agents; cloud agents use the footer Remove button). */}
-          {!isCloud && canManage && (
-            <Card size="sm" className="gap-0 py-0 ring-destructive/30">
-              <CardHeader className="border-b py-2.5">
-                <span className="text-xs font-medium text-destructive">{t('agents.dangerZone')}</span>
-              </CardHeader>
-              <CardContent className="flex items-center justify-between gap-3 py-3">
-                <p className="text-xs text-muted-foreground leading-relaxed">{t('agents.removeAgentHint')}</p>
-                <Button variant="destructive" size="sm" className="shrink-0" onClick={handleRemoveAgent}>
-                  <Trash2 data-icon="inline-start" />
-                  {t('agents.remove')}
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-
+          {!isCloud && canManage && <DangerZoneCard onRemove={handleRemoveAgent} />}
         </div>
 
         {/* Footer actions */}
-        <div className="px-3.5 py-3 border-t">
+        <div className="border-t px-3.5 py-3">
           <div className="flex gap-2">
             <Button variant="outline" className="flex-1" onClick={handleStartThread}>
               <Plus data-icon="inline-start" />

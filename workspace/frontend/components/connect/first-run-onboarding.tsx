@@ -1,9 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Button } from '@/components/ui/button';
-import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
-import { Check, RotateCcw } from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
+import { Check, Loader2, RotateCcw } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -100,17 +97,15 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
 
   const footer = (
     <div className="pt-4 text-center">
-      <Button
-        variant="link"
-        size="xs"
-        className="text-muted-foreground"
+      <button
         onClick={() => {
           capture('welcome_film_replayed', { source: 'guided_wizard' });
           setWelcomeDone(false);
         }}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
-        <RotateCcw data-icon="inline-start" />{t('onboarding.replayIntro')}
-      </Button>
+        <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
+      </button>
     </div>
   );
   return isDesktop
@@ -188,7 +183,7 @@ function NodeOnboardingStep({ footer, onDismiss }: { footer?: React.ReactNode; o
   return (
     <div className="flex h-full flex-col">
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto w-full max-w-2xl flex flex-col gap-6 px-6 py-10">
+        <div className="mx-auto w-full max-w-2xl space-y-6 px-6 py-10">
           <DesktopComputerStep key={workspace.workspaceId} host={host} workspaceId={workspace.workspaceId} workspaceName={workspace.name}
             onConnected={setConnectedNodeId} onOtherDevice={() => setOtherDevice(true)} />
           {footer}
@@ -285,19 +280,17 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
       <div className="flex-1 overflow-y-auto">
         <OnboardingConnectionHero workspaceName={workspace?.name || t('nav.workspaceFallback')} onBack={onBack} />
 
-        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 flex flex-col gap-6 px-4 py-6 sm:px-6 sm:py-7">
+        <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 space-y-6 px-4 py-6 sm:px-6 sm:py-7">
 
           {pairing ? (
             <OnboardingPairingPanel pairing={pairing} onDismiss={onBack} onRegenerate={regenerate} regenerating={regenerating} />
           ) : errored ? (
-            <Empty className="border">
-              <EmptyHeader>
-                <EmptyDescription>{t('connect.nodePairingFailed')}</EmptyDescription>
-              </EmptyHeader>
-            </Empty>
+            <div className="rounded-xl border border-dashed py-10 text-center text-sm text-muted-foreground">
+              {t('connect.nodePairingFailed')}
+            </div>
           ) : (
             <div className="flex items-center justify-center py-14 text-muted-foreground">
-              <Spinner className="size-5" />
+              <Loader2 className="size-5 animate-spin" />
             </div>
           )}
 

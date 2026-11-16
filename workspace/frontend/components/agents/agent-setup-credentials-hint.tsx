@@ -1,11 +1,12 @@
 'use client';
 import React from 'react';
 import { Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
 import { desktopDownloads } from '@/lib/desktop-downloads';
 
-const HINT_CODE = 'font-mono whitespace-nowrap bg-warning/15 rounded px-1.5 py-0.5';
+const HINT_CODE = 'font-mono whitespace-nowrap rounded bg-muted px-1.5 py-0.5 text-foreground';
 const CODE_MARK = '\u0000';
 
 /** `text` with each CODE_MARK replaced, in order, by the matching `codes` entry as code. */
@@ -47,15 +48,11 @@ export function NeedsCredentialsHint({ label, device, command, note, os }: { lab
               {downloads.length > 0 && (
                 <span className="mt-1.5 flex flex-wrap gap-1.5">
                   {downloads.map((d) => (
-                    <a
-                      key={d.os}
-                      href={d.href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 rounded-md border border-warning/30 bg-background/70 px-2 py-1 font-medium text-foreground transition-colors hover:border-primary/40"
-                    >
-                      <Download className="size-3" />{d.os}
-                    </a>
+                    <Button key={d.os} variant="outline" size="xs" asChild>
+                      <a href={d.href} target="_blank" rel="noopener noreferrer">
+                        <Download data-icon="inline-start" />{d.os}
+                      </a>
+                    </Button>
                   ))}
                 </span>
               )}

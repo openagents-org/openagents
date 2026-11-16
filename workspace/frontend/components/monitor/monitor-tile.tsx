@@ -18,7 +18,7 @@ import {
 } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import type { WorkspaceAgent, WorkspaceMessage, WorkspaceSession } from '@/lib/types';
-import type { TileData } from './monitor-grid';
+import type { TileData } from './use-monitor-tiles';
 
 interface MonitorTileProps {
   session: WorkspaceSession;
@@ -139,14 +139,14 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
     <button
       onClick={onClick}
       className={cn(
-        'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-all hover:-translate-y-0.5 hover:shadow-md',
+        'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-md',
         isActive && 'thread-wip',
         isCompleted && 'bg-warning/10 ring-1 ring-warning/30 animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       {/* Header: avatars + title + time */}
       <div className="flex items-center gap-2 mb-2 shrink-0">
-        <div className="flex -space-x-1.5 shrink-0">
+        <div className="flex *:not-first:-ml-1.5 shrink-0">
           {sessionAgents.slice(0, 3).map((agent) => (
             <div key={agent.agentName} className="border-2 border-background rounded-full">
               <AgentAvatar name={agent.agentName} size={18} />
@@ -200,12 +200,12 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
                       parsed.type === 'thinking' && 'text-warning',
                       parsed.type === 'tool_call' && 'text-foreground/80',
                       parsed.type === 'status' && 'text-success',
-                      parsed.type === 'compacting' && 'text-violet-500 animate-spin',
+                      parsed.type === 'compacting' && 'animate-spin text-info',
                     )} />
                     <span className={cn(
                       'text-xs truncate min-w-0 text-muted-foreground',
                       parsed.type === 'thinking' && 'italic',
-                      parsed.type === 'compacting' && 'italic text-violet-500/80',
+                      parsed.type === 'compacting' && 'text-info/80 italic',
                     )}>
                       {parsed.label}
                     </span>

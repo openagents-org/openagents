@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Mail } from 'lucide-react';
-import { Spinner } from '@/components/ui/spinner';
+import { Check, Loader2, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIsMobileDevice } from '@/hooks/use-mobile-device';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -35,7 +34,7 @@ export function SetupEmailButton() {
   };
 
   return state === 'sent' ? (
-    <div role="status" className="flex items-center justify-center gap-2 rounded-xl border border-success/30 bg-success/5 px-4 py-3.5 text-sm font-medium text-success">
+    <div role="status" className="flex items-center justify-center gap-2 rounded-xl border border-green-500/30 bg-green-500/[0.06] px-4 py-3.5 text-sm font-medium text-green-600 dark:text-green-500">
       <Check className="size-4 shrink-0" />{t('onboarding.setupEmailSent')}
     </div>
   ) : (
@@ -45,7 +44,7 @@ export function SetupEmailButton() {
       disabled={state !== 'idle'}
       className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
     >
-      {state === 'sending' ? <Spinner /> : <Mail className="size-4" />}
+      {state === 'sending' ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
       {t(state === 'sending' ? 'onboarding.setupEmailSending' : 'onboarding.setupEmailCta')}
     </button>
   );

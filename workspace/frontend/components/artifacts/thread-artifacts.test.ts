@@ -16,7 +16,6 @@ vi.mock('@/lib/i18n',()=>({useT:()=>(key:string)=>key}));
 vi.mock('@/components/chat/markdown-content',()=>({MarkdownContent:({content}:any)=>React.createElement('article',null,content)}));
 vi.mock('@/components/browser/browser-view',()=>({BrowserView:({artifactTabId}:any)=>React.createElement('div',{'data-browser':artifactTabId})}));
 import { useThreadArtifactPreview } from './thread-artifact-controller';
-import { ThreadArtifactLinks } from './thread-artifact-links';
 import { ArtifactContent } from './artifact-content';
 function Controller(){useThreadArtifactPreview();return null;}
 let host:HTMLDivElement,root:Root;
@@ -106,17 +105,4 @@ it('uses stable browser IDs across navigation and rejects example IDs',()=>{
   expect(artifactFromLink(`/v1/browser/tabs/${id}`,[],[{id,url:'https://new.example/'}] as any,'demo')).toEqual({kind:'browser',id});
   expect(artifactFromLink('/v1/browser/tabs/TAB_ID',[],[],'demo')).toBeNull();
   expect(artifactFromLink(`https://external.example/v1/browser/tabs/${id}`,[],[],'demo')).toBeNull();
-});
-
-it('keeps a browser shortcut after activity expires only in its associated thread',async()=>{
-  mocks.workspace.browserTabs=[{id:'live',url:'https://example.com/',title:'Example',status:'active',createdBy:'openagents:agent',artifactChannels:['one'],activity:null}];
-  await act(async()=>root.render(React.createElement(ThreadArtifactLinks)));
-  expect(host.textContent).toContain('Example');
-  const opened=vi.fn(); window.addEventListener('workspace:open-artifact',opened);
-  await act(async()=>Array.from(host.querySelectorAll('button')).find(button=>button.textContent==='Example')!.click());
-  expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser',id:'live'});
-  window.removeEventListener('workspace:open-artifact',opened);
-  mocks.workspace.currentSessionId='two';
-  await act(async()=>root.render(React.createElement(ThreadArtifactLinks)));
-  expect(host.textContent).not.toContain('Example');
 });

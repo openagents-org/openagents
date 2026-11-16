@@ -5,12 +5,13 @@ import { Play } from 'lucide-react';
 import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { FeatureTourOverlay, TOUR_BLUE, TOUR_META, type TourFeature } from './feature-tours';
 import { TourDismissButton, type TourDismissScope } from './tour-dismiss-button';
 
-// Light keeps the soft brand wash; dark sits on the app's own neutral surface
-// instead of a navy band.
-const SURFACE = 'bg-linear-to-r from-info/10 to-info/10 dark:bg-none dark:bg-muted/50';
+// A soft wash of the info colour, faint enough in dark to read as the app's
+// own surface rather than a navy band.
+const SURFACE = 'bg-info/5';
 
 const bannerKey = (feature: TourFeature) => `oa:tourBanner:${feature}`;
 
@@ -58,21 +59,16 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
 
   const icon = (
     <span className={cn(
-      'flex shrink-0 items-center justify-center rounded-md border bg-white dark:bg-background',
+      'flex shrink-0 items-center justify-center rounded-md border bg-background',
       compact ? 'size-6' : 'size-7',
     )} style={{ color: TOUR_BLUE }}>
       <meta.icon className={compact ? 'size-3.5' : 'size-4'} />
     </span>
   );
   const watchButton = (
-    <button onClick={watch}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1.5 text-xs font-semibold text-white shadow-sm transition-opacity hover:opacity-90',
-        compact ? 'h-6 rounded-md px-2' : 'ml-1 rounded-full px-3 py-1',
-      )}
-      style={{ background: TOUR_BLUE }}>
-      <Play className="size-3 fill-current" />{t('featureTours.watch')}
-    </button>
+    <Button size="xs" onClick={watch} className={cn('shrink-0', compact ? 'self-start' : 'ml-1 rounded-full')}>
+      <Play data-icon="inline-start" className="fill-current" />{t('featureTours.watch')}
+    </Button>
   );
 
   return (
@@ -82,11 +78,11 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
         <div className="shrink-0 border-b p-2">
           <div className={cn('relative flex gap-2.5 rounded-lg border p-2.5 pr-8', SURFACE)}>
             {icon}
-            <div className="min-w-0 flex flex-col gap-2">
+            <div className="flex min-w-0 flex-col gap-2">
               <p className="text-xs leading-relaxed text-foreground/80">{t(`featureTours.${feature}Banner`)}</p>
               {watchButton}
             </div>
-            <TourDismissButton onDismiss={dismiss} className="absolute right-1.5 top-1.5 size-6" iconClassName="size-3.5" />
+            <TourDismissButton onDismiss={dismiss} size="icon-xs" className="absolute top-1.5 right-1.5" />
           </div>
         </div>
       ) : (
@@ -96,7 +92,7 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
           {icon}
           <span className="min-w-0 truncate text-foreground">{t(`featureTours.${feature}Banner`)}</span>
           {watchButton}
-          <TourDismissButton onDismiss={dismiss} className="absolute right-3 size-7" iconClassName="size-4" />
+          <TourDismissButton onDismiss={dismiss} className="absolute right-3" />
         </div>
       )}
       {open && <FeatureTourOverlay feature={feature} onClose={() => setOpen(false)} />}
