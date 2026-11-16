@@ -156,7 +156,8 @@ Sources: [transaction limits](../../../workspace/backend/app/db_timeouts.py),
 
 1. Merge reviewed application changes into `develop`.
 2. Promote the intended merged commit using `.github/workflows/promote-release.yml`.
-   `release` is protected; do not replace this with a direct or force push.
+   It advances `openagents-release` (hosted production), which is protected; do not
+   replace this with a direct or force push. `release` no longer deploys anything.
 3. `.github/workflows/deploy-digitalocean.yml` builds the exact release with
    `workspace/backend/production.Dockerfile` and locked production dependencies.
 4. The coordinator validates the candidate and database compatibility, drains and
