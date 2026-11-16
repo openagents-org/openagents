@@ -9,11 +9,13 @@
  * scope and every route stays in the page, as it always has.
  */
 
+import { takeTabTitle } from '@/lib/desktop-host';
+
 export type TabScope = { kind: 'home' } | { kind: 'workspace'; aliases: string[] };
 
 interface TabBridge {
   tab?: () => TabScope | null;
-  openRoute?: (route: string) => void;
+  openRoute?: (route: string, title?: string) => void;
   onNavigate?: (callback: (route: string) => void) => () => void;
 }
 
@@ -51,8 +53,10 @@ export function handOffRoute(route: string): boolean {
   const host = bridge();
   if (!host?.openRoute) return false;
   const pathname = route.split('?')[0] || '/';
+  const title = takeTabTitle(route);
   if (!belongsElsewhere(pathname, host.tab?.() ?? null)) return false;
-  host.openRoute(route);
+  if (title) host.openRoute(route, title);
+  else host.openRoute(route);
   return true;
 }
 

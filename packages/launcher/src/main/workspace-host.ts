@@ -317,8 +317,10 @@ export class WorkspaceHost {
    * the All Workspaces list, another workspace chosen from inside one, or the
    * list itself. The route goes to the view that owns it, opening a tab when
    * no view does, so no page is ever navigated away from its own workspace.
+   * `title` names a tab opened here until its page reports the real name (the
+   * All Workspaces list already knows it), so the tab never shows the slug.
    */
-  openRoute(sender: Electron.WebContents, route: unknown): void {
+  openRoute(sender: Electron.WebContents, route: unknown, title?: unknown): void {
     if (!this._entryFor(sender) || typeof route !== "string") return
     const workspace = routeWorkspace(route)
     if (workspace === undefined) return
@@ -335,7 +337,8 @@ export class WorkspaceHost {
       }
       this._active = existing
     } else {
-      this._active = this._createTab(workspace, null, null, this._bundleOr(route))
+      const name = typeof title === "string" && title.trim() ? title.trim().slice(0, 200) : null
+      this._active = this._createTab(workspace, null, name, this._bundleOr(route))
     }
     this._attachActive()
     this._emit()

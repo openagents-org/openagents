@@ -1,6 +1,6 @@
 'use client';
 
-import { desktopHost } from '@/lib/desktop-host';
+import { desktopHost, hintTabTitle } from '@/lib/desktop-host';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -893,7 +893,11 @@ function MembershipHome({
         loading={loading || willAutoEnter}
         error={error ? ('key' in error ? t(error.key) : error.text) : null}
         onRetry={load}
-        onOpen={(ws) => router.push(`/${ws.slug}`)}
+        onOpen={(ws) => {
+          // The launcher opens it in a new tab; name that tab right away.
+          hintTabTitle(`/${ws.slug}`, ws.name);
+          router.push(`/${ws.slug}`);
+        }}
         create={{
           open: showCreate,
           name: newName,
