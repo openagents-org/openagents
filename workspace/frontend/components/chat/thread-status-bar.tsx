@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import { Circle, Timer, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { TimerItem } from '@/lib/types';
@@ -87,7 +88,7 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
 
       {/* Todos and timers row */}
       {(inProgressCount > 0 || pendingCount > 0 || activeTimers.length > 0) && (
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           {(inProgressCount > 0 || pendingCount > 0) && (
             <span className="flex items-center gap-1">
               {inProgressCount > 0 && (
@@ -103,27 +104,31 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
                   <span>{t('threadStatus.pending', { count: pendingCount })}</span>
                 </>
               )}
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={handleCancelTodos}
-                className="ml-0.5 p-0.5 rounded hover:bg-muted transition-colors"
                 title={t('threadStatus.cancelAllTasks')}
+                aria-label={t('threadStatus.cancelAllTasks')}
               >
-                <X className="size-3" />
-              </button>
+                <X />
+              </Button>
             </span>
           )}
           {activeTimers.map((timer) => (
             <span key={timer.id} className="flex items-center gap-1">
               <Timer className="size-3 text-warning" />
               <span>{timer.message.length > 30 ? timer.message.slice(0, 30) + '…' : timer.message}</span>
-              <span className="text-warning font-mono">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
-              <button
+              <span className="font-mono text-warning tabular-nums">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => handleCancelTimer(timer.id)}
-                className="p-0.5 rounded hover:bg-muted transition-colors"
                 title={t('threadStatus.cancelTimer')}
+                aria-label={t('threadStatus.cancelTimer')}
               >
-                <X className="size-3" />
-              </button>
+                <X />
+              </Button>
             </span>
           ))}
         </div>

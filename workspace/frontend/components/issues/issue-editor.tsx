@@ -91,7 +91,7 @@ export function IssueEditor({
         if (!busy) onOpenChange(value);
       }}
     >
-      <DialogContent className="max-w-[620px]">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader className="border-b">
           <DialogTitle className="flex items-center gap-2 text-sm font-medium">
             <CircleDot className="size-4 text-muted-foreground" />

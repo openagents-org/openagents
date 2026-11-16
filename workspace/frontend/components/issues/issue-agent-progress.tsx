@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowUpRight } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -30,11 +31,11 @@ export function IssueAgentProgress({ thread, agents }: { thread: IssueThread; ag
   return <div className="thread-wip mt-6 flex flex-col gap-2 rounded-xl border border-border/60 px-4 py-3">
     {progress.map(({ agent, step }) => <div key={agent.agentName}>
       <WorkingBubble agentName={agent.agentName} agents={agents} status={step?.messageType === 'status' ? step.content : t('chat.agentWorking')} />
-      {step?.messageType === 'thinking' && step.content.trim() && <p className="ml-10 max-h-40 overflow-y-auto whitespace-pre-wrap break-words text-sm leading-6 text-muted-foreground">{step.content}</p>}
+      {step?.messageType === 'thinking' && step.content.trim() && <p className="ml-10 max-h-40 overflow-y-auto text-sm whitespace-pre-wrap wrap-break-word leading-6 text-muted-foreground">{step.content}</p>}
     </div>)}
-    <button type="button" className="ml-10 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+    <Button variant="ghost" size="xs" className="ml-8 w-fit text-muted-foreground"
       onClick={() => { setCurrentSessionId(thread.channel_name); openView('threads'); }}>
-      {t('issues.openInThread')}<ArrowUpRight className="size-3" />
-    </button>
+      {t('issues.openInThread')}<ArrowUpRight data-icon="inline-end" />
+    </Button>
   </div>;
 }

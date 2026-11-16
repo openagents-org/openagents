@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMe } from '@/hooks/use-me';
 import { useThreadAccess } from '@/hooks/use-thread-access';
@@ -127,7 +128,7 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
       disabled={busy || !manage}
       title={isPrivate ? t('threadAccess.privateHint') : t('threadAccess.publicHint')}
       className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded px-1 py-0.5 transition-colors',
+        'inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
         manage && 'hover:bg-muted',
         'disabled:opacity-100 disabled:cursor-default',
         isPrivate && 'text-foreground/80',
@@ -144,21 +145,23 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
       {!joinOnly && (manage ? (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className={inDialog ? "z-70 w-72" : "w-72"}>
-            <DropdownMenuGroup><DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start gap-2.5 py-2">
-              <Globe className="mt-0.5 size-4 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-sm">{isPrivate ? t('threadAccess.makePublic') : t('threadAccess.public')}</div>
-                <div className="text-xs text-muted-foreground">{t('threadAccess.publicHint')}</div>
-              </div>
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => change('private')} disabled={isPrivate} className="items-start gap-2.5 py-2">
-              <Lock className="mt-0.5 size-4 shrink-0" />
-              <div className="min-w-0">
-                <div className="text-sm">{isPrivate ? t('threadAccess.private') : t('threadAccess.makePrivate')}</div>
-                <div className="text-xs text-muted-foreground">{t('threadAccess.privateHint')}</div>
-              </div>
-            </DropdownMenuItem></DropdownMenuGroup>
+          <DropdownMenuContent align="start" className="w-72">
+            <DropdownMenuGroup>
+              <DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start">
+                <Globe className="mt-0.5" />
+                <div className="flex min-w-0 flex-col">
+                  <span>{isPrivate ? t('threadAccess.makePublic') : t('threadAccess.public')}</span>
+                  <span className="text-xs text-muted-foreground">{t('threadAccess.publicHint')}</span>
+                </div>
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => change('private')} disabled={isPrivate} className="items-start">
+                <Lock className="mt-0.5" />
+                <div className="flex min-w-0 flex-col">
+                  <span>{isPrivate ? t('threadAccess.private') : t('threadAccess.makePrivate')}</span>
+                  <span className="text-xs text-muted-foreground">{t('threadAccess.privateHint')}</span>
+                </div>
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       ) : trigger)}
@@ -171,16 +174,16 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
       )}
 
       {canJoin && (
-        <button
-          type="button"
+        <Button
+          variant="outline"
+          size="xs"
           onClick={join}
           disabled={joining}
           title={t('threadAccess.notJoinedHint')}
-          className="inline-flex shrink-0 items-center gap-1 rounded border border-border bg-background px-1.5 py-0.5 text-foreground transition-colors hover:bg-muted disabled:opacity-60"
         >
-          {joining ? <Spinner className="size-3" /> : <LogIn className="size-3" />}
+          {joining ? <Spinner data-icon="inline-start" /> : <LogIn data-icon="inline-start" />}
           {joining ? t('threadAccess.joining') : t('threadAccess.join')}
-        </button>
+        </Button>
       )}
     </div>
   );

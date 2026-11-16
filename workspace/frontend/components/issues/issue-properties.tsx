@@ -8,7 +8,10 @@ import { useT } from '@/lib/i18n';
 import type { IssueDetail, TeamMember } from '@/lib/types';
 import { IssueLabel } from './issue-label';
 import { IssueDueDate } from './issue-due-date';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -68,7 +71,7 @@ export function IssueProperties({ issue, busy, update }: {
         <PopoverTrigger asChild>
           <button type="button" disabled={busy || !canAssign} aria-labelledby={`issue-assignee-${issue.id}`} className="group flex min-h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-transparent px-1.5 py-1 text-left transition-colors enabled:hover:border-border enabled:hover:bg-muted/40 disabled:cursor-default">
             <AssigneeAvatar id={issue.assignee || ''} />
-            <span className={`min-w-0 flex-1 truncate text-xs font-medium ${issue.assignee ? '' : 'text-muted-foreground'}`}>{selectedName}</span>
+            <span className={cn('min-w-0 flex-1 truncate text-xs font-medium', !issue.assignee && 'text-muted-foreground')}>{selectedName}</span>
             {canAssign && <ChevronDown className="size-3.5 shrink-0 text-muted-foreground/60 group-hover:text-foreground" />}
           </button>
         </PopoverTrigger>
@@ -93,12 +96,13 @@ export function IssueProperties({ issue, busy, update }: {
     <section className="flex min-w-0 flex-wrap items-center gap-2">
       <div className="flex shrink-0 items-center gap-1">
         <h3 className="shrink-0 text-xs font-medium text-muted-foreground">{t('issues.labels')}</h3>
-        <button type="button" disabled={busy || labels.length >= 20} onClick={() => setAddingLabel(!addingLabel)} aria-label={t('issues.addLabel')} aria-expanded={addingLabel} className="rounded p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:opacity-40"><Plus className="size-3.5" /></button>
+        <Button variant="ghost" size="icon-xs" disabled={busy || labels.length >= 20} onClick={() => setAddingLabel(!addingLabel)} aria-label={t('issues.addLabel')} aria-expanded={addingLabel} className="text-muted-foreground"><Plus /></Button>
       </div>
       {labels.length ? <div className="flex min-w-0 flex-wrap gap-1.5">{labels.map(value => <IssueLabel key={value} label={value} disabled={busy} onRemove={() => update({ labels: labels.filter(item => item !== value) })} />)}</div>
-        : !addingLabel && <button type="button" disabled={busy} onClick={() => setAddingLabel(true)} className="flex items-center gap-2 rounded-md px-1.5 py-1 text-xs text-muted-foreground hover:text-foreground"><Tag className="size-3.5" />{t('issues.addLabel')}</button>}
+        : !addingLabel && <Button variant="ghost" size="xs" disabled={busy} onClick={() => setAddingLabel(true)} className="text-muted-foreground"><Tag data-icon="inline-start" />{t('issues.addLabel')}</Button>}
       {addingLabel && <form className="relative min-w-0 flex-1" onSubmit={event => { event.preventDefault(); addLabel(label); }}>
-        <Input autoFocus id={`issue-label-${issue.id}`} aria-label={t('issues.addLabel')} className="h-9 min-w-0 pr-9 text-xs" maxLength={40} disabled={busy || labels.length >= 20} placeholder={t('issues.labelName')} value={label} role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`issue-label-options-${issue.id}`} aria-activedescendant={activeLabel >= 0 && suggestions[activeLabel] ? `issue-label-option-${issue.id}-${activeLabel}` : undefined}
+        <InputGroup className="h-9">
+        <InputGroupInput autoFocus id={`issue-label-${issue.id}`} aria-label={t('issues.addLabel')} className="min-w-0 text-xs" maxLength={40} disabled={busy || labels.length >= 20} placeholder={t('issues.labelName')} value={label} role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`issue-label-options-${issue.id}`} aria-activedescendant={activeLabel >= 0 && suggestions[activeLabel] ? `issue-label-option-${issue.id}-${activeLabel}` : undefined}
           onChange={event => { setLabel(event.target.value); setActiveLabel(-1); }}
           onKeyDown={event => {
             if (event.nativeEvent.isComposing) return;
@@ -109,9 +113,12 @@ export function IssueProperties({ issue, busy, update }: {
             }
             if (event.key === 'Enter' && activeLabel >= 0 && suggestions[activeLabel]) { event.preventDefault(); addLabel(suggestions[activeLabel]); }
           }} />
-        <button type="submit" aria-label={t('issues.addLabel')} disabled={busy || !validLabel || labels.length >= 20} className="absolute right-1 top-1 rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-30"><Check className="size-4" /></button>
+        <InputGroupAddon align="inline-end">
+          <InputGroupButton type="submit" size="icon-xs" aria-label={t('issues.addLabel')} disabled={busy || !validLabel || labels.length >= 20}><Check /></InputGroupButton>
+        </InputGroupAddon>
+        </InputGroup>
         {suggestions.length > 0 && <div id={`issue-label-options-${issue.id}`} role="listbox" aria-label={t('issues.labels')} className="mt-1 max-h-60 overflow-auto rounded-md border bg-popover p-1 shadow-sm">
-          {suggestions.map((value, index) => <button type="button" role="option" aria-selected={index === activeLabel} id={`issue-label-option-${issue.id}-${index}`} key={value} tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => addLabel(value)} disabled={busy} className={`flex w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted ${index === activeLabel ? 'bg-muted' : ''}`}><IssueLabel label={value} /></button>)}
+          {suggestions.map((value, index) => <button type="button" role="option" aria-selected={index === activeLabel} id={`issue-label-option-${issue.id}-${index}`} key={value} tabIndex={-1} onMouseDown={event => event.preventDefault()} onClick={() => addLabel(value)} disabled={busy} className={cn('flex w-full rounded px-2 py-1.5 text-left text-xs hover:bg-muted', index === activeLabel && 'bg-muted')}><IssueLabel label={value} /></button>)}
         </div>}
       </form>}
     </section>

@@ -18,7 +18,7 @@ export function HumanProfile({ email, onClose }: { email: string | null; onClose
       <DialogBody className="flex flex-col gap-3 text-sm">
         <p className="break-all text-muted-foreground">{email}</p>
         {person && <p>{roleLabel(t, person.role)}</p>}
-        {online && <p className="flex items-center gap-2"><span className="size-2 rounded-full bg-success" />{t('nav.memberOnline')}</p>}
+        {online && <p className="flex items-center gap-2"><span aria-hidden="true" className="size-2 rounded-full bg-success" />{t('nav.memberOnline')}</p>}
       </DialogBody>
     </DialogContent>
   </Dialog>;

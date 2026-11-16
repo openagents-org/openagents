@@ -55,8 +55,8 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
   }
 
   return <>
-    <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 px-2 text-xs" onClick={() => { setPicks([]); setOpen(true); }}>
-      <UserPlus className="size-3.5" />{t('threadAccess.addParticipants')}
+    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => { setPicks([]); setOpen(true); }}>
+      <UserPlus data-icon="inline-start" />{t('threadAccess.addParticipants')}
     </Button>
     <Dialog open={open} onOpenChange={(value) => { if (!saving) setOpen(value); }}>
       <DialogContent className="sm:max-w-xl">
@@ -73,7 +73,7 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
         <DialogFooter>
           <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button disabled={!options || !selected.length || saving} onClick={add}>
-            {saving ? <Spinner /> : <UserPlus className="size-4" />}
+            {saving ? <Spinner data-icon="inline-start" /> : <UserPlus data-icon="inline-start" />}
             {t('issues.addParticipantsButton')}
           </Button>
         </DialogFooter>

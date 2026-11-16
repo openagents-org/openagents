@@ -8,7 +8,8 @@ import { useT } from '@/lib/i18n';
 import type { IssueBoard } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
-import { DropdownMenuGroup, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Button } from '@/components/ui/button';
+import { DropdownMenuGroup, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { errorMessage } from './issue-ui';
 import { issueBoardPath, requestedIssueBoard, withIssueBoard } from '@/lib/issue-board-link';
 import { requestedResource } from '@/lib/resource-link';
@@ -150,25 +151,30 @@ export function IssueBoardTabs({ boards, boardId, workspaceId, onSelect, onChang
             {selected && (
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <button type="button" aria-label={t('issues.boardActions', { name: board.name })} className="mr-1 rounded p-0.5 text-muted-foreground hover:bg-background hover:text-foreground">
-                    <MoreHorizontal className="size-3.5" />
-                  </button>
+                  <Button variant="ghost" size="icon-xs" aria-label={t('issues.boardActions', { name: board.name })} className="mr-0.5 text-muted-foreground hover:bg-background">
+                    <MoreHorizontal />
+                  </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start" className="w-44">
-                  <DropdownMenuGroup><DropdownMenuItem onClick={() => void copyLink(board.id)}><Link2 className="size-4" /><span>{t('issues.copyBoardLink')}</span></DropdownMenuItem>
+                  <DropdownMenuGroup>
+                    <DropdownMenuItem onClick={() => void copyLink(board.id)}><Link2 /><span>{t('issues.copyBoardLink')}</span></DropdownMenuItem>
+                    {board.can_manage && <DropdownMenuItem onClick={() => void rename(board)}><Pencil /><span>{t('issues.renameBoard')}</span></DropdownMenuItem>}
+                  </DropdownMenuGroup>
                   {board.can_manage && <>
-                    <DropdownMenuItem onClick={() => void rename(board)}><Pencil className="size-4" /><span>{t('issues.renameBoard')}</span></DropdownMenuItem>
-                    <DropdownMenuItem className="text-destructive focus:text-destructive" onClick={() => void remove(board)}><Trash2 className="size-4" /><span>{t('issues.deleteBoard')}</span></DropdownMenuItem>
-                  </>}</DropdownMenuGroup>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuGroup>
+                      <DropdownMenuItem variant="destructive" onClick={() => void remove(board)}><Trash2 /><span>{t('issues.deleteBoard')}</span></DropdownMenuItem>
+                    </DropdownMenuGroup>
+                  </>}
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
           </div>
         );
       })}
-      <button type="button" onClick={() => void create()} className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted/60 hover:text-foreground">
-        <Plus className="size-3.5" />{t('issues.newBoard')}
-      </button>
+      <Button variant="ghost" size="xs" onClick={() => void create()} className="shrink-0 text-muted-foreground">
+        <Plus data-icon="inline-start" />{t('issues.newBoard')}
+      </Button>
     </div>
   );
 }

@@ -64,17 +64,17 @@ export function DesktopNotificationPrompt() {
     <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2 text-xs">
       <BellRing className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="min-w-0 flex-1 text-foreground/80">{t('slackSignals.promptText')}</span>
-      <Button size="sm" variant="outline" className="h-6 shrink-0 px-2 text-xs" onClick={enable}>
+      <Button size="xs" variant="outline" className="shrink-0" onClick={enable}>
         {t('slackSignals.promptEnable')}
       </Button>
       <Button
         variant="ghost"
-        size="icon-sm"
-        className="size-6 shrink-0 text-muted-foreground"
+        size="icon-xs"
+        className="shrink-0 text-muted-foreground"
         aria-label={t('slackSignals.promptDismiss')}
         onClick={dismiss}
       >
-        <X className="size-3" />
+        <X />
       </Button>
     </div>
   );

@@ -15,9 +15,11 @@ import {
 } from '@/components/ui/responsive-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { cn } from '@/lib/utils';
-import { History, Lock, Globe } from 'lucide-react';
+import { AlertCircle, History, Lock, Globe } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from '@/components/ui/field';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import type { TeamMember, WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { ParticipantPicker, type ParticipantOption } from './participant-picker';
 import type { ThreadVisibility } from '@/lib/access-ui';
@@ -163,8 +165,8 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
 
           {/* Optional: named up front, the thread keeps this title; left blank,
               it is still titled from its first message as before. */}
-          <div className="flex flex-col gap-1.5 pt-1">
-            <label htmlFor="new-thread-title" className="block px-1 text-xs font-medium text-muted-foreground">{t('newThread.titleLabel')}</label>
+          <Field className="pt-1">
+            <FieldLabel htmlFor="new-thread-title">{t('newThread.titleLabel')}</FieldLabel>
             <Input
               id="new-thread-title"
               value={title}
@@ -179,17 +181,17 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
                 }
               }}
             />
-          </div>
+          </Field>
 
           {/* Resume from past session — show when there are resumable sessions */}
           {hasClaudeAgent && resumableSessions.length > 0 && (
-            <div className="pt-1">
-              <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground mb-1.5">
-                <History className="size-3" />
+            <Field className="pt-1">
+              <FieldLabel htmlFor="new-thread-resume">
+                <History className="size-3.5" />
                 {t('newThread.resumeLabel')}
-              </label>
+              </FieldLabel>
               <Select value={resumeFrom} onValueChange={setResumeFrom}>
-                <SelectTrigger className="w-full h-8.5">
+                <SelectTrigger id="new-thread-resume" className="w-full">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -203,53 +205,50 @@ export function NewThreadDialog({ open, onOpenChange, agents, sessions, teammate
                   </SelectGroup>
                 </SelectContent>
               </Select>
-            </div>
+            </Field>
           )}
 
           {/* v1.1 permission model: who can see the thread. Private by default;
               Public = everyone in the workspace can see and join. */}
-          <div className="flex flex-col gap-1.5 pt-1">
-            <p className="px-1 text-xs font-medium text-muted-foreground">{t('threadAccess.newThreadVisibility')}</p>
-            <div className="grid gap-1.5 sm:grid-cols-2" role="radiogroup">
-              {(['private', 'public'] as const).map((v) => {
-                const active = visibility === v;
-                return (
-                  <button
-                    key={v}
-                    type="button"
-                    role="radio"
-                    aria-checked={active}
-                    onClick={() => setVisibility(v)}
-                    className={cn(
-                      'flex items-start gap-2.5 rounded-md border px-3 py-2.5 text-left transition-colors',
-                      active ? 'border-border bg-muted/50' : 'border-transparent opacity-70 hover:opacity-100 hover:bg-muted/40',
-                    )}
-                  >
-                    {v === 'private'
-                      ? <Lock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />
-                      : <Globe className="mt-0.5 size-3.5 shrink-0 text-muted-foreground" />}
-                    <span className="min-w-0">
-                      <span className="block text-sm font-medium">
+          <FieldSet className="gap-0 pt-1">
+            <FieldLegend variant="label">{t('threadAccess.newThreadVisibility')}</FieldLegend>
+            {/* Choice cards: the whole card picks the radio inside it. */}
+            <RadioGroup value={visibility} onValueChange={(v) => setVisibility(v as ThreadVisibility)}
+              className="grid gap-1.5 sm:grid-cols-2">
+              {(['private', 'public'] as const).map((v) => (
+                <FieldLabel key={v} htmlFor={`new-thread-visibility-${v}`}>
+                  <Field orientation="horizontal">
+                    <RadioGroupItem value={v} id={`new-thread-visibility-${v}`} />
+                    <FieldContent>
+                      <FieldTitle>
+                        {v === 'private' ? <Lock className="size-3.5 text-muted-foreground" /> : <Globe className="size-3.5 text-muted-foreground" />}
                         {v === 'private' ? t('threadAccess.private') : t('threadAccess.public')}
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
+                      </FieldTitle>
+                      <FieldDescription>
                         {v === 'private' ? t('threadAccess.newThreadPrivateHint') : t('threadAccess.newThreadPublicHint')}
-                      </span>
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+                      </FieldDescription>
+                    </FieldContent>
+                  </Field>
+                </FieldLabel>
+              ))}
+            </RadioGroup>
+          </FieldSet>
           {/* A channel is a long-running thread, pinned under the Channels tab. */}
-          <label className="flex items-center justify-between gap-4 rounded-md border px-3 py-2.5">
-            <span className="min-w-0">
-              <span className="block text-sm font-medium">{t('newThread.asChannel')}</span>
-              <span className="block text-xs text-muted-foreground">{t('newThread.asChannelHint')}</span>
-            </span>
-            <Switch checked={asChannel} disabled={creating} onCheckedChange={setAsChannel} />
-          </label>
-          {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+          <FieldLabel htmlFor="new-thread-as-channel">
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldTitle>{t('newThread.asChannel')}</FieldTitle>
+                <FieldDescription>{t('newThread.asChannelHint')}</FieldDescription>
+              </FieldContent>
+              <Switch id="new-thread-as-channel" checked={asChannel} disabled={creating} onCheckedChange={setAsChannel} />
+            </Field>
+          </FieldLabel>
+          {error && (
+            <Alert variant="destructive">
+              <AlertCircle />
+              <AlertDescription>{error}</AlertDescription>
+            </Alert>
+          )}
         </DialogBody>
 
         <DialogFooter>

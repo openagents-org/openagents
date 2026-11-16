@@ -2,48 +2,26 @@
 
 import { useLayout } from '@/components/layout/layout-context';
 import { issueLinkId, requestedResource, resourcePath } from '@/lib/resource-link';
-import { IssueLabel } from './issue-label';
-import { useCallback, useEffect, useRef, useState } from 'react';
-import {
-  CircleDot,
-  Check,
-  LayoutList,
-  KanbanSquare,
-  Link2,
-  MessageSquare,
-  Plus,
-  Search,
-  Trash2,
-} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import { unreadIssueCounts } from '@/lib/signals';
 import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
-import { agentLabel } from '@/lib/helpers';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
 import type { IssueStatus, WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { DetailHeader } from '@/components/layout/app-header';
 import { IssueEditor } from './issue-editor';
-import { IssueAssigneeFilter } from './issue-assignee-filter';
 import { IssueDiscussion } from './issue-discussion';
 import { IssueBoardTabs, useIssueBoards } from './issue-boards';
-import {
-  ErrorNotice,
-  StatusIcon,
-  IssueAvatar,
-  IssueSkeleton,
-  errorMessage,
-  authorName,
-  statuses,
-  statusKeys,
-  useConfirmIssueDelete,
-  useIssueTime,
-} from './issue-ui';
+import { IssueRow } from './issue-row';
+import { IssueBoardColumns, IssuesEmpty } from './issue-list-states';
+import { IssuesToolbar, type IssueStatusFilter, type IssueViewMode } from './issues-toolbar';
+import { useIssueList } from './use-issue-list';
+import { ErrorNotice, IssueSkeleton, errorMessage, useConfirmIssueDelete } from './issue-ui';
 
 export function IssuesView() {
   const { workspace } = useWorkspace();
@@ -52,22 +30,20 @@ export function IssuesView() {
 }
 
 function IssueWorkspace() {
-  const { tasks = [], agents = [], activeSessionIds, completedSessionIds, unreadSignals, workspace } = useWorkspace();
+  const { unreadSignals, workspace } = useWorkspace();
   const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
   const { pendingIssueId, setPendingIssueId } = useLayout();
   const t = useT();
-  const issueTime = useIssueTime();
   const confirmDelete = useConfirmIssueDelete();
-  const [issues, setIssues] = useState<WorkspaceIssue[]>([]);
   const [selected, setSelected] = useState<string | null>(() =>
     typeof window === 'undefined'
       ? null
       : (requestedResource(window.location.href)?.view === 'issues' ? requestedResource(window.location.href)?.id ?? null : null),
   );
   const selectedRef = useRef(selected);
-  const issuesRef = useRef(issues);
-  issuesRef.current = issues;
+  // Filled from the list hook below; read by callbacks, not during render.
+  const issuesRef = useRef<WorkspaceIssue[]>([]);
   const boardIdRef = useRef(boardId);
   boardIdRef.current = boardId;
   const writeIssueUrl = (linkId: string | null, nextBoardId: string) => {
@@ -110,21 +86,16 @@ function IssueWorkspace() {
   }, [pendingIssueId, setPendingIssueId]);
   useEffect(() => { if (!pendingIssueId) selectIssue(selected); }, []); // Normalize legacy issue links.
   const [createOpen, setCreateOpen] = useState(false);
-  const [view, setView] = useState<'list' | 'board'>('list');
+  const [view, setView] = useState<IssueViewMode>('list');
   const board = view === 'board';
   const split = view === 'list' && selected !== null;
-  const [status, setStatus] = useState<IssueStatus | 'all' | 'mine'>('all');
+  const [status, setStatus] = useState<IssueStatusFilter>('all');
   const activeOnly = status === 'all' || status === 'mine';
   const boardStatuses: IssueStatus[] = activeOnly ? ['open', 'in_progress'] : [status as IssueStatus];
   const [query, setQuery] = useState('');
   const [assignee, setAssignee] = useState('');
-  const [error, setError] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [revision, setRevision] = useState(0);
-  const [pages, setPages] = useState(1);
-  const requestVersion = useRef(0);
-  const reload = useCallback(() => setRevision((v) => v + 1), []);
+  const { issues, setIssues, error, loading, nextOffset, setPages, reload, resetList, invalidate } = useIssueList({ status, query, assignee, boardId });
+  issuesRef.current = issues;
   const [deleting, setDeleting] = useState<string | null>(null);
   const [copiedIssue, setCopiedIssue] = useState<string | null>(null);
   const copyIssueLink = async (issue: WorkspaceIssue) => {
@@ -142,7 +113,7 @@ function IssueWorkspace() {
     try {
       await workspaceApi.deleteIssue(issue.id);
       // Drop a poll in flight: it may still list the issue.
-      ++requestVersion.current;
+      invalidate();
       setIssues((current) => current.filter((i) => i.id !== issue.id));
       if (selectedRef.current === issue.id) selectIssue(null);
       reload();
@@ -153,200 +124,20 @@ function IssueWorkspace() {
     }
   };
 
-  // <Activity> re-runs this when Issues is shown again with the same filters:
-  // refresh in the background instead of flipping back into a loading state.
-  const loadedFor = useRef<string | null>(null);
-  useEffect(() => {
-    let active = true;
-    const loadKey = JSON.stringify([status, activeOnly, query, assignee, revision, pages, boardId]);
-    if (loadedFor.current !== loadKey) setLoading(true);
-    const load = async () => {
-      const version = ++requestVersion.current;
-      try {
-        const batches = await Promise.all(
-          Array.from({ length: pages }, (_, page) =>
-            workspaceApi.listIssues({
-              status: status === 'all' || status === 'mine' ? undefined : status,
-              assignedToMe: status === 'mine',
-              assignee: assignee || undefined,
-              activeOnly,
-              query,
-              board: boardId,
-              offset: page * 100,
-            }),
-          ),
-        );
-        const result = {
-          issues: Array.from(
-            new Map(
-              batches
-                .flatMap((batch) => batch.issues)
-                .map((issue) => [issue.id, issue]),
-            ).values(),
-          ),
-          next_offset: batches.at(-1)!.next_offset,
-        };
-        if (!active || version !== requestVersion.current) return;
-        setIssues(result.issues);
-        setNextOffset(result.next_offset);
-        setError('');
-        loadedFor.current = loadKey;
-      } catch (e) {
-        if (active && version === requestVersion.current)
-          setError(errorMessage(e));
-      } finally {
-        if (active && version === requestVersion.current) setLoading(false);
-      }
-    };
-    const debounce = setTimeout(load, 200);
-    const interval = setInterval(load, 15000);
-    return () => {
-      active = false;
-      clearTimeout(debounce);
-      clearInterval(interval);
-    };
-  }, [status, activeOnly, query, assignee, revision, pages, boardId]);
-
-  const preview = (description: string) =>
-    description
-      .split(/\n\s*\n/)[0]
-      .replace(/[#*_`>]/g, '')
-      .trim();
-  const row = (issue: WorkspaceIssue, asCard = false) => {
-    const workingAgents = agents.filter(agent => agent.status === 'online' && agent.busyChannels?.some(id => issue.linked_channels?.includes(id)));
-    const working = workingAgents.length > 0 || issue.linked_channels?.some(id => activeSessionIds?.has(id));
-    const isSelected = split && selected === issue.id;
-    const finished = !working && issue.linked_channels?.some(id => completedSessionIds?.has(id));
-    const time = (
-      <time
-        dateTime={issue.updated_at}
-        title={t('issues.timestamps', { opened: issueTime.exact(issue.created_at), updated: issueTime.exact(issue.updated_at) })}
-      >
-        {issueTime.label(issue.updated_at)}
-      </time>
-    );
-    // Row actions sit beside the issue button: buttons cannot nest.
-    return <div key={issue.id} className="relative">
-    <button
-      aria-label={`${issue.title} · ${t(statusKeys[issue.status])}`}
-      aria-current={split && selected === issue.id ? true : undefined}
-      onClick={() => selectIssue(issue.id)}
-      className={cn(
-        'group w-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-        asCard
-          ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
-          : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
-        isSelected && 'relative bg-info/10 hover:bg-info/10 ring-1 ring-inset ring-info/30 before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-info',
-        working && !isSelected && 'thread-wip',
-        finished && !isSelected && 'bg-warning/10 ring-1 ring-inset ring-warning/30 motion-safe:animate-[glow_2s_ease-in-out_infinite]',
-      )}
-    >
-      <StatusIcon
-        status={issue.status}
-        className={cn('mt-0.5', asCard && 'hidden')}
-      />
-      <div className="min-w-0 flex-1">
-        <div
-          className={cn('flex gap-4', asCard ? 'items-start' : 'items-center')}
-        >
-          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          {issue.number != null && <span className="shrink-0 text-xs tabular-nums text-muted-foreground">#{issue.number}</span>}
-          <span
-            className={cn(
-              'min-w-0 text-sm font-medium leading-5 text-foreground',
-              asCard ? 'line-clamp-3' : 'truncate',
-            )}
-          >
-            {issue.title}
-          </span>
-          {!!unreadByIssue[issue.id] && <span aria-label={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} title={t('issues.unreadUpdates', { count: unreadByIssue[issue.id] })} className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium tabular-nums text-white">{unreadByIssue[issue.id] > 99 ? '99+' : unreadByIssue[issue.id]}</span>}
-          {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
-          </div>
-          {!asCard && (
-            <span className="hidden shrink-0 text-xs text-muted-foreground sm:block">
-              {time}
-            </span>
-          )}
-        </div>
-        {tasks.some(task => task.issueId === issue.id && task.status === 'need_input') && <span className="mt-1 inline-block rounded bg-rose-500/10 px-2 py-0.5 text-xs text-rose-600 dark:text-rose-400">{t('tasks.needsInput')}</span>}
-        {(working || finished) && <span role="status" className="mt-1 inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-          {working ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span> : <Check aria-hidden="true" className="size-3 text-warning" />}
-          {workingAgents.length > 0 && <span className="inline-flex items-center -space-x-1" aria-hidden="true">{workingAgents.map(agent => <AgentAvatar key={agent.agentName} name={agent.agentName} size={16} />)}</span>}
-          {workingAgents.length ? t('issueWork.working', { agents: workingAgents.map(agentLabel).join(', ') }) : t(working ? 'chat.agentWorking' : 'issueWork.finished')}
-        </span>}
-        {issue.description && (
-          <p
-            className={cn(
-              'mt-1 text-xs leading-5 text-muted-foreground',
-              asCard ? 'line-clamp-2' : 'truncate',
-            )}
-          >
-            {preview(issue.description)}
-          </p>
-        )}
-        <div
-          className={cn(
-            'flex flex-wrap items-center gap-x-2 gap-y-1.5 text-xs text-muted-foreground',
-            asCard ? 'mt-4' : 'mt-2',
-            'pr-14',
-          )}
-        >
-          <IssueAvatar
-            name={issue.created_by_name || authorName(issue.created_by)}
-            source={issue.created_by}
-            size={18}
-          />
-          <span className="truncate">
-            {issue.created_by_name || authorName(issue.created_by)}
-          </span>
-          {issue.assignee && <span className="ml-2 inline-flex min-w-0 items-center gap-1.5" title={t('issues.assignee')}>
-            <IssueAvatar name={issue.assignee_name || authorName(issue.assignee)} source={issue.assignee} size={18} />
-            <span className="truncate">{t('issues.assignee')}: {issue.assignee_name || authorName(issue.assignee)}</span>
-          </span>}
-          {asCard && (
-            <span className="ml-auto shrink-0">
-              {time}
-            </span>
-          )}
-          {!!issue.comment_count && (
-            <span
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1',
-                !asCard && 'ml-2',
-              )}
-            >
-              <MessageSquare className="size-3" />
-              {issue.comment_count}
-            </span>
-          )}
-        </div>
-      </div>
-    </button>
-    <div className={cn('absolute bottom-[13px] flex items-center gap-1', asCard ? 'right-3' : 'right-4 sm:right-7')}>
-      <button
-        type="button"
-        aria-label={t('issues.copyIssueLink', { title: issue.title })}
-        title={t('issues.copyLink')}
-        onClick={() => void copyIssueLink(issue)}
-        className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        {copiedIssue === issue.id ? <Check className="size-3.5" /> : <Link2 className="size-3.5" />}
-      </button>
-    {issue.can_delete && (
-      <button
-        type="button"
-        aria-label={t('issues.deleteIssue', { title: issue.title })}
-        title={t('common.delete')}
-        disabled={deleting === issue.id}
-        onClick={() => removeIssue(issue)}
-        className="flex size-6 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
-      >
-        <Trash2 className="size-3.5" />
-      </button>
-    )}
-    </div>
-    </div>;
-  };
+  const row = (issue: WorkspaceIssue, asCard = false) => (
+    <IssueRow
+      key={issue.id}
+      issue={issue}
+      asCard={asCard}
+      isSelected={split && selected === issue.id}
+      unread={unreadByIssue[issue.id] || 0}
+      copied={copiedIssue === issue.id}
+      deleting={deleting === issue.id}
+      onSelect={() => selectIssue(issue.id)}
+      onCopyLink={() => void copyIssueLink(issue)}
+      onDelete={() => void removeIssue(issue)}
+    />
+  );
 
   if (selected && !split)
     return (
@@ -367,8 +158,8 @@ function IssueWorkspace() {
         titleInHeader
         title={<h1 className="truncate text-sm font-semibold">{t('views.issues')}</h1>}
       >
-        <Button size="sm" className="shrink-0 gap-1.5 font-semibold" onClick={() => setCreateOpen(true)}>
-          <Plus className="size-4" />
+        <Button size="sm" className="shrink-0" onClick={() => setCreateOpen(true)}>
+          <Plus data-icon="inline-start" />
           {t('issues.newIssue')}
         </Button>
       </DetailHeader>
@@ -381,102 +172,29 @@ function IssueWorkspace() {
             onSelect={(id) => {
               if (id === boardId) return;
               setBoardId(id);
-              setIssues([]);
-              setNextOffset(null);
-              setPages(1);
+              resetList();
               selectIssue(null, id);
             }}
             onChanged={(selectId) => {
               void reloadBoards();
-              if (selectId && selectId !== boardId) { setBoardId(selectId); setIssues([]); setPages(1); selectIssue(null, selectId); }
+              if (selectId && selectId !== boardId) { setBoardId(selectId); resetList(); selectIssue(null, selectId); }
               reload();
             }}
           />
         </div>
-        <div
-          className="flex items-center gap-5 overflow-x-auto"
-          role="group"
-          aria-label={t('issues.status')}
-        >
-          {(['all', 'mine', ...statuses] as const).map((value) => (
-            <button
-              key={value}
-              aria-pressed={status === value}
-              onClick={() => {
-                if (value === status) return;
-                setStatus(value);
-                setIssues([]);
-                setNextOffset(null);
-                setPages(1);
-              }}
-              className={cn(
-                'relative shrink-0 whitespace-nowrap pb-3 pt-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                status === value
-                  ? 'font-medium text-foreground after:absolute after:inset-x-0 after:bottom-0 after:h-0.5 after:rounded-t after:bg-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {value === 'all' ? t('issues.activeIssues') : value === 'mine' ? t('issues.assignedToMe') : t(statusKeys[value])}
-            </button>
-          ))}
-        </div>
-        <div className="mb-3 ml-auto flex min-w-0 flex-1 items-center justify-end gap-3 sm:flex-none">
-          <IssueAssigneeFilter
-            value={assignee}
-            onChange={(next) => {
-              if (next === assignee) return;
-              setAssignee(next);
-              setIssues([]);
-              setNextOffset(null);
-              setPages(1);
-            }}
-          />
-          <div className="relative w-full sm:w-48">
-            <Search className="pointer-events-none absolute left-2.5 top-2 size-3.5 text-muted-foreground" />
-            <Input
-              className="h-7 border-transparent bg-muted/40 pl-8 text-xs shadow-none focus:border-input"
-              aria-label={t('issues.search')}
-              placeholder={t('issues.search')}
-              value={query}
-              maxLength={240}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPages(1);
-              }}
-            />
-          </div>
-          <div className="flex shrink-0 gap-0.5 rounded-md border border-border/60 bg-muted/30 p-0.5">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-6 rounded-sm [&_svg]:size-3.5',
-                view === 'list' && 'bg-background shadow-xs',
-              )}
-              aria-label={t('issues.list')}
-              aria-pressed={view === 'list'}
-              onClick={() => { setView('list'); selectIssue(null); }}
-            >
-              <LayoutList />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={cn(
-                'size-6 rounded-sm [&_svg]:size-3.5',
-                board && 'bg-background shadow-xs',
-              )}
-              aria-label={t('issues.board')}
-              aria-pressed={board}
-              onClick={() => { setView('board'); selectIssue(null); }}
-            >
-              <KanbanSquare />
-            </Button>
-          </div>
-        </div>
+        <IssuesToolbar
+          status={status}
+          onStatus={(next) => { if (next === status) return; setStatus(next); resetList(); }}
+          assignee={assignee}
+          onAssignee={(next) => { if (next === assignee) return; setAssignee(next); resetList(); }}
+          query={query}
+          onQuery={(next) => { setQuery(next); setPages(1); }}
+          view={view}
+          onView={(next) => { setView(next); selectIssue(null); }}
+        />
       </div>
       <div className="flex min-h-0 flex-1">
-      <div className={cn('min-h-0 min-w-0 flex-1 overflow-auto', split && '@[800px]/issues:w-[36%] @[800px]/issues:max-w-[420px] @[800px]/issues:flex-none @[800px]/issues:border-r', split && selected && 'hidden @[800px]/issues:block')} aria-label={t('issues.list')} aria-busy={loading}>
+      <div className={cn('min-h-0 min-w-0 flex-1 overflow-auto', split && '@3xl/issues:w-[36%] @3xl/issues:max-w-105 @3xl/issues:flex-none @3xl/issues:border-r', split && selected && 'hidden @3xl/issues:block')} aria-label={t('issues.list')} aria-busy={loading}>
         {error && (
           <div className="px-5 pt-5 sm:px-8">
             <ErrorNotice message={error} retry={reload} />
@@ -488,65 +206,9 @@ function IssueWorkspace() {
             <IssueSkeleton />
           </>
         ) : error && issues.length === 0 ? null : issues.length === 0 ? (
-          <div className="mx-auto flex max-w-sm flex-col items-center px-6 py-24 text-center">
-            <div className="mb-5 flex size-12 items-center justify-center rounded-xl border border-border/70 bg-muted/30">
-              <CircleDot
-                className="size-5 text-muted-foreground"
-                strokeWidth={1.5}
-              />
-            </div>
-            <h2 className="text-sm font-medium">
-              {t(
-                query || assignee || status !== 'all'
-                  ? 'issues.noMatches'
-                  : 'issues.emptyTitle',
-              )}
-            </h2>
-            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t(
-                query || assignee || status !== 'all'
-                  ? 'issues.noMatchesHint'
-                  : 'issues.emptyDescription',
-              )}
-            </p>
-            {!query && !assignee && status === 'all' && (
-              <Button
-                className="mt-6"
-                variant="outline"
-                size="sm"
-                onClick={() => setCreateOpen(true)}
-              >
-                <Plus />
-                {t('issues.newIssue')}
-              </Button>
-            )}
-          </div>
+          <IssuesEmpty filtered={!!(query || assignee || status !== 'all')} onCreate={() => setCreateOpen(true)} />
         ) : board ? (
-          <div className={cn("grid min-h-full grid-cols-1 gap-6 bg-muted/15 p-5 sm:px-8 sm:py-6", boardStatuses.length > 1 && "sm:grid-cols-2")}>
-            {boardStatuses.map((value) => (
-              <section key={value} className="min-w-0">
-                <div className="mb-4 flex items-center gap-2.5 px-1">
-                  <StatusIcon status={value} />
-                  <h2 className="text-xs font-medium">
-                    {t(statusKeys[value])}
-                  </h2>
-                  <span className="text-xs tabular-nums text-muted-foreground">
-                    {issues.filter((issue) => issue.status === value).length}
-                  </span>
-                </div>
-                <div className="flex flex-col gap-3">
-                  {issues
-                    .filter((issue) => issue.status === value)
-                    .map((issue) => row(issue, true))}
-                  {!issues.some((issue) => issue.status === value) && (
-                    <p className="rounded-lg border border-dashed border-border/60 px-4 py-8 text-center text-xs text-muted-foreground">
-                      {t('issues.emptyColumn')}
-                    </p>
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
+          <IssueBoardColumns statuses={boardStatuses} issues={issues} card={(issue) => row(issue, true)} />
         ) : (
           <div className="divide-y divide-border/60">
             {issues.map((issue) => row(issue))}
@@ -565,7 +227,7 @@ function IssueWorkspace() {
           </div>
         )}
       </div>
-      {split && <section aria-label={t('issues.discussion')} className={cn('min-h-0 min-w-0 flex-1', !selected && 'hidden @[800px]/issues:block')}>
+      {split && <section aria-label={t('issues.discussion')} className={cn('min-h-0 min-w-0 flex-1', !selected && 'hidden @3xl/issues:block')}>
         {selected ? <IssueDiscussion
           key={selected}
           id={selected}

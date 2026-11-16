@@ -1,11 +1,13 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { UserPlus } from 'lucide-react';
+import { AlertCircle, UserPlus } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
 import { ParticipantPicker, type ParticipantOption } from '@/components/threads/participant-picker';
 import { workspaceApi } from '@/lib/api';
@@ -99,37 +101,40 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
 
   return (
     <>
-      {!hideTrigger && <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" title={title} aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
-        <UserPlus className="size-3.5" />
+      {!hideTrigger && <Button variant="ghost" size="icon-sm" title={title} aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
+        <UserPlus />
       </Button>}
       <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>
-            <DialogTitle className="text-xl">{title}</DialogTitle>
+            <DialogTitle>{title}</DialogTitle>
             <DialogDescription>{t('threadAccess.addParticipantsHint')}</DialogDescription>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-3">
             {loadFailed ? (
-              <div className="flex flex-col gap-2 text-sm text-muted-foreground">
-                <p>{t('collab.participantsLoadFailed')}</p>
-                <Button variant="outline" onClick={() => setAttempt((n) => n + 1)}>{t('common.retry')}</Button>
-              </div>
+              <Alert variant="destructive">
+                <AlertCircle />
+                <AlertDescription>{t('collab.participantsLoadFailed')}</AlertDescription>
+                <AlertAction>
+                  <Button variant="outline" size="xs" onClick={() => setAttempt((n) => n + 1)}>{t('common.retry')}</Button>
+                </AlertAction>
+              </Alert>
             ) : !participants ? <Spinner className="text-muted-foreground" /> : !mayAdd ? (
               <p className="text-sm text-muted-foreground">{t('threadAccess.addForbidden')}</p>
             ) : (
               <ParticipantPicker options={available} value={allowedPicks} onChange={setPicks} disabled={saving} />
             )}
             {invites.map((invite) => (
-              <div key={invite.email} className="flex flex-col gap-1">
-                <p className="text-sm">{t('collab.inviteLinkReady', { email: invite.email })}</p>
-                <Input readOnly value={invite.url} onFocus={(e) => e.target.select()} />
-              </div>
+              <Field key={invite.email}>
+                <FieldLabel htmlFor={`invite-${invite.email}`}>{t('collab.inviteLinkReady', { email: invite.email })}</FieldLabel>
+                <Input id={`invite-${invite.email}`} readOnly value={invite.url} onFocus={(e) => e.target.select()} />
+              </Field>
             ))}
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
             <Button disabled={!mayAdd || !participants || loadFailed || !allowedPicks.length || saving} onClick={add}>
-              {saving ? <Spinner /> : <UserPlus className="size-4" />}
+              {saving ? <Spinner data-icon="inline-start" /> : <UserPlus data-icon="inline-start" />}
               {saving ? t('threadAccess.addingParticipants') : t('threadAccess.addParticipantsButton')}
             </Button>
           </DialogFooter>

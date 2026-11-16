@@ -1,161 +1,15 @@
 'use client';
 
-import { memo, useState } from 'react';
-import { cn } from '@/lib/utils';
-import {
-  Brain,
-  Wrench,
-  Activity,
-  Pencil,
-  Eye,
-  Terminal,
-  Search,
-  Clock,
-  Users,
-  ChevronRight,
-  RefreshCw,
-  ListTodo,
-} from 'lucide-react';
+import { memo } from 'react';
+import { Trace } from '@/components/ui/trace';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { WorkingBubble } from './working-bubble';
+import { StepItem } from './step-item';
+import { isPlaceholderThinking, parseStepContent } from './step-parsing';
+import { isTerminalStatus } from './chat-message-groups';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
-
-// ── Content Parsing ──
-
-interface ParsedStep {
-  type: 'thinking' | 'tool_call' | 'status' | 'compacting';
-  tool?: string;
-  toolDisplay?: string;
-  args?: string;
-  summary?: string;
-  text?: string;
-}
-
-function parseStepContent(content: string): ParsedStep {
-  // Thinking placeholder
-  if (content === 'thinking...' || content.toLowerCase() === 'thinking') {
-    return { type: 'thinking', text: content };
-  }
-
-  // Claude adapter: **Thinking:**\n{content}
-  const thinkingMatch = content.match(/^\*\*Thinking:\*\*\n([\s\S]+)$/);
-  if (thinkingMatch) {
-    return { type: 'thinking', text: thinkingMatch[1].trim() };
-  }
-
-  // Claude adapter: **Using tool:** `ToolName`\n```\n{args}\n```
-  const toolMatch = content.match(
-    /\*\*Using tool:\*\*\s*`([^`]+)`\s*```([\s\S]*?)```/
-  );
-  if (toolMatch) {
-    const rawTool = toolMatch[1];
-    const args = toolMatch[2].trim();
-    const toolDisplay = cleanToolName(rawTool);
-    const summary = extractToolSummary(toolDisplay, args);
-    return { type: 'tool_call', tool: rawTool, toolDisplay, args, summary };
-  }
-
-  // Codex adapter: **Running:** `command`
-  const runMatch = content.match(/\*\*Running:\*\*\s*`([^`]+)`/);
-  if (runMatch) {
-    return {
-      type: 'tool_call',
-      tool: 'Bash',
-      toolDisplay: 'Bash',
-      summary: runMatch[1],
-    };
-  }
-
-  // Codex adapter: **Editing:** `filename`
-  const editMatch = content.match(/\*\*Editing:\*\*\s*`([^`]+)`/);
-  if (editMatch) {
-    return {
-      type: 'tool_call',
-      tool: 'Edit',
-      toolDisplay: 'Edit',
-      summary: editMatch[1],
-    };
-  }
-
-  // Compaction / context management
-  if (/compact/i.test(content)) {
-    return { type: 'compacting', text: content };
-  }
-
-  // General status
-  return { type: 'status', text: content };
-}
-
-function cleanToolName(name: string): string {
-  // mcp__openagents-workspace__workspace_status → workspace_status
-  const mcpMatch = name.match(/^mcp__[^_]+__(.+)$/);
-  if (mcpMatch) return mcpMatch[1];
-  // mcp_openagents-workspace__workspace_status
-  const mcpMatch2 = name.match(/^mcp_[^_]+--.+?__(.+)$/);
-  if (mcpMatch2) return mcpMatch2[1];
-  return name;
-}
-
-function extractToolSummary(tool: string, args: string): string {
-  const fileMatch = args.match(/'file_path':\s*'([^']+)'/);
-  if (fileMatch && ['Write', 'Read', 'Edit'].includes(tool)) {
-    return fileMatch[1];
-  }
-
-  const commandMatch = args.match(/'command':\s*'([^']+)'/);
-  if (commandMatch && tool === 'Bash') {
-    return commandMatch[1].slice(0, 80);
-  }
-
-  const statusMatch = args.match(/'status':\s*'([^']+)'/);
-  if (statusMatch) return statusMatch[1];
-
-  const contentMatch = args.match(/'content':\s*'([^']{0,60})/);
-  if (contentMatch) {
-    return contentMatch[1] + (contentMatch[1].length >= 60 ? '...' : '');
-  }
-
-  const patternMatch = args.match(/'pattern':\s*'([^']+)'/);
-  if (patternMatch) return patternMatch[1];
-
-  return args.length > 60 ? args.slice(0, 60) + '...' : args;
-}
-
-// ── Icon Mapping ──
-
-const TOOL_ICONS: Record<string, typeof Wrench> = {
-  Write: Pencil,
-  Edit: Pencil,
-  Read: Eye,
-  Bash: Terminal,
-  Glob: Search,
-  Grep: Search,
-  workspace_status: Activity,
-  workspace_get_history: Clock,
-  workspace_get_agents: Users,
-};
-
-function getStepIcon(parsed: ParsedStep) {
-  if (parsed.type === 'thinking') return Brain;
-  if (parsed.type === 'compacting') return RefreshCw;
-  if (parsed.type === 'status') return Activity;
-  return TOOL_ICONS[parsed.toolDisplay || ''] || Wrench;
-}
-
-// A bare "thinking..." placeholder carries no reasoning text — the working
-// indicator already shows the agent is active, so it should not render as its
-// own sub-step. Real thinking (with content) still renders.
-function isPlaceholderThinking(message: WorkspaceMessage): boolean {
-  if (message.messageType === 'todos') return false;
-  const parsed = message.messageType === 'thinking'
-    ? { type: 'thinking' as const, text: message.content }
-    : parseStepContent(message.content);
-  if (parsed.type !== 'thinking') return false;
-  const t = (parsed.text || '').trim().toLowerCase();
-  return t === '' || t === 'thinking...' || t === 'thinking';
-}
 
 /**
  * Whether "show all steps" would reveal anything. Thinking and todos show in
@@ -178,139 +32,6 @@ export function hasCollapsedSteps(messages: WorkspaceMessage[]): boolean {
     if (list[i].messageType === 'status') { kept = list[i]; break; }
   }
   return real.some((m) => m !== kept);
-}
-
-// ── Step Item ──
-
-const StepItem = memo(function StepItem({ message }: { message: WorkspaceMessage }) {
-  const t = useT();
-  const [expanded, setExpanded] = useState(false);
-
-  // Todos render as a compact checklist
-  if (message.messageType === 'todos') {
-    const todos = (message.metadata?.todos as Array<{ content: string; status: string; assignee?: string }>) || [];
-    if (!todos.length) return null;
-    return (
-      <div className="py-0.5">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-          <ListTodo className="size-3.5 shrink-0 text-foreground/80" />
-          <span className="font-medium">{t('chat.todoList')}</span>
-        </div>
-        <div className="ml-[22px] flex flex-col gap-0.5">
-          {todos.map((todo, i) => (
-            <div key={i} className="flex items-center gap-1.5 text-xs">
-              <span className="shrink-0">{todo.status === 'completed' ? '✅' : todo.status === 'in_progress' ? '🔄' : todo.status === 'cancelled' ? '⊘' : '⬜'}</span>
-              <span className={cn(
-                (todo.status === 'completed' || todo.status === 'cancelled') && 'line-through text-muted-foreground'
-              )}>{todo.content}</span>
-              {todo.assignee && (
-                <span className="text-muted-foreground/50 text-xs">→ {todo.assignee}</span>
-              )}
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  // Skip bare "thinking..." placeholders — the working indicator conveys this.
-  if (isPlaceholderThinking(message)) return null;
-
-  // Messages with messageType 'thinking' are already typed — parse as thinking directly
-  const parsed = message.messageType === 'thinking'
-    ? { type: 'thinking' as const, text: message.content }
-    : parseStepContent(message.content);
-  const Icon = getStepIcon(parsed);
-  const hasDetail = parsed.type === 'tool_call' && !!parsed.args;
-  const isThinkingWithContent = parsed.type === 'thinking' && !!parsed.text && parsed.text !== 'thinking...' && parsed.text.toLowerCase() !== 'thinking';
-
-  // Thinking with content renders directly inline (not behind a click)
-  if (isThinkingWithContent) {
-    return (
-      <div className="py-0.5">
-        <div className="flex items-start gap-2 text-xs text-muted-foreground">
-          <Icon className="size-3.5 shrink-0 mt-0.5 text-warning" />
-          <span className="italic text-xs">{t('chat.thinking')}</span>
-        </div>
-        <div className="text-xs leading-relaxed text-foreground/60 ml-[22px] mt-0.5 mb-1 whitespace-pre-wrap">
-          {parsed.text}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <button
-        type="button"
-        className={cn(
-          'flex items-center gap-2 text-xs py-0.5 w-full text-left rounded transition-colors',
-          hasDetail
-            ? 'cursor-pointer hover:bg-muted -ml-1 pl-1 pr-1'
-            : 'cursor-default',
-          'text-muted-foreground'
-        )}
-        onClick={() => hasDetail && setExpanded(!expanded)}
-        disabled={!hasDetail}
-      >
-        <Icon
-          className={cn(
-            'size-3.5 shrink-0',
-            parsed.type === 'thinking' && 'text-warning animate-pulse',
-            parsed.type === 'compacting' && 'text-violet-500 animate-spin',
-            parsed.type === 'tool_call' && 'text-foreground/80',
-            parsed.type === 'status' && 'text-success'
-          )}
-        />
-
-        {parsed.type === 'compacting' && (
-          <span className="italic text-violet-500/80 animate-pulse">{t('chat.vibing')}</span>
-        )}
-
-        {parsed.type === 'tool_call' && (
-          <span className="flex items-center gap-1.5 min-w-0 flex-1">
-            <span className="font-mono font-medium text-foreground/70 shrink-0">
-              {parsed.toolDisplay}
-            </span>
-            {parsed.summary && (
-              <>
-                <span className="text-muted-foreground/30 shrink-0">›</span>
-                <span className="truncate text-muted-foreground/60">
-                  {parsed.summary}
-                </span>
-              </>
-            )}
-          </span>
-        )}
-
-        {parsed.type === 'status' && <span>{parsed.text}</span>}
-
-        {hasDetail && (
-          <ChevronRight
-            className={cn(
-              'size-3 shrink-0 transition-transform duration-200 text-muted-foreground/40',
-              expanded && 'rotate-90'
-            )}
-          />
-        )}
-      </button>
-
-      {expanded && parsed.args && (
-        <pre className="text-xs leading-relaxed bg-muted border border-border rounded-md p-2.5 ml-[22px] mt-1 mb-1.5 overflow-x-auto max-h-48 text-muted-foreground whitespace-pre-wrap break-all">
-          {parsed.args}
-        </pre>
-      )}
-    </div>
-  );
-});
-
-// ── Intermediate Steps Group ──
-
-function isTerminalStatus(step: WorkspaceMessage) {
-  return (
-    step.messageType === 'status' &&
-    /stopped|stopping failed/i.test(step.content)
-  );
 }
 
 // ── Intermediate Steps Group ──
@@ -374,14 +95,14 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
       {rows.length > 0 && (
         <div className="flex items-start gap-3 py-1">
           {/* Spacer matching avatar width for alignment with chat messages */}
-          <div className="size-7 shrink-0" />
-          <div className="border-l-2 border-border pl-3 py-0.5 min-w-0 flex-1">
+          <div className="size-8 shrink-0" />
+          <Trace className="min-w-0 flex-1 border-l-2 border-border py-0.5 pl-3">
             {senderGroups.map((group, gi) => (
-              <div key={`${group.sender}-${gi}`}>
+              <div key={`${group.sender}-${gi}`} className="flex flex-col gap-1">
                 {hasMultipleAgents && (
-                  <div className="flex items-center gap-1.5 mb-0.5 mt-1 first:mt-0">
+                  <div className="flex items-center gap-1.5">
                     <AgentAvatar name={group.sender} size={14} />
-                    <span className="text-xs font-medium text-muted-foreground/70">
+                    <span className="text-xs font-medium text-muted-foreground">
                       {(() => {
                         const a = agents?.find((x) => x.agentName === group.sender);
                         return a ? agentLabel(a) : group.sender;
@@ -394,7 +115,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
                 ))}
               </div>
             ))}
-          </div>
+          </Trace>
         </div>
       )}
       {active && (

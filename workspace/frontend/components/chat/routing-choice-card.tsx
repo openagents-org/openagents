@@ -10,7 +10,8 @@ import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { agentLabel } from '@/lib/helpers';
-import { ConversationBadge, RoutedAgentBadge, routingBadgeClass } from './routing-badge';
+import { Button } from '@/components/ui/button';
+import { ConversationBadge, RoutedAgentBadge } from './routing-badge';
 
 interface RoutingChoice {
   status: string;
@@ -89,12 +90,10 @@ export function RoutingChoiceCard({ message, agents, conversation = false }: { m
       {isConversation && <ConversationBadge />}
       <Popover open={open} onOpenChange={next => { if (!busy) setOpen(next); }}>
         <PopoverTrigger asChild>
-          <button type="button" disabled={busy} className={isConversation
-            ? 'rounded px-1 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-ring'
-            : `${routingBadgeClass} hover:bg-violet-100/60 focus-visible:outline focus-visible:outline-ring disabled:opacity-50`}>
+          <Button variant={isConversation ? 'ghost' : 'outline'} size="xs" disabled={busy} className={isConversation ? 'text-muted-foreground' : undefined}>
             {isConversation ? t('routing.askAgent') : t('routing.chooseAgent')}
-            {!isConversation && <ChevronDown aria-hidden="true" className="size-3 opacity-60" />}
-          </button>
+            {!isConversation && <ChevronDown aria-hidden="true" data-icon="inline-end" className="opacity-60" />}
+          </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0" aria-label={t('routing.chooseAgent')}>
           <div className="flex items-center gap-2 border-b px-3">
@@ -111,17 +110,17 @@ export function RoutingChoiceCard({ message, agents, conversation = false }: { m
               if (index >= 0) { e.preventDefault(); buttons[(index + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length]?.focus(); }
             }}>
             {!options && !error && <div role="status" className="flex items-center gap-2 px-3 py-5 text-xs text-muted-foreground"><Spinner className="size-3.5" />{t('common.loading')}</div>}
-            {filtered?.map(agent => <button key={agent.name} type="button" disabled={busy} aria-label={agent.label}
-              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs hover:bg-muted focus-visible:bg-muted focus-visible:outline-none disabled:opacity-50" onClick={() => void choose(agent.name)}>
-              <AgentAvatar name={agent.name} size={24} /><span className="min-w-0 flex-1 truncate">{agent.label}</span>
+            {filtered?.map(agent => <Button key={agent.name} variant="ghost" disabled={busy} aria-label={agent.label}
+              className="h-auto w-full justify-start gap-2.5 px-2.5 py-2 text-xs font-normal focus-visible:bg-muted" onClick={() => void choose(agent.name)}>
+              <AgentAvatar name={agent.name} size={24} /><span className="min-w-0 flex-1 truncate text-left">{agent.label}</span>
               {agent.online && <span title={t('routing.onlineInThread')} className="size-1.5 shrink-0 rounded-full bg-success/80" />}
-            </button>)}
+            </Button>)}
             {filtered?.length === 0 && <p className="px-3 py-5 text-center text-xs text-muted-foreground">{options?.length ? t('routing.noMatches') : t('routing.noOnlineAgents')}</p>}
           </div>
           {error && <p role="alert" className="border-t px-3 py-2 text-xs text-destructive">{error}</p>}
         </PopoverContent>
       </Popover>
-      {!isConversation && <button type="button" disabled={busy} onClick={() => void choose(null)} className="rounded px-1 py-1 text-xs text-muted-foreground hover:text-foreground focus-visible:outline focus-visible:outline-ring disabled:opacity-50">{t('routing.keepConversation')}</button>}
+      {!isConversation && <Button variant="ghost" size="xs" className="text-muted-foreground" disabled={busy} onClick={() => void choose(null)}>{t('routing.keepConversation')}</Button>}
       {busy && <Spinner aria-label={t('common.saving')} className="size-3 text-muted-foreground" />}
     </div>
     {error && !open && <p role="alert" className="mt-1 text-xs text-destructive">{error}</p>}

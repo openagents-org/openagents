@@ -12,6 +12,8 @@ import { agentReferencedBrowserTabs, resolveThreadBrowserLink, threadBrowserTabs
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { browserPreviewPreferenceKey, browserPreviewDismissed, dismissBrowserPreview } from '@/lib/browser-preview-preference';
 import type { WorkspaceMessage } from '@/lib/types';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 /** A browser stays over the conversation; opening it never narrows the thread. */
 export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessage[] }) {
@@ -84,21 +86,21 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   const close = () => { dismissBrowserPreview(preferenceKey); setDismissal({ key: preferenceKey, dismissed: true }); if (selected) setSelectedArtifact(null); setFullscreen(false); };
   return <aside ref={panel} tabIndex={-1} role={fullscreen ? 'dialog' : undefined} aria-modal={fullscreen || undefined} aria-label={label}
     data-browser-overlay={fullscreen ? 'fullscreen' : 'compact'}
-    className={fullscreen ? 'fixed inset-0 z-[70] flex flex-col overflow-hidden bg-background outline-none' : `absolute right-3 top-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-lg border bg-background shadow-xl outline-none ${interactive ? 'w-[400px]' : 'w-60'}`}>
-    <div className="flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
-      <Globe className="size-3.5 shrink-0 text-success" />
+    className={fullscreen ? 'fixed inset-0 z-70 flex flex-col overflow-hidden bg-background outline-none' : cn('absolute top-3 right-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-background shadow-xl ring-1 ring-foreground/10 outline-none', interactive ? 'w-100' : 'w-60')}>
+    <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+      <Globe className="mr-1 size-3.5 shrink-0 text-success" />
       <button type="button" onClick={() => setMinimized(!minimized)} title={t(minimized ? 'threadLiveBrowser.restore' : 'threadLiveBrowser.minimize')} className="min-w-0 flex-1 truncate text-left text-xs font-medium">{tab?.title || tab?.url || label}</button>
-      <button type="button" onClick={() => { setMinimized(false); setFullscreen(!fullscreen); }} aria-label={t(fullscreen ? 'threadLiveBrowser.collapse' : 'threadLiveBrowser.expand')} className="rounded p-1 text-muted-foreground hover:bg-muted">{fullscreen ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}</button>
-      {!minimized && !fullscreen && <button type="button" onClick={() => setMinimized(true)} aria-label={t('threadLiveBrowser.minimize')} className="rounded p-1 text-muted-foreground hover:bg-muted"><Minus className="size-4" /></button>}
-      <button type="button" onClick={close} aria-label={t('common.close')} className="rounded p-1 text-muted-foreground hover:bg-muted"><X className="size-4" /></button>
+      <Button variant="ghost" size="icon-xs" onClick={() => { setMinimized(false); setFullscreen(!fullscreen); }} aria-label={t(fullscreen ? 'threadLiveBrowser.collapse' : 'threadLiveBrowser.expand')} className="text-muted-foreground">{fullscreen ? <Minimize2 /> : <Maximize2 />}</Button>
+      {!minimized && !fullscreen && <Button variant="ghost" size="icon-xs" onClick={() => setMinimized(true)} aria-label={t('threadLiveBrowser.minimize')} className="text-muted-foreground"><Minus /></Button>}
+      <Button variant="ghost" size="icon-xs" onClick={close} aria-label={t('common.close')} className="text-muted-foreground"><X /></Button>
     </div>
     {/* The interactive and fullscreen views embed the browser with its own
         address bar; only the small thumbnail view needs the address here. */}
     {tab?.url && !minimized && !interactive && !fullscreen && <p className="truncate border-b px-3 py-1 text-xs text-muted-foreground" title={tab.url}>{tab.url}</p>}
-    <div className={`${minimized && !fullscreen ? 'hidden' : ''} relative min-h-0 overflow-auto bg-muted/40 ${fullscreen ? 'flex-1' : interactive ? 'h-[320px] max-h-[65vh]' : 'h-[135px]'}`}>
+    <div className={cn('relative min-h-0 overflow-auto bg-muted/40', minimized && !fullscreen && 'hidden', fullscreen ? 'flex-1' : interactive ? 'h-80 max-h-[65vh]' : 'h-34')}>
       {interactive ? <BrowserArtifactPreview tabId={id} revision={0} /> : fullscreen ? <BrowserArtifactPreview tabId={id} revision={0} /> : <>
         <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground">{t('threadLiveBrowser.waiting')}</span>
-        {live ? <iframe key={live} src={live} title={t('browser.liveBrowser', { url: tab!.url })} inert tabIndex={-1} onError={() => setFrameFailed(tab!.liveUrl)} className="pointer-events-none absolute left-0 top-0 h-[576px] w-[1024px] origin-top-left scale-[0.234375] border-0" />
+        {live ? <iframe key={live} src={live} title={t('browser.liveBrowser', { url: tab!.url })} inert tabIndex={-1} onError={() => setFrameFailed(tab!.liveUrl)} className="pointer-events-none absolute top-0 left-0 h-144 w-256 origin-top-left scale-[0.234375] border-0" />
           : <BrowserThumbnail tabId={id} pageUrl={tab!.url} title={tab!.title || tab!.url} enabled refreshMs={2000} className="absolute inset-0 h-full border-0" />}
       </>}
     </div>

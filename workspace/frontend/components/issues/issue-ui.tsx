@@ -1,8 +1,10 @@
 'use client';
-import { Circle, CircleCheck, CircleDot, CirclePause } from 'lucide-react';
+import { AlertCircle, Circle, CircleCheck, CircleDot, CirclePause } from 'lucide-react';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { IssueStatus } from '@/lib/types';
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -89,21 +91,13 @@ export function StatusIcon({
           ? 'text-muted-foreground'
           : status === 'in_progress'
             ? 'text-warning'
-            : 'text-violet-600 dark:text-violet-400',
+            : status === 'closed'
+              ? 'text-success'
+              : 'text-muted-foreground',
         className,
       )}
       strokeWidth={1.8}
     />
-  );
-}
-
-export function StatusBadge({ status }: { status: IssueStatus }) {
-  const t = useT();
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-muted/60 px-2 py-1 text-xs font-medium text-foreground/80">
-      <StatusIcon status={status} className="size-3.5" />
-      {t(statusKeys[status])}
-    </span>
   );
 }
 
@@ -147,24 +141,13 @@ export function IssueAvatar({
 
 export function IssueSkeleton({ detail = false }: { detail?: boolean }) {
   return (
-    <div
-      aria-hidden
-      className={cn(
-        'animate-pulse motion-reduce:animate-none',
-        detail ? 'flex flex-col gap-6 py-8' : 'divide-y divide-border/60',
-      )}
-    >
+    <div aria-hidden className={cn(detail ? 'flex flex-col gap-6 py-8' : 'divide-y divide-border/60')}>
       {Array.from({ length: detail ? 3 : 5 }, (_, index) => (
         <div key={index} className={cn('flex gap-3', !detail && 'px-6 py-5')}>
-          <div className="mt-1 size-5 rounded-full bg-muted" />
-          <div className="flex-1 flex flex-col gap-3">
-            <div
-              className={cn(
-                'h-3 rounded bg-muted',
-                index % 2 ? 'w-2/5' : 'w-3/5',
-              )}
-            />
-            <div className="h-2.5 w-1/3 rounded bg-muted/70" />
+          <Skeleton className="mt-1 size-5 rounded-full" />
+          <div className="flex flex-1 flex-col gap-3">
+            <Skeleton className={cn('h-3', index % 2 ? 'w-2/5' : 'w-3/5')} />
+            <Skeleton className="h-2.5 w-1/3" />
           </div>
         </div>
       ))}
@@ -181,16 +164,16 @@ export function ErrorNotice({
 }) {
   const t = useT();
   return (
-    <div
-      role="alert"
-      className="flex items-center justify-between gap-3 rounded-md border border-destructive/20 bg-destructive/5 px-4 py-3 text-sm text-destructive"
-    >
-      {message}
+    <Alert variant="destructive">
+      <AlertCircle />
+      <AlertDescription className={cn(retry && 'pr-16')}>{message}</AlertDescription>
       {retry && (
-        <Button variant="ghost" size="sm" onClick={retry}>
-          {t('common.retry')}
-        </Button>
+        <AlertAction>
+          <Button variant="outline" size="xs" onClick={retry}>
+            {t('common.retry')}
+          </Button>
+        </AlertAction>
       )}
-    </div>
+    </Alert>
   );
 }

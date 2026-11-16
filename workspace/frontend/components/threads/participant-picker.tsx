@@ -2,7 +2,9 @@
 
 import { useState } from 'react';
 import { Check, Search } from 'lucide-react';
-import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { granteeKey } from '@/lib/access-ui';
@@ -39,19 +41,23 @@ export function ParticipantPicker({ options, value, onChange, disabled, onToggle
   const labels = { all: t('newThread.all'), human: t('newThread.teammates'), agent: t('newThread.agents'), selected: t('newThread.selected') };
 
   return <div className="flex flex-col gap-3">
-    <div className="relative">
-      <Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-      <Input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled}
-        className="ps-9" aria-label={t('newThread.search')} placeholder={t('newThread.search')} />
-    </div>
-    <div className="flex flex-wrap gap-1" role="group" aria-label={t('newThread.filterParticipants')}>
+    <InputGroup>
+      <InputGroupAddon>
+        <Search />
+      </InputGroupAddon>
+      <InputGroupInput autoFocus value={query} onChange={(event) => setQuery(event.target.value)} disabled={disabled}
+        aria-label={t('newThread.search')} placeholder={t('newThread.search')} />
+    </InputGroup>
+    <ToggleGroup type="single" size="sm" spacing={1} className="flex-wrap" value={filter} disabled={disabled}
+      // Pressing the active filter again would clear it; "all" already means that.
+      onValueChange={(next) => { if (next) setFilter(next as typeof filter); }}
+      aria-label={t('newThread.filterParticipants')}>
       {(['all', 'human', 'agent', 'selected'] as const).map((tab) => (
-        <button key={tab} type="button" disabled={disabled} aria-pressed={filter === tab} onClick={() => setFilter(tab)}
-          className={cn('rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50', filter === tab ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/60')}>
-          {labels[tab]} <span className="ms-1 tabular-nums opacity-60">{counts[tab]}</span>
-        </button>
+        <ToggleGroupItem key={tab} value={tab} className="text-xs">
+          {labels[tab]} <span className="tabular-nums text-muted-foreground">{counts[tab]}</span>
+        </ToggleGroupItem>
       ))}
-    </div>
+    </ToggleGroup>
     <div key={`${filter}:${query}`} className="h-60 overflow-y-auto overscroll-contain rounded-lg border p-1" role="group" aria-label={t('newThread.participants')}>
       {results.map((option) => {
         const key = granteeKey(option);
@@ -75,9 +81,9 @@ export function ParticipantPicker({ options, value, onChange, disabled, onToggle
     </div>
     <div className="flex min-h-5 items-center justify-between gap-2 text-xs text-muted-foreground">
       <span aria-live="polite">{t('newThread.selectionSummary', { people: peopleCount, agents: agentsCount })}</span>
-      {filter === 'agent' && !search && onToggleAllAgents && <button type="button" disabled={disabled} className="shrink-0 hover:text-foreground" onClick={onToggleAllAgents}>
+      {filter === 'agent' && !search && onToggleAllAgents && <Button variant="ghost" size="xs" disabled={disabled} className="shrink-0 text-muted-foreground" onClick={onToggleAllAgents}>
         {allAgentsSelected ? t('newThread.deselectAgents') : t('newThread.selectAll')}
-      </button>}
+      </Button>}
     </div>
   </div>;
 }

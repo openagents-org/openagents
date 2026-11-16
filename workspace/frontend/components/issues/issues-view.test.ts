@@ -77,9 +77,6 @@ vi.mock('@/components/chat/markdown-content', () => ({
     createElement('div', {}, content),
 }));
 vi.mock('@/components/files/authenticated-image', () => ({ AuthenticatedImage: () => null }));
-vi.mock('@/components/tasks/task-chat-popup', () => ({
-  TaskChatPopup: () => null,
-}));
 vi.mock('@/components/ui/responsive-dialog', () => ({
   Dialog: ({ open, children }: { open: boolean; children: React.ReactNode }) =>
     open ? createElement('div', { role: 'dialog' }, children) : null,
