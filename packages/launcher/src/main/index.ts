@@ -115,6 +115,7 @@ import {
   createPlaceholderIcon,
   refreshTitleBarOverlay,
   setChromeDimmed,
+  setChromeSurface,
   splashPalette,
   titleBarOverlayColors,
 } from "./window-chrome"
@@ -657,9 +658,12 @@ function createWindow(): void {
   // script runs, which is long before `did-finish-load`. Clearing it there
   // overwrote the report of any dialog opened during startup — the release
   // notes are exactly that — and left the buttons bright over a scrimmed app.
-  mainWindow.webContents.on("did-start-loading", () =>
-    setChromeDimmed(mainWindow, false),
-  )
+  mainWindow.webContents.on("did-start-loading", () => {
+    setChromeDimmed(mainWindow, false)
+    // Same for the surface: the reloaded page reports its own once its
+    // Workspace bar (if any) mounts.
+    setChromeSurface(mainWindow, "page")
+  })
 
   // Repaint the overlay once the page is up, for a window created before the
   // stored theme took effect: its buttons wear a colour nothing on screen
@@ -1606,6 +1610,12 @@ function setupIPC(): void {
   // to match. See setChromeDimmed.
   ipcMain.handle("window:chrome-dim", (_e, dim: unknown) => {
     setChromeDimmed(mainWindow, dim === true)
+  })
+
+  // The Workspace bar is sidebar-coloured, This Computer's header is the page
+  // colour; the window buttons follow whichever they sit in.
+  ipcMain.handle("window:chrome-surface", (_e, surface: unknown) => {
+    setChromeSurface(mainWindow, surface === "sidebar" ? "sidebar" : "page")
   })
 
   // Not a plain setting: switching it starts or stops the daemon, and its

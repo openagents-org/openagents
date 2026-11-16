@@ -1,7 +1,7 @@
 'use client';
 
 import { CalendarClock, ImageIcon, Paperclip, Plus } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { InputGroupButton } from '@/components/ui/input-group';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -20,15 +20,15 @@ export function ComposerAddMenu({ onPickFile, onCreateRoutine }: {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="shrink-0 rounded-full text-muted-foreground"
+        <InputGroupButton
+          variant="outline"
+          size="icon-sm"
+          className="rounded-full"
           title={t('chatInput.addAttachments')}
           aria-label={t('chatInput.addAttachments')}
         >
           <Plus />
-        </Button>
+        </InputGroupButton>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" side="top" className="min-w-50">
         <DropdownMenuGroup>

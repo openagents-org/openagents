@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState } from 'react';
-import { ChevronLeft, Cpu, Globe, ListTree, Lock, PanelRight, Pencil, Share2, Square } from 'lucide-react';
+import { ChevronLeft, Cpu, Globe, Lock, PanelRight, Pencil, Share2, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -28,13 +28,11 @@ export type ChatViewDm = {
 };
 
 /** Thread header — on desktop the title lives in the shell's app header. */
-export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, stepsToggle, canShare, onShare, routine, onEditRoutine }: {
+export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, canShare, onShare, routine, onEditRoutine }: {
   sessionId: string;
   session: WorkspaceSession | undefined;
   dm: ChatViewDm;
   onOpenProfile: (email: string) => void;
-  /** Present only when the thread has collapsible steps. */
-  stepsToggle: { showAll: boolean; toggle: () => void } | null;
   canShare: boolean;
   onShare: () => void;
   routine: RoutineItem | null;
@@ -90,20 +88,6 @@ export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, stepsTog
       )}
 
       {channel && <AddThreadParticipants key={`add-participants:${sessionId}`} channelName={sessionId} />}
-
-      {/* All steps toggle */}
-      {stepsToggle && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={stepsToggle.toggle}
-          aria-pressed={stepsToggle.showAll}
-          aria-label={stepsToggle.showAll ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
-          title={stepsToggle.showAll ? t('chat.showLatestSteps') : t('chat.showAllSteps')}
-        >
-          <ListTree aria-hidden="true" />
-        </Button>
-      )}
 
       {channel && !sessionId.startsWith('routines:') && (
         <ResponseModeControl key={`response-mode:${sessionId}`} session={channel} onChange={(updates) => setSessionOrchestration(sessionId, updates)} />

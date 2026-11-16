@@ -18,6 +18,20 @@ export function clipboardMarkdown(clipboard: Pick<DataTransfer, 'getData'>): str
       filter: ['s', 'del'],
       replacement: content => `~~${content}~~`,
     });
+    // A rendered chat code block (components/ui/code-block): each line is its
+    // own element with no newline between them, and the language sits on the
+    // block, so rebuild the fence from the lines.
+    converter.addRule('codeBlock', {
+      filter: node => node.nodeName === 'DIV' && node.getAttribute('data-slot') === 'code-block',
+      replacement: (_content, node) => {
+        const block = node as HTMLElement;
+        const lines = Array.from(block.querySelectorAll('[data-slot="code-block-line-content"]'));
+        const code = lines.length
+          ? lines.map(line => (line.textContent === '\n' ? '' : line.textContent ?? '')).join('\n')
+          : block.querySelector('pre')?.textContent ?? '';
+        return `\n\n\`\`\`${block.getAttribute('data-language') ?? ''}\n${code}\n\`\`\`\n\n`;
+      },
+    });
     const result = converter.turndown(document.body);
     return result.trim() ? result : null;
   } catch {

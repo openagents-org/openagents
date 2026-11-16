@@ -1,38 +1,24 @@
 'use client';
 
 import { memo } from 'react';
-import { Trace } from '@/components/ui/trace';
+import { CircleCheck, LoaderCircle } from 'lucide-react';
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
+} from '@/components/ui/trace';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { WorkingBubble } from './working-bubble';
-import { StepItem } from './step-item';
+import { STEP_LINE, StepItem } from './step-item';
 import { isPlaceholderThinking, parseStepContent } from './step-parsing';
 import { isTerminalStatus } from './chat-message-groups';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { useT } from '@/lib/i18n';
-
-/**
- * Whether "show all steps" would reveal anything. Thinking and todos show in
- * both views and a bare "thinking..." never gets a row of its own, so only a
- * real status/tool step that the latest-only view drops counts. Showing the
- * toggle without one made it look broken: an agent that had only said
- * "thinking..." so far offered the button, and clicking it changed nothing.
- * Mirrors the latest-only filter in ChatMessages.
- */
-export function hasCollapsedSteps(messages: WorkspaceMessage[]): boolean {
-  const list = messages.filter((m) => m.messageType !== 'loading');
-  const isStep = (m: WorkspaceMessage) =>
-    m.messageType === 'status' || m.messageType === 'thinking' || m.messageType === 'todos';
-  const real = list.filter((m) => m.messageType === 'status' && m.content.trim() && !isPlaceholderThinking(m));
-  if (real.length === 0) return false;
-  // While the agent is still working (the thread ends on a step), the
-  // latest-only view keeps the newest status after the last reply.
-  let kept: WorkspaceMessage | undefined;
-  for (let i = list.length - 1; i >= 0 && isStep(list[i]); i--) {
-    if (list[i].messageType === 'status') { kept = list[i]; break; }
-  }
-  return real.some((m) => m !== kept);
-}
 
 // ── Intermediate Steps Group ──
 
@@ -76,18 +62,22 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
   // Placeholder-only groups show nothing of their own; in history they vanish,
   // while active only the bubble appears.
   const rows = steps.filter((s) => s !== absorbed && !isPlaceholderThinking(s));
+  // The step still in progress, if the bubble did not take it (e.g. reasoning).
+  const liveStep = active && !absorbed ? lastStep : null;
   if (rows.length === 0 && !active) return null;
 
-  // Group consecutive steps by sender
+  // Group consecutive steps by sender. Each todos message is a full snapshot
+  // of that agent's list, so only its latest one shows.
   const hasMultipleAgents = (agents?.length ?? 0) > 1;
-  const senderGroups: { sender: string; steps: WorkspaceMessage[] }[] = [];
+  const senderGroups: { sender: string; steps: WorkspaceMessage[]; todos?: WorkspaceMessage }[] = [];
   for (const step of rows) {
-    const last = senderGroups[senderGroups.length - 1];
-    if (last && last.sender === step.senderName) {
-      last.steps.push(step);
-    } else {
-      senderGroups.push({ sender: step.senderName, steps: [step] });
+    let group = senderGroups[senderGroups.length - 1];
+    if (!group || group.sender !== step.senderName) {
+      group = { sender: step.senderName, steps: [] };
+      senderGroups.push(group);
     }
+    if (step.messageType === 'todos') group.todos = step;
+    else group.steps.push(step);
   }
 
   return (
@@ -96,7 +86,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
         <div className="flex items-start gap-3 py-1">
           {/* Spacer matching avatar width for alignment with chat messages */}
           <div className="size-8 shrink-0" />
-          <Trace className="min-w-0 flex-1 border-l-2 border-border py-0.5 pl-3">
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             {senderGroups.map((group, gi) => (
               <div key={`${group.sender}-${gi}`} className="flex flex-col gap-1">
                 {hasMultipleAgents && (
@@ -110,12 +100,15 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
                     </span>
                   </div>
                 )}
-                {group.steps.map((step) => (
-                  <StepItem key={step.messageId} message={step} />
-                ))}
+                <Trace>
+                  {group.steps.length > 0 && (
+                    <StepsSummary steps={group.steps} running={active && gi === senderGroups.length - 1} liveStep={liveStep} />
+                  )}
+                  {group.todos && <StepItem message={group.todos} running={active && gi === senderGroups.length - 1} />}
+                </Trace>
               </div>
             ))}
-          </Trace>
+          </div>
         </div>
       )}
       {active && (
@@ -124,3 +117,32 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
     </div>
   );
 });
+
+/**
+ * An agent's steps behind one summary line (shadcn AI Elements "Chain of
+ * Thought"): "Working" while they run, then "Took N steps". It stays folded
+ * while running too — the working bubble already shows the live step, and a
+ * long run would otherwise unroll hundreds of rows.
+ */
+function StepsSummary({ steps, running, liveStep }: { steps: WorkspaceMessage[]; running: boolean; liveStep: WorkspaceMessage | null }) {
+  const t = useT();
+  return (
+    <TraceCollapsible>
+      <TraceCollapsibleTrigger>
+        <TraceLine className={STEP_LINE} status={running ? 'running' : undefined}>
+          <TraceIcon>
+            {running ? <LoaderCircle className="animate-spin motion-reduce:animate-none" /> : <CircleCheck />}
+          </TraceIcon>
+          <TraceTitle>{running ? t('chat.stepsRunning') : t('chat.stepsDone', { count: steps.length })}</TraceTitle>
+        </TraceLine>
+      </TraceCollapsibleTrigger>
+      <TraceCollapsibleContent>
+        <Trace>
+          {steps.map((step) => (
+            <StepItem key={step.messageId} message={step} running={running && step === liveStep} />
+          ))}
+        </Trace>
+      </TraceCollapsibleContent>
+    </TraceCollapsible>
+  );
+}

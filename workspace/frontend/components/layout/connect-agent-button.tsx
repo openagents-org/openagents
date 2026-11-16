@@ -1,6 +1,7 @@
 'use client';
 
-import { Plus } from 'lucide-react';
+import { useState } from 'react';
+import { CirclePlus } from 'lucide-react';
 import { SidebarMenuButton } from '@/components/ui/sidebar';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
@@ -16,24 +17,33 @@ type ConnectAgentButtonProps = {
 export function ConnectAgentButton({ label, active, showLabels = true, onClick }: ConnectAgentButtonProps) {
   const { agents, loading, workspaceLoadError } = useWorkspace();
   const needsAgent = !loading && !workspaceLoadError && !agents.some((agent) => !agent.builtin && agent.status === 'online');
+  // Expanded, the tooltip only earns its place when the label is cut off
+  // (long translations): checked on hover, before the tooltip's open delay.
+  const [truncated, setTruncated] = useState(false);
   return (
     <SidebarMenuButton
       aria-label={label}
-      tooltip={{ children: label, hidden: showLabels }}
+      // Expanded, the inbox envelope sits to the right, so the tooltip drops below.
+      tooltip={{ children: label, hidden: showLabels && !truncated, side: showLabels ? 'bottom' : 'right' }}
       isActive={active}
       aria-current={active ? 'page' : undefined}
       onClick={onClick}
+      onPointerEnter={(event) => {
+        const text = event.currentTarget.querySelector<HTMLElement>('[data-label]');
+        setTruncated(!!text && text.scrollWidth > text.clientWidth);
+      }}
+      // shadcn dashboard-01's Quick Create button: the one primary-filled row.
       className={cn(
-        'h-8 gap-2 rounded-md bg-brand/10 px-2 text-sm font-medium text-brand transition-colors',
-        'hover:bg-brand/15 hover:text-brand active:bg-brand/20 active:text-brand',
-        'data-active:bg-brand/10 data-active:text-brand data-active:hover:bg-brand/15',
+        'min-w-8 gap-2 bg-primary text-primary-foreground duration-200 ease-linear',
+        'hover:bg-primary/90 hover:text-primary-foreground active:bg-primary/90 active:text-primary-foreground',
+        'data-active:bg-primary data-active:text-primary-foreground data-active:hover:bg-primary/90',
         'focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
         !showLabels && 'justify-center! px-0',
-        needsAgent && !active && 'ring-2 ring-brand/50 ring-offset-2 ring-offset-sidebar',
+        needsAgent && !active && 'ring-2 ring-primary/30 ring-offset-2 ring-offset-sidebar',
       )}
     >
-      <Plus aria-hidden="true" />
-      {showLabels && <span className="min-w-0 truncate">{label}</span>}
+      <CirclePlus aria-hidden="true" />
+      {showLabels && <span data-label className="min-w-0 truncate">{label}</span>}
     </SidebarMenuButton>
   );
 }

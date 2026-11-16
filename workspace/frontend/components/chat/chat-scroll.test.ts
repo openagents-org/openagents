@@ -17,7 +17,7 @@ let frames: Map<number, FrameRequestCallback>, sequence: number;
 let observers: Set<() => void>;
 let height: number;
 const message = (sessionId = 'first') => ({ messageId: sessionId, sessionId, messageType: 'chat', content: 'hello' }) as any;
-const render = async (session = 'first') => act(async () => root.render(React.createElement(ChatMessages, { messages: [message(session)], showAllSteps: false })));
+const render = async (session = 'first') => act(async () => root.render(React.createElement(ChatMessages, { messages: [message(session)] })));
 const viewport = () => host.querySelector('[tabindex="0"]') as HTMLDivElement;
 async function flush() {
   await act(async () => {
@@ -94,11 +94,11 @@ it('resets user scroll intent when switching threads and cleans up pending work'
 it.each(['/?message=older', '/acme/threads/thread-id/messages/older'])('loads earlier history for a message link %s and scrolls to its row instead of the bottom', async (url) => {
   window.history.replaceState(null, '', url);
   const loadOlder = vi.fn().mockResolvedValue(undefined);
-  await act(async () => root.render(React.createElement(ChatMessages, { messages: [message()], showAllSteps: false, hasOlder: true, loadOlder })));
+  await act(async () => root.render(React.createElement(ChatMessages, { messages: [message()], hasOlder: true, loadOlder })));
   await flush();
   expect(loadOlder).toHaveBeenCalledTimes(1);
   expect(viewport().scrollTop).toBe(0);
-  await act(async () => root.render(React.createElement(ChatMessages, { messages: [{...message(),messageId:'older'},message()], showAllSteps: false, hasOlder: false, loadOlder })));
+  await act(async () => root.render(React.createElement(ChatMessages, { messages: [{...message(),messageId:'older'},message()], hasOlder: false, loadOlder })));
   await flush();
   expect(scrollToIndex).toHaveBeenCalledWith(0,{align:'center'});
   expect(viewport().scrollTop).toBe(0);

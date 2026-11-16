@@ -88,13 +88,14 @@ export function MobileHeader() {
                       <div className="shrink-0 px-1 pt-1 pb-1">
                         <Brand />
                       </div>
-                      <ScrollArea className="min-h-0 flex-1">
+                      {/* Manage Agents right under the brand, as on the desktop rail. */}
+                      <div className="shrink-0 px-1">
+                        <NavSecondary onNavigate={closeSheet} />
+                      </div>
+                      <ScrollArea className="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
                         <NavMain onNavigate={closeSheet} />
                         <NavAgents onNavigate={closeSheet} />
                       </ScrollArea>
-                      <div className="shrink-0 border-t border-border px-1 pb-[env(safe-area-inset-bottom)]">
-                        <NavSecondary onNavigate={closeSheet} />
-                      </div>
                     </div>
                   </SidebarProvider>
                 </SheetBody>

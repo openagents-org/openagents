@@ -349,28 +349,6 @@ html {
   @apply font-medium;
 }
 
-/* ── Syntax Highlighting (highlight.js) ── */
-@import 'highlight.js/styles/github.css';
-
-.dark .hljs {
-  background: transparent;
-  color: var(--color-zinc-300);
-}
-.dark .hljs-keyword { color: #ff7b72; }
-.dark .hljs-string { color: #a5d6ff; }
-.dark .hljs-comment { color: #8b949e; }
-.dark .hljs-number { color: #79c0ff; }
-.dark .hljs-title { color: #d2a8ff; }
-.dark .hljs-built_in { color: #ffa657; }
-.dark .hljs-attr { color: #79c0ff; }
-.dark .hljs-literal { color: #79c0ff; }
-.dark .hljs-type { color: #ffa657; }
-
-.markdown-content .hljs {
-  background: transparent;
-  padding: 0;
-}
-
 /* Proactive routing: keep the approved traveling signal and arrival ripple. */
 .routing-flow { position: relative; display: inline-block; width: 32px; height: 16px; flex-shrink: 0; }
 .routing-flow-source, .routing-flow-destination { position: absolute; top: 6px; width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .35; }
