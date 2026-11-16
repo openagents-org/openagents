@@ -32,6 +32,7 @@ const os = require('node:os');
 const path = require('node:path');
 
 const { createAdapter } = require('../src/adapters');
+const { isClassifiedError: isClassified } = require('../src/adapters/run-failure');
 
 const CURRENT_HERMES = 'Hermes Agent v0.21.4 (2026.9.24)\nInstall directory: /opt/hermes';
 const CHANNEL = 'thread-1';
@@ -503,5 +504,110 @@ describe('Hermes: what a run reports', () => {
 
     assert.equal(a._channelSessions[CHANNEL], 'S1');
     assert.deepEqual([seen.responses, seen.errors], [[], []]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A prompt too long for a command line. Reported from Windows (core 0.2.228)
+// as "Error processing message: spawn ENAMETOOLONG": the whole prompt was the
+// value of `-q`, past the 32,767-character cap on a Windows command line.
+// ---------------------------------------------------------------------------
+
+describe('Hermes: a prompt too long for a command line', () => {
+  let stub;
+  before(() => {
+    stub = path.join(tmp, 'hermes-stdin-stub.js');
+    // Echoes what came over stdin, as `hermes chat --query-file - -Q` answers it.
+    fs.writeFileSync(stub, `
+      let input = '';
+      process.stdin.setEncoding('utf-8');
+      process.stdin.on('data', (d) => { input += d; });
+      process.stdin.on('end', () => {
+        process.stdout.write('got ' + input.length + ': ' + input.slice(-12));
+        process.stderr.write('\\nsession_id: S9\\n');
+      });
+    `);
+  });
+
+  function longPrompt() {
+    return `${'上下文 context '.repeat(3000)}最后一句话`;
+  }
+
+  function stubbed(version) {
+    const made = makeHermes({ script: null, session: 'S1', version });
+    made.a._hermesBin = process.execPath;
+    made.a._promptFitsArgv = (p) => p.length <= 24000;
+    made.built = [];
+    made.a._buildHermesCmd = (prompt, resumeId, opts) => { made.built.push(opts); return [stub]; };
+    return made;
+  }
+
+  it('reads the query from stdin from 0.20.5 (2026.8.19) on', () => {
+    const { a } = makeHermes();
+    for (const [text, expected] of [
+      ['Hermes Agent v0.20.4 (2026.8.18)', false],
+      ['Hermes Agent v0.20.5 (2026.8.19)', true],
+      [CURRENT_HERMES, true],
+      ['Hermes Agent v0.21.6 · stable', true],
+      ['Hermes Agent v0.20.4 · stable', false],
+      ['', false],
+    ]) {
+      assert.equal(a._readsQueryFile(text), expected, text);
+    }
+  });
+
+  it('passes `--query-file -` in place of `-q <prompt>`', () => {
+    const { a } = makeHermes();
+    const args = a._buildHermesCmd('a very long prompt', 'S1', { viaStdin: true });
+    assert.deepEqual(args.slice(0, 4), ['chat', '--query-file', '-', '-Q']);
+    assert.ok(!args.includes('-q') && !args.includes('a very long prompt'), JSON.stringify(args));
+    assert.deepEqual(a._buildHermesCmd('hi', null).slice(0, 4), ['chat', '-q', 'hi', '-Q']);
+  });
+
+  it('sends a long prompt over stdin, intact', async () => {
+    const made = stubbed(CURRENT_HERMES);
+    const prompt = longPrompt();
+
+    const run = await made.a._runHermes(prompt, CHANNEL, 'S1');
+
+    assert.deepEqual(made.built, [{ viaStdin: true }]);
+    assert.equal(run.text, `got ${prompt.length}: ${prompt.slice(-12)}`);
+    assert.equal(run.sessionId, 'S9');
+    assert.equal(run.exitCode, 0);
+  });
+
+  it('keeps a prompt that fits on the command line', async () => {
+    const made = stubbed(CURRENT_HERMES);
+    made.a._buildHermesCmd = (prompt, resumeId, opts) => { made.built.push(opts); return ['-e', 'process.stderr.write("session_id: S1\\n")']; };
+
+    await made.a._runHermes('short', CHANNEL, 'S1');
+
+    assert.deepEqual(made.built, [{ viaStdin: false }]);
+  });
+
+  it('tells an older Hermes to update instead of failing with ENAMETOOLONG', async () => {
+    const made = stubbed('Hermes Agent v0.20.4 (2026.8.18)');
+
+    await assert.rejects(made.a._runHermes(longPrompt(), CHANNEL, 'S1'),
+      (e) => isClassified(e) && /0\.20\.5/.test(e.message) && /\d+ characters/.test(e.message));
+    assert.deepEqual(made.built, []);
+  });
+
+  it('asks again after a version check that got no answer', async () => {
+    const made = stubbed(new Error('timed out'));
+    assert.equal(await made.a._supportsQueryFile(), false);
+    made.a._hermesVersionText = async () => { made.seen.versionProbes++; return CURRENT_HERMES; };
+    assert.equal(await made.a._supportsQueryFile(), true);
+    assert.equal(await made.a._supportsQueryFile(), true);
+    assert.equal(made.seen.versionProbes, 2);
+  });
+
+  it('asks for the version once for the prefill and the stdin checks together', async () => {
+    const made = stubbed(CURRENT_HERMES);
+
+    await made.a._supportsPrefillEnv();
+    await made.a._runHermes(longPrompt(), CHANNEL, 'S1');
+
+    assert.equal(made.seen.versionProbes, 1);
   });
 });

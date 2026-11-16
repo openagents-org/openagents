@@ -1760,7 +1760,10 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'model_not_found';
     } else if (has(/no provider|provider not configured|not configured|no model configured|no providers|missing provider/)) {
       category = 'provider_not_configured';
-    } else if (has(/econnrefused|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|getaddrinfo|\bdns\b/)) {
+    } else if (has(/econnrefused|econnreset|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|socket connection was closed|getaddrinfo|\bdns\b/)) {
+      // OpenCode runs on Bun, whose dropped connection reads "Cannot connect
+      // to API: ECONNRESET: The socket connection was closed unexpectedly";
+      // that came out as "failed for an undetermined reason".
       category = 'network_error';
     } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
       category = 'provider_server_error';
