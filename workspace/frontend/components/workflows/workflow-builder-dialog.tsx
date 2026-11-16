@@ -101,7 +101,13 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl">
+      {/* A long multi-step form that resets on open: only Cancel and the
+          close button dismiss it, so a stray click or Esc can't wipe it. */}
+      <DialogContent
+        className="sm:max-w-4xl"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>
             {workflow ? t('workflows.editTitle') : t('workflows.createTitle')}
