@@ -14,7 +14,6 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { useThreadBrowserMessages } from '@/hooks/use-thread-browser-messages';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
-import { capture } from '@/lib/analytics';
 import { Spinner } from '@/components/ui/spinner';
 import { ShareDialog } from './share-dialog';
 import { HumanProfile } from './human-profile';
@@ -197,7 +196,6 @@ export function ChatView() {
               focusComposer();
             } : undefined}
             onSuggestion={(text) => {
-              capture('suggestion_chip_tapped', { text });
               void handleSend(text);
             }}
             className="flex-1 overflow-y-auto px-4 py-3 lg:px-8"

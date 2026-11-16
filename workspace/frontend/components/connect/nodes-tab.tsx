@@ -9,7 +9,6 @@ import { desktopHost } from '@/lib/desktop-host';
 import { type CatalogState } from '@/components/agents/agent-setup';
 import { DesktopComputerStep } from './desktop-computer-step';
 import { useLocalNodeId } from './use-local-node-id';
-import { capture } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import type { AgentCatalogEntry, CloudAgentProvider, WorkspaceNode, PairingCode } from '@/lib/types';
@@ -176,7 +175,6 @@ export function NodesTab({
         onChanged={onRefresh}
         onQueued={(agent) => {
           addPending(addingNode.nodeId, agent);
-          capture('agent_created', { agent_type: agent.type, source: 'workspace_ui' });
           // Onboarding first agent → open a thread with it once it joins.
           if (autoAddAgent) onFirstAgentCreated?.(agent.name);
         }}
@@ -203,7 +201,6 @@ export function NodesTab({
         onQueued={(agent) => {
           removePending(retryingNode.nodeId, retrying.pending.name);
           addPending(retryingNode.nodeId, agent);
-          capture('agent_created', { agent_type: agent.type, source: 'workspace_ui', retry: true });
           // Onboarding waits for the first agent by name — a renamed retry is
           // the one that will join, not the name that failed.
           if (autoAddAgent) onFirstAgentCreated?.(agent.name);

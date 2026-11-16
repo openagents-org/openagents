@@ -146,8 +146,8 @@ export function ByokSection({ form, node, editAgent, extensions }: { form: Agent
         </Field>
       )}
 
-      {/* One-click promo credits — OpenAI-protocol agents the campaign
-          gateway can back. Selects (or creates) the gateway access. */}
+      {/* Optional host-provided one-click access for OpenAI-protocol agents
+          (extension point; unused in the open-source build). */}
       {selected && byokProtocol !== 'anthropic' && extensions?.promo?.({
         agentType: selected, accesses: b.accesses, selectedAccessId: b.accessId,
         onUse: (entry, created) => {

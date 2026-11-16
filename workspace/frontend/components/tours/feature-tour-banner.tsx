@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { Play } from 'lucide-react';
-import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -45,11 +44,9 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
     } else {
       hiddenThisSession.add(feature);
     }
-    capture('feature_tour_banner_dismissed', { feature, scope });
     setDismissed(true);
   };
   const watch = () => {
-    capture('feature_tour_opened', { feature });
     setOpen(true);
   };
 

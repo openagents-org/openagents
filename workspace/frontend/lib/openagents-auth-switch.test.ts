@@ -13,7 +13,6 @@ vi.mock('./workspace-session', () => ({
   clearWorkspaceSession: mocks.clear,
 }));
 vi.mock('./api', () => ({ workspaceApi: { setBearerRefresher: mocks.setRefresher } }));
-vi.mock('./analytics', () => ({ capture: vi.fn(), identify: vi.fn() }));
 vi.mock('./firebase', () => ({
   signInWithGoogle: mocks.signIn, getIdToken: mocks.getToken, getFreshIdToken: mocks.fresh,
   getResolvedEmail: mocks.resolvedEmail,

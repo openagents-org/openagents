@@ -14,8 +14,7 @@ import { Button } from '@/components/ui/reui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/reui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
-import { capture, group } from '@/lib/analytics';
+import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useCreateWorkspace } from '@/hooks/use-create-workspace';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
@@ -477,180 +476,6 @@ function initialsOf(name: string): string {
   return (words[0][0] + words[1][0]).toUpperCase();
 }
 
-// ---------------------------------------------------------------------------
-// API credits campaign — "$X of $100 unlocked" checklist (official deployment
-// only; the backend returns {enabled:false} on self-hosted builds).
-// ---------------------------------------------------------------------------
-
-const CAMPAIGN_MILESTONE_LABELS: Record<string, MessageKey> = {
-  signup: 'campaign.msSignup',
-  first_agent: 'campaign.msFirstAgent',
-  first_conversation: 'campaign.msFirstConversation',
-  second_agent: 'campaign.msSecondAgent',
-  second_agent_response: 'campaign.msSecondAgentResponse',
-};
-
-const fmtUsd = (n: number) => (n % 1 ? n.toFixed(2) : String(n));
-
-function CampaignCard({ idToken }: { idToken: string }) {
-  const t = useT();
-  const [status, setStatus] = useState<CampaignStatus | null>(null);
-  const [keyRevealed, setKeyRevealed] = useState(false);
-  const [keyCopied, setKeyCopied] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    getCampaignStatus(idToken)
-      .then((s) => { if (!cancelled) setStatus(s); })
-      .catch(() => {}); // campaign is decorative — never surface errors here
-    return () => { cancelled = true; };
-  }, [idToken]);
-
-  if (!status?.enabled) return null;
-
-  const cap = status.capUsd ?? 100;
-  const total = status.totalGrantedUsd ?? 0;
-  const pct = Math.min(100, Math.round((total / cap) * 100));
-  const key = status.apiKey || '';
-  const maskedKey = key ? `${key.slice(0, 12)}…${key.slice(-4)}` : '';
-
-  const copyKey = () => {
-    navigator.clipboard.writeText(key);
-    setKeyCopied(true);
-    setTimeout(() => setKeyCopied(false), 2000);
-  };
-
-  return (
-    <div
-      className="mt-10 rounded-2xl border-[2.5px] border-black bg-white p-6"
-      style={{ boxShadow: '6px 6px 0 0 #000' }}
-    >
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-lg font-extrabold tracking-tight">{t('campaign.homeTitle')}</h3>
-          <p className="mt-0.5 text-sm text-neutral-600">
-            {t('campaign.homeBody', { cap })}
-          </p>
-        </div>
-        <div className="text-right">
-          {/* Pilot Program credits stack on top of the $100 ladder: headline the
-              real total on the key, and show the ladder-vs-cap as the sub-line —
-              otherwise a pilot user reads "$60 / $100" and thinks $300 vanished. */}
-          {status.pilot ? (
-            <>
-              <div className="text-2xl font-black tabular-nums">
-                ${fmtUsd(status.grandTotalUsd ?? total + status.pilot.amountUsd)}
-              </div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
-              <div className="mt-0.5 text-[11px] font-semibold text-neutral-500">
-                {t('campaign.homePilotLine', { total: fmtUsd(total), cap, pilot: fmtUsd(status.pilot.amountUsd) })}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="text-2xl font-black tabular-nums">
-                ${fmtUsd(total)}
-                <span className="text-sm font-bold text-neutral-400"> / ${cap}</span>
-              </div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-neutral-400">{t('campaign.homeUnlocked')}</div>
-            </>
-          )}
-        </div>
-      </div>
-
-      {/* Unverified: first rewards are in; the rest waits for a confirmed address */}
-      {status.requiresEmailVerification && (
-        <div className="mt-4 rounded-xl border-2 border-black bg-amber-50 px-4 py-3 text-sm">
-          <span className="font-extrabold">{t('campaign.verifyTitle')}</span>{' '}
-          <span className="text-neutral-700">
-            {(status.unverifiedAllowanceUsd ?? 0) > 0
-              ? t('campaign.verifyBodyAllowance', { email: status.email || '', allowance: status.unverifiedAllowanceUsd ?? 0, cap })
-              : t('campaign.verifyBody', { email: status.email || '' })}
-          </span>
-        </div>
-      )}
-
-      {/* progress bar */}
-      <div className="mt-4 h-3 overflow-hidden rounded-full border-2 border-black bg-neutral-100">
-        <div
-          className="h-full rounded-full transition-all duration-500"
-          style={{ width: `${pct}%`, background: `linear-gradient(90deg, ${BRAND.blue}, ${BRAND.teal})` }}
-        />
-      </div>
-
-      {/* milestones */}
-      <ul className="mt-5 grid gap-2 sm:grid-cols-2">
-        {(status.milestones || []).map((m) => {
-          const done = !!m.grantedAt;
-          return (
-            <li key={m.key} className="flex items-center gap-2.5 text-sm">
-              <span
-                className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-black ${done ? 'text-neutral-950' : 'bg-white text-transparent'}`}
-                style={done ? { backgroundColor: BRAND.teal } : undefined}
-              >
-                <Check className="size-3" strokeWidth={3.5} />
-              </span>
-              <span className={done ? 'font-semibold' : 'text-neutral-600'}>
-                {CAMPAIGN_MILESTONE_LABELS[m.key] ? t(CAMPAIGN_MILESTONE_LABELS[m.key]) : m.key}
-              </span>
-              <span className={`ml-auto font-bold tabular-nums ${done ? '' : 'text-neutral-400'}`}>
-                +${m.amountUsd}
-              </span>
-            </li>
-          );
-        })}
-        <li className="flex items-center gap-2.5 text-sm">
-          <span
-            className={`flex size-5 shrink-0 items-center justify-center rounded-full border-2 border-black ${status.daily?.todayGranted ? 'text-neutral-950' : 'bg-white text-transparent'}`}
-            style={status.daily?.todayGranted ? { backgroundColor: BRAND.teal } : undefined}
-          >
-            <Check className="size-3" strokeWidth={3.5} />
-          </span>
-          <span className={status.daily?.daysGranted ? 'font-semibold' : 'text-neutral-600'}>
-            {t('campaign.homeDaily')}{status.daily?.daysGranted ? t('campaign.homeDailyProgress', { count: status.daily.daysGranted }) : ''}
-          </span>
-          <span className="ml-auto font-bold tabular-nums text-neutral-400">
-            {t('campaign.homePerDay', { amount: status.daily?.grantUsd ?? 10 })}
-          </span>
-        </li>
-      </ul>
-
-      {/* API key */}
-      {key && (
-        <div className="mt-5 rounded-xl border-2 border-black bg-neutral-50 p-3">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-[11px] font-extrabold uppercase tracking-wide text-neutral-500">
-              {t('campaign.keyTitle')}
-            </span>
-            <span className="text-[11px] text-neutral-400">
-              {t('campaign.homeBaseUrl', { url: `${status.gatewayUrl}/v1` })}
-            </span>
-          </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <button
-              onClick={() => setKeyRevealed((v) => !v)}
-              className="min-w-0 flex-1 truncate text-left font-mono text-[13px] hover:text-neutral-600"
-              title={keyRevealed ? t('campaign.homeHideKey') : t('campaign.homeRevealKey')}
-            >
-              {keyRevealed ? key : maskedKey}
-            </button>
-            <button
-              onClick={copyKey}
-              className="inline-flex size-8 shrink-0 items-center justify-center rounded-md border-2 border-black bg-white transition-all hover:shadow-[2px_2px_0_0_#000]"
-              title={t('campaign.homeCopyKey')}
-            >
-              {keyCopied ? <Check className="size-4 text-green-600" /> : <Copy className="size-4" />}
-            </button>
-          </div>
-          <p className="mt-2 text-[12px] text-neutral-500">
-            {t('campaign.homeKeyHint')}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function WorkspaceTile({ workspace, highlight = false }: { workspace: AccountWorkspace; highlight?: boolean }) {
   const router = useRouter();
   const t = useT();
@@ -745,7 +570,6 @@ function MembershipHome({
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
 
-  const viewTrackedRef = useRef(false);
   // A token refresh reruns load while the last one may still be out; only the
   // newest may touch the list.
   const loadSeqRef = useRef(0);
@@ -771,13 +595,6 @@ function MembershipHome({
         if (seq !== loadSeqRef.current) return;
         rememberWorkspaceTokens(list, idToken);
         setWorkspaces(list);
-        // Funnel checkpoint: the signed-in user reached their workspace list
-        // (which includes the auto-provisioned first workspace). Once per
-        // visit — load() also reruns after create/delete.
-        if (!viewTrackedRef.current) {
-          viewTrackedRef.current = true;
-          capture('membership_home_viewed', { workspace_count: list.length });
-        }
         setLoading(false);
         return;
       } catch (err: unknown) {
@@ -803,8 +620,6 @@ function MembershipHome({
   const createFlow = useCreateWorkspace({
     create: useCallback(async (name: string) => {
       const ws = await createAccountWorkspace(idToken, name);
-      group('workspace', ws.slug);
-      capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
       return ws;
     }, [idToken]),
     open: useCallback((ws: { slug: string; name?: string }) => {
@@ -854,7 +669,6 @@ function MembershipHome({
     if (!willAutoEnter || !firstWorkspace || autoEnteredRef.current) return;
     autoEnteredRef.current = true;
     markAutoEntered(target!);
-    capture('first_workspace_auto_entered', { workspace_id: firstWorkspace.slug, reason: target!.reason });
     router.push(`/${firstWorkspace.slug}`);
     if (desktopHost()) {
       setAutoEnterSent(true);
@@ -1037,8 +851,6 @@ function MembershipHome({
           </div>
         )}
 
-        {/* API credits campaign checklist (renders nothing when disabled). */}
-        <CampaignCard idToken={idToken} />
       </main>
     </div>
   );

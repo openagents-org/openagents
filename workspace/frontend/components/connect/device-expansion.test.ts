@@ -21,7 +21,6 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
 vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, connectSetupRequest: fixture.connectSetupRequest, cloudAgentsPending: fixture.cloudAgentsPending, consumeCloudAgents: fixture.consumeCloudAgents, isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => React.createElement('header', null, 'Connect Agent title bar') }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
-vi.mock('@/lib/analytics', () => ({ capture: vi.fn() }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => fixture.desktop }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({}) }));
 vi.mock('@/hooks/use-mobile-device', () => ({ useIsMobileDevice: () => fixture.mobile }));
@@ -30,9 +29,6 @@ vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 
-vi.mock('@/components/campaign/campaign-feedback', () => ({
-  CampaignConnectHint: () => null, CAMPAIGN_PROMO_AGENT_TYPES: new Set(),
-}));
 vi.mock('@/components/agents/agent-setup', () => ({
   AgentSetup: ({ node, onBack }: { node: WorkspaceNode; onBack: () => void }) => React.createElement(
     'section', { 'aria-label': `Agent gallery for ${node.name}` },

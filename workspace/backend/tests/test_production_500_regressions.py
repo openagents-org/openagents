@@ -39,8 +39,6 @@ def test_user_creation_race_preserves_outer_transaction(db, monkeypatch, invite)
     winner_id = winner.id
     pending = User(email="unrelated@example.com")
     db.add(pending)
-    analytics = MagicMock()
-    monkeypatch.setattr("app.services.analytics.track_account_created", analytics)
     _miss_first_lookup(db, monkeypatch)
     if invite:
         user = access.get_or_create_user_by_email(db, " RACE@example.com ")
@@ -54,7 +52,6 @@ def test_user_creation_race_preserves_outer_transaction(db, monkeypatch, invite)
         assert user.last_login_at is not None
     assert user.id == winner_id
     assert user.display_name == "Existing name"
-    analytics.assert_not_called()
     db.commit()
     assert db.execute(select(User).where(User.email == pending.email)).scalar_one().id == pending.id
     assert len(db.execute(select(User)).scalars().all()) == 2
@@ -79,21 +76,6 @@ def test_new_user_remains_owned_by_caller_transaction(db, invite):
         access.get_or_create_user(db, {"email": "rollback@example.com"})
     db.rollback()
     assert db.execute(select(User)).scalar_one_or_none() is None
-
-
-def test_campaign_status_survives_first_login_race(db, monkeypatch):
-    from app.routers import campaign as route
-    db.add(User(email="race@example.com"))
-    db.commit()
-    _miss_first_lookup(db, monkeypatch)
-    monkeypatch.setattr(access, "verify_identity_claims", lambda _: {
-        "email": "race@example.com", "email_verified": True,
-    })
-    monkeypatch.setattr(route.campaign, "enabled", lambda: True)
-    monkeypatch.setattr(route.campaign, "ineligible_reason", lambda _: None)
-    monkeypatch.setattr(route.campaign, "status_payload", lambda *_, **__: {"enabled": True})
-    response = route.campaign_status(authorization="Bearer test", db=db)
-    assert response["data"]["enabled"] is True
 
 
 @pytest.fixture
