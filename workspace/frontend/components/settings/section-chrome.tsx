@@ -9,8 +9,8 @@ import { roleLabel } from '@/lib/roles';
 /** Title + description header shared by every settings dashboard section. */
 export function SectionHeader({ title, description }: { title: string; description: string }) {
   return (
-    <div className="flex flex-col gap-1 border-b pb-4">
-      <h2 className="font-heading text-lg font-medium">{title}</h2>
+    <div className="flex flex-col gap-1">
+      <h2 className="font-heading text-xl font-semibold">{title}</h2>
       <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );

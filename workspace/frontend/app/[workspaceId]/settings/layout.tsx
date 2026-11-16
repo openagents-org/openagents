@@ -3,19 +3,17 @@
 import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import {
-  ArrowLeft, CircleUser, ClipboardCheck, Plug, Gift, Globe, KeyRound, Lock, LogIn, MonitorSmartphone, Settings2, ShieldCheck, SlidersHorizontal, Users,
-} from 'lucide-react';
+import { ArrowLeft, KeyRound, LogIn } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { AdminSettingsContext, canAdminister, canAccessSettingsSection, type AdminSettingsValue } from '@/components/settings/admin-context';
+import { SettingsNav } from '@/components/settings/settings-nav';
 import { workspaceApi } from '@/lib/api';
 import type { Workspace, WorkspaceMe } from '@/lib/types';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, redirectToLogin } from '@/lib/auth-redirects';
 import { roleLabel } from '@/lib/roles';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 
 /** Read the workspace token persisted by the main workspace view (see
  * setWorkspaceCookie in app/[workspaceId]/page.tsx). */
@@ -29,21 +27,6 @@ function readCookieToken(workspaceId: string): string | null {
   } catch { /* malformed cookie */ }
   return null;
 }
-
-const SECTIONS = [
-  { slug: 'profile', labelKey: 'admin.navProfile', icon: CircleUser },
-  { slug: 'connected-apps', labelKey: 'admin.navConnectedApps', icon: Plug },
-  { slug: 'general', labelKey: 'admin.navGeneral', icon: Settings2 },
-  { slug: 'members', labelKey: 'admin.navMembers', icon: Users },
-  { slug: 'security', labelKey: 'admin.navSecurity', icon: ShieldCheck },
-  { slug: 'approvals', labelKey: 'admin.navApprovals', icon: ClipboardCheck },
-  { slug: 'private-threads', labelKey: 'adminThreads.navLabel', icon: Lock }, // v1.1 permission model (admin)
-  { slug: 'devices', labelKey: 'admin.navDevices', icon: MonitorSmartphone },
-  { slug: 'model-access', labelKey: 'admin.navModelAccess', icon: KeyRound },
-  { slug: 'integrations', labelKey: 'admin.navIntegrations', icon: Globe },
-  { slug: 'preferences', labelKey: 'admin.navPreferences', icon: SlidersHorizontal },
-  { slug: 'api-credits', labelKey: 'admin.navApiCredits', icon: Gift },
-] as const;
 
 function SettingsShell({ workspaceId, children }: { workspaceId: string; children: React.ReactNode }) {
   const t = useT();
@@ -202,28 +185,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
         </header>
 
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:gap-10">
-          <nav className="flex shrink-0 gap-1 overflow-x-auto md:w-48 md:flex-col md:overflow-visible">
-            {SECTIONS.filter(({ slug }) => canAccessSettingsSection(ctxValue.me, slug)).map(({ slug, labelKey, icon: Icon }) => {
-              const href = `/${workspaceId}/settings/${slug}${query}`;
-              const active = pathname?.endsWith(`/settings/${slug}`);
-              return (
-                <Link
-                  key={slug}
-                  href={href}
-                  aria-current={active ? 'page' : undefined}
-                  className={cn(
-                    'flex items-center gap-2 rounded-md px-3 py-2 text-sm whitespace-nowrap transition-colors',
-                    active
-                      ? 'bg-muted font-medium text-foreground'
-                      : 'text-muted-foreground hover:bg-muted/50 hover:text-foreground',
-                  )}
-                >
-                  <Icon className="size-4" />
-                  {t(labelKey)}
-                </Link>
-              );
-            })}
-          </nav>
+          <SettingsNav workspaceId={workspaceId} me={ctxValue.me} pathname={pathname} query={query} />
           <main className="min-w-0 flex-1 pb-16">{sectionAllowed ? children : (
             <div className="flex flex-col gap-3 py-6">
               <h2 className="font-heading text-lg font-medium">{t('admin.accessDeniedTitle')}</h2>

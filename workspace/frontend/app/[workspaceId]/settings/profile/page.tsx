@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Camera, Check, LogIn, X } from 'lucide-react';
+import { Camera, LogIn, Trash2 } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { SectionHeader } from '@/components/settings/section-chrome';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { SaveButton } from '@/components/settings/save-button';
 import {
   getAccountProfile, updateAccountProfile, type AccountProfile,
 } from '@/lib/account-api';
@@ -44,6 +44,8 @@ function fileToAvatarDataUrl(file: File): Promise<string> {
   });
 }
 
+type Part = 'avatar' | 'name';
+
 export default function ProfileSettingsPage() {
   const t = useT();
   const { user, idToken, loading: authLoading, signIn } = useOpenAgentsAuth();
@@ -53,14 +55,13 @@ export default function ProfileSettingsPage() {
   const [name, setName] = useState('');
   // null = untouched; '' = cleared; 'data:...' = newly picked.
   const [avatarDraft, setAvatarDraft] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  // Briefly true after a save, so the button confirms it instead of just
-  // greying out again.
-  const [justSaved, setJustSaved] = useState(false);
+  const [saving, setSaving] = useState<Part | null>(null);
+  // The card saved last, briefly, so its button confirms the save.
+  const [justSaved, setJustSaved] = useState<Part | null>(null);
 
   useEffect(() => {
     if (!justSaved) return;
-    const id = window.setTimeout(() => setJustSaved(false), 2000);
+    const id = window.setTimeout(() => setJustSaved(null), 2000);
     return () => window.clearTimeout(id);
   }, [justSaved]);
 
@@ -80,15 +81,18 @@ export default function ProfileSettingsPage() {
 
   if (!authLoading && !user) {
     return (
-      <div className="flex flex-col gap-8">
+      <div className="flex flex-col gap-6">
         <SectionHeader title={t('profile.title')} description={t('profile.description')} />
-        <Card size="sm"><CardContent className="flex flex-col items-start gap-3">
-          <p className="text-sm text-muted-foreground">{t('profile.signInPrompt')}</p>
-          <Button size="sm" onClick={() => goToCentralLogin(signIn)}>
-            <LogIn className="size-4" />
-            {t('userMenu.signIn')}
-          </Button>
-        </CardContent></Card>
+        <SettingsCard
+          title={t('userMenu.signIn')}
+          description={t('profile.signInPrompt')}
+          footer={(
+            <Button size="sm" onClick={() => goToCentralLogin(signIn)}>
+              <LogIn data-icon="inline-start" />
+              {t('userMenu.signIn')}
+            </Button>
+          )}
+        />
       </div>
     );
   }
@@ -107,6 +111,7 @@ export default function ProfileSettingsPage() {
       ? (avatarDraft || null)
       : (profile.avatarUrl || user?.photoURL || null);
   const initial = (name || profile.displayName || profile.email)[0]?.toUpperCase();
+  const canRemove = Boolean(shownAvatar) && shownAvatar !== user?.photoURL;
 
   const pickFile = async (file: File | undefined) => {
     if (!file) return;
@@ -117,56 +122,67 @@ export default function ProfileSettingsPage() {
     }
   };
 
-  const dirty =
-    name.trim() !== (profile.displayName || '') || avatarDraft !== null;
+  const nameDirty = name.trim() !== (profile.displayName || '');
+  const avatarDirty = avatarDraft !== null;
 
-  const save = async () => {
-    if (!idToken || !name.trim()) return;
-    setSaving(true);
+  const save = async (part: Part) => {
+    if (!idToken) return;
+    setSaving(part);
     try {
-      const updated = await updateAccountProfile(idToken, {
-        ...(name.trim() !== (profile.displayName || '') ? { displayName: name.trim() } : {}),
-        ...(avatarDraft !== null ? { avatarUrl: avatarDraft } : {}),
-      });
+      const updated = await updateAccountProfile(
+        idToken,
+        part === 'name' ? { displayName: name.trim() } : { avatarUrl: avatarDraft ?? '' },
+      );
       setProfile(updated);
       window.dispatchEvent(new Event('workspace-profile-updated'));
-      setName(updated.displayName || '');
-      setAvatarDraft(null);
-      setJustSaved(true);
+      if (part === 'name') setName(updated.displayName || '');
+      else setAvatarDraft(null);
+      setJustSaved(part);
       toast.success(t('profile.saved'));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : t('settings.saveFailed'));
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('profile.title')} description={t('profile.description')} />
 
-      <Card size="sm"><CardContent className="flex items-start gap-5">
-        <div className="relative">
-          {shownAvatar ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={shownAvatar}
-              alt=""
-              className="size-20 rounded-full object-cover"
-            />
-          ) : (
-            <div className="flex size-20 items-center justify-center rounded-full bg-primary/10 text-2xl font-semibold text-primary">
-              {initial}
-            </div>
-          )}
-          <Button
+      <SettingsCard
+        title={t('profile.photoTitle')}
+        description={t('profile.photoHint')}
+        footer={<SaveButton dirty={avatarDirty} saving={saving === 'avatar'} saved={justSaved === 'avatar'} onClick={() => save('avatar')} />}
+      >
+        <div className="flex items-center gap-4">
+          <button
             type="button"
             onClick={() => fileInput.current?.click()}
             title={t('profile.changePhoto')}
-            variant="outline" size="icon-sm" className="absolute -right-1 -bottom-1 rounded-full shadow-sm"
+            className="shrink-0 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           >
-            <Camera className="size-3.5" />
-          </Button>
+            {shownAvatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={shownAvatar} alt="" className="size-16 rounded-full object-cover" />
+            ) : (
+              <span className="flex size-16 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground">
+                {initial}
+              </span>
+            )}
+          </button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}>
+              <Camera data-icon="inline-start" />
+              {t('profile.changePhoto')}
+            </Button>
+            {canRemove && (
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setAvatarDraft('')}>
+                <Trash2 data-icon="inline-start" />
+                {t('profile.removePhoto')}
+              </Button>
+            )}
+          </div>
           <input
             ref={fileInput}
             type="file"
@@ -175,45 +191,27 @@ export default function ProfileSettingsPage() {
             onChange={(e) => { pickFile(e.target.files?.[0]); e.target.value = ''; }}
           />
         </div>
+      </SettingsCard>
 
-        <div className="min-w-0 flex-1 flex flex-col gap-3">
-          <Field>
-            <FieldLabel>{t('profile.displayName')}</FieldLabel>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('profile.displayNamePlaceholder')}
-              maxLength={120}
-            />
-            <FieldDescription>{t('profile.displayNameHint')}</FieldDescription>
-          </Field>
-          <p className="text-xs text-muted-foreground">{profile.email}</p>
-          {((profile.avatarUrl && profile.avatarUrl !== user?.photoURL) || avatarDraft) && (
-            <Button variant="ghost" size="sm" onClick={() => setAvatarDraft('')}>
-              <X className="size-3.5" />
-              {t('profile.removePhoto')}
-            </Button>
-          )}
-        </div>
-      </CardContent></Card>
+      <SettingsCard
+        title={t('profile.displayName')}
+        description={t('profile.displayNameHint')}
+        footer={<SaveButton dirty={nameDirty} saving={saving === 'name'} saved={justSaved === 'name'} disabled={!name.trim()} onClick={() => save('name')} />}
+      >
+        <Input
+          aria-label={t('profile.displayName')}
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && nameDirty && name.trim()) void save('name'); }}
+          placeholder={t('profile.displayNamePlaceholder')}
+          maxLength={120}
+          className="max-w-sm"
+        />
+      </SettingsCard>
 
-      <div className="flex justify-end">
-        {/* Solid only while there is something to save; a faded solid button
-            read as "still grey" whether or not anything had changed. */}
-        <Button
-          variant={dirty || saving ? 'default' : 'secondary'}
-          onClick={save}
-          disabled={saving || !dirty || !name.trim()}
-        >
-          {saving ? (
-            <><Spinner />{t('common.saving')}</>
-          ) : justSaved && !dirty ? (
-            <><Check className="size-4" />{t('common.saved')}</>
-          ) : (
-            t('common.save')
-          )}
-        </Button>
-      </div>
+      <SettingsCard title={t('profile.emailTitle')} description={t('profile.emailHint')}>
+        <Input aria-label={t('profile.emailTitle')} value={profile.email} readOnly disabled className="max-w-sm" />
+      </SettingsCard>
     </div>
   );
 }

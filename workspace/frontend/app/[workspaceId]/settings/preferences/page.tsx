@@ -1,15 +1,15 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Volume2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { playNotificationSound } from '@/lib/notification-audio';
-import { Label } from '@/components/ui/label';
-import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from '@/components/ui/field';
-import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SectionHeader } from '@/components/settings/section-chrome';
-import { useT } from '@/lib/i18n';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
+import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
 
 /**
@@ -24,7 +24,7 @@ const SIGNAL_SOUND_KEY = 'oa_signal_sound';
 const SPLIT_KEY = 'x-split-browser';
 
 export default function PreferencesSettingsPage() {
-  const t = useT();
+  const { t, locale, setLocale, isAutoDetected } = useI18n();
   const [sound, setSound] = useState(true);
   const [signalSound, setSignalSound] = useState(true);
   const [split, setSplit] = useState(false);
@@ -53,45 +53,56 @@ export default function PreferencesSettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader
         title={t('admin.preferencesTitle')}
         description={t(desktopHost() ? 'admin.preferencesDescriptionDesktop' : 'admin.preferencesDescription')}
       />
 
-      <Button variant="outline" onClick={async () => {
-        if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
-      }}>{t('settings.testSound')}</Button>
-      <FieldLabel htmlFor="pref-sound">
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldTitle>{t('settings.notificationSound')}</FieldTitle>
-            <FieldDescription>{t('settings.notificationSoundHint')}</FieldDescription>
-          </FieldContent>
-          <Switch id="pref-sound" checked={sound} onCheckedChange={toggleSound} size="sm" />
-        </Field>
-      </FieldLabel>
+      {/* Applies immediately; nothing to save. */}
+      <SettingsCard
+        title={t('language.label')}
+        description={isAutoDetected ? t('language.autoHint') : t('language.description')}
+      >
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          size="sm"
+          value={locale}
+          onValueChange={(value) => { if (value && isLocale(value)) setLocale(value); }}
+          aria-label={t('language.label')}
+        >
+          {LOCALES.map((option) => (
+            <ToggleGroupItem key={option} value={option}>{LOCALE_LABELS[option]}</ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+      </SettingsCard>
 
-      <FieldLabel htmlFor="pref-signal-sound">
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldTitle>{t('slackSignals.soundLabel')}</FieldTitle>
-            <FieldDescription>{t('slackSignals.soundHint')}</FieldDescription>
-          </FieldContent>
-          <Switch id="pref-signal-sound" checked={signalSound} onCheckedChange={toggleSignalSound} size="sm" />
-        </Field>
-      </FieldLabel>
+      <SettingsCard
+        title={t('admin.notificationsTitle')}
+        description={t('admin.notificationsHint')}
+        action={(
+          <Button variant="outline" size="sm" onClick={async () => {
+            if (!await playNotificationSound(true)) toast.error(t('settings.soundBlocked'));
+          }}>
+            <Volume2 data-icon="inline-start" />
+            {t('settings.testSound')}
+          </Button>
+        )}
+      >
+        <SettingsRow label={t('settings.notificationSound')} description={t('settings.notificationSoundHint')} htmlFor="pref-sound">
+          <Switch id="pref-sound" checked={sound} onCheckedChange={toggleSound} />
+        </SettingsRow>
+        <SettingsRow label={t('slackSignals.soundLabel')} description={t('slackSignals.soundHint')} htmlFor="pref-signal-sound">
+          <Switch id="pref-signal-sound" checked={signalSound} onCheckedChange={toggleSignalSound} />
+        </SettingsRow>
+      </SettingsCard>
 
-      <FieldLabel htmlFor="pref-split-browser">
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldTitle>{t('settings.splitBrowser')}
-              <Badge variant="warning">{t('settings.experimental')}</Badge></FieldTitle>
-            <FieldDescription>{t('settings.splitBrowserHint')}</FieldDescription>
-          </FieldContent>
-          <Switch id="pref-split-browser" checked={split} onCheckedChange={toggleSplit} size="sm" />
-        </Field>
-      </FieldLabel>
+      <SettingsCard title={t('settings.experimental')}>
+        <SettingsRow label={t('settings.splitBrowser')} description={t('settings.splitBrowserHint')} htmlFor="pref-split-browser">
+          <Switch id="pref-split-browser" checked={split} onCheckedChange={toggleSplit} />
+        </SettingsRow>
+      </SettingsCard>
     </div>
   );
 }

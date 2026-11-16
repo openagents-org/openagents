@@ -1,31 +1,45 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy, Languages } from 'lucide-react';
+import { Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Field, FieldContent, FieldDescription, FieldLabel, FieldTitle } from '@/components/ui/field';
-import { Badge } from '@/components/ui/badge';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Switch } from '@/components/ui/switch';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
+import { SaveButton } from '@/components/settings/save-button';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
-import { LOCALES, LOCALE_LABELS, isLocale, useI18n } from '@/lib/i18n';
+import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
+
+type Part = 'name' | 'monitor';
+
+/** A read-only value with a copy button inside the field. */
+function CopyField({ id, value, label }: { id: string; value: string; label: string }) {
+  const { isCopied, copyToClipboard } = useCopyToClipboard();
+  return (
+    <InputGroup className="@md/field-group:w-80">
+      <InputGroupInput id={id} value={value} readOnly className="font-mono text-xs" />
+      <InputGroupAddon align="inline-end">
+        <InputGroupButton size="icon-xs" aria-label={label} title={label} onClick={() => copyToClipboard(value)}>
+          {isCopied ? <Check /> : <Copy />}
+        </InputGroupButton>
+      </InputGroupAddon>
+    </InputGroup>
+  );
+}
 
 export default function GeneralSettingsPage() {
   const { workspace, me, refreshWorkspace } = useAdminSettings();
-  const { t, locale, setLocale, isAutoDetected } = useI18n();
+  const t = useT();
   const editable = canAdminister(me);
 
   const [name, setName] = useState(workspace.name);
   const [monitorMode, setMonitorMode] = useState(!!workspace.settings?.monitorMode);
-  const [saving, setSaving] = useState(false);
-  const { isCopied: urlCopied, copyToClipboard: copyUrl } = useCopyToClipboard();
-  const { isCopied: idCopied, copyToClipboard: copyId } = useCopyToClipboard();
+  const [saving, setSaving] = useState<Part | null>(null);
 
   // Deliberately without any ?token= — links we surface for sharing must
   // never carry the workspace machine token (use invite links instead).
@@ -33,102 +47,71 @@ export default function GeneralSettingsPage() {
     ? `${shareOrigin()}/${workspace.slug}`
     : '';
 
-  const dirty = name.trim() !== workspace.name || monitorMode !== !!workspace.settings?.monitorMode;
+  const nameDirty = name.trim() !== workspace.name;
+  const monitorDirty = monitorMode !== !!workspace.settings?.monitorMode;
 
-  const handleSave = async () => {
-    if (!name.trim()) return;
-    setSaving(true);
+  // Each card saves only its own part, so an unsaved edit in another card is
+  // never sent along with it.
+  const save = async (part: Part) => {
+    if (part === 'name' && !name.trim()) return;
+    setSaving(part);
     try {
-      await workspaceApi.updateWorkspace({
-        name: name.trim(),
-        settings: { ...workspace.settings, monitorMode },
-      });
+      await workspaceApi.updateWorkspace(
+        part === 'name'
+          ? { name: name.trim() }
+          : { settings: { ...workspace.settings, monitorMode } },
+      );
       await refreshWorkspace();
       toast.success(t('settings.saved'));
     } catch {
       toast.error(t('settings.saveFailed'));
     } finally {
-      setSaving(false);
+      setSaving(null);
     }
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('admin.generalTitle')} description={t('admin.generalDescription')} />
       {!editable && <ReadOnlyBanner />}
 
-      <Field>
-        <FieldLabel>{t('settings.workspaceName')}</FieldLabel>
+      <SettingsCard
+        title={t('settings.workspaceName')}
+        description={t('admin.workspaceNameHint')}
+        footer={editable && (
+          <SaveButton dirty={nameDirty} saving={saving === 'name'} disabled={!name.trim()} onClick={() => save('name')} />
+        )}
+      >
         <Input
+          aria-label={t('settings.workspaceName')}
           value={name}
           onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && nameDirty && name.trim()) void save('name'); }}
           placeholder={t('settings.workspaceNamePlaceholder')}
           disabled={!editable}
+          className="max-w-sm"
         />
-      </Field>
+      </SettingsCard>
 
-      {/* Language — applies immediately for this browser; not part of Save. */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center gap-2">
-          <Languages className="size-4 text-muted-foreground" />
-          <Label>{t('language.label')}</Label>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {LOCALES.map((option) => (
-            <Button
-              key={option}
-              type="button"
-              size="sm"
-              variant={option === locale ? 'default' : 'outline'}
-              onClick={() => { if (isLocale(option)) setLocale(option); }}
-            >
-              {LOCALE_LABELS[option]}
-            </Button>
-          ))}
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {isAutoDetected ? t('language.autoHint') : t('language.description')}
-        </p>
-      </div>
+      <SettingsCard title={t('admin.workspaceLinksTitle')} description={t('admin.workspaceLinksHint')}>
+        <SettingsRow label={t('settings.workspaceUrl')} htmlFor="general-workspace-url">
+          <CopyField id="general-workspace-url" value={workspaceUrl} label={t('common.copy')} />
+        </SettingsRow>
+        <SettingsRow label={t('settings.workspaceId')} htmlFor="general-workspace-id">
+          <CopyField id="general-workspace-id" value={workspace.slug} label={t('common.copy')} />
+        </SettingsRow>
+      </SettingsCard>
 
-      <Field>
-        <FieldLabel>{t('settings.workspaceUrl')}</FieldLabel>
-        <div className="flex items-center gap-2">
-          <Input value={workspaceUrl} readOnly className="font-mono text-xs" />
-          <Button variant="outline" size="icon" onClick={() => copyUrl(workspaceUrl)}>
-            {urlCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </Button>
-        </div>
-      </Field>
-
-      <Field>
-        <FieldLabel>{t('settings.workspaceId')}</FieldLabel>
-        <div className="flex items-center gap-2">
-          <Input value={workspace.slug} readOnly className="font-mono text-xs" />
-          <Button variant="outline" size="icon" onClick={() => copyId(workspace.slug)}>
-            {idCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
-          </Button>
-        </div>
-      </Field>
-
-      <FieldLabel htmlFor="general-monitor-mode">
-        <Field orientation="horizontal">
-          <FieldContent>
-            <FieldTitle>{t('settings.monitorMode')}
-              <Badge variant="warning">{t('settings.experimental')}</Badge></FieldTitle>
-            <FieldDescription>{t('settings.monitorModeHint')}</FieldDescription>
-          </FieldContent>
-          <Switch id="general-monitor-mode" checked={monitorMode} onCheckedChange={setMonitorMode} disabled={!editable} size="sm" />
-        </Field>
-      </FieldLabel>
-
-      {editable && (
-        <div className="flex justify-end">
-          <Button onClick={handleSave} disabled={saving || !dirty || !name.trim()}>
-            {saving ? t('common.saving') : t('common.save')}
-          </Button>
-        </div>
-      )}
+      <SettingsCard
+        title={t('settings.experimental')}
+        footer={editable && (
+          <SaveButton dirty={monitorDirty} saving={saving === 'monitor'} onClick={() => save('monitor')} />
+        )}
+      >
+        <SettingsRow label={t('settings.monitorMode')} description={t('settings.monitorModeHint')} htmlFor="general-monitor-mode">
+          <Switch id="general-monitor-mode" checked={monitorMode} onCheckedChange={setMonitorMode} disabled={!editable} />
+        </SettingsRow>
+      </SettingsCard>
     </div>
   );
 }

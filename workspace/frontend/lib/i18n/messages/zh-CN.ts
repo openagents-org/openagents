@@ -1234,7 +1234,7 @@ export const messages: Messages = {
     navApiCredits: 'API 额度',
 
     generalTitle: '常规',
-    generalDescription: '工作区名称、语言和显示选项。',
+    generalDescription: '工作区名称、地址与显示选项。',
 
     membersTitle: '成员',
     membersDescription: '拥有此工作区访问权限的成员及其角色。',
@@ -1353,6 +1353,13 @@ export const messages: Messages = {
     preferencesTitle: '偏好设置',
     preferencesDescription: '仅对当前浏览器生效——不影响其他成员。',
     preferencesDescriptionDesktop: '仅对此电脑生效——不影响其他成员。',
+    navGroupPersonal: '个人',
+    navGroupWorkspace: '工作区',
+    workspaceNameHint: '显示在侧边栏和邀请中。',
+    workspaceLinksTitle: '地址与 ID',
+    workspaceLinksHint: '用于在浏览器中打开工作区，或在 CLI 与 API 中引用它。',
+    notificationsTitle: '通知',
+    notificationsHint: '新消息与被提及时的提示音。',
   },
 
   profile: {
@@ -1366,6 +1373,10 @@ export const messages: Messages = {
     badImage: '无法读取该图片——请换一个文件试试。',
     saved: '个人资料已更新',
     signInPrompt: '登录后即可自定义名字和头像。',
+    photoTitle: '头像',
+    photoHint: '显示在你的名字旁边，建议使用正方形图片。',
+    emailTitle: '邮箱',
+    emailHint: '用于登录的邮箱，无法在此修改。',
   },
 
   invitePage: {

@@ -1251,7 +1251,7 @@ export const messages = {
     navApiCredits: 'API credits',
 
     generalTitle: 'General',
-    generalDescription: 'Workspace name, language and display options.',
+    generalDescription: 'Workspace name, address and display options.',
 
     membersTitle: 'Members',
     membersDescription: 'People with access to this workspace and their roles.',
@@ -1378,6 +1378,13 @@ export const messages = {
       'Options for this browser only — they do not affect other members.',
     preferencesDescriptionDesktop:
       'Options for this computer only — they do not affect other members.',
+    navGroupPersonal: 'Personal',
+    navGroupWorkspace: 'Workspace',
+    workspaceNameHint: 'Shown in the sidebar and in invitations.',
+    workspaceLinksTitle: 'Address and ID',
+    workspaceLinksHint: 'Open the workspace in a browser, or refer to it from the CLI and API.',
+    notificationsTitle: 'Notifications',
+    notificationsHint: 'Sounds for new messages and for mentions.',
   },
 
   profile: {
@@ -1391,6 +1398,10 @@ export const messages = {
     badImage: "Couldn't read that image — try a different file.",
     saved: 'Profile updated',
     signInPrompt: 'Sign in to customize your name and photo.',
+    photoTitle: 'Avatar',
+    photoHint: 'Shown next to your name. Square images work best.',
+    emailTitle: 'Email',
+    emailHint: 'The address you sign in with. It can\'t be changed here.',
   },
 
   invitePage: {
