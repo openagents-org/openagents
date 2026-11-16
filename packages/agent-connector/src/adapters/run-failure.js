@@ -49,7 +49,9 @@ const PATTERNS = [
   ['session', /Error resuming session|Invalid session identifier|No previous sessions found/i],
   ['auth', /authentication (?:required|failed)|not authenticated|no valid credentials|please (?:sign|log) in|(?:sign|log)[ -]?in (?:is )?required|not (?:signed|logged) in|Please set an Auth method|API key not valid|API[_ ]?KEY[_ ]?INVALID|UNAUTHENTICATED|PERMISSION_DENIED|invalid_grant|re-?authenticate|IneligibleTier|account is not eligible|\bunauthorized\b|\b403\b[^\n]{0,24}\bforbidden\b|\bforbidden\b[^\n]{0,24}\b403\b|\berror["']?[:=]\s*["']?forbidden\b|(?:invalid|incorrect)[^\n]{0,20}(?:api.?key|token|credential)|api[_ -]?key (?:is )?(?:missing|required|not set|unset)|\b(?:status|HTTP):? 40[13]\b|GEMINI_API_KEY/i],
   ['quota', /RESOURCE_EXHAUSTED|\bquota\b|exhausted your capacity|rate.?limit|too many requests|\b429\b|overloaded/i],
-  ['network', /fetch failed|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|socket hang up|getaddrinfo|network error|self[- ]signed certificate|unable to verify the first certificate/i],
+  // HTTP 525 is the edge reporting that its TLS handshake with the origin
+  // failed. CLIs quote that as "Secure connection … failed" plus the status.
+  ['network', /fetch failed|ENOTFOUND|ETIMEDOUT|ECONNREFUSED|ECONNRESET|EAI_AGAIN|UND_ERR_CONNECT_TIMEOUT|socket hang up|getaddrinfo|network error|self[- ]signed certificate|unable to verify the first certificate|secure connection[^\n]{0,80}failed|ssl handshake failed|\b(?:status|HTTP):? 525\b/i],
   ['model', /ModelNotFound|models?\b[^\n]{0,60}\bnot (?:found|supported)|unknown model|invalid model|unsupported model|no such model|model[^\n]{0,30}(?:unavailable|does not exist)|\bstatus:? 404\b/i],
   ['provider', /modelProvider|model provider|unknown provider|no (?:inference )?provider configured|provider[^\n]{0,30}(?:not|un)(?:available|configured|supported|known)/i],
   ['config', new RegExp(
