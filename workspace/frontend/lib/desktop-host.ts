@@ -50,6 +50,23 @@ export function desktopHost(): DesktopHost | null {
   return (window as unknown as { __oaHost__?: DesktopHost }).__oaHost__ ?? null;
 }
 
+// What to call the launcher tab a route is about to open in. The All
+// Workspaces list knows each workspace's name; without this the new tab would
+// show the slug until the workspace has loaded and reported its name.
+const pendingTabTitles = new Map<string, string>();
+
+/** Call the tab that `route` opens `title` until its page names it. */
+export function hintTabTitle(route: string, title: string): void {
+  if (title.trim()) pendingTabTitles.set(route, title.trim());
+}
+
+/** The title hinted for `route`, once: reading it clears it. */
+export function takeTabTitle(route: string): string | undefined {
+  const title = pendingTabTitles.get(route);
+  pendingTabTitles.delete(route);
+  return title;
+}
+
 /** Resolve a notification deep link only after that workspace's threads load. */
 export function requestedDesktopThread(hash: string, sessionIds: string[]): string | null {
   const queryAt = hash.indexOf('?');

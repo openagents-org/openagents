@@ -156,7 +156,7 @@ export function ConnectWorkspaceDialog({
           /* Not the empty state: until the pairings answer, "this device is in
              no workspace" is not yet known, and showing it would send the user
              off to re-pair a device that is paired. */
-          <DialogBody className="gap-2 py-6">
+          <DialogBody className="gap-2">
             <Skeleton className="h-9 shrink-0" />
             <Skeleton className="h-9 shrink-0" />
             <Skeleton className="h-9 shrink-0" />

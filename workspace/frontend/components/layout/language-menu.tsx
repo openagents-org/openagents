@@ -44,7 +44,7 @@ export function LanguageMenuSub() {
             ))}
           </DropdownMenuRadioGroup>
           {isAutoDetected && (
-            <p className="px-2 py-1.5 text-[11px] leading-snug text-muted-foreground">
+            <p className="px-2 py-1.5 text-xs leading-snug text-muted-foreground">
               {t('language.autoHint')}
             </p>
           )}

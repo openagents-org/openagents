@@ -163,7 +163,7 @@ export function WorkspaceSignIn(): React.JSX.Element {
                 disabled={pending}
                 aria-describedby={creatingAccount ? "sign-up-password-hint" : undefined}
               />
-              {creatingAccount && <p id="sign-up-password-hint" className="text-3xs leading-relaxed text-muted-foreground">{t("account.signUpPage.passwordHint")}</p>}
+              {creatingAccount && <p id="sign-up-password-hint" className="text-xs leading-relaxed text-muted-foreground">{t("account.signUpPage.passwordHint")}</p>}
             </Field>
 
             {creatingAccount && (
@@ -199,10 +199,10 @@ export function WorkspaceSignIn(): React.JSX.Element {
             {signingIn ? <Spinner className="size-3.5" /> : <Globe className="size-4" />}
             {signingIn ? t("account.signingIn") : t(creatingAccount ? "account.signUpPage.browser" : "account.signInPage.browser")}
           </Button>
-          <p className="mt-2 text-center text-2xs text-muted-foreground">
+          <p className="mt-2 text-center text-xs text-muted-foreground">
             {signingIn ? t("account.signingInHint") : t("account.signInPage.browserHint")}
           </p>
-          {creatingAccount && <p className="mt-4 text-center text-3xs text-muted-foreground">{t("account.signUpPage.terms")}</p>}
+          {creatingAccount && <p className="mt-4 text-center text-xs text-muted-foreground">{t("account.signUpPage.terms")}</p>}
 
           <div className="mt-8 flex items-center justify-between text-sm">
             <button

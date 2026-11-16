@@ -1,5 +1,6 @@
 import React from "react"
-import { Check, ChevronRight, Loader2 } from "lucide-react"
+import { Check, ChevronRight } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -65,7 +66,7 @@ export function OnboardingFooter({
             >
               {pairing.connecting ? (
                 <>
-                  <Loader2 className="animate-spin" />
+                  <Spinner data-icon="inline-start" />
                   {t("onboarding.flow.footer.connecting")}
                 </>
               ) : (
@@ -87,7 +88,7 @@ export function OnboardingFooter({
         >
           {agents.installing ? (
             <>
-              <Loader2 className="animate-spin" />
+              <Spinner data-icon="inline-start" />
               {t("onboarding.flow.footer.installing")}
             </>
           ) : (
@@ -112,7 +113,7 @@ export function OnboardingFooter({
         >
           {auth.saving ? (
             <>
-              <Loader2 className="animate-spin" />
+              <Spinner data-icon="inline-start" />
               {t("onboarding.flow.footer.saving")}
             </>
           ) : (
@@ -141,7 +142,7 @@ export function OnboardingFooter({
           >
             {provision.creatingAgent ? (
               <>
-                <Loader2 className="animate-spin" />
+                <Spinner data-icon="inline-start" />
                 {t("onboarding.flow.footer.creating")}
               </>
             ) : (

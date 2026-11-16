@@ -2,6 +2,7 @@ import React from "react"
 import { useTranslation } from "react-i18next"
 import { PowerOff } from "lucide-react"
 
+import { Alert, AlertAction, AlertDescription } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
 import { showGlobalToast } from "@renderer/hooks/useToast"
 import { useLocalConnectorStore } from "@renderer/store/local-connector"
@@ -27,12 +28,14 @@ export function LocalConnectorBanner(): React.JSX.Element | null {
   }
 
   return (
-    <div role="status" className="mb-4 flex items-center gap-3 rounded-lg border bg-muted px-4 py-3">
-      <PowerOff className="size-4 shrink-0 text-muted-foreground" />
-      <p className="m-0 min-w-0 flex-1 text-sm text-muted-foreground">{t("settings.localConnector.banner")}</p>
-      <Button size="sm" disabled={busy} onClick={() => void turnOn()}>
-        {t("settings.localConnector.bannerAction")}
-      </Button>
-    </div>
+    <Alert role="status" className="mb-4">
+      <PowerOff />
+      <AlertDescription>{t("settings.localConnector.banner")}</AlertDescription>
+      <AlertAction>
+        <Button size="xs" disabled={busy} onClick={() => void turnOn()}>
+          {t("settings.localConnector.bannerAction")}
+        </Button>
+      </AlertAction>
+    </Alert>
   )
 }

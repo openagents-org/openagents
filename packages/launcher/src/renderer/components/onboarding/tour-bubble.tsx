@@ -57,11 +57,11 @@ export function TourBubble({
 
       <div className="flex items-center gap-2">
         {Icon && (
-          <span className="flex size-6 items-center justify-center rounded-md bg-(--accent-bg) text-(--accent)">
+          <span className="flex size-6 items-center justify-center rounded-md bg-primary/5 text-primary">
             <Icon className="size-3.5" />
           </span>
         )}
-        <span className="font-mono text-2xs tracking-widest text-muted-foreground uppercase">
+        <span className="font-mono text-xs tracking-widest text-muted-foreground uppercase">
           {t("onboarding.tour.progress", { current: index + 1, total })}
         </span>
       </div>
@@ -82,10 +82,10 @@ export function TourBubble({
             className={cn(
               "h-1.5 rounded-full transition-all",
               i === index
-                ? "w-5 bg-(--accent)"
+                ? "w-5 bg-primary"
                 : i < index
-                  ? "w-1.5 bg-(--accent-border)"
-                  : "w-1.5 bg-(--border-hover)",
+                  ? "w-1.5 bg-primary/20"
+                  : "w-1.5 bg-input",
             )}
           />
         ))}

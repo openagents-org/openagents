@@ -64,7 +64,7 @@ export function IssueList({
                 >
                   #{i.number} {i.title}
                 </a>
-                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+                <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                   <span>{t("github.issues.by", { user: i.user.login })}</span>
                   <span>·</span>
                   <span>
@@ -78,11 +78,11 @@ export function IssueList({
                   {i.labels.slice(0, MAX_LABELS).map((l) => (
                     <span
                       key={l.name}
-                      className="rounded-full px-1.5 py-0.5 text-3xs"
+                      className="rounded-full px-1.5 py-0.5 text-xs"
                       // Label colours come from the GitHub API, so they can only
                       // be applied inline. `33` is ~20% alpha.
                       style={{
-                        background: l.color ? `#${l.color}33` : "var(--bg-input)",
+                        background: l.color ? `#${l.color}33` : "var(--muted)",
                       }}
                     >
                       {l.name}

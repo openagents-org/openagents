@@ -1,5 +1,6 @@
 import React from "react"
-import { CircleDot, GitPullRequest, Pencil, RefreshCw, Trash2 } from "lucide-react"
+import { CircleAlert, CircleDot, GitPullRequest, Pencil, RefreshCw, Trash2 } from "lucide-react"
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
@@ -59,7 +60,7 @@ export function BindingCard({
               {b.owner}/{b.repo}
             </a>
           </div>
-          <div className="mt-0.5 text-2xs text-muted-foreground">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {t("github.credentialLine", {
               label: credentialLabel,
               time: timeAgo(b.createdAt, t),
@@ -87,11 +88,11 @@ export function BindingCard({
 
       <Tabs value={tab} onValueChange={(v) => onTabChange(v as FeedTab)} className="w-fit">
         <TabsList>
-          <TabsTrigger value="issues" className="gap-1.5 text-2xs">
+          <TabsTrigger value="issues" className="gap-1.5 text-xs">
             <CircleDot className="size-3" />
             {t("github.tabs.issues", { count: feed.issues.length })}
           </TabsTrigger>
-          <TabsTrigger value="pulls" className="gap-1.5 text-2xs">
+          <TabsTrigger value="pulls" className="gap-1.5 text-xs">
             <GitPullRequest className="size-3" />
             {t("github.tabs.pulls", { count: feed.pulls.length })}
           </TabsTrigger>
@@ -99,9 +100,10 @@ export function BindingCard({
       </Tabs>
 
       {feed.error && (
-        <p className="rounded-sm bg-(--danger-bg) px-3 py-2 text-2xs wrap-break-word text-(--danger-text)">
-          {feed.error}
-        </p>
+<Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription className="wrap-break-word">{feed.error}</AlertDescription>
+        </Alert>
       )}
 
       {tab === "issues" ? (

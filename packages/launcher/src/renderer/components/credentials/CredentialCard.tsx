@@ -69,28 +69,28 @@ export function CredentialCard({
             <span className="truncate text-sm font-semibold tracking-tight">
               {cred.label}
             </span>
-            <Badge variant="secondary" size="sm">
+            <Badge variant="secondary">
               {cred.kind.replace("_", " ")}
             </Badge>
             {cred.shared && (
-              <Badge variant="outline" size="sm">
+              <Badge variant="outline">
                 {t("credentials.card.shared")}
               </Badge>
             )}
             {cred.scopes?.map((s) => (
-              <Badge key={s} variant="secondary" size="sm" className="text-(--text-link)">
+              <Badge key={s} variant="secondary" className="text-foreground">
                 {s}
               </Badge>
             ))}
           </div>
-          <div className="mt-0.5 text-2xs text-muted-foreground">
+          <div className="mt-0.5 text-xs text-muted-foreground">
             {platform?.label || cred.provider}
             {lastTest && (
               <>
                 {" · "}
                 <span
                   className={
-                    cred.lastTestOk ? "text-muted-foreground" : "text-(--danger-text)"
+                    cred.lastTestOk ? "text-muted-foreground" : "text-destructive"
                   }
                 >
                   {t("credentials.card.tested", { date: lastTest })}{" "}
@@ -140,7 +140,7 @@ export function CredentialCard({
           <Pencil />
           {t("credentials.card.edit")}
         </Button>
-        <Button size="sm" variant="destructive-ghost" onClick={onRemove}>
+        <Button size="sm" variant="destructive" onClick={onRemove}>
           <Trash2 />
           {t("credentials.card.remove")}
         </Button>

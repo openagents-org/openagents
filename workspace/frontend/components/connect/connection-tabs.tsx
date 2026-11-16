@@ -11,7 +11,7 @@ export function ConnectionTabs({ activeTab, onSelect }: {
   const t = useT();
   return (
     <div className="shrink-0 px-6 pt-4 pb-2">
-      <div role="group" aria-label={t('connect.title')} className="mx-auto flex w-full max-w-2xl gap-1.5 rounded-xl bg-zinc-100 p-1.5 dark:bg-zinc-800/60">
+      <div role="group" aria-label={t('connect.title')} className="mx-auto flex w-full max-w-2xl gap-1.5 rounded-xl bg-muted p-1.5">
         {([
           { id: 'node', icon: Server, label: t('connect.tabNode') },
           { id: 'cloud', icon: Cloud, label: t('connect.tabCloud') },

@@ -2,6 +2,7 @@ import React, { useState } from "react"
 import { Check, ChevronRight, ExternalLink, Globe, Laptop } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
+import { Alert, AlertAction, AlertDescription, AlertTitle } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
 import { capture } from "@renderer/lib/analytics"
 import { cn } from "@renderer/lib/utils"
@@ -72,14 +73,14 @@ export function PairedPanel({
       <SectionLabel>{t("onboarding.flow.sections.pairing")}</SectionLabel>
 
       <div className="flex items-center gap-2.5 rounded-lg border bg-card px-4 py-3.5">
-        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-(--success) text-white">
+        <span className="flex size-7 shrink-0 items-center justify-center rounded-full bg-success text-white">
           <Check className="size-4" />
         </span>
         <div className="min-w-0">
           <div className="text-sm font-semibold">
             {t("onboarding.flow.pairNode.connectedTitle")}
           </div>
-          <p className="m-0 mt-0.5 text-xs leading-relaxed text-(--text-secondary)">
+          <p className="m-0 mt-0.5 text-xs leading-relaxed text-muted-foreground">
             {t("onboarding.flow.pairNode.connectedDesc")}
           </p>
         </div>
@@ -88,7 +89,7 @@ export function PairedPanel({
       <SectionLabel className="mt-9">
         {t("onboarding.flow.sections.nextStep")}
       </SectionLabel>
-      <p className="m-0 mb-4 text-sm text-(--text-secondary)">
+      <p className="m-0 mb-4 text-sm text-muted-foreground">
         {t("onboarding.flow.pairNode.next.prompt")}
       </p>
 
@@ -125,39 +126,38 @@ export function PairedPanel({
           choice would just be a third option. Pressing the card again reopens
           the browser, so "it didn't open" needs no button of its own. */}
       {handedOff && (
-        <div className="mt-3 rounded-lg border border-(--accent-border) bg-(--accent-bg) px-4 py-3.5">
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-50 flex-1">
-              <div className="text-sm font-semibold">
-                {t(
-                  openedWorkspace
-                    ? "onboarding.flow.pairNode.next.handoff.titleOpen"
-                    : "onboarding.flow.pairNode.next.handoff.title",
-                )}
-              </div>
-              <p className="m-0 mt-0.5 text-xs leading-relaxed text-(--text-secondary)">
-                {t("onboarding.flow.pairNode.next.handoff.desc")}
-              </p>
-            </div>
-            <Button onClick={onFinish}>
-              <Check className="size-4" />
+        <Alert className="mt-3 has-data-[slot=alert-action]:pr-36">
+          <AlertTitle>
+            {t(
+              openedWorkspace
+                ? "onboarding.flow.pairNode.next.handoff.titleOpen"
+                : "onboarding.flow.pairNode.next.handoff.title",
+            )}
+          </AlertTitle>
+          <AlertDescription>
+            {t("onboarding.flow.pairNode.next.handoff.desc")}
+          </AlertDescription>
+          <AlertAction>
+            <Button size="sm" onClick={onFinish}>
+              <Check data-icon="inline-start" />
               {t("onboarding.flow.pairNode.next.handoff.finish")}
             </Button>
-          </div>
+          </AlertAction>
           {/* The escape hatch for the tab we cannot see: closed, in another
               browser, or on another machine. Quiet, because for almost
               everyone the tab is right there. */}
           {openedWorkspace && (
-            <button
-              type="button"
+            <Button
+              variant="link"
+              size="xs"
+              className="h-auto justify-self-start px-0 text-muted-foreground"
               onClick={reopenWorkspace}
-              className="mt-2.5 inline-flex cursor-pointer items-center gap-1.5 border-0 bg-transparent p-0 text-xs text-(--text-secondary) underline underline-offset-2 hover:text-(--accent)"
             >
-              <ExternalLink className="size-3" />
+              <ExternalLink data-icon="inline-start" />
               {t("onboarding.flow.pairNode.next.handoff.reopen")}
-            </button>
+            </Button>
           )}
-        </div>
+        </Alert>
       )}
     </>
   )
@@ -181,20 +181,20 @@ function ChoiceCard({
       type="button"
       onClick={onClick}
       className={cn(
-        "flex cursor-pointer flex-col items-start gap-2 rounded-lg border border-(--border) bg-(--bg-card) p-5 text-left transition-colors",
-        "hover:border-(--accent) hover:bg-(--accent-bg)",
+        "flex cursor-pointer flex-col items-start gap-2 rounded-lg border border-border bg-card p-5 text-left transition-colors",
+        "hover:border-primary hover:bg-primary/5",
       )}
     >
-      <span className="flex size-8 items-center justify-center rounded-lg bg-(--accent-bg) text-(--accent)">
+      <span className="flex size-8 items-center justify-center rounded-lg bg-primary/5 text-primary">
         {icon}
       </span>
       <span className="text-sm font-semibold">
         {t(`onboarding.flow.pairNode.next.${id}.title`)}
       </span>
-      <span className="text-xs leading-relaxed text-(--text-secondary)">
+      <span className="text-xs leading-relaxed text-muted-foreground">
         {t(`onboarding.flow.pairNode.next.${id}.desc`)}
       </span>
-      <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-(--accent)">
+      <span className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-primary">
         {t(`onboarding.flow.pairNode.next.${id}.cta`)}
         {cta}
       </span>

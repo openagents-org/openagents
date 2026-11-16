@@ -4,11 +4,12 @@ import {
   Check,
   Copy,
   ExternalLink,
-  Loader2,
   TerminalSquare,
 } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { useTranslation } from "react-i18next"
 
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 
@@ -46,7 +47,7 @@ export function CliLoginPanel({
       <Note icon={TerminalSquare}>
         {t("agents.cliLogin.terminalFallback")}
         {login.message && (
-          <span className="mt-1 block text-(--text-tertiary)">
+          <span className="mt-1 block text-muted-foreground">
             {login.message}
           </span>
         )}
@@ -56,7 +57,7 @@ export function CliLoginPanel({
 
   if (login.phase === "failed") {
     return (
-      <div className="mt-3 space-y-2">
+      <div className="mt-3 flex flex-col gap-2">
         <Note icon={AlertTriangle} tone="warning">
           {login.message || t("agents.cliLogin.failed")}
         </Note>
@@ -65,7 +66,7 @@ export function CliLoginPanel({
             {t("agents.cliLogin.tryAgain")}
           </Button>
           <Button size="sm" variant="outline" onClick={onUseTerminal}>
-            <TerminalSquare />
+            <TerminalSquare data-icon="inline-start" />
             {t("agents.cliLogin.useTerminal")}
           </Button>
         </div>
@@ -74,12 +75,14 @@ export function CliLoginPanel({
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-primary/25 bg-primary/5 p-3.5">
+    // A well inside the sign-in card it sits in (CliLoginBlock), not a card
+    // of its own.
+    <div className="mt-3 rounded-lg bg-muted/50 p-3">
       {login.url ? (
         <UrlRow url={login.url} onReopen={login.reopen} />
       ) : (
-        <p className="m-0 flex items-center gap-2 text-xs text-(--text-secondary)">
-          <Loader2 className="size-3.5 shrink-0 animate-spin" />
+        <p className="m-0 flex items-center gap-2 text-xs text-muted-foreground">
+          <Spinner className="size-3.5 shrink-0" />
           {t("agents.cliLogin.starting")}
         </p>
       )}
@@ -87,27 +90,19 @@ export function CliLoginPanel({
       {login.needsCode && <CodeForm login={login} />}
 
       {login.phase === "verifying" && (
-        <p className="m-0 mt-3 flex items-center gap-2 text-xs text-(--text-secondary)">
-          <Loader2 className="size-3.5 shrink-0 animate-spin" />
+        <p className="m-0 mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+          <Spinner className="size-3.5 shrink-0" />
           {t("agents.cliLogin.verifying")}
         </p>
       )}
 
-      <div className="mt-3 flex flex-wrap items-center gap-3 text-2xs">
-        <button
-          type="button"
-          className="text-(--text-tertiary) hover:underline"
-          onClick={onUseTerminal}
-        >
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-xs">
+        <Button variant="link" size="xs" className="h-auto px-0 text-muted-foreground" onClick={onUseTerminal}>
           {t("agents.cliLogin.useTerminal")}
-        </button>
-        <button
-          type="button"
-          className="text-(--text-tertiary) hover:underline"
-          onClick={() => void login.cancel()}
-        >
+        </Button>
+        <Button variant="link" size="xs" className="h-auto px-0 text-muted-foreground" onClick={() => void login.cancel()}>
           {t("agents.cliLogin.cancel")}
-        </button>
+        </Button>
       </div>
     </div>
   )
@@ -161,10 +156,10 @@ function UrlRow({
       <p className="m-0 text-xs font-semibold">
         {t("agents.cliLogin.browserTitle")}
       </p>
-      <p className="m-0 mt-1 text-2xs leading-relaxed text-(--text-secondary)">
+      <p className="m-0 mt-1 text-xs leading-relaxed text-muted-foreground">
         {t("agents.cliLogin.browserHint")}
       </p>
-      <p className="m-0 mt-2 truncate rounded-sm bg-background px-2 py-1.5 font-mono text-2xs text-(--text-tertiary)">
+      <p className="m-0 mt-2 truncate rounded-sm bg-background px-2 py-1.5 font-mono text-xs text-muted-foreground">
         {url}
       </p>
       <div className="mt-2 flex flex-wrap gap-2">
@@ -194,7 +189,7 @@ function CodeForm({ login }: { login: CliLoginApi }): React.JSX.Element {
 
   return (
     <form onSubmit={submit} className="mt-3">
-      <p className="m-0 mb-1.5 text-2xs leading-relaxed text-(--text-secondary)">
+      <p className="m-0 mb-1.5 text-xs leading-relaxed text-muted-foreground">
         {t("agents.cliLogin.codeHint")}
       </p>
       <div className="flex gap-2">
@@ -204,7 +199,7 @@ function CodeForm({ login }: { login: CliLoginApi }): React.JSX.Element {
           spellCheck={false}
           onChange={(e) => setCode(e.target.value)}
           placeholder={t("agents.cliLogin.codePlaceholder")}
-          className="h-8 font-mono text-2xs"
+          className="h-8 font-mono text-xs"
         />
         <Button type="submit" size="sm" disabled={!code.trim()}>
           {t("agents.cliLogin.submitCode")}
@@ -224,15 +219,9 @@ function Note({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="mt-3 flex items-start gap-2 rounded-sm bg-accent p-3 text-2xs leading-relaxed text-(--text-secondary)">
-      <Icon
-        className={
-          tone === "warning"
-            ? "mt-0.5 size-3.5 shrink-0 text-(--warning-text)"
-            : "mt-0.5 size-3.5 shrink-0 text-(--accent)"
-        }
-      />
-      <span className="min-w-0">{children}</span>
-    </div>
+    <Alert className="mt-3">
+      <Icon className={tone === "warning" ? "text-warning-foreground" : "text-primary"} />
+      <AlertDescription className="text-xs">{children}</AlertDescription>
+    </Alert>
   )
 }

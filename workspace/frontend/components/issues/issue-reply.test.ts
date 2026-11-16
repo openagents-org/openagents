@@ -7,13 +7,13 @@ import { IssueDiscussion } from './issue-discussion';
 const api = vi.hoisted(() => ({ getIssue: vi.fn(), commentOnIssue: vi.fn() }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => null }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: vi.fn() }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ timeAgo: () => 'just now', formatDateTime: () => 'Oct 7, 12:00 PM' }) }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   currentUser: { id: 'alice@example.com', name: 'Alice' }, sessions: [], agents: [],
   workspace: { slug: 'test' }, refreshAgents: vi.fn(),
 }) }));
 vi.mock('@/components/chat/markdown-content', () => ({ MarkdownContent: ({ content }: { content: string }) => createElement('p', {}, content) }));
-vi.mock('@/components/tasks/task-chat-popup', () => ({ TaskChatPopup: () => null }));
 vi.mock('@/components/chat/approval-card', () => ({ ApprovalCard: () => null }));
 vi.mock('./issue-work', () => ({ IssueWork: () => null }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));

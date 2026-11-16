@@ -1,5 +1,6 @@
 'use client';
 import { MoreAgents } from './more-agents';
+import { Button } from '@/components/ui/button';
 import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 
@@ -81,15 +82,16 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             </button>
           </SidebarGroupLabel>
           {/* Same "+" as the Members header: straight to the add-agent gallery. */}
-          <button
-            type="button"
-            className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-sidebar-accent hover:text-foreground group-data-[collapsible=icon]:hidden"
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden"
             aria-label={t('nav.addAgent')}
             title={t('nav.addAgent')}
             onClick={() => { openAddAgent(); onNavigate?.(); }}
           >
-            <Plus className="size-3.5" />
-          </button>
+            <Plus />
+          </Button>
           </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}
@@ -134,13 +136,13 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
                         />
                         <span
                           className={cn(
-                            'absolute -bottom-0.5 -right-0.5 size-2 rounded-full border-[1.5px] border-background',
+                            'absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-background',
                             availabilityDotClass(availability),
                           )}
                         />
                       </span>
                       <span className="min-w-0 truncate" data-truncatable>{agentLabel(agent)}</span>
-                      {!isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-[11px] text-muted-foreground group-data-[collapsible=icon]:hidden" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
+                      {!isMySidebarAgent(agent, currentUser.id) && agent.ownerEmail && <span className="ml-auto min-w-0 max-w-[45%] shrink truncate text-xs text-muted-foreground group-data-[collapsible=icon]:hidden" title={t('collab.ownedBy', { owner: ownerName(agent.ownerEmail) })}>{ownerName(agent.ownerEmail)}</span>}
                       {/* v1.1 M1: Personal badge + "device offline" marker */}
                       {isOwnedAgent(agent, currentUser.id) && <AgentRosterHints agent={agent} showShared={!agent.builtin} className="pointer-events-none ml-auto" />}
                       <DmUnreadBadge count={unreadDmCounts[dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`)]} />

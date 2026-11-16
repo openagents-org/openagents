@@ -4,6 +4,7 @@ import { useShallow } from "zustand/react/shallow"
 
 import { Switch } from "@renderer/components/ui/switch"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -102,7 +103,7 @@ export function NotificationsSection(): React.JSX.Element {
                 })
               }
             />
-            <span className="text-2xs text-muted-foreground">–</span>
+            <span className="text-xs text-muted-foreground">–</span>
             <HourSelect
               value={window_[1]}
               disabled={off || !quiet}
@@ -127,7 +128,7 @@ export function NotificationsSection(): React.JSX.Element {
       <SettingsCard title={t("settings.notifications.eventsGroup")}>
         {KIND_GROUPS.map((group) => (
           <div key={group.id} className="flex gap-6 py-3">
-            <div className="w-20 shrink-0 pt-1.5 text-2xs text-muted-foreground">
+            <div className="w-20 shrink-0 pt-1.5 text-xs text-muted-foreground">
               {t(`settings.notifications.kindGroups.${group.id}`)}
             </div>
 
@@ -177,11 +178,13 @@ function HourSelect({
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {HOURS.map((h) => (
-          <SelectItem key={h} value={String(h)} disabled={h === excludeHour}>
-            {String(h).padStart(2, "0")}:00
-          </SelectItem>
-        ))}
+        <SelectGroup>
+          {HOURS.map((h) => (
+            <SelectItem key={h} value={String(h)} disabled={h === excludeHour}>
+              {String(h).padStart(2, "0")}:00
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   )

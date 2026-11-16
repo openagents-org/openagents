@@ -1,13 +1,13 @@
 # DigitalOcean automatic backend deployments
 
-A push to `release` builds that exact commit and rolls it out to the secondary,
-then the primary backend. Use the existing **Promote develop to release** workflow
+A push to `openagents-release` (the hosted openagents.org production branch) builds that exact commit and rolls it out to the secondary,
+then the primary backend. Use the **Promote develop to openagents-release** workflow
 to ship a merged develop commit. The frontend continues using its existing deployment.
-The deployment workflow can also be run manually against `release` to retry it.
+The deployment workflow can also be run manually against `openagents-release` to retry it.
 
 The build job receives no deployment secrets. Its explicit Docker context allowlist
 excludes environment files, operations files and credentials. The deployment job uses
-the `digitalocean-production` GitHub environment, restricted to `release`, with:
+the `digitalocean-production` GitHub environment, restricted to `openagents-release`, with:
 
 - Secrets `DO_DEPLOY_SSH_KEY`, `DO_DEPLOY_KNOWN_HOSTS`.
 - Variables `DO_PRIMARY_HOST`, `DO_SECONDARY_HOST`.

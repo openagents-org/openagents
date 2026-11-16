@@ -111,7 +111,7 @@ export function MaintenanceBanner() {
     <div
       ref={ref}
       role="status"
-      className="relative z-50 flex w-full items-start gap-2.5 border-b border-amber-300 bg-amber-50 px-4 py-2 text-[13px] leading-snug text-amber-950 dark:border-amber-900/60 dark:bg-amber-950/60 dark:text-amber-100 pt-[calc(0.5rem+env(safe-area-inset-top))] sm:items-center"
+      className="relative z-50 flex w-full items-start gap-2.5 border-b border-warning/30 bg-warning/10 px-4 py-2 text-sm leading-snug text-warning pt-[calc(0.5rem+env(safe-area-inset-top))] sm:items-center"
     >
       <Wrench className="mt-0.5 size-4 shrink-0 sm:mt-0" aria-hidden />
       <p className="min-w-0 flex-1">
@@ -123,7 +123,7 @@ export function MaintenanceBanner() {
           type="button"
           onClick={dismiss}
           aria-label={t('maintenance.dismiss')}
-          className="-m-1 shrink-0 rounded p-1 text-amber-900/70 hover:bg-amber-100 hover:text-amber-950 dark:text-amber-100/70 dark:hover:bg-amber-900/50"
+          className="-m-1 shrink-0 rounded p-1 text-warning/70 hover:bg-warning/10 hover:text-warning"
         >
           <X className="size-4" />
         </button>

@@ -61,7 +61,7 @@ export function WhatsNewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogBody className="gap-6 py-5">
+        <DialogBody className="gap-6">
           {releases.length === 0 && (
             <p className="m-0 text-sm text-muted-foreground">
               {t("whatsNew.empty")}

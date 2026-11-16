@@ -6,6 +6,7 @@ import { Button } from "@renderer/components/ui/button"
 import { Input } from "@renderer/components/ui/input"
 import { Spinner } from "@renderer/components/ui/spinner"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -66,15 +67,17 @@ export function NetworkSection({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="auto">
-                {t("settings.network.regionAuto")}
-              </SelectItem>
-              <SelectItem value="cn">
-                {t("settings.network.regionCn")}
-              </SelectItem>
-              <SelectItem value="global">
-                {t("settings.network.regionGlobal")}
-              </SelectItem>
+              <SelectGroup>
+                <SelectItem value="auto">
+                  {t("settings.network.regionAuto")}
+                </SelectItem>
+                <SelectItem value="cn">
+                  {t("settings.network.regionCn")}
+                </SelectItem>
+                <SelectItem value="global">
+                  {t("settings.network.regionGlobal")}
+                </SelectItem>
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Row>
@@ -87,7 +90,7 @@ export function NetworkSection({
             {test.phase === "done" && (
               <span
                 className={cn(
-                  "text-2xs",
+                  "text-xs",
                   test.ok ? "text-foreground" : "text-destructive",
                 )}
               >

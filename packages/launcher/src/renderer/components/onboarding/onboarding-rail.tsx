@@ -49,7 +49,7 @@ export function OnboardingRail({
               <div className="flex flex-col items-center">
                 <span
                   className={cn(
-                    "flex size-7 items-center justify-center rounded-full font-mono text-2xs font-bold transition-colors",
+                    "flex size-7 items-center justify-center rounded-full font-mono text-xs font-bold transition-colors",
                     done && "bg-panel-primary/20 text-panel-primary",
                     current &&
                       "bg-panel-primary text-panel-primary-foreground",
@@ -82,7 +82,7 @@ export function OnboardingRail({
                 >
                   {t(`onboarding.flow.progress.${id}`)}
                 </div>
-                <p className="m-0 mt-1 text-2xs leading-relaxed text-panel-muted">
+                <p className="m-0 mt-1 text-xs leading-relaxed text-panel-muted">
                   {t(`onboarding.flow.rail.steps.${id}`)}
                 </p>
               </div>

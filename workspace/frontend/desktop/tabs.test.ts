@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { belongsElsewhere, handOffRoute } from './tabs';
+import { hintTabTitle } from '@/lib/desktop-host';
 
 const workspace = { kind: 'workspace' as const, aliases: ['acme', 'ws_123'] };
 
@@ -32,5 +33,14 @@ describe('launcher tab routing', () => {
     expect(handOffRoute('/other?thread=x')).toBe(true);
     expect(openRoute).toHaveBeenCalledWith('/other?thread=x');
     expect(handOffRoute('/acme/files')).toBe(false);
+  });
+  it('passes along the name the list knows, once', () => {
+    const openRoute = vi.fn();
+    (window as { __oaHost__?: unknown }).__oaHost__ = { tab: () => ({ kind: 'home' }), openRoute };
+    hintTabTitle('/beta', 'Beta Team');
+    expect(handOffRoute('/beta')).toBe(true);
+    expect(openRoute).toHaveBeenLastCalledWith('/beta', 'Beta Team');
+    handOffRoute('/beta');
+    expect(openRoute).toHaveBeenLastCalledWith('/beta');
   });
 });

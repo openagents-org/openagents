@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FileIcon, Film, Paperclip, RotateCw, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { MAX_UPLOAD_BYTES, useFileUploads, type UploadItem } from '@/components/files/use-file-uploads';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -17,18 +18,18 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
   const failed = item.status === 'failed';
   const percent = item.progress === null ? null : Math.round(item.progress * 100);
   return (
-    <div className={cn('group relative overflow-hidden rounded-lg border bg-muted', failed && 'border-rose-300 dark:border-rose-800')}
+    <div className={cn('group relative overflow-hidden rounded-lg border bg-muted', failed && 'border-destructive/50')}
       title={item.file.name}>
       {item.preview ? (
-        <img src={item.preview} alt={item.file.name} className={cn('h-16 w-auto max-w-[140px] object-cover', !failed && 'opacity-60')} />
+        <img src={item.preview} alt={item.file.name} className={cn('h-16 w-auto max-w-36 object-cover', !failed && 'opacity-60')} />
       ) : (
         <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
           {item.file.type.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-          <span className="w-full truncate text-center text-[10px] text-muted-foreground">{item.file.name}</span>
+          <span className="w-full truncate text-center text-xs text-muted-foreground">{item.file.name}</span>
         </div>
       )}
       {failed ? (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-rose-600/90 px-1.5 py-0.5 text-[10px] text-white">
+        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-destructive px-1.5 py-0.5 text-xs text-white">
           <span className="truncate" role="alert">
             {t(item.error === 'tooLarge' ? 'tasks.attachTooLarge' : 'tasks.attachFailed', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}
           </span>
@@ -41,10 +42,10 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
       ) : (
         <div className="absolute inset-x-0 bottom-0" role="progressbar" aria-label={item.file.name}
           aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
-          <div className="mx-1 mb-0.5 text-right text-[10px] font-medium tabular-nums text-foreground">
+          <div className="mx-1 mb-0.5 text-right text-xs font-medium tabular-nums text-foreground">
             {percent === null ? t('tasks.attachUploading') : `${percent}%`}
           </div>
-          <div className="h-1 bg-black/10">
+          <div className="h-1 bg-foreground/10">
             <div className={cn('h-full bg-primary transition-[width]', percent === null && 'w-1/3 animate-pulse')}
               style={percent === null ? undefined : { width: `${percent}%` }} />
           </div>
@@ -53,7 +54,7 @@ function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: 
       <button
         type="button"
         onClick={onRemove}
-        className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white"
+        className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/60 text-background"
         aria-label={t(failed ? 'common.remove' : 'tasks.attachCancel', { name: item.file.name })}
         title={t(failed ? 'common.remove' : 'tasks.attachCancel', { name: item.file.name })}
       >
@@ -127,7 +128,7 @@ export function AttachmentPicker({
 
   return (
     <div
-      className={cn('space-y-1.5 rounded-md transition-colors', dragging && !disabled && 'bg-primary/5 outline outline-2 outline-primary/50 outline-offset-4')}
+      className={cn('flex flex-col gap-1.5 rounded-md transition-colors', dragging && !disabled && 'bg-primary/5 outline-2 outline-offset-4 outline-primary/50')}
       onDragEnter={(e) => {
         if (!e.dataTransfer.types.includes('Files')) return;
         e.preventDefault();
@@ -157,11 +158,11 @@ export function AttachmentPicker({
       }}
     >
       {!compact && (
-        <label className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
           <Paperclip className="size-3.5" />
           {t('tasks.fieldAttachments')}
           <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
-        </label>
+        </div>
       )}
 
       {(value.length > 0 || uploads.items.length > 0) && (
@@ -172,11 +173,11 @@ export function AttachmentPicker({
             return (
               <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
                 {isImage && f ? (
-                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-[140px] object-cover" />
+                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-36 object-cover" />
                 ) : (
                   <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
                     {f?.contentType.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-                    <span className="w-full truncate text-center text-[10px] text-muted-foreground">
+                    <span className="w-full truncate text-center text-xs text-muted-foreground">
                       {f?.filename ?? t('tasks.attachedFile')}
                     </span>
                   </div>
@@ -185,8 +186,9 @@ export function AttachmentPicker({
                   type="button"
                   disabled={disabled}
                   onClick={() => remove(id)}
-                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-black/60 text-white opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/60 text-background opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
                   title={t('common.remove')}
+                  aria-label={t('common.remove')}
                 >
                   <X className="size-3" />
                 </button>
@@ -199,17 +201,17 @@ export function AttachmentPicker({
         </div>
       )}
 
-      <button
+      <Button
         type="button"
+        variant={compact ? 'ghost' : 'outline'}
+        size={compact ? 'xs' : 'sm'}
         disabled={disabled}
         onClick={() => inputRef.current?.click()}
-        className={compact
-          ? 'inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50'
-          : 'flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-input px-3 py-2 text-xs text-muted-foreground hover:border-foreground/40 hover:text-foreground transition-colors'}
+        className={compact ? 'self-start text-muted-foreground' : 'w-full border-dashed text-muted-foreground'}
       >
-        <Paperclip className="size-3.5" />
+        <Paperclip data-icon="inline-start" />
         {t(dragging && !disabled ? 'tasks.attachDrop' : compact ? 'issues.attachFiles' : 'tasks.attachAdd')}
-      </button>
+      </Button>
       <input
         disabled={disabled}
         aria-label={t(compact ? 'issues.attachFiles' : 'tasks.fieldAttachments')}
@@ -223,7 +225,7 @@ export function AttachmentPicker({
           e.target.value = '';
         }}
       />
-      {!compact && <p className="text-[11px] text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
+      {!compact && <p className="text-xs text-muted-foreground/70">{t('tasks.attachLimit', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}</p>}
     </div>
   );
 }

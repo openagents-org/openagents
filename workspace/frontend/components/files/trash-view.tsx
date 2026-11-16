@@ -5,6 +5,7 @@ import { ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
 import { useLayout } from '@/components/layout/layout-context';
@@ -124,14 +125,13 @@ export function TrashView() {
             {isMobile && (
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 onClick={openMobileList}
                 aria-label={t('files.browseFolders')}
                 title={t('files.browseFolders')}
-                className="-ml-1 shrink-0 text-muted-foreground"
+                className="-ms-1 shrink-0 text-muted-foreground"
               >
-                <ArrowLeft className="size-4" />
+                <ArrowLeft />
               </Button>
             )}
             <h2 className="truncate text-sm leading-snug font-semibold">{t('trash.title')}</h2>
@@ -147,14 +147,13 @@ export function TrashView() {
           <TooltipTrigger asChild>
             <Button
               variant="ghost"
-              mode="icon"
-              size="sm"
+              size="icon-sm"
               onClick={handleEmpty}
               disabled={entries.length === 0 || emptying}
               aria-label={t('trash.emptyTrash')}
               className="shrink-0 text-muted-foreground hover:text-destructive"
             >
-              <Trash2 className="size-4" />
+              <Trash2 />
             </Button>
           </TooltipTrigger>
           <TooltipContent>{t('trash.emptyTrash')}</TooltipContent>
@@ -162,11 +161,15 @@ export function TrashView() {
       </DetailHeader>
 
       {entries.length === 0 ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center text-muted-foreground">
-          <Trash2 className="size-16 opacity-20" />
-          <p className="text-sm font-medium">{t('trash.empty')}</p>
-          <p className="max-w-md text-xs text-balance">{t('trash.emptyHint')}</p>
-        </div>
+        <Empty className="flex-1">
+          <EmptyHeader>
+            <EmptyMedia variant="icon">
+              <Trash2 />
+            </EmptyMedia>
+            <EmptyTitle>{t('trash.empty')}</EmptyTitle>
+            <EmptyDescription className="text-balance">{t('trash.emptyHint')}</EmptyDescription>
+          </EmptyHeader>
+        </Empty>
       ) : (
         /* Same row as the file list: nothing here is a different kind of thing,
            it's the same files with a restore action and no way in. */
@@ -182,7 +185,7 @@ export function TrashView() {
             return (
               <div
                 key={entry.trashId}
-                className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800/60"
+                className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
               >
                 {entry.kind === 'folder' ? (
                   <FolderRowIcon />
@@ -211,7 +214,7 @@ export function TrashView() {
                 >
                   {entry.name}
                   {parent && (
-                    <span className="ml-1.5 text-xs font-normal text-muted-foreground">
+                    <span className="ms-1.5 text-xs font-normal text-muted-foreground">
                       {t('trash.inFolder', { parent })}
                     </span>
                   )}
@@ -233,14 +236,13 @@ export function TrashView() {
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
-                        mode="icon"
-                        size="sm"
+                        size="icon-xs"
                         onClick={() => handleRestore(entry)}
                         disabled={busy}
                         aria-label={t('trash.restoreItem', { name: entry.name })}
-                        className="size-6 text-muted-foreground"
+                        className="text-muted-foreground"
                       >
-                        <RotateCcw className="size-3.5" />
+                        <RotateCcw />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('trash.restore')}</TooltipContent>
@@ -249,14 +251,13 @@ export function TrashView() {
                     <TooltipTrigger asChild>
                       <Button
                         variant="ghost"
-                        mode="icon"
-                        size="sm"
+                        size="icon-xs"
                         onClick={() => handleDelete(entry)}
                         disabled={busy}
                         aria-label={t('trash.deleteItemPermanently', { name: entry.name })}
-                        className="size-6 text-muted-foreground hover:text-red-500"
+                        className="text-muted-foreground hover:text-destructive"
                       >
-                        <Trash2 className="size-3.5" />
+                        <Trash2 />
                       </Button>
                     </TooltipTrigger>
                     <TooltipContent>{t('trash.deletePermanently')}</TooltipContent>

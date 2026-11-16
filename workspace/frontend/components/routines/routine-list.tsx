@@ -12,6 +12,7 @@ import { RoutineDialog } from './routine-dialog';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
@@ -82,35 +83,34 @@ export function RoutineList() {
   };
 
   return (
-    <div className="h-full flex flex-col">
+    <div className="flex h-full flex-col">
       {/* ── Header ── */}
       <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-1.5">
           <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
           <span className="truncate text-sm leading-relaxed font-semibold">{t('routines.title')}</span>
           {visibleRoutines.length > 0 && (
-            <Badge variant="secondary" size="sm" className="rounded-full!">
+            <Badge variant="secondary">
               {visibleRoutines.length}
             </Badge>
           )}
         </div>
 
         <div className="flex shrink-0 items-center gap-0.5">
-          <Button size="sm" className="mr-1 shrink-0 gap-1.5 font-semibold" onClick={openCreateDialog}>
-            <Plus className="size-4" />
+          <Button size="sm" className="me-1 shrink-0" onClick={openCreateDialog}>
+            <Plus data-icon="inline-start" />
             {t('routines.createShort')}
           </Button>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
-                mode="icon"
-                size="sm"
+                size="icon-sm"
                 aria-label={t('routines.refresh')}
                 onClick={refreshRoutines}
                 className="text-muted-foreground"
               >
-                <RefreshCw className="size-3.5" />
+                <RefreshCw />
               </Button>
             </TooltipTrigger>
             <TooltipContent>{t('common.refresh')}</TooltipContent>
@@ -124,72 +124,91 @@ export function RoutineList() {
       {/* List */}
       <div className="flex-1 overflow-y-auto">
         {visibleRoutines.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground gap-2">
-            <CalendarClock className="size-8 opacity-30" />
-            <p className="text-sm">{t('routines.emptyTitle')}</p>
-            <p className="text-xs opacity-60">{t('routines.emptyHint')}</p>
-            <Button className="mt-4" variant="outline" size="sm" onClick={openCreateDialog}>
-              <Plus className="size-4" />
-              {t('routines.createShort')}
-            </Button>
-          </div>
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <CalendarClock />
+              </EmptyMedia>
+              <EmptyTitle>{t('routines.emptyTitle')}</EmptyTitle>
+              <EmptyDescription>{t('routines.emptyHint')}</EmptyDescription>
+            </EmptyHeader>
+            <EmptyContent>
+              <Button variant="outline" size="sm" onClick={openCreateDialog}>
+                <Plus data-icon="inline-start" />
+                {t('routines.createShort')}
+              </Button>
+            </EmptyContent>
+          </Empty>
         ) : (
-          <div className="py-1">
+          <div role="list" className="py-1">
             {visibleRoutines.map((routine) => {
               const agentName = routine.createdBy.replace('openagents:', '');
               const isSelected = currentSessionId === routine.channelName;
               const isPaused = routine.status === 'paused';
 
               return (
-                <button
+                <div
                   key={routine.id}
+                  role="listitem"
                   className={cn(
-                    'group w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors border-b border-border/50',
-                    isSelected
-                      ? 'bg-zinc-100 dark:bg-zinc-800'
-                      : 'hover:bg-zinc-50 dark:hover:bg-zinc-800/50'
+                    'group flex items-start gap-1 border-b border-border/50 pe-2 transition-colors',
+                    isSelected ? 'bg-muted' : 'hover:bg-muted',
                   )}
-                  onClick={() => handleSelect(routine.channelName)}
                 >
-                  <AgentAvatar name={agentName} size={20} className="mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <div className={cn('text-sm font-medium truncate', isPaused && 'text-muted-foreground')}>
-                      {routine.name}
+                  <button
+                    type="button"
+                    aria-current={isSelected || undefined}
+                    className="flex min-w-0 flex-1 items-start gap-2.5 py-2.5 ps-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+                    onClick={() => handleSelect(routine.channelName)}
+                  >
+                    <AgentAvatar name={agentName} size={20} className="mt-0.5 shrink-0" />
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <div className={cn('truncate text-sm font-medium', isPaused && 'text-muted-foreground')}>
+                        {routine.name}
+                      </div>
+                      <div className="text-xs text-muted-foreground">{formatSchedule(routine)}</div>
+                      <div className="truncate text-xs text-muted-foreground">{routine.message}</div>
+                      <div className="mt-0.5 text-xs text-muted-foreground/70">
+                        {isPaused
+                          ? t('routines.paused')
+                          : t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
+                      </div>
                     </div>
-                    <div className="text-[11px] text-muted-foreground mt-0.5">{formatSchedule(routine)}</div>
-                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">{routine.message}</div>
-                    <div className="text-[10px] text-muted-foreground/60 mt-1">
-                      {isPaused
-                        ? t('routines.paused')
-                        : t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
-                    </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-0.5">
+                  </button>
+                  <div className="flex shrink-0 items-center gap-0.5 pt-2 text-muted-foreground">
                     {/* Edit stays visible: hidden behind hover, users never
                         found it and deleted + recreated routines instead. */}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); openEditDialog(routine); }}
-                      className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => openEditDialog(routine)}
                       title={t('routines.edit')}
+                      aria-label={t('routines.edit')}
                     >
-                      <Pencil className="size-3" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleTogglePause(routine); }}
-                      className="md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                      <Pencil />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => handleTogglePause(routine)}
+                      className="md:hidden md:group-focus-within:inline-flex md:group-hover:inline-flex"
                       title={t(isPaused ? 'routines.resume' : 'routines.pause')}
+                      aria-label={t(isPaused ? 'routines.resume' : 'routines.pause')}
                     >
-                      {isPaused ? <Play className="size-3" /> : <Pause className="size-3" />}
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleCancel(routine.id); }}
-                      className="md:hidden md:group-hover:inline-flex md:group-focus-within:inline-flex p-1 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-muted-foreground hover:text-red-500 transition-colors"
+                      {isPaused ? <Play /> : <Pause />}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => handleCancel(routine.id)}
+                      className="hover:bg-destructive/10 hover:text-destructive md:hidden md:group-focus-within:inline-flex md:group-hover:inline-flex"
                       title={t('routines.cancel')}
+                      aria-label={t('routines.cancel')}
                     >
-                      <Trash2 className="size-3" />
-                    </button>
+                      <Trash2 />
+                    </Button>
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>

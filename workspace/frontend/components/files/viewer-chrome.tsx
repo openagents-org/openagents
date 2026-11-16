@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
 import type { ReactNode } from 'react';
 
@@ -23,7 +23,7 @@ import type { ReactNode } from 'react';
 export function InfoPanel({ open = true, children }: { open?: boolean; children: ReactNode }) {
   if (!open) return null;
   return (
-    <aside className="hidden w-64 shrink-0 flex-col gap-5 overflow-y-auto border-l border-border p-5 xl:flex">
+    <aside className="hidden w-64 shrink-0 flex-col gap-5 overflow-y-auto border-l p-5 xl:flex">
       {children}
     </aside>
   );
@@ -39,10 +39,10 @@ export function InfoSection({
   children?: ReactNode;
 }) {
   return (
-    <section className="space-y-3 border-b border-border pb-5 last:border-0 last:pb-0">
+    <section className="flex flex-col gap-3 border-b pb-5 last:border-0 last:pb-0">
       <h3 className="text-sm font-semibold">{title}</h3>
       {rows && (
-        <dl className="space-y-2 text-[13px]">
+        <dl className="flex flex-col gap-2 text-sm">
           {rows.map(([term, value]) => (
             <div key={term} className="flex items-baseline justify-between gap-3">
               <dt className="shrink-0 text-muted-foreground">{term}</dt>
@@ -60,7 +60,7 @@ export function InfoSection({
 export function PendingValue({ label }: { label: string }) {
   return (
     <span className="flex items-center gap-1.5 font-normal text-muted-foreground">
-      <Loader2 className="size-3 shrink-0 animate-spin" />
+      <Spinner className="size-3 shrink-0" />
       {label}
     </span>
   );
@@ -85,7 +85,7 @@ export function ViewerFooter({
   right?: ReactNode;
 }) {
   return (
-    <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t border-border bg-background/50 px-4 text-xs text-muted-foreground backdrop-blur-sm">
+    <footer className="flex h-9 shrink-0 items-center justify-between gap-3 border-t bg-background/50 px-4 text-xs text-muted-foreground backdrop-blur-sm">
       <span className="hidden min-w-0 flex-1 truncate sm:block">{left}</span>
       <span className="min-w-0 flex-1 truncate text-center tabular-nums text-foreground/80">
         {center}
@@ -108,7 +108,7 @@ export function ViewerToolbar({
   return (
     <div
       className={cn(
-        'flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-2',
+        'flex h-11 shrink-0 items-center justify-between gap-2 border-b px-2',
         className,
       )}
     >

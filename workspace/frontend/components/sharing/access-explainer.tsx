@@ -11,7 +11,8 @@
  */
 
 import { useState } from 'react';
-import { Info, Loader2 } from 'lucide-react';
+import { Info } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import type { AccessExplanation, ResourceKind as GrantResourceKind } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -84,7 +85,7 @@ export function AccessExplainer({ resourceKind, resourceId, className, compact =
             aria-label={label}
             className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground', className)}
           >
-            {state.status === 'loading' ? <Loader2 className="size-3.5 animate-spin" /> : <Info className="size-3.5" />}
+            {state.status === 'loading' ? <Spinner className="size-3.5" /> : <Info className="size-3.5" />}
           </button>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">{label}</TooltipContent>
@@ -100,12 +101,12 @@ export function AccessExplainer({ resourceKind, resourceId, className, compact =
       title={state.status === 'done' ? state.explanation.text || label : t('accessExplain.why')}
       aria-live="polite"
       className={cn(
-        'inline-flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground/80 transition-colors',
+        'inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground/80 transition-colors',
         state.status === 'idle' || state.status === 'error' ? 'hover:text-foreground' : 'cursor-default',
         className,
       )}
     >
-      {state.status === 'loading' ? <Loader2 className="size-3 shrink-0 animate-spin" /> : <Info className="size-3 shrink-0" />}
+      {state.status === 'loading' ? <Spinner className="size-3 shrink-0" /> : <Info className="size-3 shrink-0" />}
       <span className="truncate">{label}</span>
     </button>
   );

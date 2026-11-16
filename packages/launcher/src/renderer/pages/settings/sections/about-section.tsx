@@ -55,11 +55,11 @@ export function AboutSection({
           <div className="mt-1 text-xs text-muted-foreground">
             {t("settings.about.tagline")}
           </div>
-          <div className="mt-1 text-2xs text-muted-foreground">
+          <div className="mt-1 text-xs text-muted-foreground">
             {t("settings.about.copyright", { year: new Date().getFullYear() })}
           </div>
         </div>
-        <Badge variant="muted" className="ml-auto shrink-0 font-mono">
+        <Badge variant="secondary" className="ml-auto shrink-0 font-mono">
           {launcherVersion}
         </Badge>
       </Card>
@@ -102,7 +102,7 @@ export function AboutSection({
             label={t(`settings.about.links.${link.id}`)}
             // The URL reads as the link it is; the button next to it is what
             // actually opens the browser.
-            desc={<span className="text-(--accent)">{link.url}</span>}
+            desc={<span className="text-primary">{link.url}</span>}
           >
             <Button
               size="sm"

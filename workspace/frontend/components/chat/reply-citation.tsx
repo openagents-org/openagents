@@ -1,5 +1,6 @@
 'use client';
 import { Reply, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { useT } from '@/lib/i18n';
@@ -28,9 +29,9 @@ export function ReplyCitation({ citation, onCancel }: { citation?: ReplyCitation
   const email = citation.sender_address?.replace(/^human:/, '').toLowerCase();
   const name = (email && names[email]) || citation.sender_name;
   const body = <><span className="flex items-center gap-1.5 text-xs font-medium"><Reply aria-hidden="true" className="size-3.5 shrink-0" />{t('messageReply.to', { name })}</span>
-    <span className="mt-1 block line-clamp-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{citation.recalled ? t('messageReply.recalled') : citation.content || t('messageReply.attachment')}</span></>;
+    <span className="mt-1 line-clamp-2 text-xs whitespace-pre-wrap text-muted-foreground wrap-break-word">{citation.recalled ? t('messageReply.recalled') : citation.content || t('messageReply.attachment')}</span></>;
   return <div className="relative my-2 rounded-md border-l-2 border-primary/50 bg-muted/40 text-foreground">
-    {onCancel ? <div className="px-3 py-2 pr-9">{body}</div> : <a className="block rounded-md px-3 py-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" href={messagePath(workspace?.slug || workspace?.workspaceId || '', citation.thread_id, citation.message_id)}>{body}</a>}
-    {onCancel && <button type="button" aria-label={t('messageReply.cancel')} onClick={onCancel} className="absolute right-2 top-2 rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"><X className="size-3.5" /></button>}
+    {onCancel ? <div className="px-3 py-2 pr-9">{body}</div> : <a className="block rounded-md px-3 py-2 outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50" href={messagePath(workspace?.slug || workspace?.workspaceId || '', citation.thread_id, citation.message_id)}>{body}</a>}
+    {onCancel && <Button variant="ghost" size="icon-xs" aria-label={t('messageReply.cancel')} onClick={onCancel} className="absolute top-1.5 right-1.5 text-muted-foreground"><X /></Button>}
   </div>;
 }

@@ -13,11 +13,12 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Copy, Link2, Loader2, Link2Off, RefreshCw } from 'lucide-react';
+import { Copy, Link2, Link2Off, RefreshCw } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import { publicShareUrl } from '@/lib/share-origin';
@@ -119,28 +120,28 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
   const heading = <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.linkTitle')}</h4>;
 
   if (state === null) {
-    return <section className="space-y-2">{heading}<p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p></section>;
+    return <section className="flex flex-col gap-2">{heading}<p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p></section>;
   }
   // Nothing to show someone who can't manage it and has no link to know about.
   if (!state.can_manage && !state.link) return null;
   if (!state.can_manage) {
-    return <section className="space-y-2">{heading}<p className="text-xs text-muted-foreground">{t('artifactAccess.linkActiveReadOnly')}</p></section>;
+    return <section className="flex flex-col gap-2">{heading}<p className="text-xs text-muted-foreground">{t('artifactAccess.linkActiveReadOnly')}</p></section>;
   }
 
   const link = state.link;
   const customInvalid = expiry === 'custom' && (!customDate || new Date(expiryTimestamp('custom', customDate) || 0) <= new Date());
   const expiryPicker = (
-    <div className="space-y-1.5" data-testid="public-link-expiry">
+    <div className="flex flex-col gap-1.5" data-testid="public-link-expiry">
       <div className="flex items-center gap-2">
         <span className="shrink-0 text-xs text-muted-foreground">{t('artifactAccess.linkExpiry')}</span>
         <Select value={expiry} onValueChange={(v) => setExpiry(v as Expiry)}>
           <SelectTrigger aria-label={t('artifactAccess.linkExpiry')} className="h-8 min-w-0 flex-1 text-xs"><SelectValue /></SelectTrigger>
           <SelectContent>
-            <SelectItem value="never">{t('artifactAccess.linkExpiryNever')}</SelectItem>
+            <SelectGroup><SelectItem value="never">{t('artifactAccess.linkExpiryNever')}</SelectItem>
             <SelectItem value="1">{t('artifactAccess.linkExpiryDay')}</SelectItem>
             <SelectItem value="7">{t('artifactAccess.linkExpiryWeek')}</SelectItem>
             <SelectItem value="30">{t('artifactAccess.linkExpiryMonth')}</SelectItem>
-            <SelectItem value="custom">{t('artifactAccess.linkExpiryCustom')}</SelectItem>
+            <SelectItem value="custom">{t('artifactAccess.linkExpiryCustom')}</SelectItem></SelectGroup>
           </SelectContent>
         </Select>
       </div>
@@ -158,7 +159,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
   );
 
   return (
-    <section className="space-y-2">
+    <section className="flex flex-col gap-2">
       {heading}
       <p className="text-xs text-muted-foreground">{t('artifactAccess.linkHint')}</p>
       {webPage && <p className="text-xs text-muted-foreground">{t('artifactAccess.linkWebPageNote')}</p>}
@@ -175,7 +176,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
               {t('artifactAccess.linkCopy')}
             </Button>
             <Button size="sm" variant="outline" onClick={() => void revoke()} disabled={busy}>
-              {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2Off className="size-3.5" />}
+              {busy ? <Spinner className="size-3.5" /> : <Link2Off className="size-3.5" />}
               {t('artifactAccess.linkRevoke')}
             </Button>
           </div>
@@ -189,7 +190,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
         <>
           {expiryPicker}
           <Button size="sm" className="w-full" onClick={() => void publish(false)} disabled={busy || customInvalid}>
-            {busy ? <Loader2 className="size-3.5 animate-spin" /> : <Link2 className="size-3.5" />}
+            {busy ? <Spinner className="size-3.5" /> : <Link2 className="size-3.5" />}
             {t('artifactAccess.linkCreate')}
           </Button>
         </>

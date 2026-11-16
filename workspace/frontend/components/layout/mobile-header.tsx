@@ -69,12 +69,12 @@ export function MobileHeader() {
           <div className="flex items-center gap-2 min-w-0">
             <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" mode="icon" size="sm" className="shrink-0">
+                <Button variant="ghost" size="icon-sm" className="shrink-0">
                   <Menu className="size-4" />
                 </Button>
               </SheetTrigger>
-              <SheetContent className="p-0 gap-0 w-[280px] h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" close={false}>
-                <SheetHeader className="p-0 space-y-0">
+              <SheetContent className="p-0 gap-0 w-70 h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
+                <SheetHeader className="p-0 flex flex-col gap-0">
                   <SheetTitle className="sr-only">{t('nav.navigation')}</SheetTitle>
                 </SheetHeader>
                 <SheetBody className="grow flex flex-col min-h-0 p-0">
@@ -127,6 +127,7 @@ export function MobileHeader() {
           {tabs.map(({ mode, icon: Icon, label }) => (
             <button
               key={mode}
+              aria-current={(onboarding ? 'connect' : viewMode) === mode ? 'page' : undefined}
               onClick={() => handleViewSwitch(mode)}
               className={cn(
                 'flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors',
@@ -136,7 +137,7 @@ export function MobileHeader() {
               )}
             >
               <Icon className="size-5" />
-              <span className="text-[10px] font-medium">{label}</span>
+              <span className="text-xs font-medium">{label}</span>
             </button>
           ))}
         </div>

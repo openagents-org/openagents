@@ -1,6 +1,6 @@
 'use client';
 
-import { desktopHost } from '@/lib/desktop-host';
+import { desktopHost, hintTabTitle } from '@/lib/desktop-host';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
@@ -10,9 +10,9 @@ import {
   Copy, Check, ArrowRight,
   Network, Zap, Shield, MonitorSmartphone,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
-import { Input } from '@/components/ui/input';
+import { Input } from '@/components/ui/reui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { listAccountWorkspaces, createAccountWorkspace, getCampaignStatus, type AccountWorkspace, type CampaignStatus } from '@/lib/account-api';
 import { capture, group } from '@/lib/analytics';
@@ -807,7 +807,18 @@ function MembershipHome({
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
       return ws;
     }, [idToken]),
-    open: useCallback((ws: { slug: string }) => router.push(`/${ws.slug}`), [router]),
+    open: useCallback((ws: { slug: string; name?: string }) => {
+      if (ws.name) hintTabTitle(`/${ws.slug}`, ws.name);
+      router.push(`/${ws.slug}`);
+      // The desktop app opens the workspace in its own tab and this list stays
+      // up behind it: put the form back and list the new workspace, or coming
+      // back here showed the old create still "opening" with Create disabled.
+      if (!desktopHost()) return;
+      setShowCreate(false);
+      setNewName('');
+      void load();
+      return 'stayed' as const;
+    }, [router, load]),
   });
   // While the request is out, the form neither starts over nor looks
   // cancellable: hiding it would not stop the workspace being created.
@@ -893,7 +904,11 @@ function MembershipHome({
         loading={loading || willAutoEnter}
         error={error ? ('key' in error ? t(error.key) : error.text) : null}
         onRetry={load}
-        onOpen={(ws) => router.push(`/${ws.slug}`)}
+        onOpen={(ws) => {
+          // The launcher opens it in a new tab; name that tab right away.
+          hintTabTitle(`/${ws.slug}`, ws.name);
+          router.push(`/${ws.slug}`);
+        }}
         create={{
           open: showCreate,
           name: newName,

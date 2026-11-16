@@ -5,9 +5,12 @@ import { ArrowRight, ChevronRight, Plus, RefreshCw, Search, Sparkles } from 'luc
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button, buttonVariants } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import type { AgentCatalogEntry } from '@/lib/types';
-import { CatalogStateNotice, MarketLogo, MarketStatusBadge, marketStatusMeta, type CatalogState, type GalleryStatus } from './agent-setup';
+import { MarketLogo, type CatalogState } from './agent-setup';
+import { CatalogStateNotice, MarketStatusBadge, marketStatusMeta, type GalleryStatus } from './agent-setup-status';
 
 /** Listed first, under "Popular", in this order. */
 const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
@@ -160,7 +163,7 @@ export function MarketGallery({
   const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
 
   const section = (title: string, entries: AgentCatalogEntry[]) => entries.length > 0 && (
-    <div className="space-y-2.5">
+    <div className="flex flex-col gap-2.5">
       <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {entries.map((entry) => (
@@ -172,10 +175,10 @@ export function MarketGallery({
   );
 
   return (
-    <div className="p-6 space-y-4 max-w-4xl mx-auto w-full">
+    <div className="p-6 flex flex-col gap-4 max-w-4xl mx-auto w-full">
       {/* Header */}
       <div className="flex items-start gap-2">
-        <Button variant="ghost" mode="icon" size="sm" className="shrink-0" onClick={onBack} title={t('connect.nodeBack')}>
+        <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={onBack} title={t('connect.nodeBack')}>
           <ChevronRight className="size-4 rotate-180" />
         </Button>
         <div className="flex-1 min-w-0">
@@ -190,7 +193,7 @@ export function MarketGallery({
           </p>
         </div>
         <Button size="sm" variant="outline" onClick={onReDetect} disabled={detecting}>
-          <RefreshCw className={cn(detecting && 'animate-spin')} />
+          <RefreshCw data-icon="inline-start" className={cn(detecting && 'animate-spin')} />
           {detecting ? t('connect.nodeDetecting') : t('connect.nodeReDetect')}
         </Button>
       </div>
@@ -199,33 +202,27 @@ export function MarketGallery({
 
       {/* Toolbar: search + category chips */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-muted-foreground" />
-          <Input
+        <InputGroup className="flex-1">
+          <InputGroupAddon><Search /></InputGroupAddon>
+          <InputGroupInput
             value={query}
             onChange={(e) => onQuery(e.target.value)}
             placeholder={t('connect.marketSearch')}
             aria-label={t('connect.marketSearch')}
-            className="pl-9"
           />
-        </div>
-        <div className="flex items-center gap-1.5 overflow-x-auto">
+        </InputGroup>
+        <ToggleGroup
+          type="single"
+          variant="outline"
+          spacing={0}
+          value={category}
+          onValueChange={(v) => v && onCategory(v)}
+          className="shrink-0 overflow-x-auto"
+        >
           {categories.map((c) => (
-            <button
-              key={c.key}
-              onClick={() => onCategory(c.key)}
-              aria-pressed={category === c.key}
-              className={cn(
-                'whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-medium transition-colors',
-                category === c.key
-                  ? 'bg-primary text-primary-foreground'
-                  : 'bg-muted text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {c.label}
-            </button>
+            <ToggleGroupItem key={c.key} value={c.key} className="px-3 whitespace-nowrap">{c.label}</ToggleGroupItem>
           ))}
-        </div>
+        </ToggleGroup>
       </div>
 
       {/* An empty catalog is a load that has not landed (or failed), never a
@@ -233,14 +230,16 @@ export function MarketGallery({
       {catalog.length === 0 && catalogState && catalogState.status !== 'ready' ? (
         <CatalogStateNotice state={catalogState} />
       ) : visible.length === 0 ? (
-        <div className="rounded-xl border border-dashed py-14 text-center text-sm text-muted-foreground">
-          {q ? t('connect.marketNoMatch', { query: q }) : t('connect.marketNoneInCategory')}{' '}
-          <button className="font-medium text-foreground underline-offset-4 hover:underline" onClick={() => { onQuery(''); onCategory('all'); }}>
-            {t('connect.marketReset')}
-          </button>
-        </div>
+        <Empty className="border">
+          <EmptyHeader>
+            <EmptyDescription>{q ? t('connect.marketNoMatch', { query: q }) : t('connect.marketNoneInCategory')}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button variant="outline" size="sm" onClick={() => { onQuery(''); onCategory('all'); }}>{t('connect.marketReset')}</Button>
+          </EmptyContent>
+        </Empty>
       ) : (
-        <div className="space-y-5">
+        <div className="flex flex-col gap-5">
           {section(t('connect.marketPopular'), popular)}
           {section(t('connect.marketOthers'), others)}
         </div>

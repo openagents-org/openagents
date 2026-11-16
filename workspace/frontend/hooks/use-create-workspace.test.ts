@@ -8,11 +8,11 @@ type Ws = { slug: string };
 let root: Root;
 let result: ReturnType<typeof useCreateWorkspace<Ws>>;
 
-function Harness({ create, open }: { create: (name: string) => Promise<Ws>; open: (ws: Ws) => void }) {
+function Harness({ create, open }: { create: (name: string) => Promise<Ws>; open: (ws: Ws) => void | 'stayed' }) {
   result = useCreateWorkspace({ create, open });
   return null;
 }
-async function render(create: (name: string) => Promise<Ws>, open: (ws: Ws) => void) {
+async function render(create: (name: string) => Promise<Ws>, open: (ws: Ws) => void | 'stayed') {
   await act(async () => { root.render(React.createElement(Harness, { create, open })); });
 }
 async function wait(ms: number) {
@@ -28,6 +28,20 @@ afterEach(async () => {
   await act(async () => root.unmount());
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+it('ends the flow when opening leaves this page on screen (desktop tab)', async () => {
+  const create = vi.fn().mockResolvedValueOnce({ slug: 'acme' }).mockResolvedValueOnce({ slug: 'beta' });
+  const open = vi.fn().mockReturnValue('stayed');
+  await render(create, open);
+  await act(async () => { await result.submit('Acme'); });
+  expect(open).toHaveBeenCalledWith({ slug: 'acme' });
+  expect(result.phase).toBe('idle');
+  expect(result.pending).toBe(false);
+  // A second create goes through rather than being blocked by the first.
+  await act(async () => { await result.submit('Beta'); });
+  expect(create).toHaveBeenCalledTimes(2);
+  expect(open).toHaveBeenLastCalledWith({ slug: 'beta' });
 });
 
 it('creates once and opens the returned workspace', async () => {

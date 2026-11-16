@@ -4,6 +4,9 @@ import { Eye, FileCode2, MessageSquareReply } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { buildRevisionPrompt } from '@/lib/brief';
 import { prefillComposer } from './composer-prefill';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Attachment, AttachmentActions, AttachmentContent, AttachmentMedia, AttachmentTitle } from '@/components/ui/attachment';
 
 interface HtmlArtifactPreviewProps {
   fileId: string;
@@ -25,33 +28,24 @@ export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenF
   };
 
   return (
-    <div className="w-full max-w-2xl overflow-hidden rounded-lg border bg-muted/40" data-html-artifact={fileId}>
-      <div className="flex items-center gap-2 px-3 py-2">
-        <FileCode2 className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium" title={filename}>{filename}</span>
-        <span className="hidden rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold text-zinc-500 sm:inline dark:bg-zinc-800 dark:text-zinc-400">
-          {t('artifact.html')}
-        </span>
-        <button
-          type="button"
-          onClick={() => onOpenFull(fileId)}
-          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-          title={t('artifactPanel.open')}
-        >
-          <Eye className="size-3.5" />
+    <Attachment className="w-full max-w-2xl" data-html-artifact={fileId}>
+      <AttachmentMedia>
+        <FileCode2 />
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle title={filename}>{filename}</AttachmentTitle>
+      </AttachmentContent>
+      <Badge variant="secondary" className="hidden sm:inline-flex">{t('artifact.html')}</Badge>
+      <AttachmentActions className="gap-1">
+        <Button variant="outline" size="xs" onClick={() => onOpenFull(fileId)} title={t('artifactPanel.open')}>
+          <Eye data-icon="inline-start" />
           {t('artifact.preview')}
-        </button>
-        <button
-          type="button"
-          onClick={requestRevision}
-          className="inline-flex items-center gap-1 rounded-md border bg-background px-2 py-1 text-xs font-medium transition-colors hover:bg-muted"
-          title={t('artifact.requestRevision')}
-        >
-          <MessageSquareReply className="size-3.5" />
+        </Button>
+        <Button variant="outline" size="xs" onClick={requestRevision} title={t('artifact.requestRevision')} aria-label={t('artifact.requestRevision')}>
+          <MessageSquareReply data-icon="inline-start" />
           <span className="hidden sm:inline">{t('artifact.requestRevision')}</span>
-        </button>
-      </div>
-
-    </div>
+        </Button>
+      </AttachmentActions>
+    </Attachment>
   );
 }

@@ -1,4 +1,9 @@
 import type { DMConversation, WorkspaceSession } from './types';
+
+/** Last activity in ms: the backend's last_event_at, else creation time. */
+export function sessionActivityTime(session: Pick<WorkspaceSession, 'lastEventAt' | 'createdAt'>): number {
+  return session.lastEventAt || (session.createdAt ? new Date(session.createdAt).getTime() : 0);
+}
 /** Issue execution channels use this reserved, server-generated ID prefix.
  * Keep them in workspace state for issue links and direct URLs, but out of
  * conversation navigation. Linking an ordinary thread never changes its ID. */
@@ -9,7 +14,7 @@ export function isIssueWorkSession(session: Pick<WorkspaceSession, 'sessionId'>)
 export type ConversationRow = { kind: 'thread'; id: string; thread: WorkspaceSession; time: number; title: string } | { kind: 'dm'; id: string; dm: DMConversation; time: number; title: string };
 export function mergeConversationRows(threads: WorkspaceSession[], dms: DMConversation[], order: 'recent' | 'oldest' | 'title', dmTitle: (dm: DMConversation) => string): ConversationRow[] {
   const rows: ConversationRow[] = [
-    ...threads.filter(s => !isIssueWorkSession(s) && !isRoutineSession(s) && !s.sessionId.startsWith('dm:')).map(thread => ({ kind: 'thread' as const, id: thread.sessionId, thread, time: thread.lastEventAt || (thread.createdAt ? Date.parse(thread.createdAt) : 0), title: thread.title || '' })),
+    ...threads.filter(s => !isIssueWorkSession(s) && !isRoutineSession(s) && !s.sessionId.startsWith('dm:')).map(thread => ({ kind: 'thread' as const, id: thread.sessionId, thread, time: sessionActivityTime(thread), title: thread.title || '' })),
     ...dms.map(dm => ({ kind: 'dm' as const, id: `dm:${dm.agents[0]},${dm.agents[1]}`, dm, time: dm.lastMessage.timestamp, title: dmTitle(dm) })),
   ];
   return rows.sort((a, b) => {

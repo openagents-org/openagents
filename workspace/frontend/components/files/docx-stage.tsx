@@ -3,7 +3,10 @@
 import { useEffect, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { Loader2 } from 'lucide-react';
+import { Download } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
 
 // An opaque sandbox and CSP keep document links, scripts and remote resources
 // away from the app's credentials. Embedded images remain local data URLs.
@@ -34,7 +37,14 @@ export function DocxStage({ fileId, filename, size, onDownload }: { fileId: stri
     })().catch(() => { if (!abort.signal.aborted) setFailed(true); });
     return () => abort.abort();
   }, [fileId, size]);
-  if (failed) return <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-sm text-muted-foreground"><p>{t('files.loadFailed')}</p><button className="rounded-md border px-3 py-1.5 text-foreground" onClick={onDownload}>{t('files.downloadFile')}</button></div>;
-  if (!html) return <div className="flex h-full items-center justify-center"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+  if (failed) return (
+    <Empty className="h-full">
+      <EmptyHeader><EmptyDescription>{t('files.loadFailed')}</EmptyDescription></EmptyHeader>
+      <EmptyContent>
+        <Button variant="outline" size="sm" onClick={onDownload}><Download data-icon="inline-start" />{t('files.downloadFile')}</Button>
+      </EmptyContent>
+    </Empty>
+  );
+  if (!html) return <div className="flex h-full items-center justify-center"><Spinner className="size-6 text-muted-foreground" /></div>;
   return <iframe title={filename} sandbox="" referrerPolicy="no-referrer" srcDoc={html} className="h-full w-full border-0 bg-white" />;
 }

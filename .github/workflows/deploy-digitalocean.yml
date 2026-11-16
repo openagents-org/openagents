@@ -2,7 +2,7 @@ name: Deploy workspace backend to DigitalOcean
 
 on:
   push:
-    branches: [release]
+    branches: [openagents-release]
   workflow_dispatch:
 
 permissions:
@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   build:
-    if: github.ref == 'refs/heads/release'
+    if: github.ref == 'refs/heads/openagents-release'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

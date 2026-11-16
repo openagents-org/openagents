@@ -6,6 +6,7 @@ import { Button } from "@renderer/components/ui/button"
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
@@ -85,6 +86,7 @@ export function ConnectionActions({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuGroup>
           {connected && hasMcp && platform.defaultEnvKey && (
             <DropdownMenuItem onSelect={onApplyToAgents}>
               {t("connections.card.applyToAgents")}
@@ -107,12 +109,15 @@ export function ConnectionActions({
               {t("common.documentation")}
             </DropdownMenuItem>
           )}
+          </DropdownMenuGroup>
           {connection && (
             <>
               <DropdownMenuSeparator />
-              <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
-                {t("connections.card.disconnect")}
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive" onSelect={onDisconnect}>
+                  {t("connections.card.disconnect")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </>
           )}
         </DropdownMenuContent>

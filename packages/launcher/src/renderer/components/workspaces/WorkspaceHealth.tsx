@@ -23,9 +23,9 @@ const VARIANT = {
   warning: "warning",
   // Informational, not green: the device is in, but nothing is running here yet.
   device: "outline",
-  revoked: "danger",
-  disconnected: "muted",
-  error: "danger",
+  revoked: "destructive",
+  disconnected: "secondary",
+  error: "destructive",
 } as const
 
 export function WorkspaceHealth({
@@ -38,7 +38,7 @@ export function WorkspaceHealth({
   const { t } = useTranslation()
 
   return (
-    <Badge variant={VARIANT[state]} size="sm" className={className}>
+    <Badge variant={VARIANT[state]} className={className}>
       {t(`workspaces.health.${state}`)}
     </Badge>
   )

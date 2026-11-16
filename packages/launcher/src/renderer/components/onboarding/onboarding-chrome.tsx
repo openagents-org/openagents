@@ -22,7 +22,7 @@ export function StepHeading({
   return (
     <div>
       <h2 className="m-0 text-3xl font-bold tracking-tight">{title}</h2>
-      <p className="mt-2.5 mb-0 max-w-2xl text-base text-(--text-secondary)">
+      <p className="mt-2.5 mb-0 max-w-2xl text-base text-muted-foreground">
         {subtitle}
       </p>
     </div>
@@ -39,10 +39,10 @@ export function SectionLabel({
 }): React.JSX.Element {
   return (
     <div className={cn("mb-4 flex items-center gap-3", className)}>
-      <span className="font-mono text-2xs font-medium tracking-widest text-(--text-tertiary) uppercase">
+      <span className="font-mono text-xs font-medium tracking-widest text-muted-foreground uppercase">
         {children}
       </span>
-      <span className="h-px flex-1 bg-(--border)" />
+      <span className="h-px flex-1 bg-border" />
     </div>
   )
 }
@@ -71,10 +71,10 @@ export function FieldLabel({
       <label htmlFor={htmlFor} className="truncate text-sm font-semibold">
         {label}
       </label>
-      <span className="shrink-0 font-mono text-2xs text-(--text-tertiary)">
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {token}
         {required && (
-          <span className="ml-2 text-(--accent)">
+          <span className="ml-2 text-primary">
             {t("onboarding.flow.field.required")}
           </span>
         )}
@@ -94,7 +94,7 @@ export function InlineCode({
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <code className="rounded-sm bg-accent px-1.5 py-0.5 font-mono text-2xs">
+    <code className="rounded-sm bg-accent px-1.5 py-0.5 font-mono text-xs">
       {children}
     </code>
   )
@@ -103,10 +103,8 @@ export function InlineCode({
 /** Shared frame for the pickable cards (agents, workspace mode). */
 export function selectableCard(active: boolean): string {
   return cn(
-    "rounded-lg border bg-(--bg-card) text-left transition-colors",
-    active
-      ? "border-(--accent) bg-(--accent-bg)"
-      : "border-(--border) hover:border-(--border-hover)",
+    "rounded-lg border bg-card text-left transition-colors",
+    active ? "border-primary bg-primary/5" : "border-border hover:border-input",
   )
 }
 
@@ -128,7 +126,7 @@ export function FooterBar({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <footer className="shrink-0 border-t border-(--border) bg-(--bg-card) px-10 py-4">
+    <footer className="shrink-0 border-t border-border bg-card px-10 py-4">
       <div className="mx-auto flex w-full max-w-4xl items-center gap-4">
         <div className="flex-1">
           {onBack && (
@@ -146,10 +144,10 @@ export function FooterBar({
               className={cn(
                 "h-1.5 rounded-full transition-all",
                 i === step
-                  ? "w-5 bg-(--accent)"
+                  ? "w-5 bg-primary"
                   : i < step
-                    ? "w-1.5 bg-(--accent-border)"
-                    : "w-1.5 bg-(--border-hover)",
+                    ? "w-1.5 bg-primary/20"
+                    : "w-1.5 bg-input",
               )}
             />
           ))}

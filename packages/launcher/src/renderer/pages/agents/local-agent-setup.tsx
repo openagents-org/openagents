@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { AlertCircle, CheckCircle2, Info, Loader2, ShieldCheck } from "lucide-react"
+import { AlertCircle } from "lucide-react"
 import { AgentSetup, type AgentSetupApi } from "@/components/agents/agent-setup"
 import { I18nProvider } from "@/lib/i18n"
 import type { AgentCatalogEntry, WorkspaceNode } from "@/lib/types"
 import { AgentEnvFields } from "@renderer/components/agent-env-fields"
 import { Tabs, TabsList, TabsTrigger } from "@renderer/components/ui/tabs"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@renderer/components/ui/select"
-import { Field, FieldDescription, FieldLabel } from "@renderer/components/ui/field"
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import { AuthStatusBanner, CliLoginBlock } from "@renderer/components/agent-auth/auth-status"
 import { useCliLogin } from "@renderer/components/agent-auth/use-cli-login"
 import { Button } from "@renderer/components/ui/button"
@@ -21,6 +20,7 @@ import { showGlobalToast } from "@renderer/hooks/useToast"
 import { createLocalSetupApi, type LocalConfiguration } from "./local-setup-api"
 import { SetupAside } from "./components/setup-aside"
 import { SetupWorkdirField } from "./components/setup-workdir-field"
+import { CodexWireApiField, CredentialCheck, type CredentialTestResult } from "./components/setup-credential-check"
 import { agentCredentials, credentialErrors, isUnprobeable } from "../../../shared/agent-credentials"
 
 export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreated, onChanged, onManage, onOpenType }: {
@@ -90,7 +90,10 @@ export function LocalAgentSetup({ agent, initialType, backLabel, onBack, onCreat
   const current = agent && data?.node.agents.find((a) => a.name === agent.name)
   const loadError = error || (data && agent && !current ? t("agents.shared.agentUnavailable") : "")
   return <section className="h-full overflow-y-auto">
-    {loadError ? <div className="p-8 space-y-4"><p role="alert">{loadError}</p><Button onClick={() => setAttempt((n) => n + 1)}>{t("common.retry")}</Button><Button variant="ghost" onClick={onBack}>{t("common.back")}</Button></div>
+    {loadError ? <div className="flex flex-col items-start gap-4 p-8">
+      <Alert variant="destructive"><AlertCircle /><AlertDescription>{loadError}</AlertDescription></Alert>
+      <div className="flex gap-2"><Button onClick={() => setAttempt((n) => n + 1)}>{t("common.retry")}</Button><Button variant="ghost" onClick={onBack}>{t("common.back")}</Button></div>
+    </div>
       : !data ? <div className="p-12 flex justify-center"><Spinner /></div>
       : <I18nProvider key={locale} initialLocale={locale} hasStoredLocale>
         <AgentSetup key={agent?.name || `new:${initialType || ""}`} initialType={initialType} onManageAgent={onManage} api={api} node={data.node} catalog={data.catalog} editAgent={current}
@@ -150,7 +153,7 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   // A required field the last save stopped on; its message sits under it and it takes focus.
   const [invalid, setInvalid] = useState<{ name: string; nonce: number } | null>(null)
   const reveal = (field: string): void => setInvalid((prev) => ({ name: field, nonce: (prev?.nonce ?? 0) + 1 }))
-  const [testResult, setTestResult] = useState<{ kind: "success" | "error" | "info"; message: string } | null>(null)
+  const [testResult, setTestResult] = useState<CredentialTestResult | null>(null)
   const entry = catalog.find((item) => item.name === type)
   const loginCmd = entry?.check_ready?.login_command || null
   const installed = health?.installed ?? entry?.installed ?? false
@@ -249,8 +252,8 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
   // A new agent does not get a key another agent of the type holds. Its message then is that
   // agent's "Ready", so the banner says the generic not-ready line instead.
   const shownReady = !!health && (name ? health.ready : (health.typeReady ?? health.ready))
-  return <div className="space-y-4">
-    {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
+  return <div className="flex flex-col gap-4">
+    {error && <Alert variant="destructive"><AlertCircle /><AlertDescription>{error}</AlertDescription></Alert>}
     {health && (installed || !loginCmd) && <AuthStatusBanner authInfo={{ ready: shownReady, authMode: health.auth_mode || null,
       message: !installed ? t("agents.loginStatus.installOnAdd") : shownReady === health.ready ? health.message || null : null }} authLabels={entry?.check_ready?.auth_detected_labels || null} />}
     {!loginCmd && fields.length === 0 && <p className="text-sm text-muted-foreground">{t("agents.configureDialog.hintNoConfig")}</p>}
@@ -275,47 +278,9 @@ export function LocalConfigurationFields({ type, name, catalog, onChange, onChan
     {!keyForm && loginModels.length > 0 && <p className="m-0 text-xs text-muted-foreground">
       {t(loginModels.some((field) => field.required) ? "agents.configureDialog.modelRequiredWithLogin" : "agents.configureDialog.modelWithLogin")}
     </p>}
-    {customCodex && <Field>
-      <FieldLabel htmlFor="local-codex-wire-api">{t("agents.codexApiMode.label")}</FieldLabel>
-      <Select value={codexWireApi} onValueChange={(value) => change("CODEX_WIRE_API", value)}>
-        <SelectTrigger id="local-codex-wire-api" aria-label={t("agents.codexApiMode.label")} className="w-full"><SelectValue /></SelectTrigger>
-        <SelectContent>
-          <SelectItem value="responses">{t("agents.codexApiMode.responses")}</SelectItem>
-          <SelectItem value="chat">{t("agents.codexApiMode.chat")}</SelectItem>
-        </SelectContent>
-      </Select>
-      <FieldDescription>{t(codexWireApi === "responses" ? "agents.codexApiMode.responsesHint" : "agents.codexApiMode.chatHint")}</FieldDescription>
-    </Field>}
-    {/* A test that can only fail is replaced by how this agent's credential IS verified. */}
-    {keyForm && fields.length > 0 && (unprobeable
-      ? <div role="note" className="flex items-start gap-2 rounded-lg border bg-muted/40 px-3.5 py-2.5 text-xs leading-relaxed text-muted-foreground">
-        <Info className="mt-0.5 size-3.5 shrink-0" />
-        <div>
-          <p className="m-0 font-medium text-foreground">{t("agents.credentials.unprobeableTitle")}</p>
-          {unprobeableReason && <p className="m-0 mt-1">{t(`agents.credentials.unprobeable.${unprobeableReason}`)}</p>}
-        </div>
-      </div>
-      : <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 px-3.5 py-3 sm:flex-row sm:items-center">
-        <div className="flex min-w-0 flex-1 items-start gap-2.5">
-          {testResult?.kind === "success"
-            ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-(--success)" />
-            : testResult?.kind === "error"
-              ? <AlertCircle className="mt-0.5 size-4 shrink-0 text-destructive" />
-              : <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
-          <div className="min-w-0">
-            <p className="m-0 text-xs font-medium text-foreground">{t("agents.shared.verifyApiSettings")}</p>
-            <p role={testResult ? "status" : undefined} className={testResult
-              ? `m-0 mt-0.5 text-2xs leading-relaxed ${testResult.kind === "success" ? "text-foreground" : testResult.kind === "error" ? "text-destructive" : "text-muted-foreground"}`
-              : "m-0 mt-0.5 text-2xs leading-relaxed text-muted-foreground"}>
-              {testResult?.message || t("agents.shared.verifyApiSettingsHint")}
-            </p>
-          </div>
-        </div>
-        <Button size="sm" variant="outline" className="w-full shrink-0 sm:w-auto" onClick={() => void test()} disabled={testing}>
-          {testing && <Loader2 className="size-3.5 animate-spin" />}
-          {testing ? t("agents.shared.testing") : t("agents.shared.testConnection")}
-        </Button>
-      </div>)}
+    {customCodex && <CodexWireApiField value={codexWireApi} onChange={(value) => change("CODEX_WIRE_API", value)} />}
+    {keyForm && fields.length > 0 && <CredentialCheck unprobeable={unprobeable} unprobeableReason={unprobeableReason}
+      testing={testing} result={testResult} onTest={() => void test()} />}
   </div>
 }
 

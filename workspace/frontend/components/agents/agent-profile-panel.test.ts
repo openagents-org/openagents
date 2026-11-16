@@ -59,6 +59,7 @@ vi.mock('@/components/ui/select', async () => {
   return {
     Select: flat,
     SelectContent: flat,
+    SelectGroup: flat,
     SelectTrigger: flat,
     SelectValue: () => null,
     SelectItem: ({ value, children }: { value: string; children?: React.ReactNode }) =>

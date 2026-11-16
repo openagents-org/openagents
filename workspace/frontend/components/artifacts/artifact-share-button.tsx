@@ -11,7 +11,7 @@ import { Link, Share2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArtifactShareDialog, isWebPage } from '@/components/sharing/artifact-share';
 import { PublicLinkSection } from '@/components/sharing/public-link-section';
 import { basename } from '@/components/files/file-utils';
@@ -73,19 +73,19 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
           <span className="hidden sm:inline">{t('artifactPanel.share')}</span>
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-80 space-y-4 p-3 text-sm">
+      <PopoverContent align="end" className="w-80 flex flex-col gap-4 p-3 text-sm">
         {!options.length ? <p className="text-xs text-muted-foreground">{t('artifactPanel.nothingToShare')}</p> : <>
-          <section className="space-y-1.5">
+          <section className="flex flex-col gap-1.5">
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactPanel.shareWhat')}</h4>
             <Select value={pick ?? undefined} onValueChange={setPick}>
               <SelectTrigger aria-label={t('artifactPanel.shareWhat')} className="h-9 min-w-0"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {options.map(o => <SelectItem key={key(o.ref)} value={key(o.ref)}>{label(o)}</SelectItem>)}
+                <SelectGroup>{options.map(o => <SelectItem key={key(o.ref)} value={key(o.ref)}>{label(o)}</SelectItem>)}</SelectGroup>
               </SelectContent>
             </Select>
           </section>
           {current && <>
-            <section className="space-y-2">
+            <section className="flex flex-col gap-2">
               <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactPanel.workspaceLink')}</h4>
               <p className="text-xs text-muted-foreground">{t('artifactPanel.workspaceLinkHint')}</p>
               <Button size="sm" variant="outline" className="w-full" onClick={() => void copyWorkspaceLink()}>

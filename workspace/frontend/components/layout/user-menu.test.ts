@@ -16,7 +16,7 @@ vi.mock('./language-menu', () => ({ LanguageMenuSub: () => null }));
 vi.mock('@/components/ui/dropdown-menu', () => {
   const wrap = ({ children }: { children?: React.ReactNode }) => React.createElement('div', null, children);
   const item = ({ children, onClick }: { children?: React.ReactNode; onClick?: () => void }) => React.createElement('button', { onClick }, children);
-  return Object.fromEntries(['DropdownMenu', 'DropdownMenuContent', 'DropdownMenuLabel', 'DropdownMenuPortal', 'DropdownMenuRadioGroup', 'DropdownMenuSeparator', 'DropdownMenuSub', 'DropdownMenuSubContent', 'DropdownMenuSubTrigger', 'DropdownMenuTrigger'].map((key) => [key, wrap]).concat([['DropdownMenuItem', item], ['DropdownMenuRadioItem', wrap]]));
+  return Object.fromEntries(['DropdownMenu', 'DropdownMenuContent', 'DropdownMenuGroup', 'DropdownMenuLabel', 'DropdownMenuPortal', 'DropdownMenuRadioGroup', 'DropdownMenuSeparator', 'DropdownMenuSub', 'DropdownMenuSubContent', 'DropdownMenuSubTrigger', 'DropdownMenuTrigger'].map((key) => [key, wrap]).concat([['DropdownMenuItem', item], ['DropdownMenuRadioItem', wrap]]));
 });
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

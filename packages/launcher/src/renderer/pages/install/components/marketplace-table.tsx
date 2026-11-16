@@ -42,9 +42,9 @@ export function MarketplaceTable({
   const { t } = useTranslation()
 
   return (
-    <div className="overflow-hidden rounded-xl border bg-card">
+    <div className="overflow-hidden rounded-lg border">
       <Table>
-        <TableHeader>
+        <TableHeader className="bg-muted">
           <TableRow className="hover:bg-transparent">
             {COLUMNS.map((c) => (
               <TableHead key={c} className={c === "actions" ? "text-center" : undefined}>
@@ -101,7 +101,7 @@ function Row({
               {entry.label || entry.name}
             </div>
             <div
-              className="truncate text-2xs text-muted-foreground"
+              className="truncate text-xs text-muted-foreground"
               title={describeEntry(entry, t) || undefined}
             >
               {describeEntry(entry, t) || t("install.card.noDescription")}
@@ -114,11 +114,11 @@ function Row({
         <AgentStatusBadge status={status} />
       </TableCell>
 
-      <TableCell className="font-mono text-2xs text-muted-foreground">
+      <TableCell className="font-mono text-xs text-muted-foreground">
         {row.version ? `v${row.version}` : "—"}
       </TableCell>
 
-      <TableCell className="font-mono text-2xs text-muted-foreground">
+      <TableCell className="font-mono text-xs text-muted-foreground">
         {row.runtime || t("install.hero.builtin")}
       </TableCell>
 

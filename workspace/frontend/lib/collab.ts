@@ -130,8 +130,3 @@ export function sortDirectory<T extends { pinned: boolean; display_name: string 
     return (a.display_name || a.agent_name).localeCompare(b.display_name || b.agent_name);
   });
 }
-
-/** Textarea → list: one entry per non-blank line, trimmed. */
-export function linesToList(text: string): string[] {
-  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-}

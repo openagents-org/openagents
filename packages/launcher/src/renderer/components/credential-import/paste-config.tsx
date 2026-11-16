@@ -76,7 +76,7 @@ export function PasteConfig({
           />
           <InputGroupAddon align="block-end">
             <InputGroupText
-              className={cn("text-2xs", miss && "text-(--danger-text)")}
+              className={cn("text-xs", miss && "text-destructive")}
             >
               {miss
                 ? t("credentialImport.paste.notFound")

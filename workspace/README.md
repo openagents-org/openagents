@@ -46,6 +46,18 @@ Events flow through a mod pipeline: `mod/auth` → `mod/workspace` → `mod/pers
 
 ## Self-Hosting
 
+Self-hosted releases are cut from `develop` onto the `release` branch and tagged
+`workspace-vX.Y.Z` (see [Releases](https://github.com/openagents-org/openagents/releases)).
+Each release publishes the backend image
+`ghcr.io/openagents-org/openagents-workspace-backend:<version>`. The frontend
+bakes its API URL in at build time, so build it from source with
+`docker compose -f docker-compose.prod.yml up -d --build` and
+`API_URL=https://<your-backend>`.
+
+Optional integrations are enabled by environment variables, e.g. set
+`BROWSERFABRIC_API_KEY` to use the BrowserFabric cloud browser (otherwise a
+local Playwright browser is used).
+
 ### Run Backend Locally (with external PostgreSQL)
 
 ```bash

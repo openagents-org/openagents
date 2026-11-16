@@ -12,7 +12,8 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
-import { Bot, Globe, Loader2, Lock, MessagesSquare, Share2, User, Users, X } from 'lucide-react';
+import { Bot, Globe, Lock, MessagesSquare, Share2, User, Users, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -166,11 +167,11 @@ export function ArtifactShareContent({
   );
 
   return (
-    <div className="space-y-4 text-sm">
+    <div className="flex flex-col gap-4 text-sm">
       {/* Anyone with the link — the one way to reach people outside the workspace */}
       <PublicLinkSection kind={kind} id={id} webPage={isWebPage(contentType, name)} />
       {/* Visibility */}
-      <section className="space-y-2">
+      <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
           <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.visibility')}</h4>
           <ArtifactVisibilityBadge kind={kind} visibility={visibility} effectiveVisibility={effectiveVisibility} />
@@ -186,18 +187,18 @@ export function ArtifactShareContent({
 
       {!canManage && <p className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">{t('artifactAccess.ownerMustShare')}</p>}
       {/* Share with… */}
-      {canManage && <section className="space-y-2">
+      {canManage && <section className="flex flex-col gap-2">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.shareWith')}</h4>
         <GranteePicker value={picked} onChange={setPicked} exclude={exclude} />
         {picked.length > 0 && (
           <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
             {previewLoading ? (
-              <span className="inline-flex items-center gap-1.5"><Loader2 className="size-3 animate-spin" />{t('artifactAccess.previewLoading')}</span>
+              <span className="inline-flex items-center gap-1.5"><Spinner className="size-3" />{t('artifactAccess.previewLoading')}</span>
             ) : (
               <>
                 <p className="font-medium text-foreground/80">{t('artifactAccess.previewTitle')}</p>
                 {preview && preview.items.length > 0 ? (
-                  <ul className="mt-1 space-y-0.5">
+                  <ul className="mt-1 flex flex-col gap-0.5">
                     {preview.items.slice(0, 5).map((item) => (
                       <li key={`${item.kind}:${item.id}`} className="truncate">· {item.title || item.id}</li>
                     ))}
@@ -213,35 +214,34 @@ export function ArtifactShareContent({
         {/* Only once someone is picked: a permanently greyed-out "Share" read as broken. */}
         {picked.length > 0 && (
           <Button size="sm" onClick={share} disabled={sharing} className="w-full">
-            {sharing ? <Loader2 className="size-3.5 animate-spin" /> : <Share2 className="size-3.5" />}
+            {sharing ? <Spinner className="size-3.5" /> : <Share2 className="size-3.5" />}
             {sharing ? t('artifactAccess.sharing') : t('artifactAccess.shareAction')}
           </Button>
         )}
       </section>}
 
       {/* Who has access */}
-      {canManage && <section className="space-y-1.5">
+      {canManage && <section className="flex flex-col gap-1.5">
         <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.grantsTitle')}</h4>
         {grants === null ? (
           <p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p>
         ) : grants.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('artifactAccess.grantsEmpty')}</p>
         ) : (
-          <ul className="max-h-48 space-y-0.5 overflow-y-auto">
+          <ul className="max-h-48 flex flex-col gap-0.5 overflow-y-auto">
             {grants.map((g) => (
               <li key={g.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted/50">
                 <GranteeIcon kind={g.grantee_kind} />
                 <span className="min-w-0 flex-1 truncate text-xs">{g.grantee_label || g.grantee_id}</span>
                 {g.expires_at && (
-                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                  <span className="shrink-0 text-xs text-muted-foreground">
                     {t('agentAccess.expiresOn', { date: formatDate(g.expires_at) })}
                   </span>
                 )}
                 {canManage && (
                   <Button
                     variant="ghost"
-                    mode="icon"
-                    size="sm"
+                    size="icon-sm"
                     onClick={() => revoke(g)}
                     aria-label={t('artifactAccess.revoke')}
                     title={t('artifactAccess.revoke')}
