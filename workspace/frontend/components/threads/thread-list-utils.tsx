@@ -70,5 +70,7 @@ export const ROW_BASE =
 export const ROW_SELECTED = 'rounded-md border-transparent bg-accent ring-1 ring-inset ring-foreground/20';
 export const ROW_IDLE = 'hover:bg-muted/50 has-data-[state=open]:bg-muted/50';
 
-/** The "@" / DM-count pills share the nav rail's unread accent (DmUnreadBadge). */
-export const UNREAD_ACCENT = 'bg-info text-background';
+/** Unread-count pills share the nav rail's unread accent (DmUnreadBadge): neutral ink, "something new". */
+export const UNREAD_ACCENT = 'bg-primary text-primary-foreground';
+/** The "@" pill asks for the viewer's attention, so it takes the nav rail's red count colour. */
+export const MENTION_ACCENT = 'bg-destructive text-white';

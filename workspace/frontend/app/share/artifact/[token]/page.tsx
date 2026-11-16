@@ -178,8 +178,8 @@ export default function SharedArtifactPage({ params }: { params: Promise<{ token
         </Button>
       </header>
       {body.kind === 'page' && (
-        <p className="flex shrink-0 items-center gap-2 border-b bg-amber-50 px-4 py-2 text-xs text-amber-900 sm:px-6 dark:bg-amber-950/40 dark:text-amber-200" data-testid="shared-user-content">
-          <ShieldAlert className="size-3.5 shrink-0" />{t('sharedFile.userContent')}
+        <p className="flex shrink-0 items-center gap-2 border-b bg-warning/10 px-4 py-2 text-xs text-foreground sm:px-6" data-testid="shared-user-content">
+          <ShieldAlert className="size-3.5 shrink-0 text-warning" />{t('sharedFile.userContent')}
         </p>
       )}
       <main className={fills ? 'min-h-0 flex-1' : 'min-h-0 flex-1 overflow-auto'}>

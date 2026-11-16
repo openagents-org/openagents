@@ -58,7 +58,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
                 'font-medium rounded px-0.5',
                 selfMention && name === selfMention
                   ? 'bg-warning/20 text-warning'
-                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'text-info bg-info/10' : color.text,
+                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'bg-muted text-foreground' : color.text,
               )}
             >
               @{humanNames[name] || agentLabels?.[name] || name}

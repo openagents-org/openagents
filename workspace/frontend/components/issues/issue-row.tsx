@@ -61,9 +61,9 @@ export function IssueRow({ issue, asCard = false, isSelected, unread, copied, de
         asCard
           ? 'rounded-lg border border-border/70 bg-background p-4 shadow-xs hover:border-foreground/20'
           : 'flex items-start gap-3 px-5 py-4 hover:bg-muted/40 sm:px-8',
-        isSelected && 'relative bg-info/10 ring-1 ring-info/30 ring-inset before:absolute before:inset-y-0 before:left-0 before:w-1 before:bg-info hover:bg-info/10',
+        isSelected && 'bg-accent ring-1 ring-foreground/20 ring-inset hover:bg-accent',
         working && !isSelected && 'thread-wip',
-        finished && !isSelected && 'bg-warning/10 ring-1 ring-warning/30 ring-inset motion-safe:animate-[glow_2s_ease-in-out_infinite]',
+        finished && !isSelected && 'bg-success/10 ring-1 ring-success/30 ring-inset motion-safe:animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       <StatusIcon status={issue.status} className={cn('mt-0.5', asCard && 'hidden')} />
@@ -91,7 +91,7 @@ export function IssueRow({ issue, asCard = false, isSelected, unread, copied, de
         {(working || finished) && <span role="status" className="mt-1 flex w-fit items-center gap-1.5 text-xs text-muted-foreground">
           {working
             ? <span aria-hidden="true" className="inline-flex gap-0.5">{[0, 1, 2].map(i => <span key={i} className="typing-dot size-1 rounded-full bg-current" style={{ animationDelay: `${i * 0.15}s` }} />)}</span>
-            : <Check aria-hidden="true" className="size-3 text-warning" />}
+            : <Check aria-hidden="true" className="size-3 text-success" />}
           {workingAgents.length > 0 && <span className="inline-flex items-center *:not-first:-ml-1" aria-hidden="true">{workingAgents.map(agent => <AgentAvatar key={agent.agentName} name={agent.agentName} size={16} />)}</span>}
           {workingAgents.length ? t('issueWork.working', { agents: workingAgents.map(agentLabel).join(', ') }) : t(working ? 'chat.agentWorking' : 'issueWork.finished')}
         </span>}

@@ -122,7 +122,7 @@ export function FolderPicker({
             ) : (
               dirs.map((d) => (
                 <Button key={d} variant="ghost" size="sm" onClick={() => path && browse(joinNodePath(path, d))} className={ROW}>
-                  <Folder data-icon="inline-start" className="text-info" /><span className="truncate">{d}</span>
+                  <Folder data-icon="inline-start" className="text-muted-foreground" /><span className="truncate">{d}</span>
                 </Button>
               ))
             )}

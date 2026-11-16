@@ -141,7 +141,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
       className={cn(
         'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-md',
         isActive && 'thread-wip',
-        isCompleted && 'bg-warning/10 ring-1 ring-warning/30 animate-[glow_2s_ease-in-out_infinite]',
+        isCompleted && 'bg-success/10 ring-1 ring-success/30 animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       {/* Header: avatars + title + time */}
@@ -158,7 +158,7 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
           {session.title || t('monitor.untitled')}
         </span>
         {isCompleted ? (
-          <CheckCircle2 className="size-3.5 shrink-0 text-warning" />
+          <CheckCircle2 className="size-3.5 shrink-0 text-success" />
         ) : (
           <span className="text-xs text-muted-foreground shrink-0">{displayTime}</span>
         )}
