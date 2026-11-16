@@ -807,7 +807,18 @@ function MembershipHome({
       capture('workspace_created', { source: 'membership_home', workspace_id: ws.slug });
       return ws;
     }, [idToken]),
-    open: useCallback((ws: { slug: string }) => router.push(`/${ws.slug}`), [router]),
+    open: useCallback((ws: { slug: string; name?: string }) => {
+      if (ws.name) hintTabTitle(`/${ws.slug}`, ws.name);
+      router.push(`/${ws.slug}`);
+      // The desktop app opens the workspace in its own tab and this list stays
+      // up behind it: put the form back and list the new workspace, or coming
+      // back here showed the old create still "opening" with Create disabled.
+      if (!desktopHost()) return;
+      setShowCreate(false);
+      setNewName('');
+      void load();
+      return 'stayed' as const;
+    }, [router, load]),
   });
   // While the request is out, the form neither starts over nor looks
   // cancellable: hiding it would not stop the workspace being created.

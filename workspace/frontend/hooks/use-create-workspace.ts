@@ -26,7 +26,12 @@ export type CreateWorkspacePhase =
  */
 export function useCreateWorkspace<W extends { slug: string }>({ create, open }: {
   create: (name: string) => Promise<W>;
-  open: (workspace: W) => void;
+  /**
+   * Go into the created workspace. Return 'stayed' when this page remains on
+   * screen afterwards — the desktop app opens it in its own tab — so the flow
+   * ends instead of waiting on a navigation that will never leave this page.
+   */
+  open: (workspace: W) => void | 'stayed';
 }) {
   const [phase, setPhase] = useState<CreateWorkspacePhase>('idle');
   const [error, setError] = useState<unknown>(null);
@@ -63,8 +68,7 @@ export function useCreateWorkspace<W extends { slug: string }>({ create, open }:
       // but nobody asked to be carried into it from somewhere else.
       if (!mounted.current) return;
       setCreated(workspace);
-      setPhase('opening');
-      open(workspace);
+      setPhase(open(workspace) === 'stayed' ? 'idle' : 'opening');
     } catch (err) {
       clearTimers();
       if (!mounted.current) return;
