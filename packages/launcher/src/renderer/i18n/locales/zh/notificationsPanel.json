@@ -1,31 +1,4 @@
 {
-  "title": "通知",
-  "unread": "{{count}} 条未读",
-  "tooltip": "通知",
-  "ariaLabel": "通知（{{count}} 条未读）",
-  "settingsTooltip": "通知设置",
-  "clear": "清空",
-  "dismiss": "忽略",
-  "markAllRead": "全部标为已读",
-  "filters": {
-    "all": "全部",
-    "unread": "未读"
-  },
-  "empty": {
-    "unread": "没有未读通知。",
-    "all": "暂无通知。"
-  },
-  "prefs": {
-    "enable": "启用通知",
-    "enableDesc": "为事件显示系统级弹窗提醒。",
-    "playSound": "播放声音",
-    "muteByKind": "按类型静音",
-    "quietHours": "免打扰时段",
-    "quietHoursLabel": "屏蔽非关键弹窗提醒",
-    "quietHoursStart": "开始时间",
-    "quietHoursEnd": "结束时间",
-    "done": "完成"
-  },
   "kinds": {
     "agent_error": "智能体错误",
     "agent_finished": "智能体已完成",

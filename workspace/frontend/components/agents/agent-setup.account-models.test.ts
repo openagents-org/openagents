@@ -25,6 +25,7 @@ vi.mock('@/components/ui/select', () => ({
   Select: ({ value, onValueChange, children }: { value: string; onValueChange: (v: string) => void; children: React.ReactNode }) => createElement('select', { value, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange(e.target.value) }, children),
   SelectTrigger: () => null, SelectValue: () => null,
   SelectContent: ({ children }: { children: React.ReactNode }) => children,
+  SelectGroup: ({ children }: { children: React.ReactNode }) => children,
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => createElement('option', { value }, children),
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;

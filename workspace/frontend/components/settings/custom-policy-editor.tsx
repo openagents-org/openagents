@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { Card, CardContent } from '@/components/ui/card';
 import { workspaceApi } from '@/lib/api';
 import { Plus, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -40,7 +41,7 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
     onChange(value.map((rule) => rule.kind === kind ? { ...rule, ...patch } : rule));
 
   return (
-    <div className="space-y-4 rounded-lg border p-4">
+    <Card size="sm"><CardContent className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold">{t('approvals.customTitle')}</h3>
@@ -50,7 +51,7 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
           <Plus className="mr-1 size-3.5" />{t('approvals.addPolicy')}
         </Button>
       </div>
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <p className="text-xs text-muted-foreground">{t('approvals.templates')}</p>
         <div className="flex flex-wrap gap-2">
           {TEMPLATES.map(({ key, policy }) => (
@@ -62,9 +63,9 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
         </div>
       </div>
       {value.length === 0 && <p className="text-sm text-muted-foreground">{t('approvals.noCustomPolicies')}</p>}
-      <div className="max-h-[440px] space-y-3 overflow-y-auto">
+      <div className="flex max-h-110 flex-col gap-3 overflow-y-auto">
         {value.map((rule, index) => (
-          <div key={rule.kind} className="space-y-2 rounded-md border bg-muted/20 p-3">
+          <div key={rule.kind} className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3">
             <div className="flex items-center justify-between gap-2">
               <label htmlFor={rule.kind} className="text-xs font-medium">{t('approvals.condition')} {index + 1}</label>
               <Button size="icon" variant="ghost" className="size-7" disabled={disabled}
@@ -91,7 +92,7 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
               </select>
             </div>
             {rule.policy === 'member' && (
-              <div className="space-y-1">
+              <div className="flex flex-col gap-1">
                 <label htmlFor={`${rule.kind}-member`} className="text-xs text-muted-foreground">{t('approvals.chooseMember')}</label>
                 <select id={`${rule.kind}-member`} value={rule.approver_email || ''} disabled={disabled || membersFailed}
                   onChange={(event) => update(rule.kind, { approver_email: event.target.value })}
@@ -110,6 +111,6 @@ export function CustomPolicyEditor({ value, onChange, disabled }: {
         ))}
       </div>
       <p className="text-xs text-muted-foreground">{t('approvals.customEvaluation')}</p>
-    </div>
+    </CardContent></Card>
   );
 }

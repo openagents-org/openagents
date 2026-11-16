@@ -188,14 +188,14 @@ export function GuidedTour(): React.JSX.Element | null {
           box-shadow too, so a style-level shadow beside it would win outright
           and erase the ring. */}
       <div
-        className="pointer-events-none absolute rounded-lg transition-all duration-200"
+        className="pointer-events-none absolute rounded-lg transition-[top,left,width,height] duration-200"
         style={{
           top: hole.top,
           left: hole.left,
           width: hole.width,
           height: hole.height,
           boxShadow:
-            "0 0 0 2px var(--accent), 0 0 0 6px var(--accent-border)",
+            "0 0 0 2px var(--primary), 0 0 0 6px color-mix(in oklch, var(--primary) 15%, transparent)",
         }}
       />
 

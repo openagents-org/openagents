@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { Button } from '@/components/ui/button';
 
 // Remembered per browser (not per workspace): once minimized, the guide stays
 // a slim strip everywhere until the user expands it again.
@@ -44,18 +45,20 @@ export function YumiGuide() {
   if (collapsed) {
     return (
       <button
+        type="button"
         onClick={toggle}
-        className="w-full flex items-center gap-2 px-4 lg:px-8 py-1.5 text-[12px] text-muted-foreground hover:text-foreground bg-primary/[0.03] hover:bg-primary/[0.06] border-b border-border/50 transition-colors"
+        aria-expanded={false}
+        className="flex w-full items-center gap-2 border-b border-border/50 bg-primary/5 px-4 py-1.5 text-xs text-muted-foreground transition-colors outline-none hover:bg-primary/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 lg:px-8"
       >
         <img src="/yumi-avatar.png" alt="" className="size-4 rounded-full object-cover" draggable={false} />
         <span className="truncate">{t('yumiGuide.collapsedHint')}</span>
-        <ChevronDown className="size-3.5 ml-auto shrink-0" />
+        <ChevronDown className="ml-auto size-3.5 shrink-0" />
       </button>
     );
   }
 
   return (
-    <div className="border-b border-border/50 bg-primary/[0.03]">
+    <div className="border-b border-border/50 bg-primary/5">
       <div className="mx-auto w-full max-w-3xl xl:max-w-4xl 2xl:max-w-6xl px-4 lg:px-8 py-3">
         <div className="flex items-start gap-3">
           <img
@@ -65,25 +68,28 @@ export function YumiGuide() {
             draggable={false}
           />
           <div className="flex-1 min-w-0">
-            <div className="text-[13px] font-semibold leading-tight">{t('yumiGuide.title')}</div>
-            <ul className="mt-1.5 space-y-0.5 text-[12px] text-muted-foreground list-disc pl-4">
+            <div className="text-sm font-semibold leading-tight">{t('yumiGuide.title')}</div>
+            <ul className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground list-disc pl-4">
               <li>{t('yumiGuide.itemConnect')}</li>
               <li>{t('yumiGuide.itemAgents')}</li>
               <li>{t('yumiGuide.itemManage')}</li>
               <li>{t('yumiGuide.itemDebug')}</li>
             </ul>
-            <div className="mt-1.5 text-[12px] text-muted-foreground/80 italic">
+            <div className="mt-1.5 text-xs text-muted-foreground italic">
               {t('yumiGuide.hint')}
             </div>
           </div>
-          <button
+          <Button
+            variant="ghost"
+            size="xs"
             onClick={toggle}
-            className="shrink-0 flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground px-1.5 py-1 rounded hover:bg-accent transition-colors"
+            aria-expanded
+            className="text-muted-foreground"
             title={t('yumiGuide.minimize')}
           >
             {t('yumiGuide.minimize')}
-            <ChevronUp className="size-3.5" />
-          </button>
+            <ChevronUp data-icon="inline-end" />
+          </Button>
         </div>
       </div>
     </div>

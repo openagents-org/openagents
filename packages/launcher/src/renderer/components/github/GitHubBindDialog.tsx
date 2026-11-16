@@ -9,10 +9,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "../ui/dialog"
+import { CircleAlert } from "lucide-react"
+import { Alert, AlertDescription } from "../ui/alert"
 import { Button } from "../ui/button"
 import { Field, FieldDescription, FieldLabel } from "../ui/field"
 import { Input } from "../ui/input"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -127,11 +130,13 @@ export function GitHubBindDialog({
                 <SelectValue placeholder={t("github.dialog.noAgents")} />
               </SelectTrigger>
               <SelectContent>
-                {agents.map((a) => (
-                  <SelectItem key={a.name} value={a.name}>
-                    {a.name}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {agents.map((a) => (
+                    <SelectItem key={a.name} value={a.name}>
+                      {a.name}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
           </Field>
@@ -161,11 +166,13 @@ export function GitHubBindDialog({
                 <SelectValue placeholder={t("github.dialog.noCredentials")} />
               </SelectTrigger>
               <SelectContent>
-                {githubCreds.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.label}
-                  </SelectItem>
-                ))}
+                <SelectGroup>
+                  {githubCreds.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.label}
+                    </SelectItem>
+                  ))}
+                </SelectGroup>
               </SelectContent>
             </Select>
             {githubCreds.length === 0 && (
@@ -174,9 +181,10 @@ export function GitHubBindDialog({
           </Field>
 
           {error && (
-            <p className="rounded-sm bg-(--danger-bg) px-3 py-2 text-2xs wrap-break-word text-(--danger-text)">
-              {error}
-            </p>
+<Alert variant="destructive">
+          <CircleAlert />
+          <AlertDescription className="wrap-break-word">{error}</AlertDescription>
+        </Alert>
           )}
         </DialogBody>
 

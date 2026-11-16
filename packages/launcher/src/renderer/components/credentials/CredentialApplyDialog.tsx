@@ -152,7 +152,7 @@ export function CredentialApplyDialog({
                     type="button"
                     size="sm"
                     variant={selected.has(type) ? "default" : "secondary"}
-                    className="h-auto px-2.5 py-1 text-2xs"
+                    className="h-auto px-2.5 py-1 text-xs"
                     onClick={() => toggleType(type)}
                   >
                     {type}
@@ -162,7 +162,7 @@ export function CredentialApplyDialog({
             )}
           </Field>
 
-          <p className="rounded-sm bg-muted px-3 py-2 text-2xs leading-relaxed text-muted-foreground">
+          <p className="rounded-sm bg-muted px-3 py-2 text-xs leading-relaxed text-muted-foreground">
             {t("credentials.apply.previewPrefix")} <code className={CODE}>.env</code>{" "}
             {t("credentials.apply.previewMiddle")}{" "}
             <strong className="text-foreground">

@@ -5,81 +5,44 @@ import { useThreadArtifactPreview } from '@/components/artifacts/thread-artifact
 import { resourcePath } from '@/lib/resource-link';
 import { threadPath, messagePath, requestedThreadId, requestedMessageId } from '@/lib/thread-link';
 import { desktopHost } from '@/lib/desktop-host';
-
 import { Activity, useEffect, useRef, useState } from 'react';
 import { useDesktopWorkspaceState } from './use-desktop-workspace-state';
 import { useSignalNotifications } from './use-signal-notifications';
 import { useLandingNote } from './use-landing-note';
 import { useDesktopThreadLinks } from './use-desktop-thread-links';
-
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
 import { AppHeader } from './app-header';
 import { OnboardingSurfaceContext } from './onboarding-surface';
-import { MobileHeader } from './mobile-header';
+import { MobileShell } from './mobile-shell';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { isRecentAgent } from '@/lib/helpers';
+import { cn } from '@/lib/utils';
 import { shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
 import { ChatView } from '@/components/chat/chat-view';
-import { ThreadList } from '@/components/threads/thread-list';
-import { FileList } from '@/components/files/file-list';
 import { FilePreview } from '@/components/files/file-preview';
 import { TrashView } from '@/components/files/trash-view';
 import { BrowserView } from '@/components/browser/browser-view';
-import { ConnectAgentView, FirstRunOnboarding } from '@/components/connect/connect-agent-view';
+import { ConnectAgentView } from '@/components/connect/connect-agent-view';
+import { FirstRunOnboarding } from '@/components/connect/first-run-onboarding';
 import { AgentProfilePanel } from '@/components/agents/agent-profile-panel';
 import { MonitorGrid } from '@/components/monitor/monitor-grid';
 import { IssuesView } from '@/components/issues/issues-view';
 import { WorkflowsView } from '@/components/workflows/workflows-view';
-import { RoutineList } from '@/components/routines/routine-list';
 import { SkillsView } from '@/components/skills/skills-view';
 import { InboxView } from '@/components/inbox/inbox-view';
 import { KnowledgeView } from '@/components/knowledge/knowledge-view';
-import { KnowledgeList } from '@/components/knowledge/knowledge-list';
-import { AgentDirectoryView } from '@/components/agents/agent-directory-view'; // v1.1 M2
+import { AgentDirectoryView } from '@/components/agents/agent-directory-view';
+ // v1.1 M2
 import { useWorkspace } from '@/lib/workspace-context';
 import { dmCounterpart, myAddress } from '@/lib/dm';
 import { useT } from '@/lib/i18n';
 import { NewThreadDialogHost } from '@/components/threads/new-thread-dialog-host';
 import { WorkspaceLoadError } from './workspace-load-error';
+import { WorkspaceLoadingScreen } from './workspace-loading-screen';
 
 /** Narrowest the workspace shell lays out at — the desktop app's minimum window width. */
 export const WORKSPACE_MIN_WIDTH = 960;
-
-function WorkspaceLoadingScreen() {
-  const t = useT();
-
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-background">
-      <div className="flex flex-col items-center gap-5">
-        <img
-          src="/logo-icon.png"
-          alt="OpenAgents"
-          className="size-16 animate-[pulse_2s_ease-in-out_infinite] dark:hidden"
-        />
-        <img
-          src="/logo-white.png"
-          alt="OpenAgents"
-          className="size-16 animate-[pulse_2s_ease-in-out_infinite] hidden dark:block"
-        />
-        <div className="text-center">
-          <h1 className="text-xl font-semibold tracking-tight">OpenAgents</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{t('nav.workspaceFallback')}</p>
-        </div>
-      </div>
-      <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted overflow-hidden">
-        <div className="h-full w-1/3 bg-primary rounded-full animate-[loading-bar_1.5s_ease-in-out_infinite]" />
-      </div>
-      <style>{`
-        @keyframes loading-bar {
-          0% { transform: translateX(-100%); }
-          50% { transform: translateX(150%); }
-          100% { transform: translateX(400%); }
-        }
-      `}</style>
-    </div>
-  );
-}
 
 export function Wrapper() {
   const t = useT();
@@ -198,87 +161,8 @@ export function Wrapper() {
     return <WorkspaceLoadError status={workspaceLoadError.status} onRetry={retryWorkspace} />;
   }
 
-  // ── Mobile layout: single-pane with list/detail switching ──
-  // Only on a phone or tablet held narrow (see useIsMobile). A narrow desktop
-  // window keeps the desktop shell below.
   if (isMobile) {
-    return (
-      <OnboardingSurfaceContext.Provider value={{ active: showOnboarding, onDismiss: dismissOnboarding }}>
-      <div className="flex flex-col h-[calc(100vh-var(--oa-banner-h,0px))] w-full [&_.container-fluid]:px-5">
-        <MobileHeader />
-        <div className="flex-1 min-h-0 pt-[var(--header-height-mobile)] pb-[calc(48px+env(safe-area-inset-bottom))]">
-          {/* Full-screen views (no list/detail split) */}
-          {showOnboarding ? (
-            <div className="h-full bg-background overflow-hidden">
-              <FirstRunOnboarding onDismiss={dismissOnboarding} />
-            </div>
-          ) : viewMode === 'connect' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <ConnectAgentView />
-            </div>
-          ) : viewMode === 'issues' ? (
-            <div className="h-full bg-background overflow-hidden"><IssuesView /></div>
-          ) : viewMode === 'workflows' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <WorkflowsView />
-            </div>
-          ) : viewMode === 'inbox' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <InboxView />
-            </div>
-          ) : viewMode === 'skills' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <SkillsView />
-            </div>
-          ) : viewMode === 'agents' ? (
-            <div className="h-full bg-background overflow-hidden">
-              <AgentDirectoryView />
-            </div>
-          ) : viewMode === 'browser' ? (
-            /* The cloud browser has no list pane: its tab strip is the tab switcher */
-            <div className="relative h-full bg-background overflow-hidden">
-              <BrowserView />
-            </div>
-          ) : viewMode === 'threads' && showBrowserPreview ? (
-            <div className="h-full overflow-hidden bg-background"><ArtifactPanel /></div>
-          ) : mobilePane === 'list' ? (
-            /* List pane — full width */
-            <div className="flex h-full flex-col bg-background overflow-hidden">
-              {viewMode === 'threads' && <ThreadList />}
-              {viewMode === 'files' && <FileList />}
-              {viewMode === 'routines' && <RoutineList />}
-              {viewMode === 'knowledge' && <KnowledgeList />}
-            </div>
-          ) : (
-            /* Detail pane — full width, edge-to-edge on mobile */
-            <div className="relative h-full bg-background overflow-hidden">
-              {(viewMode === 'threads' || viewMode === 'routines') && (
-                <div className="h-full">
-                  <ChatView />
-                </div>
-              )}
-              {viewMode === 'files' && (filesSection === 'trash' ? <TrashView /> : <FilePreview />)}
-              {viewMode === 'knowledge' && <KnowledgeView />}
-            </div>
-          )}
-        </div>
-
-        {/* The agent profile is opened from the nav drawer, which is reachable
-            from every view and both panes — so it hangs off the shell rather
-            than off one branch above, where it only rendered on the detail pane
-            of a list view and tapping an agent looked like a dead click. It is
-            `fixed` so the panel's own `absolute` inset resolves to the viewport,
-            over the header and tab bar. */}
-        {isAgentPanelOpen && (
-          <div className="fixed inset-0 z-60">
-            <AgentProfilePanel />
-          </div>
-        )}
-
-        <NewThreadDialogHost />
-      </div>
-      </OnboardingSurfaceContext.Provider>
-    );
+    return <MobileShell showOnboarding={showOnboarding} dismissOnboarding={dismissOnboarding} />;
   }
 
   // ── Desktop layout (app-shell-4) ──
@@ -313,7 +197,7 @@ export function Wrapper() {
     <SidebarProvider
       open={sidebarOpen}
       onOpenChange={setSidebarOpen}
-      className="relative h-full min-h-0 [&_.container-fluid]:px-5"
+      className="relative h-full min-h-0 bg-sidebar [&_.container-fluid]:px-5"
       style={{
         minWidth: WORKSPACE_MIN_WIDTH,
         '--sidebar-width': `${shellWidth}px`,
@@ -323,7 +207,16 @@ export function Wrapper() {
     >
       <AppSidebar />
 
-      <SidebarInset className="min-w-0">
+      {/* The inset card of shadcn's dashboard-01: the rail sits on the sidebar
+          colour and the list and detail panes share one card in front of it.
+          The list pane draws the card's leading edge and the seam (see
+          ListPanel); with no list showing, the detail pane closes the card. */}
+      <SidebarInset
+        className={cn(
+          'my-2 me-2 min-w-0 overflow-hidden rounded-e-xl border-y border-e',
+          !sidebarOpen && 'rounded-s-xl border-s',
+        )}
+      >
         {!showOnboarding && viewMode !== 'connect' && <AppHeader />}
         <div className="relative flex min-h-0 grow overflow-hidden">
           {showOnboarding ? (

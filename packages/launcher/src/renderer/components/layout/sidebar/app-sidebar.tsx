@@ -27,7 +27,9 @@ export function AppSidebar(): React.JSX.Element {
   const { t } = useTranslation()
   const toggle = t("nav.toggleSidebar")
   return (
-    <Sidebar collapsible="icon">
+    // No rule down its edge: the page beside it is an inset card that carries
+    // its own outline.
+    <Sidebar collapsible="icon" className="group-data-[side=left]:border-r-0">
       <SidebarBrand />
       <SidebarContent>
         <NavComputer />

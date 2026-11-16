@@ -24,11 +24,11 @@ export type TourDismissScope = 'session' | 'forever';
 export function TourDismissButton({
   onDismiss,
   className,
-  iconClassName,
+  size = 'icon-sm',
 }: {
   onDismiss: (scope: TourDismissScope) => void;
   className?: string;
-  iconClassName?: string;
+  size?: 'icon-xs' | 'icon-sm';
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -41,15 +41,9 @@ export function TourDismissButton({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button
-          aria-label={t('featureTours.dismiss')}
-          className={cn(
-            'flex shrink-0 items-center justify-center rounded-md text-zinc-400 transition-colors hover:bg-black/5 hover:text-zinc-700 dark:text-zinc-500 dark:hover:bg-white/10 dark:hover:text-zinc-200',
-            className,
-          )}
-        >
-          <X className={iconClassName} />
-        </button>
+        <Button variant="ghost" size={size} aria-label={t('featureTours.dismiss')} className={cn('text-muted-foreground', className)}>
+          <X />
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64">
         <PopoverHeader>
@@ -60,7 +54,7 @@ export function TourDismissButton({
           <Button variant="outline" size="sm" onClick={() => choose('session')}>
             {t('featureTours.dismissSession')}
           </Button>
-          <Button variant="primary" size="sm" onClick={() => choose('forever')}>
+          <Button size="sm" onClick={() => choose('forever')}>
             {t('featureTours.dismissForever')}
           </Button>
         </div>

@@ -14,7 +14,8 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { Gift, Loader2 } from 'lucide-react';
+import { Gift } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { capture } from '@/lib/analytics';
@@ -158,7 +159,7 @@ export function CampaignConnectHint({ idToken }: { idToken: string | null }) {
   // surface rather than the saturated full-width slab it used to be. The accent
   // survives on the icon and the border, which is enough to mark it as a reward.
   return (
-    <div className="mt-3 flex items-start gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/5 px-3.5 py-2.5 text-[13px] leading-relaxed text-emerald-700 dark:text-emerald-400">
+    <div className="mt-3 flex items-start gap-2 rounded-lg border border-success/20 bg-success/5 px-3.5 py-2.5 text-sm leading-relaxed text-success">
       <Gift className="mt-0.5 size-3.5 shrink-0" />
       <span>{text}</span>
     </div>
@@ -255,8 +256,8 @@ export function CampaignPromoAccess({
   };
 
   return (
-    <div className="flex items-center gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 dark:border-emerald-900 dark:bg-emerald-950/40">
-      <p className="min-w-0 flex-1 text-[12.5px] leading-snug text-emerald-800 dark:text-emerald-300">
+    <div className="flex items-center gap-3 rounded-lg border border-success/30 bg-success/10 px-3.5 py-2.5">
+      <p className="min-w-0 flex-1 text-xs leading-snug text-success">
         🎁{' '}
         {remaining !== null
           ? t('connect.byokPromoHintRemaining', { remaining: remaining % 1 ? remaining.toFixed(2) : String(remaining) })
@@ -267,9 +268,9 @@ export function CampaignPromoAccess({
         variant="outline"
         onClick={use}
         disabled={busy}
-        className="h-8 shrink-0 border-emerald-300 bg-white text-emerald-700 hover:bg-emerald-100 hover:text-emerald-800 dark:border-emerald-800 dark:bg-transparent dark:text-emerald-300 dark:hover:bg-emerald-900/40"
+        className="h-8 shrink-0 border-success/30 bg-white text-success hover:bg-success/10 hover:text-success dark:bg-transparent"
       >
-        {busy ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Gift className="mr-1.5 size-3.5" />}
+        {busy ? <Spinner data-icon="inline-start" /> : <Gift className="mr-1.5 size-3.5" />}
         {t('connect.byokPromoCta')}
       </Button>
     </div>

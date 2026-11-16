@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowRight, CheckCircle2, Laptop, Loader2, Monitor, Server } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/components/ui/reui/button';
 import { workspaceApi } from '@/lib/api';
 import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';

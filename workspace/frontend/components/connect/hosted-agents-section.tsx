@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Loader2, Plus, Trash2, Wallet } from 'lucide-react';
+import { ArrowUpRight, Plus, Trash2, Wallet } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
@@ -167,8 +168,8 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     // Offline soon after launch means the box is still being prepared.
     const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
     return (
-      <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-emerald-600' : 'text-muted-foreground')}>
-        {starting && <Loader2 className="size-3 animate-spin" />}
+      <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-success' : 'text-muted-foreground')}>
+        {starting && <Spinner className="size-3" />}
         {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : t('connect.acentaOffline')}
       </span>
     );
@@ -177,7 +178,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const removeButton = (agent: HostedAgent, elsewhere?: boolean) => (
     <button
       onClick={() => handleRemove(agent, elsewhere ?? !!agent.linked)}
-      className="size-6 flex items-center justify-center rounded-md hover:bg-red-100 dark:hover:bg-red-900/30 text-muted-foreground hover:text-red-600 transition-colors"
+      className="size-6 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
       title={t('connect.remove')}
     >
       <Trash2 className="size-3" />
@@ -185,14 +186,14 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   );
 
   return (
-    <div className="space-y-2">
-      <div className="overflow-hidden rounded-2xl border border-orange-200/70 bg-gradient-to-br from-orange-50/80 via-background to-background dark:border-orange-900/50 dark:from-orange-950/20">
+    <div className="flex flex-col gap-2">
+      <div className="overflow-hidden rounded-2xl border border-warning/70 bg-gradient-to-br from-warning/10 via-background to-background">
         <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-6">
           <img src="/providers/acenta.svg" alt="" className="size-14 shrink-0 rounded-xl" />
           <div className="flex-1 min-w-0">
             <div className="flex flex-wrap items-center gap-2.5">
               <h3 className="text-lg font-semibold tracking-tight">Acenta</h3>
-              <span className="rounded-full border border-orange-200/70 bg-orange-100/60 px-2 py-0.5 text-xs font-medium text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200">{t('connect.acentaHostedBadge')}</span>
+              <span className="rounded-full border border-warning/70 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">{t('connect.acentaHostedBadge')}</span>
             </div>
             <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">{t('connect.acentaMarketplaceDescription')}</p>
             <p className="mt-2 text-xs text-muted-foreground">
@@ -224,7 +225,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
           </DialogBody>
           <DialogFooter>
             <Button onClick={handleLaunch} disabled={launching || !name.trim()}>
-              {launching && <Loader2 className="size-3.5 animate-spin mr-1.5" />}
+              {launching && <Spinner data-icon="inline-start" />}
               {t('connect.acentaContinue')}
             </Button>
           </DialogFooter>
@@ -233,14 +234,14 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
       {showUsage && (
         <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2.5 text-xs',
-          lowBalance ? 'border-amber-300 bg-amber-50/70 dark:border-amber-800 dark:bg-amber-950/30' : 'bg-background')}>
+          lowBalance ? 'border-warning/30 bg-warning/10' : 'bg-background')}>
           <Wallet className="size-3.5 shrink-0 text-muted-foreground" />
           {usage!.balanceEnabled && (
             <span>{t('connect.acentaBalance')} <span className="font-semibold tabular-nums">{formatUsd(usage!.balanceCents)}</span></span>
           )}
           <span>{t('connect.acentaSpentThisMonth')} <span className="font-semibold tabular-nums">{formatUsd(usage!.spentThisMonthCents)}</span></span>
           {usage!.autoTopup && <span className="text-muted-foreground">{t('connect.acentaAutoTopupOn')}</span>}
-          {lowBalance && <span className="font-medium text-amber-700 dark:text-amber-300">{t('connect.acentaLowBalance')}</span>}
+          {lowBalance && <span className="font-medium text-warning">{t('connect.acentaLowBalance')}</span>}
           {usage!.manageUrl && (
             <a href={usage!.manageUrl} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 font-medium text-primary hover:underline">
               {usage!.balanceEnabled ? t('connect.acentaTopUp') : t('connect.acentaBilling')}
@@ -274,7 +275,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
               <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a>
             ) : (
               <Button size="sm" variant="outline" disabled={full || adding !== null} title={full ? t('connect.acentaWorkspaceFull') : undefined} onClick={() => handleAdd(agent)}>
-                {adding === agent.id ? <Loader2 className="size-3.5 animate-spin mr-1.5" /> : <Plus className="size-3.5 mr-1.5" />}
+                {adding === agent.id ? <Spinner data-icon="inline-start" /> : <Plus className="size-3.5 mr-1.5" />}
                 {t('connect.acentaAddHere')}
               </Button>
             )}

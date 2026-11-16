@@ -29,7 +29,7 @@ export function ConnectResultNotice({
         "rounded-sm px-3 py-2 text-xs",
         result.ok
           ? "bg-muted text-foreground"
-          : "bg-(--danger-bg) text-(--danger-text)",
+          : "bg-destructive/10 text-destructive",
       )}
     >
       {message}

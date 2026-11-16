@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Link, Check } from 'lucide-react';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -24,5 +25,5 @@ export function CopyMessageLink({ messageId }: { messageId: string }) {
     } catch { toast.error(t('reactions.linkFailed')); }
     finally { setBusy(false); }
   };
-  return <button type="button" disabled={busy} title={t('reactions.copyLink')} aria-label={t('reactions.copyLink')} onClick={() => void copy()} onBlur={() => setCopied(false)} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">{copied ? <Check className="size-3.5" /> : <Link className="size-3.5" />}</button>;
+  return <Button variant="ghost" size="icon-xs" className="text-muted-foreground" disabled={busy} title={t('reactions.copyLink')} aria-label={t('reactions.copyLink')} onClick={() => void copy()} onBlur={() => setCopied(false)}>{copied ? <Check /> : <Link />}</Button>;
 }

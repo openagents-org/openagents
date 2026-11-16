@@ -1,20 +1,15 @@
 "use client"
-
 import { useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Hash } from "lucide-react"
 import { useWorkspace } from "@/lib/workspace-context"
-import { addressName, dmCounterpart, dmPair, myAddress } from "@/lib/dm"
-import { useHumanNames } from "@/hooks/use-team-roster"
 import { isRecentAgent } from "@/lib/helpers"
 import { useT } from "@/lib/i18n"
 import type { MessageKey } from "@/lib/i18n"
 import { cn } from "@/lib/utils"
-import { DmAvatars } from "@/components/chat/dm-avatars"
-import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
-import { ForkTag } from "@/components/chat/fork-thread"
+import { Separator } from "@/components/ui/separator"
 import { useLayout, type ViewMode } from "./layout-context"
 import { ListToggleButton } from "./list-collapse-button"
+import { ThreadTitle } from './thread-title'
 
 const ACTIONS_SLOT_ID = "app-header-actions"
 const TITLE_SLOT_ID = "app-header-title"
@@ -133,90 +128,9 @@ export const VIEW_TITLE_KEYS: Record<ViewMode, MessageKey> = {
   agents: "collab.directoryTitle", // v1.1 M2: agent directory
 }
 
-/** Editable thread title — click to rename, Enter/blur to commit. */
-function ThreadTitle() {
-  const { sessions, currentSessionId, renameSession, currentUser } = useWorkspace()
-  const humanNames = useHumanNames()
-  const t = useT()
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState("")
-  const inputRef = useRef<HTMLInputElement>(null)
-
-  const isDM = currentSessionId?.startsWith("dm:") ?? false
-  const session = sessions.find((s) => s.sessionId === currentSessionId)
-
-  if (isDM) {
-    // Title the DM by the counterpart alone. A pair that includes the human
-    // viewer is a writable conversation (no read-only badge); agent↔agent
-    // pairs stay a read-only observation view with both names.
-    const pair = dmPair(currentSessionId)
-    const counterpart = dmCounterpart(pair, myAddress(currentUser))
-    const hasHuman = !!counterpart
-    const nameLabel = (addr: string) => {
-      const n = addressName(addr)
-      return addr.startsWith("human:") ? (humanNames[n.toLowerCase()] ?? n) : n
-    }
-    const title = counterpart
-      ? nameLabel(counterpart)
-      : pair.map(nameLabel).join(" ↔ ")
-    return (
-      <h3 className="flex w-0 flex-1 items-center gap-1.5 truncate text-sm leading-snug font-semibold text-foreground">
-        <DmAvatars addresses={counterpart ? [counterpart] : pair} />
-        {title}
-        {!hasHuman && (
-          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
-            {t("header.readOnly")}
-          </span>
-        )}
-      </h3>
-    )
-  }
-
-  const startEditing = () => {
-    setDraft(session?.title || "")
-    setEditing(true)
-    setTimeout(() => inputRef.current?.select(), 0)
-  }
-
-  const commit = () => {
-    setEditing(false)
-    const trimmed = draft.trim()
-    if (trimmed && currentSessionId && trimmed !== session?.title) {
-      renameSession(currentSessionId, trimmed)
-    }
-  }
-
-  if (editing) {
-    return (
-      <input
-        ref={inputRef}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") commit()
-          if (e.key === "Escape") setEditing(false)
-        }}
-        className="w-0 min-w-0 flex-1 border-b border-primary bg-transparent text-sm font-semibold outline-none"
-        autoFocus
-      />
-    )
-  }
-
-  return (
-    <div className="flex min-w-0 flex-1 items-center gap-2">
-      {session?.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("threads.channel")} />}
-      <h3
-        onClick={startEditing}
-        title={t("header.clickToRename")}
-        className="min-w-0 cursor-pointer truncate text-sm leading-snug font-semibold text-foreground transition-colors hover:text-primary"
-      >
-        {session?.title || t("header.untitledThread")}
-      </h3>
-      {session?.forkedFrom && <ForkTag forkedFrom={session.forkedFrom} />}
-      {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}
-    </div>
-  )
+/** A detail view's title in the app header (dashboard-01's site header). */
+function HeaderTitle({ children }: { children: React.ReactNode }) {
+  return <h3 className="font-heading w-0 flex-1 truncate text-base font-medium text-foreground">{children}</h3>
 }
 
 /**
@@ -245,9 +159,7 @@ export function AppHeader() {
   let title: React.ReactNode
   if (viewMode === "threads" && isOnboarding) {
     title = (
-      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {t("views.onboarding")}
-      </h3>
+      <HeaderTitle>{t("views.onboarding")}</HeaderTitle>
     )
   } else if (viewMode === "threads" || viewMode === "routines") {
     title = <ThreadTitle />
@@ -255,28 +167,20 @@ export function AppHeader() {
     const name =
       files.find((f) => f.id === selectedFileId)?.filename || currentFilePath
     title = (
-      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {name || t("views.files")}
-      </h3>
+      <HeaderTitle>{name || t("views.files")}</HeaderTitle>
     )
   } else if (viewMode === "knowledge") {
     title = (
-      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {t("views.knowledge")}
-      </h3>
+      <HeaderTitle>{t("views.knowledge")}</HeaderTitle>
     )
   } else if (viewMode === "browser") {
     const tab = browserTabs.find((tabItem) => tabItem.id === selectedBrowserTabId)
     title = (
-      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {tab?.title || tab?.url || t("views.browser")}
-      </h3>
+      <HeaderTitle>{tab?.title || tab?.url || t("views.browser")}</HeaderTitle>
     )
   } else {
     title = (
-      <h3 className="w-0 flex-1 truncate text-sm leading-snug font-semibold text-foreground">
-        {t(VIEW_TITLE_KEYS[viewMode])}
-      </h3>
+      <HeaderTitle>{t(VIEW_TITLE_KEYS[viewMode])}</HeaderTitle>
     )
   }
 
@@ -288,7 +192,12 @@ export function AppHeader() {
       )}
     >
       {/* Bring the list back when it has been collapsed away */}
-      {hasListPanel && !isSidebarOpen && <ListToggleButton />}
+      {hasListPanel && !isSidebarOpen && (
+        <>
+          <ListToggleButton />
+          <Separator orientation="vertical" className="mx-1 data-vertical:h-4" />
+        </>
+      )}
 
       {/* Title slot. The derived title is a fallback: once a view portals its
           own title in, the fallback is no longer the only child and hides. */}

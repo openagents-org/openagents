@@ -37,8 +37,7 @@ export function ListToggleButton({ className }: { className?: string }) {
       <TooltipTrigger asChild>
         <Button
           variant="ghost"
-          mode="icon"
-          size="sm"
+          size="icon-sm"
           aria-label={label}
           aria-expanded={isSidebarOpen}
           onClick={() => setSidebarOpen(!isSidebarOpen)}

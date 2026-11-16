@@ -16,6 +16,9 @@ import { useT } from '@/lib/i18n';
 import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
 import { Square } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Spinner } from '@/components/ui/spinner';
 import type { WorkspaceMessage, WorkspaceSession } from '@/lib/types';
 import { pendingResponderName, expectsAgentResponse } from '@/lib/pending-responder';
 
@@ -199,9 +202,9 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         <DialogTitle className="sr-only">{session.title || t('monitor.threadFallback')}</DialogTitle>
 
         {/* Header — pr-12 leaves room for the absolute-positioned close button */}
-        <div className="flex items-center gap-3 pl-5 pr-12 py-3 border-b shrink-0">
+        <div className="flex shrink-0 items-center gap-3 border-b py-3 pr-12 pl-5">
           {editingTitle ? (
-            <input
+            <Input
               ref={titleInputRef}
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
@@ -210,7 +213,8 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
                 if (e.key === 'Enter') commitTitle();
                 if (e.key === 'Escape') setEditingTitle(false);
               }}
-              className="text-sm font-semibold bg-transparent border-b border-primary outline-none min-w-0 max-w-[300px] flex-1"
+              aria-label={t('header.clickToRename')}
+              className="h-7 max-w-75 min-w-0 flex-1 text-sm font-semibold"
               autoFocus
             />
           ) : (
@@ -231,14 +235,10 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
             const isStopping = stoppingSessionIds.has(sessionId);
             if (!isClaude || (!isWorking && !isStopping)) return null;
             return (
-              <button
-                onClick={() => stopAllAgents(sessionId)}
-                disabled={isStopping}
-                className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 hover:bg-red-200 dark:hover:bg-red-900/50 transition-colors shrink-0 disabled:opacity-60 disabled:pointer-events-none"
-              >
-                <Square className="size-3 fill-current" />
+              <Button variant="destructive" size="xs" onClick={() => stopAllAgents(sessionId)} disabled={isStopping} className="shrink-0">
+                <Square data-icon="inline-start" className="fill-current" />
                 {isStopping ? t('chat.stopping') : t('chat.stop')}
-              </button>
+              </Button>
             );
           })()}
         </div>
@@ -247,7 +247,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
         <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
           {loading && messages.length === 0 ? (
             <div className="flex items-center justify-center flex-1">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="size-6 text-muted-foreground" />
             </div>
           ) : (
             <ChatMessages

@@ -30,17 +30,17 @@ class ErrorBoundaryInner extends React.Component<ErrorBoundaryProps, State> {
     const { t } = this.props
     if (!error) return this.props.children
     return (
-      <div className="p-8 min-h-screen overflow-auto font-sans text-(--text-primary) bg-(--bg-primary)">
+      <div className="p-8 min-h-screen overflow-auto font-sans text-foreground bg-background">
         <h1 className="text-lg mb-3">
           {t("ui.errorBoundary.title")}
         </h1>
-        <pre className="p-3 rounded-lg text-xs max-h-120 overflow-auto whitespace-pre-wrap wrap-break-word bg-(--bg-card) border border-(--border)">
+        <pre className="p-3 rounded-lg text-xs max-h-120 overflow-auto whitespace-pre-wrap wrap-break-word bg-card border border-border">
           {error.stack || error.message}
         </pre>
         <button
           type="button"
           onClick={this.reset}
-          className="mt-3 px-3.5 py-1.5 rounded-md text-sm border-0 bg-(--accent) text-(--accent-text)"
+          className="mt-3 px-3.5 py-1.5 rounded-md text-sm border-0 bg-primary text-primary-foreground"
         >
           {t("ui.errorBoundary.tryAgain")}
         </button>

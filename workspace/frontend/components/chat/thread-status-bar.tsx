@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Circle, Loader2, Timer, X } from 'lucide-react';
+import { Circle, Timer, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { TimerItem } from '@/lib/types';
@@ -81,17 +83,17 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
   if (!hasContent) return null;
 
   return (
-    <div className="flex flex-col gap-0.5 px-1 py-1 text-[11px] text-muted-foreground">
+    <div className="flex flex-col gap-0.5 px-1 py-1 text-xs text-muted-foreground">
       {/* v1.1 permission model: "Private · N people" / "Public" + owner, owner controls, Join */}
 
       {/* Todos and timers row */}
       {(inProgressCount > 0 || pendingCount > 0 || activeTimers.length > 0) && (
-        <div className="flex items-center gap-2.5">
+        <div className="flex flex-wrap items-center gap-2.5">
           {(inProgressCount > 0 || pendingCount > 0) && (
             <span className="flex items-center gap-1">
               {inProgressCount > 0 && (
                 <>
-                  <Loader2 className="size-3 text-foreground animate-spin" />
+                  <Spinner className="size-3 text-foreground" />
                   <span>{t('threadStatus.inProgress', { count: inProgressCount })}</span>
                 </>
               )}
@@ -102,27 +104,31 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
                   <span>{t('threadStatus.pending', { count: pendingCount })}</span>
                 </>
               )}
-              <button
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={handleCancelTodos}
-                className="ml-0.5 p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
                 title={t('threadStatus.cancelAllTasks')}
+                aria-label={t('threadStatus.cancelAllTasks')}
               >
-                <X className="size-3" />
-              </button>
+                <X />
+              </Button>
             </span>
           )}
           {activeTimers.map((timer) => (
             <span key={timer.id} className="flex items-center gap-1">
-              <Timer className="size-3 text-amber-500" />
+              <Timer className="size-3 text-warning" />
               <span>{timer.message.length > 30 ? timer.message.slice(0, 30) + '…' : timer.message}</span>
-              <span className="text-amber-500 font-mono">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
-              <button
+              <span className="font-mono text-warning tabular-nums">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
+              <Button
+                variant="ghost"
+                size="icon-xs"
                 onClick={() => handleCancelTimer(timer.id)}
-                className="p-0.5 rounded hover:bg-zinc-200 dark:hover:bg-zinc-700 transition-colors"
                 title={t('threadStatus.cancelTimer')}
+                aria-label={t('threadStatus.cancelTimer')}
               >
-                <X className="size-3" />
-              </button>
+                <X />
+              </Button>
             </span>
           ))}
         </div>

@@ -6,6 +6,9 @@ import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useTeamRoster } from '@/hooks/use-team-roster';
@@ -128,8 +131,8 @@ export function ApprovalCard({
 
   const isPending = approval.status === 'pending';
   const verdictTone = approval.status === 'approved'
-    ? 'text-emerald-700 dark:text-emerald-400'
-    : approval.status === 'rejected' ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground';
+    ? 'text-success'
+    : approval.status === 'rejected' ? 'text-destructive' : 'text-muted-foreground';
 
   // ---- Header ----------------------------------------------------------------
   const headerText = `${t('approvals.requested')} · ${approval.action}`;
@@ -155,55 +158,43 @@ export function ApprovalCard({
       ? t('approvals.assigneeHint', { who: addresseeText })
       : t('approvals.roleHint', { role: roleText, yours: roleLabel(t, me?.role) || '—' });
 
+  const riskVariant = approval.risk === 'high' ? 'destructive' : approval.risk === 'medium' ? 'warning' : 'secondary';
+
   return (
-    <div
-      className={cn(
-        'mt-1.5 max-w-xl overflow-hidden rounded-xl border bg-card text-sm shadow-sm',
-        isPending ? 'border-amber-300/70 dark:border-amber-500/40' : 'border-border',
-      )}
+    <Card
+      size="sm"
+      className={cn('mt-1.5 max-w-xl gap-0 py-0 shadow-sm', isPending && 'ring-warning/70')}
       data-testid="approval-card"
       data-kind-class="approval"
     >
       {/* Header */}
-      <div className={cn(
-        'flex items-center gap-2 px-3.5 py-2 text-xs font-semibold',
-        isPending ? 'bg-amber-50 text-amber-900 dark:bg-amber-500/10 dark:text-amber-200' : 'bg-muted/60 text-foreground',
+      <CardHeader className={cn(
+        'flex items-center gap-2 py-2 text-xs font-semibold',
+        isPending ? 'bg-warning/10 text-warning' : 'bg-muted/60 text-foreground',
       )}>
-        <Lock className="size-3.5 shrink-0" />
+        <Lock aria-hidden="true" className="size-3.5 shrink-0" />
         <span className="truncate">{headerText}</span>
         <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          <span className="rounded bg-background/70 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            {kindLabel}
-          </span>
+          <Badge variant="outline" className="bg-background/70 tracking-wide text-muted-foreground uppercase">{kindLabel}</Badge>
           {approval.risk && (
-            <span className={cn(
-              'rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide',
-              approval.risk === 'high'
-                ? 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-300'
-                : approval.risk === 'medium'
-                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-500/15 dark:text-amber-200'
-                  : 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300',
-            )}>
+            <Badge variant={riskVariant} className="tracking-wide uppercase">
               {approval.risk} {t('approvals.risk')}
-            </span>
+            </Badge>
           )}
         </span>
-      </div>
+      </CardHeader>
 
       {/* Body */}
-      <div className="space-y-2.5 px-3.5 py-3">
+      <CardContent className="flex flex-col gap-2.5 py-3">
         {approval.details && (
-          <pre className={cn(
-            'max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-muted px-2.5 py-2 font-mono text-[12px] leading-relaxed',
-            'text-foreground/90',
-          )}>
+          <pre className="max-h-48 overflow-auto rounded-md bg-muted px-2.5 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground/90 wrap-break-word">
             {approval.details}
           </pre>
         )}
 
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span className="inline-flex items-center gap-1">
-            <ShieldAlert className="size-3.5" />
+            <ShieldAlert aria-hidden="true" className="size-3.5" />
             {t('approvals.needs', { role: roleText })}
           </span>
           {approval.requesterEmail && (
@@ -218,43 +209,38 @@ export function ApprovalCard({
         </div>
 
         {!isPending && approval.note && approval.resolvedBy !== 'policy' && (
-          <p className="text-xs italic text-muted-foreground">“{approval.note}”</p>
+          <p className="text-xs text-muted-foreground italic">“{approval.note}”</p>
         )}
 
         {!!requirements?.approved_by.length && <p className="text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: requirements.approved_by.map(personName).join(', ') })}</p>}
         {/* Decision */}
         {isPending && canDecide && (
-          <div className="space-y-2 pt-0.5">
+          <div className="flex flex-col gap-2 pt-0.5">
             {showNote && (
               <Textarea
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 placeholder={t('approvals.notePlaceholder')}
                 rows={2}
-                className="text-sm"
               />
             )}
             <div className="flex items-center gap-2">
-              <Button size="sm" className="h-8 gap-1.5" disabled={busy !== null} onClick={() => decide('approve')}>
-                <Check className="size-3.5" />
+              <Button size="sm" disabled={busy !== null} onClick={() => decide('approve')}>
+                {busy === 'approve' ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
                 {busy === 'approve'
                   ? t('approvals.sending')
                   : t('approvals.approve')}
               </Button>
-              <Button size="sm" variant="outline" className="h-8 gap-1.5" disabled={busy !== null} onClick={() => decide('reject')}>
-                <X className="size-3.5" />
+              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => decide('reject')}>
+                {busy === 'reject' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}
                 {busy === 'reject'
                   ? t('approvals.sending')
                   : t('approvals.reject')}
               </Button>
               {!showNote && (
-                <button
-                  type="button"
-                  onClick={() => setShowNote(true)}
-                  className="ml-1 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-                >
+                <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setShowNote(true)}>
                   {t('approvals.addNote')}
-                </button>
+                </Button>
               )}
             </div>
           </div>
@@ -262,7 +248,7 @@ export function ApprovalCard({
         {isPending && !canDecide && (
           <p className="text-xs text-muted-foreground">{blockedHint}</p>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }

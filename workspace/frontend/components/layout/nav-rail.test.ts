@@ -16,7 +16,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('@/components/ui/sidebar', () => {
   const wrap = ({ children }: { children?: React.ReactNode }) => React.createElement('div', null, children);
-  return Object.fromEntries(['Sidebar', 'SidebarContent', 'SidebarFooter', 'SidebarGroup', 'SidebarGroupContent', 'SidebarGroupLabel', 'SidebarHeader', 'SidebarMenu', 'SidebarMenuItem'].map(k => [k, wrap]).concat([
+  return Object.fromEntries(['Sidebar', 'SidebarContent', 'SidebarFooter', 'SidebarGroup', 'SidebarGroupContent', 'SidebarGroupLabel', 'SidebarHeader', 'SidebarMenu', 'SidebarMenuItem', 'SidebarMenuAction'].map(k => [k, wrap]).concat([
     ['SidebarMenuButton', ({ children, onClick, isActive, ...props }: { children?: React.ReactNode; onClick?: () => void; isActive?: boolean; 'aria-current'?: React.AriaAttributes['aria-current'] }) => React.createElement('button', { onClick, 'data-active': isActive, 'aria-current': props['aria-current'] }, children)],
   ]));
 });

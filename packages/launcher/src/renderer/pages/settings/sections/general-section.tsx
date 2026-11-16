@@ -5,6 +5,7 @@ import { Button } from "@renderer/components/ui/button"
 import { Card } from "@renderer/components/ui/card"
 import { Switch } from "@renderer/components/ui/switch"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -63,14 +64,16 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={STARTUP_PAGE_LAST}>
-                {t("settings.general.startupPageLast")}
-              </SelectItem>
-              {STARTUP_PAGES.map((page) => (
-                <SelectItem key={page} value={page}>
-                  {t(`nav.items.${page}.label`)}
+              <SelectGroup>
+                <SelectItem value={STARTUP_PAGE_LAST}>
+                  {t("settings.general.startupPageLast")}
                 </SelectItem>
-              ))}
+                {STARTUP_PAGES.map((page) => (
+                  <SelectItem key={page} value={page}>
+                    {t(`nav.items.${page}.label`)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         </Row>
@@ -115,7 +118,7 @@ export function GeneralSection({ values, update }: Props): React.JSX.Element {
           <h3 className="m-0 text-sm font-semibold">
             {t("settings.general.restartGroup")}
           </h3>
-          <p className="mt-0.5 mb-0 text-2xs text-muted-foreground">
+          <p className="mt-0.5 mb-0 text-xs text-muted-foreground">
             {t("settings.general.restartGroupDesc")}
           </p>
         </div>

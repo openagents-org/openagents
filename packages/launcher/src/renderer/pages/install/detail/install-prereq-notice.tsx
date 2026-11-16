@@ -1,6 +1,8 @@
 import React, { useState } from "react"
 import { useTranslation } from "react-i18next"
 
+import { TriangleAlert } from "lucide-react"
+import { Alert, AlertTitle } from "@renderer/components/ui/alert"
 import { Button } from "@renderer/components/ui/button"
 import type { PrereqRemedy } from "@renderer/types"
 
@@ -46,72 +48,82 @@ export function InstallPrereqNotice({ missing, onRetry }: Props): React.JSX.Elem
   }
 
   return (
-    <div className="mt-3 rounded-lg border border-(--danger-border) bg-(--danger-bg) p-4">
-      <p className="m-0 text-sm font-medium text-foreground">
-        {t("install.progress.prereq.title")}
-      </p>
+    <Alert className="mt-3">
+      <TriangleAlert className="text-destructive" />
+      <AlertTitle>{t("install.progress.prereq.title")}</AlertTitle>
+      <div className="col-start-2 flex min-w-0 flex-col">
+        {missing.map((item) => (
+          <div key={item.name} className="mt-3 flex flex-col gap-2">
+            <p className="m-0 text-xs text-muted-foreground">
+              {item.summaryKey
+                ? t(`install.progress.prereq.summary.${item.summaryKey}`, {
+                    defaultValue: item.summary,
+                  })
+                : item.summary}
+            </p>
 
-      {missing.map((item) => (
-        <div key={item.name} className="mt-3 flex flex-col gap-2">
-          <p className="m-0 text-xs text-muted-foreground">
-            {item.summaryKey
-              ? t(`install.progress.prereq.summary.${item.summaryKey}`, {
-                  defaultValue: item.summary,
-                })
-              : item.summary}
-          </p>
-
-          <CommandRow
-            label={t("install.progress.prereq.installCommand")}
-            command={item.command}
-            copied={copied === item.command}
-            onCopy={() => copy(item.command)}
-            copyLabel={t("install.progress.prereq.copyCommand")}
-            copiedLabel={t("install.progress.prereq.copied")}
-          />
-
-          {item.alternative && (
             <CommandRow
-              label={
-                item.alternativeKind
-                  ? t(`install.progress.prereq.alternativeVia.${item.alternativeKind}`, {
-                      defaultValue: t("install.progress.prereq.alternative"),
-                    })
-                  : t("install.progress.prereq.alternative")
-              }
-              command={item.alternative}
-              copied={copied === item.alternative}
-              onCopy={() => copy(item.alternative as string)}
+              label={t("install.progress.prereq.installCommand")}
+              command={item.command}
+              copied={copied === item.command}
+              onCopy={() => copy(item.command)}
               copyLabel={t("install.progress.prereq.copyCommand")}
               copiedLabel={t("install.progress.prereq.copied")}
             />
-          )}
 
-          {item.action === "install-xcode-clt" && (
-            <div className="flex flex-wrap items-center gap-2">
-              <Button size="sm" onClick={() => void requestClt()}>
-                {t("install.progress.prereq.installClt")}
-              </Button>
-              {cltState !== "idle" && (
-                <span className="text-2xs text-muted-foreground">
-                  {t(
-                    cltState === "requested"
-                      ? "install.progress.prereq.cltRequested"
-                      : "install.progress.prereq.cltFailed",
-                  )}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+            {item.alternative && (
+              <CommandRow
+                label={
+                  item.alternativeKind
+                    ? t(
+                        `install.progress.prereq.alternativeVia.${item.alternativeKind}`,
+                        {
+                          defaultValue: t(
+                            "install.progress.prereq.alternative",
+                          ),
+                        },
+                      )
+                    : t("install.progress.prereq.alternative")
+                }
+                command={item.alternative}
+                copied={copied === item.alternative}
+                onCopy={() => copy(item.alternative as string)}
+                copyLabel={t("install.progress.prereq.copyCommand")}
+                copiedLabel={t("install.progress.prereq.copied")}
+              />
+            )}
 
-      {onRetry && (
-        <Button size="sm" variant="outline" className="mt-3" onClick={onRetry}>
-          {t("install.progress.prereq.retry")}
-        </Button>
-      )}
-    </div>
+            {item.action === "install-xcode-clt" && (
+              <div className="flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => void requestClt()}>
+                  {t("install.progress.prereq.installClt")}
+                </Button>
+                {cltState !== "idle" && (
+                  <span className="text-xs text-muted-foreground">
+                    {t(
+                      cltState === "requested"
+                        ? "install.progress.prereq.cltRequested"
+                        : "install.progress.prereq.cltFailed",
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {onRetry && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="mt-3"
+            onClick={onRetry}
+          >
+            {t("install.progress.prereq.retry")}
+          </Button>
+        )}
+      </div>
+    </Alert>
   )
 }
 
@@ -134,9 +146,9 @@ function CommandRow({
 }: CommandRowProps): React.JSX.Element {
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      <span className="text-2xs text-muted-foreground">{label}</span>
+      <span className="text-xs text-muted-foreground">{label}</span>
       <div className="flex min-w-0 items-center gap-2">
-        <code className="min-w-0 flex-1 overflow-x-auto rounded-sm bg-muted px-2 py-1 text-2xs whitespace-pre">
+        <code className="min-w-0 flex-1 overflow-x-auto rounded-sm bg-muted px-2 py-1 text-xs whitespace-pre">
           {command}
         </code>
         <Button size="sm" variant="ghost" onClick={onCopy}>

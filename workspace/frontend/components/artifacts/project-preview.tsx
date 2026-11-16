@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { Loader2, FolderTree } from 'lucide-react';
+import { FolderTree } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
@@ -29,9 +30,9 @@ export function ProjectPreview({id, revision=0, showDetails=true}: {id: string; 
     return ()=>{active=false;clearInterval(poll);};
   },[id,data]);
   if(failed) return <p role="alert" className="p-5 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
-  if(!data) return <div className="flex h-full items-center justify-center"><Loader2 className="size-5 animate-spin" /></div>;
+  if(!data) return <div className="flex h-full items-center justify-center"><Spinner className="size-5" /></div>;
   return <div className="flex h-full min-h-0 flex-col">
-    {showDetails && <div className="shrink-0 space-y-2 border-b p-3">
+    {showDetails && <div className="shrink-0 flex flex-col gap-2 border-b p-3">
       <button className="flex items-center gap-2 text-xs text-muted-foreground" onClick={()=>setTree(!tree)} aria-expanded={tree}><FolderTree className="size-4" />{data.entrypoint} · {data.files.length} {t('webProject.files')}</button>
       {tree && <ul className="max-h-36 overflow-auto rounded bg-muted/30 p-2 font-mono text-xs">{data.files.map(path=><li key={path} className="py-0.5">{path}</li>)}</ul>}
       {data.can_update&&<ProjectUpload projectId={id} revision={data.revision} onPublished={()=>setVersion(v=>v+1)} />}

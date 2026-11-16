@@ -65,7 +65,7 @@ export function NotificationBell({
             {unread > 0 && (
               // Inside the button's own box: hanging off its corner, the count ran
               // into the window's edge at the end of the header.
-              <span className="absolute top-0.5 right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-3xs leading-none font-semibold text-white ring-2 ring-background">
+              <span className="absolute top-0.5 right-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-destructive px-1 text-xs leading-none font-semibold text-white ring-2 ring-background">
                 {unread > 99 ? "99+" : unread}
               </span>
             )}
@@ -85,22 +85,22 @@ export function NotificationBell({
           <div className="text-sm font-semibold">
             {t("nav.notifications.title")}
             {unread > 0 && (
-              <span className="ml-1.5 text-2xs font-normal text-muted-foreground">
+              <span className="ml-1.5 text-xs font-normal text-muted-foreground">
                 {t("nav.notifications.unread", { count: unread })}
               </span>
             )}
           </div>
           <div className="flex items-center gap-1">
             {unread > 0 && (
-              <Button variant="ghost" size="sm" className="h-auto px-1.5 py-0.5 text-2xs" onClick={() => markAllRead()}>
+              <Button variant="ghost" size="sm" className="h-auto px-1.5 py-0.5 text-xs" onClick={() => markAllRead()}>
                 {t("nav.notifications.markAllRead")}
               </Button>
             )}
             {items.length > 0 && (
               <Button
-                variant="destructive-ghost"
+                variant="destructive"
                 size="sm"
-                className="h-auto px-1.5 py-0.5 text-2xs"
+                className="h-auto px-1.5 py-0.5 text-xs"
                 onClick={() => clear()}
               >
                 {t("nav.notifications.clear")}
@@ -136,7 +136,7 @@ export function NotificationBell({
                     )}
                   >
                     <div className="truncate text-xs font-medium">{r.title}</div>
-                    <div className="mt-0.5 line-clamp-2 text-2xs text-muted-foreground">
+                    <div className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
                       {r.body}
                     </div>
                   </li>

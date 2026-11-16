@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next"
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -70,11 +71,13 @@ export function WorkspacesToolbar({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {WORKSPACE_SORTS.map((s) => (
-            <SelectItem key={s} value={s}>
-              {t(`workspaces.sorts.${s}`)}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {WORKSPACE_SORTS.map((s) => (
+              <SelectItem key={s} value={s}>
+                {t(`workspaces.sorts.${s}`)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
     </PageToolbar>

@@ -1,13 +1,20 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
 import { ThreadPrivacyControl } from './thread-privacy-control';
-import { Loader2, Settings, X } from 'lucide-react';
+import { Settings, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert';
+import { Field, FieldGroup, FieldLabel, FieldSeparator, FieldTitle } from '@/components/ui/field';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/responsive-dialog';
 import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
@@ -17,6 +24,17 @@ import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useT } from '@/lib/i18n';
 import type { ChannelParticipants, WorkspaceSession } from '@/lib/types';
 import { useThreadAccess } from '@/hooks/use-thread-access';
+
+const THREAD_ICONS = ['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'];
+
+function ParticipantList({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1">
+      <h4 className="text-sm font-medium">{title}</h4>
+      <ItemGroup className="gap-0">{children}</ItemGroup>
+    </div>
+  );
+}
 
 export function ThreadSettings({ session }: { session: WorkspaceSession }) {
   const t = useT();
@@ -97,8 +115,8 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
 
   return (
     <>
-      <Button variant="ghost" size="sm" className="h-7 gap-1.5 text-xs" title={t('threadSettings.title')} aria-label={t('threadSettings.title')} onClick={() => setOpen(true)}>
-        <Settings className="size-3.5" />
+      <Button variant="ghost" size="icon-sm" title={t('threadSettings.title')} aria-label={t('threadSettings.title')} onClick={() => setOpen(true)}>
+        <Settings />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
@@ -106,59 +124,83 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
             <DialogTitle>{t('threadSettings.title')}</DialogTitle>
             <DialogDescription>{t('threadSettings.description')}</DialogDescription>
           </DialogHeader>
-          <DialogBody className="space-y-5 pb-5">
+          <DialogBody>
+            <FieldGroup>
               <p className="truncate text-sm font-medium">{session.title}</p>
-              {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="thread-icon">{t('threadSettings.icon')}</label>
-                <div className="flex flex-wrap gap-1">{['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'].map(icon => <button type="button" key={icon} disabled={busy} aria-label={icon} aria-pressed={session.icon === icon} onClick={() => void saveIcon(icon)} className="rounded-md border p-2 text-lg hover:bg-muted aria-pressed:bg-muted">{icon}</button>)}</div>
-                <div className="flex gap-2"><input id="thread-icon" aria-label={t('threadSettings.icon')} maxLength={32} value={iconDraft} onChange={e => setIconDraft(e.target.value)} className="min-w-0 flex-1 rounded-md border bg-background px-2 text-sm" /><Button size="sm" disabled={busy || !iconDraft.trim()} onClick={() => void saveIcon(iconDraft.trim())}>{t('common.save')}</Button><Button size="sm" variant="outline" disabled={busy || !session.icon} onClick={() => void saveIcon(null)}>{t('threadSettings.resetIcon')}</Button></div>
-              </div>}
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm">{t('threadSettings.owner')}</span>
+              {owner && currentUser.id.toLowerCase() === owner.toLowerCase() && <Field>
+                <FieldLabel htmlFor="thread-icon">{t('threadSettings.icon')}</FieldLabel>
+                <ToggleGroup type="single" variant="outline" size="lg" spacing={1} className="flex-wrap" value={session.icon || ''} disabled={busy} onValueChange={icon => { if (icon) void saveIcon(icon); }}>
+                  {THREAD_ICONS.map(icon => <ToggleGroupItem key={icon} value={icon} aria-label={icon} className="text-lg">{icon}</ToggleGroupItem>)}
+                </ToggleGroup>
+                <div className="flex gap-2">
+                  <Input id="thread-icon" aria-label={t('threadSettings.icon')} maxLength={32} value={iconDraft} onChange={e => setIconDraft(e.target.value)} className="min-w-0 flex-1" />
+                  <Button disabled={busy || !iconDraft.trim()} onClick={() => void saveIcon(iconDraft.trim())}>{t('common.save')}</Button>
+                  <Button variant="outline" disabled={busy || !session.icon} onClick={() => void saveIcon(null)}>{t('threadSettings.resetIcon')}</Button>
+                </div>
+              </Field>}
+              <Field orientation="horizontal" className="justify-between">
+                <FieldTitle>{t('threadSettings.owner')}</FieldTitle>
                 {owner ? <div className="flex min-w-0 items-center gap-2" title={owner}>
                   <HumanAvatar email={owner} />
                   <span className="truncate text-sm">{ownerPerson?.display_name || displayNameFromEmail(owner)}</span>
                 </div> : <span className="text-sm text-muted-foreground">{t('threadSettings.workspaceOwned')}</span>}
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-sm">{t('threadSettings.visibility')}</span>
+              </Field>
+              <Field orientation="horizontal" className="justify-between">
+                <FieldTitle>{t('threadSettings.visibility')}</FieldTitle>
                 <ThreadPrivacyControl channelName={session.sessionId} inDialog />
-              </div>
-              {manage && <div className="space-y-4 border-t pt-4">
-                <label className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('threadAccess.participantsCanInvite')}</span>
-                  <Switch checked={!!participants?.participants_can_invite} disabled={busy} onCheckedChange={value => void changePermission('people', value)} />
-                </label>
-                <label className="flex items-center justify-between gap-4">
-                  <span className="text-sm">{t('threadSettings.membersCanAddAgents')}</span>
-                  <Switch checked={participants?.members_can_add_agents !== false} disabled={busy} onCheckedChange={value => void changePermission('agents', value)} />
-                </label>
-              </div>}
-              {participants && access?.is_participant && <label className="flex items-center justify-between gap-4 border-t pt-4">
-                <span className="text-sm">{t('threadSettings.shareMyAgents')}</span>
-                <select aria-label={t('threadSettings.shareMyAgents')} className="rounded-md border bg-background px-2 py-1.5 text-sm" value={participants.agent_sharing_mode || (participants.sharing_my_agents ? 'yes' : 'no')} disabled={busy} onChange={event => void shareMyAgents(event.target.value as 'no' | 'yes' | 'approval')}>
-                  <option value="no">{t('threadSettings.sharingNo')}</option>
-                  <option value="yes">{t('threadSettings.sharingYes')}</option>
-                  <option value="approval">{t('threadSettings.sharingApproval')}</option>
-                </select>
-              </label>}
-              {loadFailed ? <div className="space-y-2 text-sm text-muted-foreground"><p>{t('collab.participantsLoadFailed')}</p><Button variant="outline" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button></div>
-                : !participants ? <Loader2 className="size-4 animate-spin" /> : <div className="space-y-4 border-t pt-4">
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium">{t('threadSettings.people')}</h4>
-                    {participants.humans.map(human => <div key={human.email} className="flex items-center gap-2 text-sm">
-                      <HumanAvatar email={human.email} /><span className="min-w-0 flex-1 truncate" title={human.email}>{human.display_name || human.email}</span>
-                      {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <Button variant="ghost" size="sm" disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X className="size-4" /></Button>}
-                    </div>)}
-                  </div>
-                  <div className="space-y-2">
-                    <h4 className="text-sm font-medium">{t('threadSettings.agents')}</h4>
-                    {participants.agents.map(agent => <div key={agent.agent_name} className="flex items-center gap-2 text-sm">
-                      <AgentAvatar name={agent.agent_name} size={28} /><div className="min-w-0 flex-1"><p className="truncate">{agent.display_name || agent.agent_name}</p>{agent.owner_email && <p className="truncate text-xs text-muted-foreground">{agent.owner_email}</p>}</div>
-                      {manage && <Button variant="ghost" size="sm" disabled={busy} aria-label={t('threadSettings.remove', { name: agent.display_name || agent.agent_name })} onClick={() => void remove('agent', agent.agent_name)}><X className="size-4" /></Button>}
-                    </div>)}
-                  </div>
-                </div>}
+              </Field>
+              {manage && <>
+                <FieldSeparator />
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="thread-participants-can-invite" className="flex-1 font-normal">{t('threadAccess.participantsCanInvite')}</FieldLabel>
+                  <Switch id="thread-participants-can-invite" checked={!!participants?.participants_can_invite} disabled={busy} onCheckedChange={value => void changePermission('people', value)} />
+                </Field>
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="thread-members-can-add-agents" className="flex-1 font-normal">{t('threadSettings.membersCanAddAgents')}</FieldLabel>
+                  <Switch id="thread-members-can-add-agents" checked={participants?.members_can_add_agents !== false} disabled={busy} onCheckedChange={value => void changePermission('agents', value)} />
+                </Field>
+              </>}
+              {participants && access?.is_participant && <>
+                <FieldSeparator />
+                <Field orientation="horizontal">
+                  <FieldLabel htmlFor="thread-share-my-agents" className="flex-1 font-normal">{t('threadSettings.shareMyAgents')}</FieldLabel>
+                  <Select value={participants.agent_sharing_mode || (participants.sharing_my_agents ? 'yes' : 'no')} disabled={busy} onValueChange={value => void shareMyAgents(value as 'no' | 'yes' | 'approval')}>
+                    <SelectTrigger id="thread-share-my-agents" aria-label={t('threadSettings.shareMyAgents')} className="w-auto shrink-0"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        <SelectItem value="no">{t('threadSettings.sharingNo')}</SelectItem>
+                        <SelectItem value="yes">{t('threadSettings.sharingYes')}</SelectItem>
+                        <SelectItem value="approval">{t('threadSettings.sharingApproval')}</SelectItem>
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </>}
+              {loadFailed ? <Alert>
+                <AlertDescription>{t('collab.participantsLoadFailed')}</AlertDescription>
+                <AlertAction><Button variant="outline" size="xs" onClick={() => setAttempt(value => value + 1)}>{t('common.retry')}</Button></AlertAction>
+              </Alert>
+                : !participants ? <Spinner /> : <>
+                  <FieldSeparator />
+                  <ParticipantList title={t('threadSettings.people')}>
+                    {participants.humans.map(human => <Item key={human.email} size="xs" className="px-0">
+                      <ItemMedia><HumanAvatar email={human.email} /></ItemMedia>
+                      <ItemContent><ItemTitle className="truncate" title={human.email}>{human.display_name || human.email}</ItemTitle></ItemContent>
+                      {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <ItemActions><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X /></Button></ItemActions>}
+                    </Item>)}
+                  </ParticipantList>
+                  <ParticipantList title={t('threadSettings.agents')}>
+                    {participants.agents.map(agent => <Item key={agent.agent_name} size="xs" className="px-0">
+                      <ItemMedia><AgentAvatar name={agent.agent_name} size={28} /></ItemMedia>
+                      <ItemContent>
+                        <ItemTitle className="truncate">{agent.display_name || agent.agent_name}</ItemTitle>
+                        {agent.owner_email && <ItemDescription className="truncate">{agent.owner_email}</ItemDescription>}
+                      </ItemContent>
+                      {manage && <ItemActions><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t('threadSettings.remove', { name: agent.display_name || agent.agent_name })} onClick={() => void remove('agent', agent.agent_name)}><X /></Button></ItemActions>}
+                    </Item>)}
+                  </ParticipantList>
+                </>}
+            </FieldGroup>
           </DialogBody>
         </DialogContent>
       </Dialog>

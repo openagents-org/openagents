@@ -1,7 +1,9 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Laptop, Loader2, RefreshCw, Ticket, Trash2 } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+import { Laptop, RefreshCw, Ticket, Trash2 } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -84,33 +86,33 @@ export default function DevicesSettingsPage() {
   };
 
   return (
-    <div className="space-y-8">
+    <div className="flex flex-col gap-8">
       <SectionHeader title={t('admin.devicesTitle')} description={t('admin.devicesDescription')} />
       {!editable && <ReadOnlyBanner />}
 
       {editable && host && (
-        <div className="flex items-center justify-between gap-4 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex items-center justify-between gap-4">
           <div><p className="text-sm font-medium">{t('admin.connectThisComputer')}</p><p className="mt-1 text-sm text-muted-foreground">{t('admin.connectThisComputerHint')}</p></div>
           <Button onClick={connectComputer} disabled={connecting}>
-            {connecting ? <Loader2 className="size-4 animate-spin" /> : <Laptop className="size-4" />}
+            {connecting ? <Spinner /> : <Laptop className="size-4" />}
             {t('admin.connectThisComputer')}
           </Button>
-        </div>
+        </CardContent></Card>
       )}
 
       {editable && (
-        <div className="space-y-3 rounded-lg border p-4">
+        <Card size="sm"><CardContent className="flex flex-col gap-3">
           <div className="flex items-center justify-between gap-3">
             <div className="flex items-center gap-1.5">
               <Ticket className="size-4 text-muted-foreground" />
               <span className="text-sm font-medium">{t('admin.generatePairingCode')}</span>
             </div>
             <Button size="sm" onClick={mintCode} disabled={minting}>
-              {minting ? <Loader2 className="size-4 animate-spin" /> : t('admin.generatePairingCode')}
+              {minting ? <Spinner /> : t('admin.generatePairingCode')}
             </Button>
           </div>
           {pairing && (
-            <div className="space-y-1 rounded-md bg-muted/40 p-3 text-center">
+            <div className="flex flex-col gap-1 rounded-md bg-muted/40 p-3 text-center">
               <p className="font-mono text-2xl font-semibold tracking-[0.3em]">{pairing.code}</p>
               <p className="text-xs text-muted-foreground">
                 {t('admin.pairingCodeHint', {
@@ -119,10 +121,10 @@ export default function DevicesSettingsPage() {
               </p>
             </div>
           )}
-        </div>
+        </CardContent></Card>
       )}
 
-      <div className="space-y-3">
+      <div className="flex flex-col gap-3">
         <div className="flex items-center justify-between">
           <span className="text-sm font-medium">{t('admin.navDevices')}</span>
           <Button variant="ghost" size="sm" onClick={loadNodes} disabled={loading}>
@@ -133,12 +135,12 @@ export default function DevicesSettingsPage() {
 
         {loading && nodes.length === 0 ? (
           <div className="flex items-center justify-center py-10">
-            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            <Spinner className="size-5 text-muted-foreground" />
           </div>
         ) : nodes.length === 0 ? (
           <p className="py-4 text-sm text-muted-foreground">{t('admin.noDevices')}</p>
         ) : (
-          <div className="divide-y rounded-lg border">
+          <Card className="gap-0 divide-y py-0">
             {nodes.map((n) => (
               <div key={n.nodeId} className="flex items-center gap-3 px-4 py-3">
                 <Laptop className="size-5 shrink-0 text-muted-foreground" />
@@ -147,7 +149,7 @@ export default function DevicesSettingsPage() {
                     {n.name || n.hostname || n.nodeId}
                     <span
                       className={`size-2 shrink-0 rounded-full ${
-                        n.status === 'online' ? 'bg-emerald-500' : 'bg-zinc-400'
+                        n.status === 'online' ? 'bg-success' : 'bg-muted-foreground/60'
                       }`}
                       title={n.status}
                     />
@@ -172,7 +174,7 @@ export default function DevicesSettingsPage() {
                 )}
               </div>
             ))}
-          </div>
+          </Card>
         )}
       </div>
     </div>

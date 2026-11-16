@@ -28,7 +28,7 @@ export function MoreAgents({ agents, moreOnline, owned, showLabels = true, onNav
     </button>
     <Dialog open={open} onOpenChange={setOpen}><DialogContent className="sm:max-w-md">
       <DialogHeader><DialogTitle>{title} · {agents.length}</DialogTitle></DialogHeader>
-      <DialogBody className="space-y-3">
+      <DialogBody className="flex flex-col gap-3">
         <Input autoFocus aria-label={t('nav.searchAgents')} placeholder={t('nav.searchAgents')} value={query} onChange={event => setQuery(event.target.value)} />
         <div className="max-h-80 overflow-y-auto">{candidates.map(agent => <div key={agent.agentName} className="flex items-center gap-1 rounded-md hover:bg-muted">
           <button type="button" className="flex min-w-0 flex-1 items-center gap-3 p-2 text-left" onClick={() => {

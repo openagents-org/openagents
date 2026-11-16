@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react"
-import { AlertCircle, ChevronDown, ChevronRight, Info } from "lucide-react"
+import { ChevronDown, ChevronRight, Info } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
@@ -9,13 +9,16 @@ import {
   sortCredentialFields,
 } from "../../shared/agent-credentials"
 
+import { Alert, AlertDescription } from "@renderer/components/ui/alert"
 import {
   Field,
   FieldDescription,
+  FieldError,
   FieldLabel,
 } from "@renderer/components/ui/field"
 import { Input } from "@renderer/components/ui/input"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -156,8 +159,9 @@ export function AgentEnvFields({
     // a typo the agent recovers from — it cannot work at all. Say so at the
     // field, while the user is still looking at it.
     const mismatch = agentType ? endpointMismatch(agentType, value) : null
+    const invalid = !!errors?.[f.name] || !!mismatch
     return (
-      <Field key={f.name}>
+      <Field key={f.name} data-invalid={invalid || undefined}>
         <FieldLabel htmlFor={id} className="font-mono text-xs">
           {f.name}
           {/* `.required` is asserted against in tests — keep the marker a
@@ -183,7 +187,7 @@ export function AgentEnvFields({
             value={value}
             onValueChange={(next: string) => onChange(f.name, next)}
           >
-            <SelectTrigger id={id} className="w-full">
+            <SelectTrigger id={id} className="w-full" aria-invalid={invalid || undefined}>
               <SelectValue
                 placeholder={
                   envFieldPlaceholder(f, t) ||
@@ -192,16 +196,19 @@ export function AgentEnvFields({
               />
             </SelectTrigger>
             <SelectContent>
-              {f.options.map((option) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
+              <SelectGroup>
+                {f.options.map((option) => (
+                  <SelectItem key={option} value={option}>
+                    {option}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
             </SelectContent>
           </Select>
         ) : (
           <FieldInput
             id={id}
+            aria-invalid={invalid || undefined}
             value={value}
             onChange={(e) => onChange(f.name, e.target.value)}
             placeholder={
@@ -210,22 +217,14 @@ export function AgentEnvFields({
             }
           />
         )}
-        {errors?.[f.name] && (
-          <p role="alert" className="m-0 flex items-start gap-1.5 text-2xs leading-relaxed text-(--danger-text)">
-            <AlertCircle className="mt-px size-3.5 shrink-0" />
-            {errors[f.name]}
-          </p>
-        )}
+        {errors?.[f.name] && <FieldError>{errors[f.name]}</FieldError>}
         {mismatch && (
-          <p className="m-0 flex items-start gap-1.5 text-2xs leading-relaxed text-(--danger-text)">
-            <AlertCircle className="mt-px size-3.5 shrink-0" />
-            {t(`agents.credentials.endpointMismatch.${mismatch}` as never)}
-          </p>
+          <FieldError>{t(`agents.credentials.endpointMismatch.${mismatch}` as never)}</FieldError>
         )}
         {/* Translated where we have a catalog entry, the registry's own
             English wording otherwise. See lib/agent-meta. */}
         {envFieldHint(f, t) && (
-          <FieldDescription className="text-2xs">
+          <FieldDescription>
             {envFieldHint(f, t)}
           </FieldDescription>
         )}
@@ -257,10 +256,12 @@ export function AgentEnvFields({
           oversight, and the user goes looking for the setting instead of for
           the place it actually lives. */}
       {noEndpoint && (
-        <p className="m-0 flex items-start gap-1.5 rounded-lg border bg-muted/40 px-3.5 py-2.5 text-2xs leading-relaxed text-muted-foreground">
-          <Info className="mt-px size-3.5 shrink-0" />
-          {t(`agents.credentials.noEndpoint.${noEndpoint}` as never)}
-        </p>
+        <Alert>
+          <Info />
+          <AlertDescription>
+            {t(`agents.credentials.noEndpoint.${noEndpoint}` as never)}
+          </AlertDescription>
+        </Alert>
       )}
 
       {/* Hidden until asked for. A deployment override is something you
@@ -272,7 +273,7 @@ export function AgentEnvFields({
             type="button"
             onClick={() => setAdvancedOpen((v) => !v)}
             data-testid="env-advanced-toggle"
-            className="inline-flex cursor-pointer items-center gap-1 self-start border-0 bg-transparent p-0 text-2xs text-muted-foreground transition-colors hover:text-foreground"
+            className="inline-flex cursor-pointer items-center gap-1 self-start border-0 bg-transparent p-0 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             {advancedOpen ? (
               <ChevronDown className="size-3.5" />

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Loader2, UserPlus } from 'lucide-react';
+import { UserPlus } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
 import { ParticipantPicker, type ParticipantOption } from '@/components/threads/participant-picker';
@@ -54,8 +55,8 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
   }
 
   return <>
-    <Button variant="ghost" size="sm" className="h-7 shrink-0 gap-1.5 px-2 text-[11px]" onClick={() => { setPicks([]); setOpen(true); }}>
-      <UserPlus className="size-3.5" />{t('threadAccess.addParticipants')}
+    <Button variant="ghost" size="sm" className="shrink-0" onClick={() => { setPicks([]); setOpen(true); }}>
+      <UserPlus data-icon="inline-start" />{t('threadAccess.addParticipants')}
     </Button>
     <Dialog open={open} onOpenChange={(value) => { if (!saving) setOpen(value); }}>
       <DialogContent className="sm:max-w-xl">
@@ -63,16 +64,16 @@ export function AddIssueParticipants({ issueId, existing, onAdded }: {
           <DialogTitle>{t('threadAccess.addParticipants')}</DialogTitle>
           <DialogDescription>{t('issues.addParticipantsHint')}</DialogDescription>
         </DialogHeader>
-        <DialogBody className="space-y-3">
+        <DialogBody className="flex flex-col gap-3">
           {options ? <ParticipantPicker options={available} value={selected} onChange={setPicks} disabled={saving} />
-            : !error && <Loader2 className="size-4 animate-spin" />}
+            : !error && <Spinner />}
           {error && <ErrorNotice message={error} />}
           {!options && error && <Button variant="outline" onClick={() => setAttempt((value) => value + 1)}>{t('common.retry')}</Button>}
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" disabled={saving} onClick={() => setOpen(false)}>{t('common.cancel')}</Button>
           <Button disabled={!options || !selected.length || saving} onClick={add}>
-            {saving ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            {saving ? <Spinner data-icon="inline-start" /> : <UserPlus data-icon="inline-start" />}
             {t('issues.addParticipantsButton')}
           </Button>
         </DialogFooter>

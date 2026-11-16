@@ -1,5 +1,6 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
+import { Alert, AlertDescription, AlertTitle } from "@renderer/components/ui/alert"
 import { RotateCcw, ShieldCheck } from "lucide-react"
 
 /**
@@ -31,13 +32,13 @@ export function ResetSummary({
     <div className="grid gap-3 text-left sm:grid-cols-2">
       <Column
         tone="text-destructive"
-        icon={<RotateCcw className="size-3" />}
+        icon={<RotateCcw />}
         title={t(`${prefix}.affectedTitle`)}
         items={affected.map((id) => t(`${prefix}.affected.${id}`))}
       />
       <Column
         tone="text-foreground"
-        icon={<ShieldCheck className="size-3" />}
+        icon={<ShieldCheck />}
         title={t(`${prefix}.keptTitle`)}
         items={kept.map((id) => t(`${prefix}.kept.${id}`))}
       />
@@ -57,16 +58,18 @@ function Column({
   items: string[]
 }): React.JSX.Element {
   return (
-    <div className="rounded-lg border bg-muted/40 px-4 py-3">
-      <div className={`flex items-center gap-1.5 text-2xs font-medium ${tone}`}>
-        {icon}
-        {title}
-      </div>
-      <ul className="mt-2 mb-0 flex list-none flex-col gap-1.5 pl-0 text-2xs text-muted-foreground">
-        {items.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-    </div>
+    // The tone colours the title and, through `text-current`, the icon; the
+    // description keeps its own muted colour.
+    <Alert className={tone}>
+      {icon}
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        <ul className="m-0 flex list-none flex-col gap-1.5 pl-0 text-xs">
+          {items.map((item) => (
+            <li key={item}>{item}</li>
+          ))}
+        </ul>
+      </AlertDescription>
+    </Alert>
   )
 }

@@ -373,17 +373,6 @@ export interface WorkspaceCollaborator {
   addedAt: string | null;
 }
 
-export interface WorkspaceInvitation {
-  invitationId: string;
-  workspaceId: string;
-  targetAgentName: string;
-  inviteToken: string;
-  workspaceName?: string;
-  status: 'pending' | 'accepted' | 'rejected' | 'expired';
-  createdAt: string;
-  expiresAt: string;
-}
-
 export interface WorkspaceFile {
   id: string;
   filename: string;
@@ -1215,9 +1204,6 @@ export interface ChannelBrief {
   canEdit: boolean;
 }
 
-export type ChannelBriefPatch = Partial<
-  Pick<ChannelBrief, 'objective' | 'owner' | 'latestResult' | 'nextStep' | 'openQuestions'>
->;
 // ── v1.1 M1/M2 — ownership, visibility, sharing ──────────────────────────────
 // Roadmap v1.1 "mixed human–agent collaboration". The wire shapes below extend
 // the existing discover/session/agent records by interface merging so the
@@ -1587,32 +1573,6 @@ export function accessChannelFields(ch: NetworkChannel): Pick<WorkspaceSession, 
     participantsCanInvite: !!ch.participants_can_invite,
     membersCanAddAgents: ch.members_can_add_agents !== false,
   };
-}
-
-// ── v1.1 M4 — specialist profile (GET /v1/agents/{agent}/profile) ────────────
-// Owners/admins get the full shared instruction set and knowledge list;
-// teammates get a summary (first SUMMARY_CHARS) and a count.
-export interface AgentProfileView {
-  request_approver_email?: string | null;
-  agent_name: string;
-  display_name: string | null;
-  agent_type: string | null;
-  owner_email: string | null;
-  owner_display_name: string | null;
-  visibility: AgentVisibility;
-  purpose: string | null;
-  example_requests: string[];
-  required_inputs: string | null;
-  cost_owner: CostOwner | null;
-  grant_count: number;
-  availability: Record<string, unknown>;
-  can_manage: boolean;
-  /** can_manage view only */
-  shared_instructions?: string | null;
-  allowed_knowledge?: { slug: string; title: string }[];
-  /** teammate view only */
-  shared_instructions_summary?: string | null;
-  allowed_knowledge_count?: number;
 }
 
 // ---------------------------------------------------------------------------

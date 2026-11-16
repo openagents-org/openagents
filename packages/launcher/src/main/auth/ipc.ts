@@ -225,8 +225,8 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     if (host.isWorkspaceSender(event.sender)) account.signOut()
   })
   // A page routing somewhere that belongs to another tab. See openRoute.
-  ipcMain.on("workspace-view:open-route", (event, route: unknown) => {
-    if (host.isWorkspaceSender(event.sender)) host.openRoute(event.sender, route)
+  ipcMain.on("workspace-view:open-route", (event, route: unknown, title: unknown) => {
+    if (host.isWorkspaceSender(event.sender)) host.openRoute(event.sender, route, title)
   })
   ipcMain.on("workspace-view:report-workspace", (event, info: unknown) => {
     if (host.isWorkspaceSender(event.sender)) host.reportWorkspace(event.sender, info)

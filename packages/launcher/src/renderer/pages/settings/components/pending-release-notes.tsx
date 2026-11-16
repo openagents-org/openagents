@@ -20,7 +20,7 @@ export function PendingReleaseNotes({
 }): React.JSX.Element {
   const { t } = useTranslation()
   return (
-    <div className="mt-1 border-t border-(--border) pt-4">
+    <div className="mt-1 border-t border-border pt-4">
       <p className="mt-0 mb-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {t("settings.updates.offerWhatsNew")}
       </p>

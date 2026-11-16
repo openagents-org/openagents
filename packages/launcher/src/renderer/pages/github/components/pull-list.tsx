@@ -35,12 +35,12 @@ export function PullList({
               >
                 #{p.number} {p.title}
                 {p.draft && (
-                  <span className="ml-2 text-3xs uppercase text-muted-foreground">
+                  <span className="ml-2 text-xs uppercase text-muted-foreground">
                     {t("github.pulls.draft")}
                   </span>
                 )}
               </a>
-              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-2xs text-muted-foreground">
+              <div className="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span>{t("github.pulls.by", { user: p.user.login })}</span>
                 <span>·</span>
                 <span>

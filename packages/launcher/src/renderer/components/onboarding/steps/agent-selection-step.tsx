@@ -1,8 +1,9 @@
 import React from "react"
-import { Loader2 } from "lucide-react"
+import { Spinner } from "@renderer/components/ui/spinner"
 import { useTranslation } from "react-i18next"
 
 import AgentIcon from "@renderer/components/AgentIcon"
+import { Alert, AlertDescription, AlertTitle } from "@renderer/components/ui/alert"
 import { Badge } from "@renderer/components/ui/badge"
 import { Button } from "@renderer/components/ui/button"
 import { SearchInput, StatusBadge } from "@renderer/components/ui-kit"
@@ -44,18 +45,14 @@ export function AgentSelectionStep({
   return (
     <>
       {installing && (
-        <div className="mb-5 flex items-start gap-2.5 rounded-lg border border-(--accent-border) bg-(--accent-bg) px-4 py-3">
-          <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-(--accent)" />
-          <div className="min-w-0">
-            <div className="text-sm font-semibold">
-              {t(`onboarding.flow.installPhase.${phaseId}`)}
-            </div>
-            <div className="truncate text-2xs text-(--text-secondary)">
-              {installDetail ||
-                t("onboarding.flow.agentSelection.installingDetail")}
-            </div>
-          </div>
-        </div>
+        <Alert role="status" className="mb-5">
+          <Spinner />
+          <AlertTitle>{t(`onboarding.flow.installPhase.${phaseId}`)}</AlertTitle>
+          <AlertDescription className="truncate">
+            {installDetail ||
+              t("onboarding.flow.agentSelection.installingDetail")}
+          </AlertDescription>
+        </Alert>
       )}
 
       <div className="mb-5 flex items-center gap-2.5">
@@ -77,13 +74,13 @@ export function AgentSelectionStep({
 
       <ul className="m-0 grid auto-rows-fr list-none grid-cols-1 gap-3 p-0 sm:grid-cols-2">
         {agentsLoading && visibleAgents.length === 0 && (
-          <li className="col-span-full flex items-center justify-center gap-2 py-8 text-xs text-(--text-tertiary)">
-            <Loader2 className="size-4 animate-spin" />
+          <li className="col-span-full flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground">
+            <Spinner className="size-4" />
             {t("onboarding.flow.agentSelection.loadingAgents")}
           </li>
         )}
         {!agentsLoading && visibleAgents.length === 0 && (
-          <li className="col-span-full flex flex-col items-center gap-3 py-8 text-center text-xs text-(--text-tertiary)">
+          <li className="col-span-full flex flex-col items-center gap-3 py-8 text-center text-xs text-muted-foreground">
             <span>
               {search.trim() || installedOnly
                 ? t("onboarding.flow.agentSelection.noMatch")
@@ -154,26 +151,25 @@ function AgentCard({
             </span>
             {agent.featured && (
               <Badge
-                size="sm"
                 variant="secondary"
-                className="border-(--accent-border) bg-(--accent-bg) text-(--accent)"
+                className="border-primary/20 bg-primary/5 text-primary"
               >
                 {t("onboarding.flow.agentSelection.featured")}
               </Badge>
             )}
-            <StatusBadge size="sm" tone={agent.installed ? "success" : "neutral"}>
+            <StatusBadge tone={agent.installed ? "success" : "neutral"}>
               {agent.installed
                 ? t("onboarding.flow.agentSelection.installed")
                 : t("onboarding.flow.agentSelection.needsInstall")}
             </StatusBadge>
           </div>
-          <p className="m-0 mt-1.5 line-clamp-2 text-xs leading-relaxed text-(--text-secondary)">
+          <p className="m-0 mt-1.5 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
             {agentDescription(agent.name, agent.description, t) ||
               t("onboarding.flow.agentSelection.noDescription")}
           </p>
         </div>
       </div>
-      <div className="mt-3 pt-3 font-mono text-2xs text-(--text-tertiary)">
+      <div className="mt-3 pt-3 font-mono text-xs text-muted-foreground">
         {t(`onboarding.flow.authMode.${agent.authMode}`)}
         <span className="mx-1.5 opacity-60">·</span>
         {authRequirement(agent)}

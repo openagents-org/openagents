@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next"
 
 import { Button } from "@renderer/components/ui/button"
 import {
+  SelectGroup,
   Select,
   SelectContent,
   SelectItem,
@@ -73,11 +74,13 @@ export function ConnectionsToolbar({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {CONNECTION_SORTS.map((k) => (
-            <SelectItem key={k} value={k}>
-              {t(`connections.sort.${k}`)}
-            </SelectItem>
-          ))}
+          <SelectGroup>
+            {CONNECTION_SORTS.map((k) => (
+              <SelectItem key={k} value={k}>
+                {t(`connections.sort.${k}`)}
+              </SelectItem>
+            ))}
+          </SelectGroup>
         </SelectContent>
       </Select>
 

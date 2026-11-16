@@ -1,6 +1,7 @@
 import React from "react"
 import { Trans, useTranslation } from "react-i18next"
 
+import { FieldError } from "../ui/field"
 import { Input } from "../ui/input"
 import { cn } from "../../lib/utils"
 import { formatCode } from "../../lib/pairing-code"
@@ -41,7 +42,7 @@ export function PairPanel({
         className="h-14 text-center font-mono text-xl tracking-widest uppercase md:text-xl"
         autoFocus={autoFocus}
       />
-      {error && <p role="alert" className="m-0 text-xs text-(--danger-text)">{error}</p>}
+      {error && <FieldError>{error}</FieldError>}
     </div>
   )
 }

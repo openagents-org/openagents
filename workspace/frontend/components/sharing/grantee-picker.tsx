@@ -10,7 +10,8 @@
 // pages have no provider, and the main context does not expose collaborators.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, Check, Loader2, Plus, Users, UsersRound, X } from 'lucide-react';
+import { Bot, Check, Plus, Users, UsersRound, X } from 'lucide-react';
+import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import {
@@ -151,7 +152,7 @@ export function GranteePicker({
     k === 'human' ? t('groups.kindPeople') : k === 'agent' ? t('groups.kindAgents') : t('groups.kindGroups');
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('flex flex-col gap-2', className)}>
       <Popover modal open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -175,7 +176,7 @@ export function GranteePicker({
                     type="button"
                     onClick={() => setKindFilter((cur) => (cur === k ? null : k))}
                     className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] transition-colors',
+                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
                       kindFilter === k
                         ? 'border-foreground bg-foreground text-background'
                         : 'border-border text-muted-foreground hover:bg-muted',
@@ -190,7 +191,7 @@ export function GranteePicker({
             <CommandList className="max-h-72 overscroll-contain">
               {loading && (
                 <div className="flex items-center justify-center py-6">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  <Spinner className="text-muted-foreground" />
                 </div>
               )}
               {!loading && failed && (
@@ -267,7 +268,7 @@ function CandidateAvatar({ c }: { c: Grantee }) {
     );
   }
   return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-[10px] font-semibold text-primary">
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
       {(c.label || c.id)[0]?.toUpperCase()}
     </span>
   );

@@ -84,7 +84,7 @@ export function InstallConfirmDialog({
             />
           )}
           {installCmd && (
-            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-center font-mono text-2xs break-all whitespace-pre-wrap text-foreground">
+            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-center font-mono text-xs break-all whitespace-pre-wrap text-foreground">
               {installCmd}
             </code>
           )}
