@@ -27,7 +27,9 @@
  * of anything key-shaped before it leaves this module.
  */
 
+const fs = require('fs');
 const os = require('os');
+const path = require('path');
 // spawn() here is the WSL bridge from ./wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -38,6 +40,7 @@ const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } =
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
+const { codexPlanRefusedModel, codexAccountModels, codexPlanFallback } = require('./cli-models');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -153,8 +156,9 @@ function classifyOutputText(text) {
   // completion" or, refreshing its model list, "failed to refresh available
   // models: request timed out" — on a device that cannot reach chatgpt.com
   // that was all the probe saw before its clock ran out, and it was reported
-  // as a CLI waiting for a login prompt.
-  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer|connection failed|stream disconnected before completion|failed to lookup address|dns error|tls handshake|failed to refresh available models: request timed out/.test(text)) return CODE.NETWORK;
+  // as a CLI waiting for a login prompt. With no route at all it prints
+  // "Reconnecting... waiting for network" until the clock runs out.
+  if (/enotfound|econnrefused|econnreset|etimedout|eai_again|fetch failed|socket hang up|network error|error sending request|request to \S+ timed out|self[- ]signed certificate|unable to get local issuer|connection failed|stream disconnected before completion|failed to lookup address|dns error|tls handshake|failed to refresh available models: request timed out|reconnecting\.{3} waiting for network/.test(text)) return CODE.NETWORK;
   if (/api key.{0,24}(not set|not found|missing)|no api key|missing api key|environment variable.{0,40}(is )?(not set|required)/.test(text)) return CODE.MISSING_API_KEY;
   if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   // A sign-in that exists but has run out — Claude Code: "Failed to
@@ -464,9 +468,14 @@ function failureMessage(res, code, timeoutMs) {
   // nothing else was said do they stand, rather than no reason at all.
   const LOG_RECORD = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(?=(TRACE|DEBUG|INFO|WARN|ERROR)\s)/;
   const SIDE_SERVICE = /\brmcp::|\bcodex_mcp::/;
+  // `codex exec` opens with a banner (version, workdir, model, sandbox,
+  // session id) and echoes the prompt. On a probe that timed out with nothing
+  // else said, that banner was quoted as the reason — "Timed out after 120s:
+  // OpenAI Codex v0.165.0 -------- workdir: …" — which explains nothing.
+  const CODEX_BANNER = /^(OpenAI Codex v\d|-{4,}$|(workdir|model|provider|approval|sandbox|reasoning effort|reasoning summaries|session id): \S+$|user$|hi$|hook: |mcp startup:)/;
   const lines = (s) => {
     const said = String(s || '').split(/\r?\n/).map((l) => scrub(l.trim()))
-      .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
+      .filter((l) => l && !BENIGN_OUTPUT.test(l) && !CODEX_BANNER.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
     const own = said.filter((l) => !SIDE_SERVICE.test(l));
     const kept = own.length ? own : said;
     const plain = kept.filter((l) => !LOG_RECORD.test(l));
@@ -481,6 +490,41 @@ function failureMessage(res, code, timeoutMs) {
     return detail ? `${prefix}: ${detail}` : prefix;
   }
   return detail || `Exited with code ${res.code}`;
+}
+
+/** A model id safe to pass on a command line, through a Windows shell too. */
+const CODEX_MODEL_ARG = /^[\w.:@/-]{1,128}$/;
+
+/**
+ * Codex's probe run, cut down to the one question it asks.
+ *
+ * `codex exec hi` starts everything the user's ~/.codex/config.toml sets up
+ * before it sends "hi": every MCP server (a Figma connector whose host does
+ * not answer), every hook, and the built-in ChatGPT apps connector. On a slow
+ * or blocked network those alone ran the 120s probe clock out, and the test
+ * reported Codex broken when sign-in and model were fine. The real chat run
+ * still loads all of it; only the probe leaves it out.
+ *
+ * Only `-c` overrides, never newer flags: an older Codex rejects a flag it
+ * does not know, but ignores (with a warning) a feature it does not know.
+ * Server names are taken from the `[mcp_servers.<name>]` tables and only
+ * bare names are used, so nothing needs quoting through a Windows shell.
+ */
+function codexProbeArgs(args, env = {}, model = null) {
+  if (!Array.isArray(args) || args[0] !== 'exec') return args;
+  const home = env.CODEX_HOME || path.join(os.homedir(), '.codex');
+  let text = '';
+  try { text = fs.readFileSync(path.join(home, 'config.toml'), 'utf8'); } catch {}
+  const names = new Set();
+  for (const m of text.matchAll(/^[ \t]*\[[ \t]*mcp_servers\.([A-Za-z0-9_-]+)[ \t]*[.\]]/gm)) names.add(m[1]);
+  const extra = ['-c', 'features.hooks=false', '-c', 'features.apps=false'];
+  for (const name of names) extra.push('-c', `mcp_servers.${name}.enabled=false`);
+  // The model the agent's chat runs on (the adapter passes `-m`). Without it
+  // the test ran Codex's own default: an agent set to gpt-5.6-luna failed
+  // its test on gpt-6.1-sol, which its ChatGPT plan does not include.
+  if (model && CODEX_MODEL_ARG.test(model)) extra.push('-m', model);
+  // After the subcommand: `codex exec -c … hi`.
+  return [args[0], ...extra, ...args.slice(1)];
 }
 
 /** Run a CLI to completion with a hard timeout. Never rejects. */
@@ -646,18 +690,44 @@ async function probeAgentType(connector, type, opts = {}) {
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   if (hasLiveCli) {
     const shell = probeArgs && health.binary ? shouldUseShellForBinary(health.binary) : true;
-    const res = probeArgs && health.binary
+    const runProbeCli = (m) => runCommand(shellQuoted(health.binary, shell),
+      type === 'codex' ? codexProbeArgs(probeArgs, env, m) : probeArgs, { env, timeoutMs, shell });
+    let res = probeArgs && health.binary
       // Node refuses to spawn .cmd/.bat without a shell (EINVAL since the
       // CVE-2024-27980 hardening), which made every Windows CLI probe of an
       // npm-shim binary fail as "Exited with code 1" with no output.
-      ? await runCommand(shellQuoted(health.binary, shell), probeArgs, { env, timeoutMs, shell })
+      ? await runProbeCli(model)
       : await runCommand(altCheck, [], { env, timeoutMs, shell: true });
+    // A ChatGPT sign-in refusing the model Codex ran on. With no model
+    // chosen that is Codex's default, and the chat adapter then runs the
+    // first model the account lists (adapters/codex.js); test that one. With
+    // a model chosen, say which models the account does list.
+    let planNote = '';
+    const refused = type === 'codex' && probeArgs && health.binary
+      ? codexPlanRefusedModel(`${res.stdout}\n${res.stderr}`) : null;
+    if (refused && !model) {
+      let fallback = null;
+      try { fallback = await codexPlanFallback(health.binary, env, refused); } catch {}
+      if (fallback && CODEX_MODEL_ARG.test(fallback)) {
+        res = await runProbeCli(fallback);
+        planNote = ` on ${fallback}: Codex's default model (${refused}) isn't included in this ChatGPT plan, so chats use ${fallback}`;
+      }
+    } else if (refused) {
+      let listed = [];
+      try { listed = (await codexAccountModels(health.binary, env)).map((m) => m.id); } catch {}
+      return done({
+        ok: false, method: 'cli', code: CODE.BAD_MODEL,
+        message: `${refused} isn't included in this ChatGPT plan.`
+          + (listed.length ? ` Models this account lists: ${listed.slice(0, 8).join(', ')}.` : ''),
+        guidance: buildGuidance(CODE.BAD_MODEL, entry, agentEnv),
+      });
+    }
     const output = withoutNoise(`${res.stdout}\n${res.stderr}`);
     const reply = withoutNoise(res.stdout).trim();
     if (!res.timedOut && !res.spawnError && res.code === 0 && reply) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
-        message: 'Responded',
+        message: `Responded${planNote}`,
         reply: tail(reply, REPLY_CAP),
       });
     }
@@ -671,7 +741,7 @@ async function probeAgentType(connector, type, opts = {}) {
     if (res.timedOut && !res.spawnError && looksLikeAnswer) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
-        message: `Responded (the CLI did not exit within ${Math.round(timeoutMs / 1000)}s)`,
+        message: `Responded${planNote} (the CLI did not exit within ${Math.round(timeoutMs / 1000)}s)`,
         reply: tail(reply, REPLY_CAP),
       });
     }
@@ -787,4 +857,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, codexProbeArgs, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };

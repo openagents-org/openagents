@@ -1,10 +1,10 @@
 name: Release sync check
 
-# Fails whenever `release` is not an ancestor of `develop`, i.e. whenever
-# release carries commits that never landed on develop. That is the state that
-# makes the next promotion impossible (see promote-release.yml). Runs on every
-# push to either branch so the divergence shows up as a red check on develop
-# the moment it happens, instead of at the next deploy.
+# `release` is the self-hosted release track: every self-hosted release is a
+# fast-forward of develop (see selfhost-release.yml). This fails whenever
+# `release` carries commits that never landed on develop, which would block the
+# next self-hosted release. (Hosted production, openagents-release, carries its
+# own hosted-layer commits on purpose and is not checked here.)
 
 on:
   push:
@@ -33,9 +33,6 @@ jobs:
             echo "OK: release ($REL) is on develop; develop is $BEHIND commit(s) ahead."
             exit 0
           fi
-          echo "::error::release has commits that are not on develop. Promotion (fast-forward) is blocked until this is reconciled."
-          echo "Commits on release but not on develop:"
+          echo "::error::release has commits that are not on develop. The next self-hosted release (fast-forward) is blocked until this is reconciled."
           git log --format='  %h %an %s' "$DEV..$REL"
-          echo ""
-          echo "Fix: merge release into develop (normally a no-content merge), then run the 'Promote develop to release' workflow."
           exit 1

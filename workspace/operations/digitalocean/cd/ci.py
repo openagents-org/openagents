@@ -16,7 +16,7 @@ def main():
     if any(not re.fullmatch('[0-9.]+', host) for host in hosts):
         raise ValueError('Invalid deployment host')
     current = subprocess.check_output(['gh', 'api',
-        'repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/ref/heads/release',
+        'repos/' + os.environ['GITHUB_REPOSITORY'] + '/git/ref/heads/openagents-release',
         '--jq', '.object.sha'], text=True).strip()
     if current != sha:
         print('Skipping superseded release'); return

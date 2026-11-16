@@ -31,7 +31,6 @@ vi.mock('./notifications-menu', () => ({ NotificationsMenu: () => null }));
 vi.mock('./invite-member-button', () => ({ InviteMemberButton: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
 vi.mock('./rail-edge', () => ({ RailEdge: () => null }));
-vi.mock('@/components/campaign/campaign-sidebar-card', () => ({ CampaignSidebarCard: () => null }));
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 

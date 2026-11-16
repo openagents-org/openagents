@@ -1,0 +1,128 @@
+name: Self-hosted release
+
+# Cuts a self-hosted (open-source) release of the Workspace:
+#   1. fast-forwards `release` to a develop commit (default develop HEAD),
+#   2. tags it `workspace-v<version>` and creates a GitHub Release,
+#   3. publishes the backend image to GHCR:
+#        ghcr.io/<owner>/openagents-workspace-backend:<version> and :latest
+#
+# `release` never deploys anything; hosted production lives on
+# openagents-release (promote-release.yml). The frontend bakes its API URL in
+# at build time, so self-hosters build it from source with docker compose
+# (see workspace/README.md).
+#
+#   gh workflow run selfhost-release.yml -f version=1.0.0
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver without the leading v, e.g. 1.0.0"
+        required: true
+      ref:
+        description: "Commit on develop to release (default: develop HEAD)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selfhost-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Fast-forward release, tag and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Validate
+        id: v
+        env:
+          VERSION: ${{ inputs.version }}
+          REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::version must look like 1.2.3 or 1.2.3-rc.1"; exit 1
+          fi
+          TAG="workspace-v$VERSION"
+          git fetch --quiet --tags origin develop release
+          if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            echo "::error::tag $TAG already exists"; exit 1
+          fi
+          TARGET_SHA=$(git rev-parse --verify "${REF:-origin/develop}^{commit}")
+          REL_SHA=$(git rev-parse origin/release)
+          git merge-base --is-ancestor "$TARGET_SHA" origin/develop || { echo "::error::$TARGET_SHA is not on develop"; exit 1; }
+          git merge-base --is-ancestor "$REL_SHA" "$TARGET_SHA" || { echo "::error::release has commits not on develop; cannot fast-forward"; exit 1; }
+          PREV=$(git tag -l 'workspace-v*' --sort=-v:refname | head -1)
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
+          echo "prev=$PREV" >> "$GITHUB_OUTPUT"
+
+      - name: Fast-forward release and push tag (promotion deploy key)
+        env:
+          SSH_KEY: ${{ secrets.RELEASE_PROMOTE_SSH_KEY }}
+          SHA: ${{ steps.v.outputs.sha }}
+          TAG: ${{ steps.v.outputs.tag }}
+        run: |
+          set -euo pipefail
+          [ -n "$SSH_KEY" ] || { echo "::error::RELEASE_PROMOTE_SSH_KEY secret is not set."; exit 1; }
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/promote_key && chmod 600 ~/.ssh/promote_key
+          ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/promote_key -o IdentitiesOnly=yes"
+          git tag "$TAG" "$SHA"
+          git push "git@github.com:${{ github.repository }}.git" "$SHA:refs/heads/release" "refs/tags/$TAG"
+
+      - name: Build and push backend image
+        env:
+          SHA: ${{ steps.v.outputs.sha }}
+          VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openagents-workspace-backend"
+          echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          git checkout --quiet "$SHA"
+          docker build --file workspace/backend/production.Dockerfile \
+            --build-arg RELEASE_SHA="$SHA" \
+            --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
+            --label org.opencontainers.image.version="$VERSION" \
+            --tag "$IMAGE:$VERSION" workspace/backend
+          TAGS=("$VERSION")
+          if [[ "$VERSION" != *-* ]]; then docker tag "$IMAGE:$VERSION" "$IMAGE:latest"; TAGS+=(latest); fi
+          for t in "${TAGS[@]}"; do docker push "$IMAGE:$t"; done
+          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.v.outputs.tag }}
+          PREV: ${{ steps.v.outputs.prev }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          {
+            echo "Self-hosted OpenAgents Workspace $VERSION."
+            echo ""
+            echo "Backend image: \`$IMAGE:$VERSION\`"
+            echo ""
+            echo "Setup: see [workspace/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/$TAG/workspace/README.md#self-hosting)."
+            echo ""
+            echo "### Changes"
+            if [ -n "$PREV" ]; then git log --no-merges --format='- %s (%h)' "$PREV..$TAG" | head -200
+            else echo "First self-hosted release."; fi
+          } > notes.md
+          FLAGS=()
+          [[ "$VERSION" == *-* ]] && FLAGS+=(--prerelease)
+          gh release create "$TAG" --title "Workspace $VERSION (self-hosted)" --notes-file notes.md --verify-tag "${FLAGS[@]}"

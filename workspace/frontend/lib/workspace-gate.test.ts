@@ -11,7 +11,6 @@ vi.mock('@/lib/account-api', () => ({ listAccountWorkspaces: (...args: unknown[]
 vi.mock('@/lib/workspace-context', () => ({ WorkspaceProvider: ({children}:React.PropsWithChildren) => children, useWorkspace: () => ({currentUser:{name:'Test'},setUserName:vi.fn()}) }));
 vi.mock('@/components/layout/layout-context', () => ({ LayoutProvider: ({children}:React.PropsWithChildren) => children }));
 vi.mock('@/components/layout/wrapper', () => ({ Wrapper: () => React.createElement('div', null, 'Workspace opened') }));
-vi.mock('@/components/campaign/campaign-feedback', () => ({ CampaignMilestoneToasts: () => null }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key:string) => key }));
 vi.mock('@/lib/auth-redirects', () => ({ redirectToLogin:vi.fn(),goToCentralLogin:vi.fn() }));
 const roster = [{slug:'test',workspaceId:'test',token:'workspace-key',role:'owner'}];

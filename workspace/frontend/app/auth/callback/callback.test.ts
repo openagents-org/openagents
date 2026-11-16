@@ -4,14 +4,13 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
   auth: { idToken: null as string | null, adoptWorkspaceSession: vi.fn() },
-  routerReplace: vi.fn(), locationReplace: vi.fn(), capture: vi.fn(),
+  routerReplace: vi.fn(), locationReplace: vi.fn(),
   signIn: vi.fn(), exchange: vi.fn(), list: vi.fn(),
   storedSession: null as object | null,
 }));
 vi.mock('next/navigation', () => ({ useRouter: () => ({ replace: state.routerReplace }) }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => state.auth }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
-vi.mock('@/lib/analytics', () => ({ capture: state.capture }));
 vi.mock('@/lib/firebase', () => ({ signInWithCustomTokenValue: state.signIn }));
 vi.mock('@/lib/workspace-session', () => ({
   exchangeHandoffToken: state.exchange,
@@ -72,7 +71,6 @@ it('skips Firebase when openagents.org says Google is unreachable, and enters th
   // The workspace page opens on this token instead of fetching the list again.
   expect(recallWorkspaceToken('abc123', 'session-jwt')).toBe('ws-token');
   expect(sessionStorage.getItem('oa_auto_entered_first_ws')).toBe('1');
-  expect(state.capture).toHaveBeenCalledWith('first_workspace_auto_entered', { workspace_id: 'abc123', reason: 'only' });
   expect(JSON.parse(sessionStorage.getItem('oa_landing_note')!)).toMatchObject({ slug: 'abc123', reason: 'only' });
 });
 

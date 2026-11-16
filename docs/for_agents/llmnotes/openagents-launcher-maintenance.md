@@ -49,7 +49,7 @@ runs on every PR, or that an old test count describes current coverage.
 ## Release tracks
 
 - Workspace backend: merge into `develop`, then use the protected promotion
-  workflow to advance `release`; DigitalOcean performs the backend rollout.
+  workflow to advance `openagents-release`; DigitalOcean performs the backend rollout.
 - Launcher installers: `.github/workflows/desktop-build.yml` responds to
   `launcher-v*` / `desktop-v*` tags and manual dispatch. Creating an installer tag
   is separate from deploying the hosted Workspace UI/backend.

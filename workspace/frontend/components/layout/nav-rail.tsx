@@ -35,7 +35,6 @@ import { NotificationsMenu } from './notifications-menu';
 import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
-import { CampaignSidebarCard } from '@/components/campaign/campaign-sidebar-card';
 import { RailEdge } from './rail-edge';
 import { RailAgents } from './rail-agents';
 
@@ -256,10 +255,6 @@ export function NavRail() {
 
       {/* Global tools */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
-        {/* Credits-campaign progress (expanded rail only; self-hides when the
-            campaign is off or complete). */}
-        {showLabels && <CampaignSidebarCard />}
-
         <div
           className={cn(
             'flex gap-0.5',

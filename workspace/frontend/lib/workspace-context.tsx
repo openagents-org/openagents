@@ -6,7 +6,6 @@ import React, { createContext, useContext, useCallback, useEffect, useMemo, useR
 import { useMe } from '@/hooks/use-me';
 import { ApiError, workspaceApi } from './api';
 import { StopRequestTracker, confirmsStop } from './stop-requests';
-import { capture, group } from './analytics';
 import { useOpenAgentsAuth } from './openagents-auth-context';
 import { generateUserId, getStoredIdentity, storeIdentity } from './identity';
 import { networkAgentToWorkspaceAgent, networkChannelToSession } from './types';
@@ -864,12 +863,6 @@ export function WorkspaceProvider({
     workspaceApi.configure(workspaceId, token, bearerToken || undefined);
     setApiReady(true);
   }, [workspaceId, token, bearerToken]);
-
-  // Group changes follow workspace changes, not credential refreshes. The
-  // successful workspace load below emits the single workspace_opened event.
-  useEffect(() => {
-    if (workspaceId) group('workspace', workspaceId);
-  }, [workspaceId]);
 
   // In the desktop app this page is one tab among several; give the tab the
   // workspace's real name and both of the names it can be routed by.
@@ -1783,11 +1776,6 @@ export function WorkspaceProvider({
         if (cancelled) return;
         writeWorkspaceSnapshot(key, { workspace: ws, discovery });
         const channelSessions = applyRoster({ workspace: ws, discovery });
-        capture('workspace_opened', {
-          workspace_id: workspaceId,
-          agent_count: discovery.agents.length,
-          agent_types: discovery.agents.map((a) => networkAgentToWorkspaceAgent(a).agentName),
-        });
         if (!snapshot) await openWith(channelSessions);
       } catch (e) {
         const status = e instanceof ApiError ? e.status : null;
@@ -1994,7 +1982,6 @@ export function WorkspaceProvider({
       groups: opts?.groups,
       humanParticipants: opts?.humanParticipants,
     });
-    capture('thread_created', { participant_count: participants.length, has_resume: !!opts?.resumeFrom, private: opts?.visibility === 'private' });
     setSessions((prev) => [session, ...prev]);
     setCurrentSessionId(session.sessionId);
     return session;
@@ -2002,7 +1989,6 @@ export function WorkspaceProvider({
 
   const forkSession = useCallback(async (sessionId: string, title?: string) => {
     const fork = await workspaceApi.forkChannel(sessionId, title);
-    capture('thread_forked', {});
     await refreshDiscovery();
     setCurrentSessionId(fork.name);
     return fork.name;
@@ -2023,9 +2009,6 @@ export function WorkspaceProvider({
     firstThreadFiredRef.current = true;
     const name = firstThreadAgent;
     setFirstThreadAgent(null);
-    // Onboarding conversion checkpoint: the user's first agent actually joined
-    // the workspace (not merely queued/configured).
-    capture('agent_connected', { agent_name: name, first_agent: true, source: 'guided_onboarding' });
     // Titled explicitly — an untitled thread would show the raw channel name
     // ("channel-abc1234") to a brand-new user as their very first thread.
     createSession({ title: `New Thread with ${name}`, master: name, participants: [name] }).catch(() => {});
@@ -2219,7 +2202,6 @@ export function WorkspaceProvider({
         visibility: visibility === 'private' ? 'private' : 'public',
         ...(directorEmail ? { ownerEmail: directorEmail } : {}),
       });
-      capture('thread_visibility_changed', { visibility });
     } catch (e) {
       if (previous) setSessions((prev) => prev.map((s) => (s.sessionId === sessionId ? previous : s)));
       throw e;
