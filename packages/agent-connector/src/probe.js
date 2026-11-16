@@ -40,6 +40,7 @@ const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } =
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
+const { codexPlanRefusedModel, codexAccountModels, codexPlanFallback } = require('./cli-models');
 
 const PROBE_PROMPT = 'hi';
 const DEFAULT_TIMEOUT_MS = 90_000;
@@ -491,6 +492,9 @@ function failureMessage(res, code, timeoutMs) {
   return detail || `Exited with code ${res.code}`;
 }
 
+/** A model id safe to pass on a command line, through a Windows shell too. */
+const CODEX_MODEL_ARG = /^[\w.:@/-]{1,128}$/;
+
 /**
  * Codex's probe run, cut down to the one question it asks.
  *
@@ -506,7 +510,7 @@ function failureMessage(res, code, timeoutMs) {
  * Server names are taken from the `[mcp_servers.<name>]` tables and only
  * bare names are used, so nothing needs quoting through a Windows shell.
  */
-function codexProbeArgs(args, env = {}) {
+function codexProbeArgs(args, env = {}, model = null) {
   if (!Array.isArray(args) || args[0] !== 'exec') return args;
   const home = env.CODEX_HOME || path.join(os.homedir(), '.codex');
   let text = '';
@@ -515,6 +519,10 @@ function codexProbeArgs(args, env = {}) {
   for (const m of text.matchAll(/^[ \t]*\[[ \t]*mcp_servers\.([A-Za-z0-9_-]+)[ \t]*[.\]]/gm)) names.add(m[1]);
   const extra = ['-c', 'features.hooks=false', '-c', 'features.apps=false'];
   for (const name of names) extra.push('-c', `mcp_servers.${name}.enabled=false`);
+  // The model the agent's chat runs on (the adapter passes `-m`). Without it
+  // the test ran Codex's own default: an agent set to gpt-5.6-luna failed
+  // its test on gpt-6.1-sol, which its ChatGPT plan does not include.
+  if (model && CODEX_MODEL_ARG.test(model)) extra.push('-m', model);
   // After the subcommand: `codex exec -c … hi`.
   return [args[0], ...extra, ...args.slice(1)];
 }
@@ -682,18 +690,44 @@ async function probeAgentType(connector, type, opts = {}) {
   // ── Live tier 1: the agent's own CLI, when the registry declares how ──
   if (hasLiveCli) {
     const shell = probeArgs && health.binary ? shouldUseShellForBinary(health.binary) : true;
-    const res = probeArgs && health.binary
+    const runProbeCli = (m) => runCommand(shellQuoted(health.binary, shell),
+      type === 'codex' ? codexProbeArgs(probeArgs, env, m) : probeArgs, { env, timeoutMs, shell });
+    let res = probeArgs && health.binary
       // Node refuses to spawn .cmd/.bat without a shell (EINVAL since the
       // CVE-2024-27980 hardening), which made every Windows CLI probe of an
       // npm-shim binary fail as "Exited with code 1" with no output.
-      ? await runCommand(shellQuoted(health.binary, shell), type === 'codex' ? codexProbeArgs(probeArgs, env) : probeArgs, { env, timeoutMs, shell })
+      ? await runProbeCli(model)
       : await runCommand(altCheck, [], { env, timeoutMs, shell: true });
+    // A ChatGPT sign-in refusing the model Codex ran on. With no model
+    // chosen that is Codex's default, and the chat adapter then runs the
+    // first model the account lists (adapters/codex.js); test that one. With
+    // a model chosen, say which models the account does list.
+    let planNote = '';
+    const refused = type === 'codex' && probeArgs && health.binary
+      ? codexPlanRefusedModel(`${res.stdout}\n${res.stderr}`) : null;
+    if (refused && !model) {
+      let fallback = null;
+      try { fallback = await codexPlanFallback(health.binary, env, refused); } catch {}
+      if (fallback && CODEX_MODEL_ARG.test(fallback)) {
+        res = await runProbeCli(fallback);
+        planNote = ` on ${fallback}: Codex's default model (${refused}) isn't included in this ChatGPT plan, so chats use ${fallback}`;
+      }
+    } else if (refused) {
+      let listed = [];
+      try { listed = (await codexAccountModels(health.binary, env)).map((m) => m.id); } catch {}
+      return done({
+        ok: false, method: 'cli', code: CODE.BAD_MODEL,
+        message: `${refused} isn't included in this ChatGPT plan.`
+          + (listed.length ? ` Models this account lists: ${listed.slice(0, 8).join(', ')}.` : ''),
+        guidance: buildGuidance(CODE.BAD_MODEL, entry, agentEnv),
+      });
+    }
     const output = withoutNoise(`${res.stdout}\n${res.stderr}`);
     const reply = withoutNoise(res.stdout).trim();
     if (!res.timedOut && !res.spawnError && res.code === 0 && reply) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
-        message: 'Responded',
+        message: `Responded${planNote}`,
         reply: tail(reply, REPLY_CAP),
       });
     }
@@ -707,7 +741,7 @@ async function probeAgentType(connector, type, opts = {}) {
     if (res.timedOut && !res.spawnError && looksLikeAnswer) {
       return done({
         ok: true, method: 'cli', code: CODE.OK,
-        message: `Responded (the CLI did not exit within ${Math.round(timeoutMs / 1000)}s)`,
+        message: `Responded${planNote} (the CLI did not exit within ${Math.round(timeoutMs / 1000)}s)`,
         reply: tail(reply, REPLY_CAP),
       });
     }

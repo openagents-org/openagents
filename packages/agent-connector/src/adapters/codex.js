@@ -19,6 +19,7 @@ const { execSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
+const { codexPlanRefusedModel, codexPlanFallback } = require('../cli-models');
 const { spawn, resolveWslBinary } = require('../wsl');
 const http = require('http');
 const https = require('https');
@@ -445,7 +446,10 @@ class CodexAdapter extends BaseAdapter {
     }
 
     const env = { ...(this.agentEnv || process.env) };
-    const effectiveModel = this._effectiveModel();
+    // No model chosen: Codex's own default, unless the account's plan already
+    // refused that once and a model it does list was picked instead.
+    let effectiveModel = this._effectiveModel() || this._planFallbackModel || '';
+    let planRetried = false;
 
     // Set model via env if configured
     if (effectiveModel) env.CODEX_MODEL = effectiveModel;
@@ -518,6 +522,31 @@ class CodexAdapter extends BaseAdapter {
             await this._sendRunFailure(msgChannel, result, { partial: true });
           }
           return;
+        } else if (!planRetried && !this._effectiveModel() && !this._customProvider
+          && codexPlanRefusedModel(`${result.errorMessage || ''}\n${result.stderr || ''}`)) {
+          // No model was chosen, so Codex ran its default, and the ChatGPT
+          // plan refused it ("The 'gpt-6.1-sol' model is not supported when
+          // using Codex with a ChatGPT account"). Every message failed the
+          // same way. Run the first model the account itself lists instead,
+          // and keep it for this agent's later messages.
+          planRetried = true;
+          const refused = codexPlanRefusedModel(`${result.errorMessage || ''}\n${result.stderr || ''}`);
+          let fallback = null;
+          try { fallback = await codexPlanFallback(this._codexBin, env, refused); } catch {}
+          if (!fallback) {
+            await this._sendRunFailure(msgChannel, result);
+            return;
+          }
+          this._log(`ChatGPT plan refused ${refused}; running ${fallback}, the first model the account lists`);
+          this._planFallbackModel = fallback;
+          effectiveModel = fallback;
+          env.CODEX_MODEL = fallback;
+          try {
+            await this.sendStatus(msgChannel, `Codex's default model (${refused}) isn't included in this ChatGPT plan, `
+              + `so this agent now runs ${fallback}. To use another model, pick one in the agent's settings.`);
+          } catch {}
+          attempt--;
+          continue;
         } else if (threadId && attempt === 0 && CodexAdapter._threadTooLarge(result)) {
           // The thread holds an item the API will no longer take, and codex
           // sends the whole thread with every turn, so every later message in
