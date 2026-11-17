@@ -30,7 +30,7 @@ from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _verify_workspace_access, _workspace_filter
 from app.services.unread_window import unread_cutoff_ms
 from app.services.read_state import stream_allows as read_state_stream_allows
-from app.services.poll_queries import dm_generation, event_type_filter, poll_generation, resume_cursor, stream_head
+from app.services.poll_queries import POLL_PREFIXES, dm_generation, event_type_filter, poll_generation, resume_cursor, stream_head, workspace_types_matching
 from openagents.core.onm_events import Event
 from openagents.core.onm_mods import EventRejected, PipelineContext
 
@@ -993,8 +993,12 @@ def poll_events(
             ).one_or_none()
             if cursor_row is not None:
                 after_position = {"id": cursor_row.id, "timestamp": cursor_row.timestamp}
-                # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp
+                # Use (timestamp, id) tuple to avoid skipping/duplicating events with the same timestamp.
+                # The implied `timestamp >=` bound is what lets PostgreSQL range-scan
+                # (network_id, timestamp): it cannot use the OR alone, and without
+                # it every at-head poll walked the workspace's entire history.
                 query = query.where(
+                    EventRecord.timestamp >= cursor_row.timestamp,
                     or_(
                         EventRecord.timestamp > cursor_row.timestamp,
                         and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id > cursor_row.id),
@@ -1007,6 +1011,7 @@ def poll_events(
             ).one_or_none()
             if cursor_row is not None:
                 query = query.where(
+                    EventRecord.timestamp <= cursor_row.timestamp,
                     or_(
                         EventRecord.timestamp < cursor_row.timestamp,
                         and_(EventRecord.timestamp == cursor_row.timestamp, EventRecord.id < cursor_row.id),
@@ -1020,7 +1025,10 @@ def poll_events(
             query = query.where(EventRecord.target == f"channel/{channel}")
 
         if type:
-            query = query.where(event_type_filter(type))
+            if type in POLL_PREFIXES:
+                query = query.where(event_type_filter(type))
+            else:
+                query = query.where(EventRecord.type.in_(workspace_types_matching(db, workspace_id, type)))
 
         if exclude_message_types:
             excluded = [t.strip() for t in exclude_message_types.split(",") if t.strip()]
