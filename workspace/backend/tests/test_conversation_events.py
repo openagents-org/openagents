@@ -77,4 +77,4 @@ def test_conversation_event_queries_are_batched(client, db, workspace, people, m
     conversations = response.json()['data']['conversations']
     assert len(conversations) == pair_count
     assert all(row['message_count'] == 2 and row['unread_count'] == 1 for row in conversations)
-    assert len(queries) == 3, 'One aggregate, one preview batch and one unread batch'
+    assert len(queries) == 4, 'Base and delta totals (cold cache), one preview batch and one unread batch'

@@ -8,7 +8,7 @@ import pytest
 from sqlalchemy import event
 
 from app import cache
-import app.routers.events as events_router
+from app.services import dm_summary
 from app.models import Channel, ChannelHumanMember, EventRecord
 from app.services.access_model import Principal, thread_shared_agent_names
 from tests.test_people_messaging import people, quiet_side_effects, _as  # noqa: F401
@@ -30,9 +30,15 @@ def memory_cache(monkeypatch, db):
     event.remove(db.bind, 'before_cursor_execute', capture)
 
 
+def now_ms():
+    return int(time.time() * 1000)
+
+
 def add_event(db, workspace, source, target, timestamp, visibility='direct', content='hello'):
+    # Tests pass small offsets; real events carry current timestamps, which
+    # the incremental DM summary relies on (it counts rows newer than its base).
     db.add(EventRecord(id=str(uuid4()), network_id=workspace['id'], source=source, target=target,
-                       timestamp=timestamp, type='workspace.message.posted', visibility=visibility,
+                       timestamp=now_ms() + timestamp, type='workspace.message.posted', visibility=visibility,
                        payload={'content': content}))
     db.commit()
 
@@ -62,7 +68,7 @@ def test_dm_summary_is_reused_until_a_direct_message_changes(client, db, workspa
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 1
     assert aggregates(memory_cache) == [], 'a busy workspace reuses the list for a few seconds'
 
-    later = time.time() + events_router.CONVERSATION_PAIRS_MAX_STALE_SECONDS + 1
+    later = time.time() + dm_summary.MERGED_MAX_STALE_SECONDS + 1
     monkeypatch.setattr(time, 'time', lambda: later)
     result = conversations(client, workspace, 'adam')
     assert aggregates(memory_cache), 'after the stale window a new DM recomputes the summary'
@@ -118,13 +124,13 @@ def test_dm_summary_never_reuses_an_entry_after_the_generation_key_is_lost(
     # A summary cached before the workspace's first DM write...
     db.execute(EventRecord.__table__.insert().values(
         id=str(uuid4()), network_id=workspace['id'], source='human:adam@acme.test', target='openagents:mine',
-        timestamp=100, type='workspace.message.posted', visibility='direct', payload={'content': 'first'}))
+        timestamp=now_ms() + 100, type='workspace.message.posted', visibility='direct', payload={'content': 'first'}))
     db.commit()
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 1
     # ...must not become current again when a later generation is evicted.
     add_event(db, workspace, 'openagents:mine', 'human:adam@acme.test', 200, content='later')
     for key in [k for k in memory_cache.store if k.startswith('v1events:dm-generation:')]:
         del memory_cache.store[key]
-    later = time.time() + events_router.CONVERSATION_PAIRS_MAX_STALE_SECONDS + 1
+    later = time.time() + dm_summary.MERGED_MAX_STALE_SECONDS + 1
     monkeypatch.setattr(time, 'time', lambda: later)
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 2
