@@ -22,3 +22,9 @@ it('preserves lists and headings while dropping active content and copy buttons'
   expect(result).toContain('_Two_');
   expect(result).not.toMatch(/alert|Copy code/);
 });
+
+it('rebuilds a fence from a rendered chat code block, keeping lines and language', () => {
+  const line = (text: string) => `<span data-slot="code-block-line"><span data-slot="code-block-line-content">${text}</span></span>`;
+  const html = `<p>Run:</p><div data-slot="code-block" data-language="ts"><div data-slot="code-block-header"><div data-slot="code-block-title">ts</div></div><pre data-slot="code-block-content"><code>${line('const a = 1')}${line('\n')}${line('const b = 2')}</code></pre></div>`;
+  expect(clipboardMarkdown(clipboard(html))).toBe('Run:\n\n```ts\nconst a = 1\n\nconst b = 2\n```');
+});

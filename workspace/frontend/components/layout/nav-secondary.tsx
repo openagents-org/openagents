@@ -14,8 +14,8 @@ import { useT } from '@/lib/i18n';
 import { useLayout } from './layout-context';
 
 /**
- * Pinned footer nav. When the workspace has no agent yet this becomes the
- * primary call to action, mirroring the previous sidebar behaviour.
+ * Manage Agents at the top of the mobile drawer, under the brand. When the
+ * workspace has no agent yet it is the call to action to connect one.
  */
 export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView } = useLayout();
@@ -26,7 +26,7 @@ export function NavSecondary({ onNavigate }: { onNavigate?: () => void }) {
   const isActive = onboarding || viewMode === 'connect';
   const setupStep = useFirstDeviceGuide();
   const showSetupHint = !!setupStep && !isActive;
-  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectFirstAgent');
+  const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectAgent');
 
   return (
     <SidebarGroup className="py-1">

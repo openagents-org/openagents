@@ -10,6 +10,7 @@ import asyncio
 import hashlib
 import json as _json
 import logging
+import time
 from types import SimpleNamespace
 from typing import Optional
 from uuid import UUID
@@ -42,6 +43,8 @@ EMPTY_CONTROL_POLL_CACHE_TTL_SECONDS = 10.0
 # DM writes change the key, so this only bounds memory and idle viewers'
 # recomputation (see poll_queries.dm_generation).
 CONVERSATION_PAIRS_CACHE_TTL_SECONDS = 600.0
+# How stale a DM list may be when DMs keep arriving (bounds recomputation).
+CONVERSATION_PAIRS_MAX_STALE_SECONDS = 5.0
 
 
 def _poll_cache_ttl(event_type, response):
@@ -1248,14 +1251,31 @@ def list_conversations(
     # The aggregation reads a workspace's whole DM history. Its inputs are the
     # filters plus the DM history itself, so key on exactly those.
     dm_scope = _dm_viewer_scope(viewer)
-    pairs_key = "v1events:dm-pairs:" + hashlib.sha1("|".join([
-        str(workspace.id), str(limit), agent or "", dm_scope or "", dm_generation(workspace.id),
+    generation = dm_generation(workspace.id)
+    list_key = "v1events:dm-pairs:" + hashlib.sha1("|".join([
+        str(workspace.id), str(limit), agent or "", dm_scope or "",
     ]).encode("utf-8")).hexdigest()
-    pairs = [SimpleNamespace(**row) for row in cache.json_singleflight(
-        pairs_key, CONVERSATION_PAIRS_CACHE_TTL_SECONDS,
-        lambda: [dict(row._mapping) for row in db.execute(
-            conversation_pairs_query(workspace.id, limit, agent, visibility_filters))],
-    )]
+    # A workspace receiving DMs every second would otherwise re-aggregate its
+    # whole history on every request. Reuse the latest summary for up to
+    # CONVERSATION_PAIRS_MAX_STALE_SECONDS even if newer DMs have landed.
+    latest = None
+    raw = cache.get_bytes(list_key)
+    if raw is not None:
+        try:
+            latest = _json.loads(raw)
+        except (TypeError, ValueError):
+            latest = None
+    if not (isinstance(latest, dict) and (
+            latest.get("generation") == generation
+            or time.time() - latest.get("at", 0) < CONVERSATION_PAIRS_MAX_STALE_SECONDS)):
+        latest = cache.json_singleflight(
+            list_key + ":" + generation, CONVERSATION_PAIRS_CACHE_TTL_SECONDS,
+            lambda: {"generation": generation, "at": time.time(), "pairs": [
+                dict(row._mapping) for row in db.execute(
+                    conversation_pairs_query(workspace.id, limit, agent, visibility_filters))]},
+        )
+        cache.set_bytes(list_key, _json.dumps(latest).encode("utf-8"), CONVERSATION_PAIRS_CACHE_TTL_SECONDS)
+    pairs = [SimpleNamespace(**row) for row in latest["pairs"]]
 
     from app.models import DirectThreadLink, DirectThreadPreference
     # Stored per-person markers (shared across devices) merge with the ones

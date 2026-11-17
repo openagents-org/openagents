@@ -13,8 +13,6 @@ import { BLUE, INK, BORDER, TOUR_CSS, FONT, EASE, Stamp, useClock } from './tour
 import { BrowserScene, RoutinesScene } from './tour-scenes';
 import { TasksScene, WorkflowsScene } from './tour-scenes-board';
 
-export { TOUR_BLUE } from './tour-scene-parts';
-
 export type TourFeature = 'browser' | 'routines' | 'tasks' | 'workflows';
 
 export const TOUR_META: Record<TourFeature, { icon: React.ComponentType<{ className?: string }>; dur: number; Scene: React.ComponentType<{ ms: number }> }> = {

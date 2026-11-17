@@ -321,4 +321,40 @@ async function listCliModels(connector, type, opts = {}) {
   return fail(res.error || 'The CLI listed no models.');
 }
 
-module.exports = { listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels };
+/**
+ * A ChatGPT sign-in refusing the model Codex ran on:
+ * "The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT
+ * account." Returns that model, or null.
+ *
+ * With no model chosen, Codex runs its own default (or the user's
+ * ~/.codex/config.toml one), and that is often a model the account's plan
+ * does not include. The account's own list does not offer it.
+ */
+function codexPlanRefusedModel(text) {
+  const m = String(text || '').match(/The '([^']{1,128})' model is not supported when using Codex with a ChatGPT account/i);
+  return m ? m[1] : null;
+}
+
+/**
+ * The models Codex lists for the account it is signed in to, in its picker's
+ * order (`codex debug models`, see parseCodexModels). [] when it will not say.
+ * `binary` is the Codex CLI the agent runs; `env` the env it runs it on.
+ */
+async function codexAccountModels(binary, env, { timeoutMs, spawnImpl } = {}) {
+  if (!binary) return [];
+  const lister = LISTERS.codex;
+  const res = await runCli(binary, lister.args, { env, timeoutMs: timeoutMs || lister.timeoutMs, spawnImpl });
+  return lister.parse(res.stdout);
+}
+
+/**
+ * The model to run instead of one a ChatGPT plan refused: the first the
+ * account itself lists that is not the refused one. null when there is none.
+ */
+async function codexPlanFallback(binary, env, refused, opts = {}) {
+  const models = await codexAccountModels(binary, env, opts);
+  const pick = models.find((m) => m.id !== refused);
+  return pick ? pick.id : null;
+}
+
+module.exports = { codexPlanRefusedModel, codexAccountModels, codexPlanFallback, listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels };

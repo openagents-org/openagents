@@ -19,7 +19,7 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
   return (
     <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[var(--oa-scene-border)] bg-[var(--oa-scene-bg)] px-6 pb-7 pt-10 text-[var(--oa-scene-text)] sm:px-10" aria-labelledby="onboarding-connection-title">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_55%,#2f6bff12,transparent_55%),radial-gradient(ellipse_at_15%_15%,#14b8a60d,transparent_50%)]" />
-      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-slate-500 transition hover:bg-blue-100/60 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-blue-900/30 dark:hover:text-slate-100 sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
+      {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--oa-scene-caption)] transition-colors hover:bg-[var(--oa-scene-border)] hover:text-[var(--oa-scene-text)] sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
 
       <div className="relative z-10 w-full sm:w-[56%]">
         <p className="mb-2 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>

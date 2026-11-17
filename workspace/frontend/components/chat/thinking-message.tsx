@@ -2,16 +2,18 @@
 
 import { AgentOwnershipBadge } from './agent-message-access';
 import { memo } from 'react';
-import { Brain } from 'lucide-react';
+import { Trace } from '@/components/ui/trace';
+import { ReasoningLine } from './reasoning-line';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
-import { useT } from '@/lib/i18n';
 
 interface ThinkingMessageProps {
   sender: string;
   messages: WorkspaceMessage[];
   agents?: WorkspaceAgent[];
+  /** This is the thread's newest row, so the agent may still be thinking. */
+  isActive?: boolean;
 }
 
 /** True for placeholder thinking with no real content. */
@@ -22,13 +24,16 @@ function isPlaceholder(text: string): boolean {
 
 /**
  * First-level "thinking" block. Unlike tool calls (which stay clustered at the
- * sub level in IntermediateSteps), an agent's reasoning is promoted to the same
- * level as chat messages and attributed to its author (avatar + name), while
- * still being visually muted so it reads as reasoning, not the final answer.
+ * sub level in IntermediateSteps), an agent's reasoning is attributed to its
+ * author (avatar + name) like a chat message; the reasoning itself is a
+ * shadcn AI Elements Reasoning line that folds away once the agent moves on.
  */
-export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages, agents = [] }: ThinkingMessageProps) {
-  const t = useT();
+export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages, agents = [], isActive = false }: ThinkingMessageProps) {
   const agent = agents.find((a) => a.agentName === sender);
+
+  // A thread can end on thinking when the agent drops off mid-turn; only a
+  // connected agent can still be thinking, otherwise the spinner never stops.
+  const running = isActive && agent?.status !== 'offline';
 
   const texts = messages.map((m) => m.content).filter((text) => text && !isPlaceholder(text));
   if (texts.length === 0) return null;
@@ -41,41 +46,17 @@ export const ThinkingMessage = memo(function ThinkingMessage({ sender, messages,
     <div className="py-1.5">
       <div className="flex items-start gap-3">
         <AgentAvatar name={sender} size={32} className="opacity-70" />
-        <div className="flex-1 min-w-0">
+        <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-baseline gap-2">
             <span className="truncate text-sm font-semibold text-foreground">{agent ? agentLabel(agent) : sender}</span>
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium italic text-warning">
-              <Brain className="size-3.5" />
-              {t('chat.thinking')}
-            </span>
             {agent && <AgentOwnershipBadge agent={agent} />}
             {timestamp && (
               <span className="text-xs text-muted-foreground">{timestamp}</span>
             )}
           </div>
-          <div className="mt-0.5 text-sm leading-relaxed text-muted-foreground">
-            {texts.length === 1 ? (
-              <div className="whitespace-pre-wrap">{texts[0]}</div>
-            ) : (
-              // Multiple thinking chunks stream in over time; mark distinct
-              // reasoning lines with a bullet. The bullet hangs in the left
-              // gutter (absolute) so the text stays aligned with the agent
-              // name above; the first line needs no bullet.
-              <div className="flex flex-col gap-2">
-                {texts.map((text, i) => (
-                  <div key={i} className="relative whitespace-pre-wrap">
-                    {i > 0 && (
-                      <span
-                        aria-hidden
-                        className="absolute -left-3 top-3 size-1.5 -translate-y-1/2 rounded-full bg-warning/50"
-                      />
-                    )}
-                    {text}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <Trace>
+            <ReasoningLine text={texts.join('\n\n')} running={running} />
+          </Trace>
         </div>
       </div>
     </div>

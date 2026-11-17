@@ -7,7 +7,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { CodeBlock, CodeBlockContent } from '@/components/ui/code-block';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -158,41 +159,34 @@ export function ApprovalCard({
       ? t('approvals.assigneeHint', { who: addresseeText })
       : t('approvals.roleHint', { role: roleText, yours: roleLabel(t, me?.role) || '—' });
 
+  // Pending cards always have a footer (the note button or the blocked hint).
+  const hasFooter = isPending
+    || Boolean(approval.details)
+    || Boolean(approval.note && approval.resolvedBy !== 'policy')
+    || Boolean(requirements?.approved_by.length);
+
   const riskVariant = approval.risk === 'high' ? 'destructive' : approval.risk === 'medium' ? 'warning' : 'secondary';
 
   return (
-    <Card
+    <Item
+      variant="outline"
       size="sm"
-      className={cn('mt-1.5 max-w-xl gap-0 py-0 shadow-sm', isPending && 'ring-warning/70')}
+      className={cn('mt-1.5 max-w-xl items-start', isPending && 'border-warning/60')}
       data-testid="approval-card"
       data-kind-class="approval"
     >
-      {/* Header */}
-      <CardHeader className={cn(
-        'flex items-center gap-2 py-2 text-xs font-semibold',
-        isPending ? 'bg-warning/10 text-warning' : 'bg-muted/60 text-foreground',
-      )}>
-        <Lock aria-hidden="true" className="size-3.5 shrink-0" />
-        <span className="truncate">{headerText}</span>
-        <span className="ml-auto flex shrink-0 items-center gap-1.5">
-          <Badge variant="outline" className="bg-background/70 tracking-wide text-muted-foreground uppercase">{kindLabel}</Badge>
+      <ItemMedia variant="icon" className={cn(isPending ? 'text-warning' : 'text-muted-foreground')}>
+        <Lock aria-hidden="true" />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle className="line-clamp-none flex-wrap">
+          <span className="min-w-0 wrap-break-word">{headerText}</span>
+          <Badge variant="outline" className="text-muted-foreground">{kindLabel}</Badge>
           {approval.risk && (
-            <Badge variant={riskVariant} className="tracking-wide uppercase">
-              {approval.risk} {t('approvals.risk')}
-            </Badge>
+            <Badge variant={riskVariant}>{approval.risk} {t('approvals.risk')}</Badge>
           )}
-        </span>
-      </CardHeader>
-
-      {/* Body */}
-      <CardContent className="flex flex-col gap-2.5 py-3">
-        {approval.details && (
-          <pre className="max-h-48 overflow-auto rounded-md bg-muted px-2.5 py-2 font-mono text-xs leading-relaxed whitespace-pre-wrap text-foreground/90 wrap-break-word">
-            {approval.details}
-          </pre>
-        )}
-
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+        </ItemTitle>
+        <ItemDescription className="line-clamp-none flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
           <span className="inline-flex items-center gap-1">
             <ShieldAlert aria-hidden="true" className="size-3.5" />
             {t('approvals.needs', { role: roleText })}
@@ -206,49 +200,51 @@ export function ApprovalCard({
               {approval.resolvedAt && <span className="font-normal text-muted-foreground"> · {formatTime(approval.resolvedAt)}</span>}
             </span>
           )}
-        </div>
+        </ItemDescription>
+      </ItemContent>
 
-        {!isPending && approval.note && approval.resolvedBy !== 'policy' && (
-          <p className="text-xs text-muted-foreground italic">“{approval.note}”</p>
-        )}
+      {/* Decision — Deny then Approve, as in shadcn AI Elements Confirmation */}
+      {isPending && canDecide && (
+        <ItemActions>
+          <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => decide('reject')}>
+            {busy === 'reject' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}
+            {busy === 'reject' ? t('approvals.sending') : t('approvals.reject')}
+          </Button>
+          <Button size="sm" disabled={busy !== null} onClick={() => decide('approve')}>
+            {busy === 'approve' ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
+            {busy === 'approve' ? t('approvals.sending') : t('approvals.approve')}
+          </Button>
+        </ItemActions>
+      )}
 
-        {!!requirements?.approved_by.length && <p className="text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: requirements.approved_by.map(personName).join(', ') })}</p>}
-        {/* Decision */}
-        {isPending && canDecide && (
-          <div className="flex flex-col gap-2 pt-0.5">
-            {showNote && (
-              <Textarea
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-                placeholder={t('approvals.notePlaceholder')}
-                rows={2}
-              />
-            )}
-            <div className="flex items-center gap-2">
-              <Button size="sm" disabled={busy !== null} onClick={() => decide('approve')}>
-                {busy === 'approve' ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}
-                {busy === 'approve'
-                  ? t('approvals.sending')
-                  : t('approvals.approve')}
-              </Button>
-              <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => decide('reject')}>
-                {busy === 'reject' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}
-                {busy === 'reject'
-                  ? t('approvals.sending')
-                  : t('approvals.reject')}
-              </Button>
-              {!showNote && (
-                <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setShowNote(true)}>
-                  {t('approvals.addNote')}
-                </Button>
-              )}
-            </div>
-          </div>
-        )}
-        {isPending && !canDecide && (
-          <p className="text-xs text-muted-foreground">{blockedHint}</p>
-        )}
-      </CardContent>
-    </Card>
+      {hasFooter && (
+        <ItemFooter className="flex-col items-stretch">
+          {approval.details && (
+            <CodeBlock size="sm">
+              <CodeBlockContent wrap className="max-h-48">{approval.details}</CodeBlockContent>
+            </CodeBlock>
+          )}
+          {!isPending && approval.note && approval.resolvedBy !== 'policy' && (
+            <p className="text-xs text-muted-foreground italic">“{approval.note}”</p>
+          )}
+          {!!requirements?.approved_by.length && <p className="text-xs text-muted-foreground">{t('approvals.reviewedBy', { people: requirements.approved_by.map(personName).join(', ') })}</p>}
+          {isPending && canDecide && (showNote ? (
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={t('approvals.notePlaceholder')}
+              rows={2}
+            />
+          ) : (
+            <Button variant="ghost" size="xs" className="self-start text-muted-foreground" onClick={() => setShowNote(true)}>
+              {t('approvals.addNote')}
+            </Button>
+          ))}
+          {isPending && !canDecide && (
+            <p className="text-xs text-muted-foreground">{blockedHint}</p>
+          )}
+        </ItemFooter>
+      )}
+    </Item>
   );
 }

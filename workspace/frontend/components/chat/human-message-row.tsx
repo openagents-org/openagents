@@ -75,7 +75,7 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
           {timestamp && <span className="font-normal">{timestamp}</span>}
           {/* v1.1 M5 — information vs execution in directed threads */}
           {message.metadata?.informational === true && (
-            <Badge variant="info" title={t('brief.infoTagHint')}>{t('brief.infoTag')}</Badge>
+            <Badge variant="outline" title={t('brief.infoTagHint')}>{t('brief.infoTag')}</Badge>
           )}
           {message.metadata?.from_non_director === true && (
             <Badge variant="secondary" title={t('brief.nonDirectorHint')}>{t('brief.nonDirectorTag')}</Badge>

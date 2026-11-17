@@ -253,7 +253,6 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
             <ChatMessages
               messages={displayMessages}
               agents={agents}
-              showAllSteps={false}
               scrollKey={scrollKey}
               className="flex-1 overflow-y-auto px-5 py-3"
             />

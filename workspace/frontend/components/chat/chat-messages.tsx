@@ -26,7 +26,6 @@ import { useMessageTarget, useScrollToTarget } from './use-message-target';
 interface ChatMessagesProps {
   messages: WorkspaceMessage[];
   agents?: WorkspaceAgent[];
-  showAllSteps: boolean;
   className?: string;
   /** Increment to force scroll to bottom (e.g. after user sends a message). */
   scrollKey?: number;
@@ -44,7 +43,7 @@ interface ChatMessagesProps {
   targetSessionId?: string | null;
 }
 
-function ChatMessagesContent({ messages, agents, showAllSteps, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, targetSessionId }: ChatMessagesProps) {
+function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, targetSessionId }: ChatMessagesProps) {
   const t = useT();
   const target = useMessageTarget(targetSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,8 +66,8 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
     (!m.metadata?.routing_assignment || m.messageType === 'approval' || !!m.metadata?.approval)
   ), [visibleMessages]);
 
-  // Filter: skip empty status messages; when toggle is off, only show status messages after the last chat message
-  const filteredMessages = useMemo(() => filterThreadSteps(realMessages, showAllSteps), [realMessages, showAllSteps]);
+  // Filter: skip empty steps and thinking that only previewed the reply
+  const filteredMessages = useMemo(() => filterThreadSteps(realMessages), [realMessages]);
 
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
@@ -190,6 +189,7 @@ function ChatMessagesContent({ messages, agents, showAllSteps, className, scroll
                       sender={group.sender}
                       messages={group.messages}
                       agents={agents}
+                      isActive={index === groups.length - 1}
                     />
                   ) : (
                     <IntermediateSteps

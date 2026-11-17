@@ -54,7 +54,7 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
-    railDragWidth, filesSection, selectedAgentName, setSelectedAgentName, openView,
+    filesSection, selectedAgentName, setSelectedAgentName, openView,
   } = useLayout();
 
   // v1.1 M2: `#?agent=<name>` (where an agent invite lands) opens the agent
@@ -180,10 +180,7 @@ export function Wrapper() {
 
   // The shell sizes itself: rail width plus the list panel when it is showing.
   // Expanding the rail to show labels widens the shell by the same amount.
-  // While the rail's edge is being dragged the live width wins, so the shell
-  // tracks the pointer and only settles on a state when the drag ends.
-  const railWidth =
-    railDragWidth ?? (isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED);
+  const railWidth = isRailExpanded ? RAIL_WIDTH_EXPANDED : RAIL_WIDTH_COLLAPSED;
   const shellWidth = railWidth + (sidebarOpen ? 388 : 0);
 
   // On a computer a narrow window stays the desktop shell: one narrower than

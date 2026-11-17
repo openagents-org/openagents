@@ -65,8 +65,8 @@ function Consent() {
             <li key={line} className="flex gap-2"><Check className="mt-0.5 size-4 shrink-0 text-primary" />{line}</li>
           ))}
         </ul>
-        <p className="flex gap-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200">
-          <ShieldAlert className="size-4 shrink-0" />{t('hubApps.consentWarning')}
+        <p className="flex gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-foreground">
+          <ShieldAlert className="size-4 shrink-0 text-warning" />{t('hubApps.consentWarning')}
         </p>
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div className="grid grid-cols-2 gap-3">

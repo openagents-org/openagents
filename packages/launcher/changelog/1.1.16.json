@@ -1,0 +1,24 @@
+{
+  "version": "1.1.16",
+  "date": "2026-11-16",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A cleaner conversation view",
+        "zh": "会话界面更简洁"
+      },
+      "description": {
+        "en": "Agent progress folds into short summaries, code blocks gain highlighting and a copy button, and the message box is redesigned.",
+        "zh": "智能体进度收起为摘要，代码块支持高亮与复制，输入框焕新。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A refreshed workspace sidebar and title bar",
+        "zh": "工作区侧栏与标题栏焕新"
+      }
+    }
+  ]
+}

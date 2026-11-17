@@ -123,7 +123,35 @@ function workspaceSkillName(agentName) {
  * - `'skills'` → points at the agent's workspace skill (Bash + curl),
  *   since no MCP server is spawned and that tool would not exist.
  */
+// Skill files are written once per agent and read by every one of its
+// threads, including threads running at the same time. A channel baked into
+// one would send another thread's to-dos, files and messages to the wrong
+// place, so skill files carry this placeholder and say where the real channel
+// is (the per-thread system prompt or header).
+const SHARED_SKILL_CHANNEL = 'CURRENT_CHANNEL';
+
+function buildSharedChannelNote() {
+  return (
+    `This skill file is shared by all of your threads, so its commands say \`${SHARED_SKILL_CHANNEL}\` ` +
+    'instead of a channel. Replace it with the channel of the conversation you are answering — ' +
+    'the `Channel:` in your instructions (or the channel in the `[OpenAgents workspace]` header). ' +
+    'Never reuse a channel name from another conversation.\n\n'
+  );
+}
+
 function buildWorkspaceIdentity(agentName, workspaceId, channelName, mode = 'execute', toolMode = 'mcp', model = null) {
+  // channelName null: a shared skill file, which must not name one channel.
+  if (channelName == null) {
+    return (
+      `You are agent '${agentName}' connected to an OpenAgents workspace.\n` +
+      'Your text responses are automatically posted to the workspace chat ' +
+      '— just write your answer naturally.\n\n' +
+      '## Workspace Context\n' +
+      `- Workspace ID: ${workspaceId}\n` +
+      '- Channel: the one named in your instructions for this conversation\n\n' +
+      buildSharedChannelNote()
+    );
+  }
   const priorContext = toolMode === 'skills'
     ? (
       `When you need prior context, use the ${workspaceSkillName(agentName)} skill to ` +
@@ -962,12 +990,12 @@ function buildOpenclawSystemPrompt({ agentName, workspaceId, channelName, endpoi
 /**
  * Build a SKILL.md file for OpenClaw's skill auto-discovery.
  */
-function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
+function buildOpenclawSkillMd({ endpoint, workspaceId, token, agentName, disabledModules, browserEnabled = false }) {
   const body = buildApiSkillsPrompt({
-    endpoint, workspaceId, token, agentName, channelName, disabledModules, mode: 'execute',
+    endpoint, workspaceId, token, agentName, channelName: SHARED_SKILL_CHANNEL, disabledModules, mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, null, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
@@ -1168,10 +1196,10 @@ function buildDeepSeekTaskFile({
 /**
  * Build workspace skill markdown for OpenCode (written to .opencode/skills/).
  */
-function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
+function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, disabledModules }) {
   const api = buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    channelName: SHARED_SKILL_CHANNEL,
     disabledModules,
     mode: 'execute',
     execTool: 'bash',
@@ -1185,7 +1213,8 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
 
   const identity =
     `You are agent '${agentName}' connected to OpenAgents workspace ${workspaceId}.\n` +
-    'Use these APIs via bash + curl to interact with the workspace.\n\n';
+    'Use these APIs via bash + curl to interact with the workspace.\n\n' +
+    buildSharedChannelNote();
 
   return frontmatter + identity + api + '\n' + buildGuardrails();
 }
@@ -1201,10 +1230,10 @@ function buildOpenCodeSkillMd({ endpoint, workspaceId, token, agentName, channel
  * `exec` other adapters advertise — because an agent told to call a tool it
  * does not have simply does nothing.
  */
-function buildCommandCodeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules }) {
+function buildCommandCodeSkillMd({ endpoint, workspaceId, token, agentName, disabledModules }) {
   const api = buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    channelName: SHARED_SKILL_CHANNEL,
     disabledModules,
     mode: 'execute',
     execTool: 'shell_command',
@@ -1218,7 +1247,8 @@ function buildCommandCodeSkillMd({ endpoint, workspaceId, token, agentName, chan
 
   const identity =
     `You are agent '${agentName}' connected to OpenAgents workspace ${workspaceId}.\n` +
-    'Use these APIs via `shell_command` + curl to interact with the workspace.\n\n';
+    'Use these APIs via `shell_command` + curl to interact with the workspace.\n\n' +
+    buildSharedChannelNote();
 
   return frontmatter + identity + api + '\n' + buildGuardrails();
 }
@@ -1230,15 +1260,15 @@ function buildCommandCodeSkillMd({ endpoint, workspaceId, token, agentName, chan
  * of spawning an MCP server. Claude Code discovers the skill via its
  * .claude/skills/ directory and uses Bash + curl to call workspace APIs.
  */
-function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
+function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, disabledModules, browserEnabled = false }) {
   const api = buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    channelName: SHARED_SKILL_CHANNEL,
     disabledModules,
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, null, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
@@ -1261,15 +1291,15 @@ function buildClaudeSkillMd({ endpoint, workspaceId, token, agentName, channelNa
  * Written to .cursor/skills/<workspaceSkillName>.md before each CLI spawn.
  * Cursor discovers skills from the .cursor/skills/ directory automatically.
  */
-function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, channelName, disabledModules, browserEnabled = false }) {
+function buildCursorSkillMd({ endpoint, workspaceId, token, agentName, disabledModules, browserEnabled = false }) {
   const api = buildApiSkillsPrompt({
     endpoint, workspaceId, token, agentName,
-    channelName: channelName || 'general',
+    channelName: SHARED_SKILL_CHANNEL,
     disabledModules,
     mode: 'execute',
   });
 
-  const identity = buildWorkspaceIdentity(agentName, workspaceId, channelName, 'execute', 'skills');
+  const identity = buildWorkspaceIdentity(agentName, workspaceId, null, 'execute', 'skills');
   const directive = buildBrowserDirective(browserEnabled);
   const collab = buildCollaborationPrompt('skills', workspaceSkillName(agentName));
 
@@ -1316,6 +1346,7 @@ function buildHandoffPrompt(toolMode = 'mcp') {
 }
 
 module.exports = {
+  SHARED_SKILL_CHANNEL,
   workspaceSkillName,
   buildHandoffPrompt,
   buildWorkspaceIdentity,

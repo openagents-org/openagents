@@ -100,13 +100,14 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
               {Array.isArray(review.blocked) && review.blocked.length > 0 && <p>{t('reviewHandoff.blocked', { agents: review.blocked.map(name => agentLabels[name] || name).join(', ') })}</p>}
             </div>}
 
-            {/* Tap-to-ask chips (e.g. Yumi's seeded welcome). Only on the
+            {/* Tap-to-ask chips (e.g. Yumi's seeded welcome), as shadcn AI
+                Elements Suggestion: one row that scrolls sideways. Only on the
                 trailing message: once the user replies, the moment is over. */}
             {isLast && yumiWelcome && <YumiAgentLocation />}
             {suggestions.length > 0 && (
-              <div className="mt-2.5 flex flex-wrap gap-2">
+              <div className="mt-2.5 flex scroll-fade-x no-scrollbar gap-2 overflow-x-auto overscroll-x-contain">
                 {suggestions.map((s) => (
-                  <Button key={s} variant="outline" onClick={() => onSuggestion?.(s)}>
+                  <Button key={s} variant="outline" size="sm" className="shrink-0" onClick={() => onSuggestion?.(s)}>
                     {s}
                   </Button>
                 ))}

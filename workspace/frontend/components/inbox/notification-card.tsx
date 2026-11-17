@@ -13,7 +13,7 @@ import type { NotificationItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 
-/** Unread marker: red for high priority, blue otherwise. Once read it is
+/** Unread marker: red for high priority, the primary ink otherwise. Once read it is
  *  hidden but keeps its slot, so the avatar column does not shift. */
 function UnreadDot({ unread, priority }: { unread: boolean; priority: NotificationItem['priority'] }) {
   return (
@@ -22,7 +22,7 @@ function UnreadDot({ unread, priority }: { unread: boolean; priority: Notificati
       data-testid="inbox-unread-dot"
       className={cn(
         'mt-1.5 size-2 shrink-0 rounded-full',
-        !unread ? 'invisible' : priority === 'high' ? 'bg-destructive' : 'bg-info',
+        !unread ? 'invisible' : priority === 'high' ? 'bg-destructive' : 'bg-primary',
       )}
     />
   );

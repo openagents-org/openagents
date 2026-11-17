@@ -371,7 +371,7 @@ class CursorAdapter extends BaseAdapter {
     // this agent is and exactly which skill file is its interface — otherwise
     // it can read a sibling's skill and upload under that agent's name.
     const identityHeader =
-      `[workspace] You are agent '${this.agentName}'. For ANY workspace ` +
+      `[workspace] You are agent '${this.agentName}', answering in channel '${channelName}'. For ANY workspace ` +
       `operation (messages, files, agents, browser) read and follow ONLY the ` +
       `'${workspaceSkillName(this.agentName)}' skill. Other ` +
       `openagents-workspace-* skills belong to OTHER agents and carry the ` +

@@ -30,7 +30,7 @@ export function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
   return (
     <Card size="sm" className="max-w-2xl gap-2">
       <CardHeader className="flex min-w-0 items-center gap-2 border-b">
-        <ArrowRightLeft aria-hidden="true" className="size-3.5 shrink-0 text-info" />
+        <ArrowRightLeft aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="shrink-0 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
           {t('collab.handoff.title')}
         </span>

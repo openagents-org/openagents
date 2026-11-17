@@ -7,7 +7,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { DmUnreadBadge } from '@/components/layout/dm-unread-badge';
 import { Kbd } from '@/components/ui/kbd';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
-import { ROW_BASE, ROW_IDLE, ROW_SELECTED, UNREAD_ACCENT } from './thread-list-utils';
+import { MENTION_ACCENT, ROW_BASE, ROW_IDLE, ROW_SELECTED, UNREAD_ACCENT } from './thread-list-utils';
 
 function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; session: WorkspaceSession; max?: number }) {
   const t = useT();
@@ -50,12 +50,12 @@ function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; s
 
 // ── Unread markers ──
 
-/** Slack's "@" badge: unread mentions of the viewer, in the accent colour. */
+/** Slack's "@" badge: unread mentions of the viewer, in red like the nav counts. */
 function MentionPill({ count }: { count: number }) {
   const t = useT();
   return (
     <span
-      className={cn('inline-flex h-4 shrink-0 items-center gap-px rounded-full px-1.5 text-xs leading-none font-semibold tabular-nums', UNREAD_ACCENT)}
+      className={cn('inline-flex h-4 shrink-0 items-center gap-px rounded-full px-1.5 text-xs leading-none font-semibold tabular-nums', MENTION_ACCENT)}
       aria-label={t('slackSignals.mentionCount', { count })}
       title={t('slackSignals.mentionCount', { count })}
     >
@@ -136,10 +136,10 @@ export function ThreadRow({
         ROW_BASE,
         isSelected ? ROW_SELECTED : ROW_IDLE,
         isRunning && 'thread-wip',
-        // Completed thread — light golden highlight. Selection styling wins
+        // Completed thread — a light success glow. Selection styling wins
         // while the row is open.
         isCompleted && !isSelected &&
-          'animate-[glow_2s_ease-in-out_infinite] rounded-md border-transparent bg-warning/10 ring-1 ring-warning/30 ring-inset',
+          'animate-[glow_2s_ease-in-out_infinite] rounded-md border-transparent bg-success/10 ring-1 ring-success/30 ring-inset',
         muted && 'opacity-60',
       )}
     >
@@ -176,7 +176,7 @@ export function ThreadRow({
             <DmUnreadBadge count={unreadCount} />
             {mentionCount > 0 && <MentionPill count={mentionCount} />}
             {isCompleted && !isSelected && (
-              <CheckCircle2 className="size-3 shrink-0 text-warning" aria-label={t('threads.finished')} />
+              <CheckCircle2 className="size-3 shrink-0 text-success" aria-label={t('threads.finished')} />
             )}
             <span className={rowTimeClass(isUnread)}>{displayTime}</span>
             {shortcutKey && <Kbd>{shortcutKey}</Kbd>}
