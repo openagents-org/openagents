@@ -127,6 +127,22 @@ describe('OpenCode — warm server', { skip: process.platform === 'win32' && 'th
     assert.deepEqual(server.permissions, [['ses_1', 'per_1', 'once']]);
   });
 
+  it('answers permission requests from subagent sessions it started', async () => {
+    // opencode-ai 1.17.11: a task-tool subagent runs in a child session and
+    // asks for external_directory there; unanswered, the turn sat idle until
+    // the watchdog stopped it.
+    const created = (id, parentID) => ({ type: 'session.created', properties: { sessionID: id, info: { id, parentID } } });
+    const asked = (id, sessionID) => ({ type: 'permission.asked', properties: { id, sessionID, permission: 'external_directory' } });
+    const server = fakeServer({
+      live: [created('ses_child', 'ses_1'), created('ses_grandchild', 'ses_child'), created('ses_stranger', 'ses_other'),
+        asked('per_1', 'ses_child'), asked('per_2', 'ses_grandchild'), asked('per_3', 'ses_stranger')],
+      final: [part('p2', 'text', { text: 'ok', ...ended })],
+    });
+    const { adapter } = makeAdapter(server, { sessionId: 'ses_1' });
+    await adapter._runOpencode('hello', 'thread');
+    assert.deepEqual(server.permissions, [['ses_child', 'per_1', 'once'], ['ses_grandchild', 'per_2', 'once']]);
+  });
+
   it('fails like opencode run when the turn ends in an error', async () => {
     const server = fakeServer({ final: [], error: { name: 'ProviderAuthError', data: { message: 'Invalid API key' } } });
     const { adapter } = makeAdapter(server, { sessionId: 'ses_1' });
