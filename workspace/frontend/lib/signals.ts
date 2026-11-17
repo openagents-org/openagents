@@ -72,6 +72,18 @@ export function unreadIssueCounts(unread: UnreadSignals = {}): Record<string, nu
   return counts;
 }
 
+/** The issue with the newest unread signal, or null when none is unread. */
+export function latestUnreadIssueId(unread: UnreadSignals = {}): string | null {
+  let best: { id: string; at: number } | null = null;
+  for (const [channel, sig] of Object.entries(unread)) {
+    const id = issueIdFromSignalChannel(channel);
+    if (!id || sig.mentions + (sig.issues ?? 0) <= 0) continue;
+    const at = ts(sig.latest);
+    if (!best || at > best.at) best = { id, at };
+  }
+  return best?.id ?? null;
+}
+
 /** Drop rows the user already read locally (a poll may race the PATCH). */
 export function withoutLocallyRead(
   signals: readonly NotificationItem[],

@@ -22,6 +22,7 @@ import { IssueBoardColumns, IssuesEmpty } from './issue-list-states';
 import { IssuesToolbar, type IssueStatusFilter, type IssueViewMode } from './issues-toolbar';
 import { useIssueList } from './use-issue-list';
 import { ErrorNotice, IssueSkeleton, errorMessage, useConfirmIssueDelete } from './issue-ui';
+import { filtersShowingIssue } from './issue-jump';
 
 export function IssuesView() {
   const { workspace } = useWorkspace();
@@ -30,7 +31,7 @@ export function IssuesView() {
 }
 
 function IssueWorkspace() {
-  const { unreadSignals, workspace } = useWorkspace();
+  const { unreadSignals, workspace, currentUser } = useWorkspace();
   const { boards, boardId, setBoardId, reloadBoards } = useIssueBoards(workspace?.workspaceId);
   const unreadByIssue = unreadIssueCounts(unreadSignals);
   const { pendingIssueId, setPendingIssueId } = useLayout();
@@ -74,7 +75,7 @@ function IssueWorkspace() {
       if (cancelled || selectedRef.current !== selected) return;
       if (issue.id !== selected && String(issue.number) !== selected) return;
       selectedRef.current = issue.id;
-      writeIssueUrl(issueLinkId(issue), boardIdRef.current);
+      writeIssueUrl(issueLinkId(issue), showIssueInListRef.current(issue));
       setSelected(issue.id);
     }).catch(() => {});
     return () => { cancelled = true; };
@@ -96,6 +97,24 @@ function IssueWorkspace() {
   const [assignee, setAssignee] = useState('');
   const { issues, setIssues, error, loading, nextOffset, setPages, reload, resetList, invalidate } = useIssueList({ status, query, assignee, boardId });
   issuesRef.current = issues;
+  // An issue opened from outside the list (badge, notification, link) may sit
+  // on another board or under another tab: move only what hides it.
+  const showIssueInListRef = useRef<(issue: WorkspaceIssue) => string>(() => boardIdRef.current);
+  showIssueInListRef.current = (issue) => {
+    let reset = false;
+    let nextBoardId = boardIdRef.current;
+    if (issue.board_id && issue.board_id !== boardIdRef.current) {
+      nextBoardId = issue.board_id;
+      setBoardId(nextBoardId);
+      reset = true;
+    }
+    const next = filtersShowingIssue({ status, query, assignee }, issue, currentUser?.id ?? '');
+    if (next.status !== status) { setStatus(next.status); reset = true; }
+    if (next.assignee !== assignee) { setAssignee(next.assignee); reset = true; }
+    if (next.query !== query) { setQuery(next.query); reset = true; }
+    if (reset) resetList();
+    return nextBoardId;
+  };
   const [deleting, setDeleting] = useState<string | null>(null);
   const [copiedIssue, setCopiedIssue] = useState<string | null>(null);
   const copyIssueLink = async (issue: WorkspaceIssue) => {
