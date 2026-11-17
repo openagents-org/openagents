@@ -1541,6 +1541,14 @@ class BaseAdapter {
   }
 
   /**
+   * A workflow step another agent handed on to this one: sent by an agent,
+   * but standing in for the person who started the workflow.
+   */
+  _isWorkflowHandoff(msg) {
+    return Boolean(msg) && msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+  }
+
+  /**
    * When the triggering message comes from an identified person, look up the
    * shared context and, if it applies, prepend the instruction block to the
    * message the adapter will turn into its prompt. Records the requester for
@@ -1548,7 +1556,7 @@ class BaseAdapter {
    */
   _sharedContextEmail(msg) {
     if (!msg) return null;
-    const continuation = msg.senderType === 'agent' && msg.metadata?.orchestration?.action === 'next';
+    const continuation = this._isWorkflowHandoff(msg);
     if (msg.senderType !== 'human' && !continuation) return null;
     // Continuations retain the authenticated original requester so the next
     // agent applies the same owner-reviewed shared context and tool identity.

@@ -414,7 +414,9 @@ class CodexAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     if (this._useCliMode) {
-      await this._handleViaSubprocess(content, msgChannel, attachments);
+      // Another agent's message, not a workflow step handed on to this one.
+      const fromAgent = msg.senderType === 'agent' && !this._isWorkflowHandoff(msg);
+      await this._handleViaSubprocess(content, msgChannel, attachments, { fromAgent });
     } else if (this._directMode) {
       await this._handleViaDirectApi(content, msgChannel, attachments);
     } else {
@@ -432,7 +434,7 @@ class CodexAdapter extends BaseAdapter {
     return workspaceModel || String(this._directModel || '').trim();
   }
 
-  async _handleViaSubprocess(content, msgChannel, attachments = []) {
+  async _handleViaSubprocess(content, msgChannel, attachments = [], { fromAgent = false } = {}) {
     // A missing cwd fails the spawn itself, and Node blames the shell for it
     // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
     // user can fix. A configured folder that was never made (or was cleaned
@@ -570,6 +572,16 @@ class CodexAdapter extends BaseAdapter {
           delete this._channelThreads[msgChannel];
           this._saveSessions();
           continue;
+        } else if (fromAgent && CodexAdapter._finishedQuietly(result)) {
+          // Another agent wrote ("received", "noted") and codex ended its
+          // turn with nothing to add, as the prompt tells it to. Posting
+          // "Codex couldn't run" for that read as a failure: the daily errors
+          // dashboard of 2026-11-17 had one agent post it 14 times in two
+          // minutes while two agents acknowledged each other. A status says
+          // so and wakes nobody. A person's message still gets the error.
+          this._log(`Turn from another agent in ${msgChannel} ended with no reply; not posting one`);
+          try { await this.sendStatus(msgChannel, 'Nothing to add, so no reply was posted.'); } catch {}
+          return;
         } else {
           // Surface the actual reason (turn.failed message, stderr, exit code)
           // instead of a generic "no response" — mirrors the OpenCode adapter
@@ -831,7 +843,11 @@ class CodexAdapter extends BaseAdapter {
    * reply, instead of a generic "No response generated".
    */
   async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
-    const detail = CodexAdapter._failureDetail(result, { customProvider: this._customProvider });
+    const detail = CodexAdapter._failureDetail(result, {
+      customProvider: this._customProvider,
+      // What _effectiveModel() reads, plus a plan fallback already picked.
+      modelChosen: Boolean(String(this.workspaceModel || this._directModel || this._planFallbackModel || '').trim()),
+    });
     if (partial) {
       const body = detail
         ? `It stopped before finishing this task.\n\n> ${detail}`
@@ -853,6 +869,16 @@ class CodexAdapter extends BaseAdapter {
    */
   static _endedEarly({ exitCode, turnFailed } = {}) {
     return Boolean(turnFailed) || (exitCode !== 0 && exitCode !== undefined);
+  }
+
+  /**
+   * True when codex ended its turn normally and simply wrote no reply: exit
+   * 0, no signal, no turn.failed and no error event. Anything else is a run
+   * that failed, whoever sent the message.
+   */
+  static _finishedQuietly({ exitCode, signal, turnFailed, errorMessage, responseText } = {}) {
+    return exitCode === 0 && !signal && !turnFailed
+      && !String(errorMessage || '').trim() && !String(responseText || '').trim();
   }
 
   /**
@@ -892,7 +918,7 @@ class CodexAdapter extends BaseAdapter {
    * The cap applies to the quoted reason, before the advice is added, so a
    * long stderr cannot push the advice out of the message.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null, modelChosen = true } = {}) {
     // A clean exit with no turn.failed and no error event is codex saying the
     // turn finished; it just wrote no reply. Whatever stderr holds then is not
     // why (a skill it skipped, its ChatGPT connector), and quoting it read as
@@ -903,8 +929,9 @@ class CodexAdapter extends BaseAdapter {
       || (finished ? '' : CodexAdapter._stderrReason(stderr))
       || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
-    const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
-    return reason ? CodexAdapter._explain(reason, stderr, { customProvider }) : '';
+    const full = CodexAdapter._redact(CodexAdapter._unwrap(raw));
+    const reason = full.slice(0, FAILURE_DETAIL_CAP).trim();
+    return reason ? CodexAdapter._explain(reason, stderr, { customProvider, modelChosen, full }) : '';
   }
 
   /**
@@ -993,7 +1020,22 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail, stderr = '', { customProvider = null } = {}) {
+  static _explain(detail, stderr = '', { customProvider = null, modelChosen = true, full = '' } = {}) {
+    // An endpoint that serves other models than the one Codex sent. Seen as
+    // "The supported API model names are deepseek-flash, deepseek-v4-pro, but
+    // you passed gpt-6.1-sol" on every message of an agent pointed at a
+    // DeepSeek-compatible endpoint with no model set: Codex then sends its
+    // own default, which only OpenAI serves. Read from the whole reason: a
+    // long list of names can push "but you passed" past the quoted cap.
+    const served = /supported (?:API )?model names are (.+?),? but you passed ['"`]?([^'"`\s(,]+)/i.exec(full || detail);
+    if (served) {
+      const names = served[1].length > 300 ? `${served[1].slice(0, 300)}…` : served[1];
+      const passed = served[2].replace(/\.+$/, '');
+      const why = modelChosen ? ''
+        : `No model is set for this agent, so Codex sent its own default (${passed}). `;
+      return `${detail}\n\nThis endpoint serves ${names.trim()}. ${why}` +
+        'Pick one of those models for this agent (the model menu in the thread, or the agent\'s settings).';
+    }
     // A custom Responses endpoint refusing a field Codex always sends. Nothing
     // the user retries changes that; which endpoint to use, or the chat-only
     // mode, does.
