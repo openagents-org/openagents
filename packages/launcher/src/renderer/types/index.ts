@@ -733,6 +733,11 @@ declare global {
        * the page. No-op on macOS, whose traffic lights AppKit tints itself.
        */
       setChromeDimmed(dim: boolean): Promise<unknown>
+      /**
+       * Paints the Windows/Linux window-controls overlay in the surface of the
+       * bar it sits in. No-op on macOS.
+       */
+      setChromeSurface(surface: "page" | "sidebar"): Promise<unknown>
       getAllSettings(): Promise<Record<string, unknown>>
       /** Whether the local connector (the daemon) runs on this device. */
       getLocalConnector(): Promise<boolean | null>

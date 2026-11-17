@@ -77,7 +77,7 @@ export function ComposerMentionMenu({ offerAll, people, agents, knowledge, sessi
             <ItemTitle className="max-w-full"><span className="min-w-0 truncate">{person.name}</span></ItemTitle>
             {person.name !== person.email && <ItemDescription className="truncate">{person.email}</ItemDescription>}
           </ItemContent>
-          <ItemActions><Badge variant="info">{t('peopleMessaging.personTag')}</Badge></ItemActions>
+          <ItemActions><Badge variant="secondary">{t('peopleMessaging.personTag')}</Badge></ItemActions>
         </MentionRow>
       ))}
       {agents.length > 0 && (knowledge.length > 0 || people.length > 0) && (

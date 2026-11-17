@@ -70,7 +70,7 @@ function SidebarRailToggle() {
  * list — still mounted — is squeezed to zero width behind `overflow-hidden`.
  */
 export function AppSidebar() {
-  const { hasListPanel, isSidebarOpen, railDragWidth } = useLayout();
+  const { hasListPanel, isSidebarOpen } = useLayout();
   const onboarding = useOnboardingSurface();
 
   return (
@@ -79,10 +79,7 @@ export function AppSidebar() {
         collapsible="none"
         className={cn(
           // Fills the shell, which is already the viewport minus any banner.
-          'h-full shrink-0 overflow-hidden',
-          // Dragging the rail's edge drives this width too — easing it would
-          // make the shell lag a frame behind the pointer.
-          railDragWidth === null && 'transition-[width] duration-200 ease-linear',
+          'h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-linear',
         )}
       >
         {/* The list stays mounted while collapsed — the shell simply squeezes

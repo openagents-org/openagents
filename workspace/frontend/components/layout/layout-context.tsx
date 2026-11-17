@@ -109,12 +109,11 @@ function writeRailPref(expanded: boolean) {
 }
 
 /**
- * The rail's two widths. Dragging its trailing edge is free-form while the
- * pointer is down but always lands on one of these — the rail has two states,
- * not a continuous width.
+ * The rail's two widths. Expanded matches shadcn's default sidebar (16rem), so
+ * the Manage Agents button and the inbox envelope fit side by side.
  */
 export const RAIL_WIDTH_COLLAPSED = 52;
-export const RAIL_WIDTH_EXPANDED = 180;
+export const RAIL_WIDTH_EXPANDED = 256;
 
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
@@ -170,13 +169,6 @@ interface LayoutState {
   isRailExpanded: boolean;
   toggleRail: () => void;
   setRailExpanded: (expanded: boolean) => void;
-  /**
-   * Live width while the rail's edge is being dragged, or null when it isn't.
-   * The shell renders this width verbatim so the drag feels direct; on release
-   * the handle snaps back to one of the two states.
-   */
-  railDragWidth: number | null;
-  setRailDragWidth: (width: number | null) => void;
   /** Show an artifact side-by-side with chat */
   splitBrowser: boolean;
   setSplitBrowser: (v: boolean) => void;
@@ -243,7 +235,6 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   };
 
   const [isRailExpanded, setIsRailExpanded] = useState(false);
-  const [railDragWidth, setRailDragWidth] = useState<number | null>(null);
   const [showBrowserPreview, setShowBrowserPreview] = useState(false);
   const [selectedArtifact, setSelectedArtifact] = useState<ArtifactReference | null>(null);
   const openArtifact = useCallback((artifact: ArtifactReference) => {
@@ -401,8 +392,6 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       isRailExpanded,
       toggleRail,
       setRailExpanded,
-      railDragWidth,
-      setRailDragWidth,
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
       selectedArtifact, setSelectedArtifact, openArtifact,

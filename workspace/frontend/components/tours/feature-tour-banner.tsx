@@ -6,12 +6,11 @@ import { capture } from '@/lib/analytics';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { FeatureTourOverlay, TOUR_BLUE, TOUR_META, type TourFeature } from './feature-tours';
+import { FeatureTourOverlay, TOUR_META, type TourFeature } from './feature-tours';
 import { TourDismissButton, type TourDismissScope } from './tour-dismiss-button';
 
-// A soft wash of the info colour, faint enough in dark to read as the app's
-// own surface rather than a navy band.
-const SURFACE = 'bg-info/5';
+// A neutral wash, the same surface as the thread banners.
+const SURFACE = 'bg-muted/50';
 
 const bannerKey = (feature: TourFeature) => `oa:tourBanner:${feature}`;
 
@@ -59,9 +58,9 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
 
   const icon = (
     <span className={cn(
-      'flex shrink-0 items-center justify-center rounded-md border bg-background',
+      'flex shrink-0 items-center justify-center rounded-md border bg-background text-foreground',
       compact ? 'size-6' : 'size-7',
-    )} style={{ color: TOUR_BLUE }}>
+    )}>
       <meta.icon className={compact ? 'size-3.5' : 'size-4'} />
     </span>
   );

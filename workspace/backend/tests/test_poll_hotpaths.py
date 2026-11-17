@@ -1,5 +1,6 @@
 """Caches on the hottest read paths stay exact and person-scoped."""
 import re
+import time
 from types import SimpleNamespace
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ import pytest
 from sqlalchemy import event
 
 from app import cache
+import app.routers.events as events_router
 from app.models import Channel, ChannelHumanMember, EventRecord
 from app.services.access_model import Principal, thread_shared_agent_names
 from tests.test_people_messaging import people, quiet_side_effects, _as  # noqa: F401
@@ -46,7 +48,7 @@ def aggregates(state):
     return [q for q in state.queries if 'msg_count' in q]
 
 
-def test_dm_summary_is_reused_until_a_direct_message_changes(client, db, workspace, people, memory_cache):
+def test_dm_summary_is_reused_until_a_direct_message_changes(client, db, workspace, people, memory_cache, monkeypatch):
     me = 'human:adam@acme.test'
     add_event(db, workspace, me, 'openagents:mine', 100)
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 1
@@ -57,8 +59,13 @@ def test_dm_summary_is_reused_until_a_direct_message_changes(client, db, workspa
     assert aggregates(memory_cache) == [], 'channel traffic must not invalidate DM summaries'
 
     add_event(db, workspace, 'openagents:mine', me, 200, content='newer')
+    assert conversations(client, workspace, 'adam')[0]['message_count'] == 1
+    assert aggregates(memory_cache) == [], 'a busy workspace reuses the list for a few seconds'
+
+    later = time.time() + events_router.CONVERSATION_PAIRS_MAX_STALE_SECONDS + 1
+    monkeypatch.setattr(time, 'time', lambda: later)
     result = conversations(client, workspace, 'adam')
-    assert aggregates(memory_cache), 'a new DM recomputes the summary'
+    assert aggregates(memory_cache), 'after the stale window a new DM recomputes the summary'
     assert result[0]['message_count'] == 2
     assert result[0]['last_message']['content'] == 'newer'
 
@@ -107,7 +114,7 @@ def test_agent_sharing_lookup_skips_the_join_without_opt_ins(db, workspace, peop
 
 
 def test_dm_summary_never_reuses_an_entry_after_the_generation_key_is_lost(
-        client, db, workspace, people, memory_cache):
+        client, db, workspace, people, memory_cache, monkeypatch):
     # A summary cached before the workspace's first DM write...
     db.execute(EventRecord.__table__.insert().values(
         id=str(uuid4()), network_id=workspace['id'], source='human:adam@acme.test', target='openagents:mine',
@@ -118,4 +125,6 @@ def test_dm_summary_never_reuses_an_entry_after_the_generation_key_is_lost(
     add_event(db, workspace, 'openagents:mine', 'human:adam@acme.test', 200, content='later')
     for key in [k for k in memory_cache.store if k.startswith('v1events:dm-generation:')]:
         del memory_cache.store[key]
+    later = time.time() + events_router.CONVERSATION_PAIRS_MAX_STALE_SECONDS + 1
+    monkeypatch.setattr(time, 'time', lambda: later)
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 2

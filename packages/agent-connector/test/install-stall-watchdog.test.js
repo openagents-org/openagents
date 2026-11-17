@@ -122,3 +122,39 @@ test.after(() => {
   delete process.env.OPENAGENTS_INSTALL_STALL_MS;
   delete require.cache[require.resolve('../src/installer')];
 });
+
+// Field report (daily errors dashboard, 2026-11): Windows installs of
+// OpenWorker, Goose, CodeBuddy and Claude Code stopped with "no output for 10
+// minutes" and nothing saying which step had gone quiet.
+test('the stall message says what the installer printed last', { skip: isWindows }, async () => {
+  const Installer = loadInstallerWithStall(1500);
+  const { installer } = makeInstaller(
+    Installer,
+    'echo "Resolving dependencies"; echo "Updating https://github.com/andrewyng/openworker (HEAD)"; sleep 30',
+  );
+  await assert.rejects(
+    () => installer.installStreaming('silent', () => {}),
+    (err) => /no output for/i.test(err.message)
+      && err.message.endsWith('Last output: Updating https://github.com/andrewyng/openworker (HEAD)'),
+  );
+});
+
+test('installs run git with prompts off, so a credential prompt cannot hang them', { skip: isWindows }, async () => {
+  const Installer = loadInstallerWithStall(0);
+  const { installer } = makeInstaller(Installer, 'echo "prompt=$GIT_TERMINAL_PROMPT gcm=$GCM_INTERACTIVE"; exit 1');
+  let out = '';
+  await assert.rejects(() => installer.installStreaming('silent', (d) => { out += d; }));
+  assert.match(out, /prompt=0 gcm=never/);
+});
+
+test('stallLastLine: last real line, colours off, the launcher\'s own echo skipped', () => {
+  const { stallLastLine } = loadInstallerWithStallModule();
+  assert.equal(stallLastLine('a\n\x1b[32mDownloading lxml\x1b[0m\n\n'), 'Downloading lxml');
+  assert.equal(stallLastLine('$ uv tool install x\n'), '');
+  assert.equal(stallLastLine('x'.repeat(300)).length, 200);
+});
+
+function loadInstallerWithStallModule() {
+  delete require.cache[require.resolve('../src/installer')];
+  return require('../src/installer');
+}

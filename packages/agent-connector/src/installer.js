@@ -154,6 +154,18 @@ const INSTALL_STALL_MS = (() => {
 })();
 
 /**
+ * The last thing a stalled installer printed, for the stall message: its
+ * last non-empty line, terminal colours taken off, cut to a readable length.
+ * The command echo the launcher prints itself (`$ …`) does not count.
+ */
+function stallLastLine(output) {
+  const lines = String(output || '').replace(/\x1b\[[0-9;?]*[ -/]*[@-~]/g, '')
+    .split(/\r?\n|\r/).map((l) => l.trim()).filter((l) => l && !l.startsWith('$ '));
+  const last = lines[lines.length - 1] || '';
+  return last.length > 200 ? `${last.slice(0, 199)}…` : last;
+}
+
+/**
  * How often the stall watchdog checks. Capped at half the stall budget so the
  * poll granularity never dominates the deadline (matters for a short budget in
  * tests; in production the 15s ceiling applies).
@@ -1628,6 +1640,13 @@ class Installer {
 
     let env = this._buildShellEnv();
     const isWin = process.platform === 'win32';
+    // Nobody can answer a prompt here (stdin is closed and, on Windows, the
+    // console is hidden). A git fetch that asks for credentials — a GitHub
+    // answer it reads as "sign in", or Git Credential Manager's sign-in
+    // window — then waits until the stall watchdog kills it ten minutes
+    // later. Make git fail at once instead, with its reason in the log.
+    if (env.GIT_TERMINAL_PROMPT == null) env.GIT_TERMINAL_PROMPT = '0';
+    if (env.GCM_INTERACTIVE == null) env.GCM_INTERACTIVE = 'never';
 
     // Resolve a compatible host and keep inherited PowerShell 7 modules out
     // of Windows PowerShell. Qoder otherwise cannot load Get-FileHash when
@@ -1768,9 +1787,14 @@ class Installer {
           stalled = true;
           clearStallTimer();
           const minutes = Math.round(INSTALL_STALL_MS / 60000);
+          // What the installer said last is where it stopped: "Updating
+          // https://github.com/…" is a download from GitHub that never
+          // finished. Without it the stall said nothing about which step.
+          const lastLine = stallLastLine(outputTail);
           const msg = `Install stalled: no output for ${minutes} minutes. `
             + 'The installer was stopped. It may be waiting on a prompt, or on a '
-            + 'download that never returns.';
+            + 'download that never returns.'
+            + (lastLine ? ` Last output: ${lastLine}` : '');
           if (onData) onData(`\n${msg}\n`);
           this._killProcessTree(proc);
           reject(new Error(msg));
@@ -3289,4 +3313,4 @@ function escapeRegExp(text) {
   return String(text).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict, credentialListHasTarget, parseJsonLoose };
+module.exports = { Installer, compareVersions, clearVersionCache, loginVerdict, credentialListHasTarget, parseJsonLoose, stallLastLine };

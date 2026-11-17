@@ -111,9 +111,9 @@ export function ProbeFailureBanner({ failing, retesting, onRetest, onDismiss }: 
 export function ConnectAgentNotice({ onConnect }: { onConnect: () => void }) {
   const t = useT();
   return (
-    <Alert role="status" className={`${STRIP} flex items-center justify-between gap-3 bg-brand/5 py-1.5`}>
+    <Alert role="status" className={`${STRIP} flex items-center justify-between gap-3 bg-muted/50 py-1.5`}>
       <AlertDescription className="text-xs">{t('chat.connectAgentNotice')}</AlertDescription>
-      <Button variant="link" size="xs" className="h-auto shrink-0 px-0 text-brand" onClick={onConnect}>{t('nav.connectAgent')}</Button>
+      <Button variant="link" size="xs" className="h-auto shrink-0 px-0" onClick={onConnect}>{t('nav.connectAgent')}</Button>
     </Alert>
   );
 }

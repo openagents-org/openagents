@@ -2,8 +2,7 @@
 
 import * as React from 'react';
 import { ArrowUp } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { InputGroup, InputGroupAddon, InputGroupTextarea } from '@/components/ui/input-group';
+import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from '@/components/ui/input-group';
 import { Kbd } from '@/components/ui/kbd';
 import { cn } from '@/lib/utils';
 import type { WorkspaceAgent, KnowledgeEntry } from '@/lib/types';
@@ -229,15 +228,15 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
         className="hidden"
       />
 
-      {/* ChatGPT-style composer: one rounded bar with every control on a single
-          row — the `+` menu on the left, the growing textarea in the middle and
-          the send button on the right. Hint and attachments stack above it. */}
+      {/* shadcn AI Elements Prompt Input: the hint and queued files on top,
+          the growing textarea, then a toolbar row with the `+` menu on the
+          left and the round send button on the right. */}
       <InputGroup
         data-dragging={files.isDragging || undefined}
-        className="h-auto flex-col items-stretch rounded-2xl bg-background shadow-xs data-dragging:border-dashed data-dragging:border-primary data-dragging:bg-primary/5"
+        className="bg-background data-dragging:border-dashed data-dragging:border-primary data-dragging:bg-primary/5"
       >
         {files.isDragging && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-2xl">
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg">
             <span className="text-sm font-medium text-primary">{t('chatInput.dropFilesHere')}</span>
           </div>
         )}
@@ -252,44 +251,46 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
           </InputGroupAddon>
         )}
 
-        <div className="flex items-end gap-1 p-2">
-          <div className="mb-0.5"><ComposerAddMenu onPickFile={files.openFilePicker} onCreateRoutine={onCreateRoutine} /></div>
+        <InputGroupTextarea
+          ref={textareaRef}
+          value={displayMessage}
+          onChange={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={files.handlePaste}
+          onFocus={() => { setIsFocused(true); onFocusChange?.(true); }}
+          onBlur={() => { setIsFocused(false); onFocusChange?.(false); }}
+          placeholder={canMention ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
+          rows={1}
+          disabled={disabled}
+          data-chat-input
+          className="min-h-0 p-3"
+        />
 
-          <InputGroupTextarea
-            ref={textareaRef}
-            value={displayMessage}
-            onChange={handleInput}
-            onKeyDown={handleKeyDown}
-            onPaste={files.handlePaste}
-            onFocus={() => { setIsFocused(true); onFocusChange?.(true); }}
-            onBlur={() => { setIsFocused(false); onFocusChange?.(false); }}
-            placeholder={canMention ? t('chatInput.placeholderWithMentions') : t('chatInput.placeholder')}
-            rows={1}
-            disabled={disabled}
-            data-chat-input
-            className="min-h-0 min-w-0 px-1"
-          />
+        <InputGroupAddon align="block-end">
+          <ComposerAddMenu onPickFile={files.openFilePicker} onCreateRoutine={onCreateRoutine} />
 
-          {/* Keyboard affordance for the global 'type anywhere' shortcut */}
-          {isFocused ? (
-            <Kbd className="mb-2 hidden sm:inline-flex" title={t('chatInput.escHint')}>esc</Kbd>
-          ) : !message ? (
-            <Kbd className="mb-2 hidden sm:inline-flex" title={t('chatInput.typeHint')}>i</Kbd>
-          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            {/* Keyboard affordance for the global 'type anywhere' shortcut */}
+            {isFocused ? (
+              <Kbd className="hidden sm:inline-flex" title={t('chatInput.escHint')}>esc</Kbd>
+            ) : !message ? (
+              <Kbd className="hidden sm:inline-flex" title={t('chatInput.typeHint')}>i</Kbd>
+            ) : null}
 
-          {/* aria-disabled rather than disabled: a disabled control inside the
-              InputGroup dims the whole composer (has-disabled). */}
-          <Button
-            variant={hasContent ? 'default' : 'secondary'}
-            size="icon"
-            className="mb-0.5 shrink-0 rounded-full aria-disabled:pointer-events-none aria-disabled:opacity-50"
-            onClick={handleSend}
-            aria-disabled={!canSend}
-            aria-label={t('chatInput.sendMessage')}
-          >
-            <ArrowUp />
-          </Button>
-        </div>
+            {/* aria-disabled rather than disabled: a disabled control inside the
+                InputGroup dims the whole composer (has-disabled). */}
+            <InputGroupButton
+              variant="default"
+              size="icon-sm"
+              className="rounded-full aria-disabled:pointer-events-none aria-disabled:opacity-50"
+              onClick={handleSend}
+              aria-disabled={!canSend}
+              aria-label={t('chatInput.sendMessage')}
+            >
+              <ArrowUp />
+            </InputGroupButton>
+          </div>
+        </InputGroupAddon>
       </InputGroup>
     </div>
   );

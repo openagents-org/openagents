@@ -4,7 +4,6 @@
 import { useEffect, useState } from 'react';
 
 export const BLUE = '#2F6BFF';
-export const TOUR_BLUE = BLUE;
 export const TEAL = '#16C79A';
 // Theme-dependent colours resolve through `--tour-*` variables (TOUR_CSS),
 // so the scenes follow the app's light/dark theme.

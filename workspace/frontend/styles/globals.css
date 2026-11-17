@@ -10,7 +10,7 @@
 /** Colors - https://tailwindcss.com/docs/colors **/
 :root {
   /* shadcn radix-nova, neutral base (shadcn 4.23). The app shell is black and
-     white; colour is reserved for status and for the brand action. */
+     white; colour is reserved for status. */
   --background: oklch(1 0 0);
   --foreground: oklch(0.145 0 0);
   --card: oklch(1 0 0);
@@ -19,9 +19,6 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
-  /* Brand actions stay blue alongside the neutral primary. */
-  --brand: var(--color-blue-600);
-  --brand-foreground: var(--color-white);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -83,8 +80,6 @@
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.922 0 0);
   --primary-foreground: oklch(0.205 0 0);
-  --brand: var(--color-blue-400);
-  --brand-foreground: oklch(0.145 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -149,8 +144,6 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-primary: var(--primary);
   --color-primary-foreground: var(--primary-foreground);
-  --color-brand: var(--brand);
-  --color-brand-foreground: var(--brand-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
   --color-destructive: var(--destructive);
@@ -214,8 +207,8 @@
 
 /** Thread completion glow **/
 @keyframes glow {
-  0%, 100% { box-shadow: 0 0 4px 0 rgba(251, 191, 36, 0.3); }
-  50% { box-shadow: 0 0 8px 2px rgba(251, 191, 36, 0.4); }
+  0%, 100% { box-shadow: 0 0 4px 0 color-mix(in oklab, var(--success) 30%, transparent); }
+  50% { box-shadow: 0 0 8px 2px color-mix(in oklab, var(--success) 40%, transparent); }
 }
 
 /** Shared thread/issue activity: a visible band sweeps across the row. **/
@@ -347,28 +340,6 @@ html {
 /* Card Title */
 [data-slot=card-title] {
   @apply font-medium;
-}
-
-/* ── Syntax Highlighting (highlight.js) ── */
-@import 'highlight.js/styles/github.css';
-
-.dark .hljs {
-  background: transparent;
-  color: var(--color-zinc-300);
-}
-.dark .hljs-keyword { color: #ff7b72; }
-.dark .hljs-string { color: #a5d6ff; }
-.dark .hljs-comment { color: #8b949e; }
-.dark .hljs-number { color: #79c0ff; }
-.dark .hljs-title { color: #d2a8ff; }
-.dark .hljs-built_in { color: #ffa657; }
-.dark .hljs-attr { color: #79c0ff; }
-.dark .hljs-literal { color: #79c0ff; }
-.dark .hljs-type { color: #ffa657; }
-
-.markdown-content .hljs {
-  background: transparent;
-  padding: 0;
 }
 
 /* Proactive routing: keep the approved traveling signal and arrival ripple. */

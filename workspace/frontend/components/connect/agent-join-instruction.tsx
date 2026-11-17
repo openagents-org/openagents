@@ -20,7 +20,7 @@ export function AgentJoinInstruction({ code, disabled = false }: { code: string;
   const text = t('connect.agentJoinPrompt', { command: agentJoinCommand(code) });
   return (
     <div className="overflow-hidden rounded-xl bg-[#101828] text-slate-100">
-      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-3.5 pt-3 text-[13px] leading-6">{text}</pre>
+      <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-3.5 pt-3 text-sm leading-6">{text}</pre>
       <div className="flex justify-end px-2.5 pb-2.5 pt-1">
         <button type="button" disabled={disabled} onClick={() => copyToClipboard(text)}
           className="flex items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40">

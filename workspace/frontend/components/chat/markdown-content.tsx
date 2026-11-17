@@ -2,17 +2,16 @@
 
 import { memo, type ReactNode, useMemo, isValidElement, cloneElement } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
-import rehypeHighlight from 'rehype-highlight';
 import remarkGfm from 'remark-gfm';
 import { getAgentColor } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
+import { MarkdownCodeBlock } from './markdown-code-block';
 import { MermaidBlock } from './mermaid-block';
 import { getMermaidSource, hasOpenMermaidFence } from './mermaid-utils';
 import { MarkdownImage } from './markdown-image';
 
 // Stable plugin arrays — avoids re-creating on every render
 const remarkPlugins = [remarkGfm];
-const rehypePlugins = [rehypeHighlight];
 
 interface MarkdownContentProps {
   content: string;
@@ -59,7 +58,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
                 'font-medium rounded px-0.5',
                 selfMention && name === selfMention
                   ? 'bg-warning/20 text-warning'
-                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'text-info bg-info/10' : color.text,
+                  : (humanNames[name] || name.toLowerCase() === 'all') ? 'bg-muted text-foreground' : color.text,
               )}
             >
               @{humanNames[name] || agentLabels?.[name] || name}
@@ -158,8 +157,9 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 
     // Code
     code: ({ className, children, ...props }) => {
-      const isBlock = className?.startsWith('language-') || className?.startsWith('hljs');
-      if (isBlock) {
+      // Fenced blocks render through `pre` below; this branch only keeps the
+      // language class on the element it reads.
+      if (className?.startsWith('language-')) {
         return (
           <code className={cn('text-sm', className)} {...props}>
             {children}
@@ -182,11 +182,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
           />
         );
       }
-      return (
-        <pre className="my-2 rounded-md bg-muted border border-border p-3 overflow-x-auto text-sm leading-relaxed font-mono">
-          {children}
-        </pre>
-      );
+      return <MarkdownCodeBlock>{children}</MarkdownCodeBlock>;
     },
 
     // Links
@@ -214,7 +210,6 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
     <div className="markdown-content">
       <ReactMarkdown
         remarkPlugins={remarkPlugins}
-        rehypePlugins={rehypePlugins}
         components={components}
       >
         {content}
@@ -226,7 +221,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 // Compare props by VALUE, not identity. The `agentNames` array is rebuilt on
 // every discovery poll (every ~5s while an agent is active) even when the set
 // of names is unchanged; the default shallow memo would then re-render and make
-// ReactMarkdown re-parse + rehype-highlight rebuild the whole code-block DOM,
+// ReactMarkdown re-parse and re-highlight every code block,
 // which reads as a flash. Skipping the re-render when content and names are
 // value-equal keeps rendered messages static between polls.
 function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): boolean {
