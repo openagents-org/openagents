@@ -155,12 +155,32 @@ function parsePiModels(text, env = {}) {
   return [...seen.values()];
 }
 
+/** Parse `kiro-cli chat --list-models`, including its optional default marker. */
+function parseKiroModels(text) {
+  const seen = new Map();
+  for (const raw of stripVTControlCharacters(String(text || '')).split(/\r?\n/)) {
+    const match = raw.match(/^\s*\*?\s*([\w][\w.\-]*)\s+\d+(?:\.\d+)?x\s+credits\s+(.+)$/);
+    if (!match) continue;
+    const id = cleanId(match[1]);
+    if (!id || seen.has(id)) continue;
+    seen.set(id, { id, label: cleanLabel(match[2], id) });
+    if (seen.size >= MAX_MODELS) break;
+  }
+  return [...seen.values()];
+}
+
 /**
  * How each CLI is asked. Claude Code has no command for it; its SDK control
  * protocol does, and a run that is sent the request and then end-of-input
  * answers and exits without a prompt ever reaching a model.
  */
 const LISTERS = {
+  kiro: {
+    args: ['chat', '--list-models'],
+    parse: parseKiroModels,
+    timeoutMs: 30_000,
+    env: { NO_COLOR: '1' },
+  },
   pi: {
     args: ['--no-approve', '--no-extensions', '--no-skills', '--list-models'],
     parse: parsePiModels,
@@ -357,4 +377,4 @@ async function codexPlanFallback(binary, env, refused, opts = {}) {
   return pick ? pick.id : null;
 }
 
-module.exports = { codexPlanRefusedModel, codexAccountModels, codexPlanFallback, listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels };
+module.exports = { codexPlanRefusedModel, codexAccountModels, codexPlanFallback, listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels, parseKiroModels };

@@ -4,7 +4,7 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('events');
 const {
-  listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels,
+  listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels, parseKiroModels,
 } = require('../src/cli-models');
 
 /** What `codex debug models` prints, cut down to the fields that are read. */
@@ -218,7 +218,59 @@ describe('parsePiModels', () => {
   });
 });
 
+describe('parseKiroModels', () => {
+  it('reads model IDs and descriptions from the CLI table, including the default', () => {
+    assert.deepEqual(parseKiroModels([
+      'Available models (* = default):', '',
+      '* auto 1.00x credits Models chosen by task',
+      '  model-a 0.05x credits Model A with context',
+      '  model-b 2x credits Model B',
+    ].join('\r\n')), [
+      { id: 'auto', label: 'Models chosen by task' },
+      { id: 'model-a', label: 'Model A with context' },
+      { id: 'model-b', label: 'Model B' },
+    ]);
+  });
+
+  it('strips ANSI escapes, deduplicates IDs and ignores unrelated output', () => {
+    assert.deepEqual(parseKiroModels([
+      '\x1b[32m* model-a 1.00x credits Model A\x1b[0m',
+      '  model-a 1.00x credits Duplicate',
+      'Not logged in. Run kiro-cli login.',
+      '  bad$id 1.00x credits Invalid ID',
+    ].join('\n')), [{ id: 'model-a', label: 'Model A' }]);
+    assert.deepEqual(parseKiroModels('Not logged in.'), []);
+    assert.deepEqual(parseKiroModels(''), []);
+  });
+
+  it('limits labels and model counts like the other CLI parsers', () => {
+    const rows = Array.from({ length: 110 }, (_, i) => `model-${i} 1x credits ${'x'.repeat(100)}`);
+    const models = parseKiroModels(rows.join('\n'));
+    assert.equal(models.length, 100);
+    assert.equal(models[0].label.length, 80);
+  });
+});
+
 describe('listCliModels', () => {
+  it('asks Kiro for its signed-in model table without starting a model turn', async () => {
+    assert.equal(supportsCliModels('kiro'), true);
+    assert.equal(cliModelsWithKey('kiro'), false);
+    const { calls, spawnImpl } = fakeSpawn(answers('* model-a 0.05x credits Model A\n'));
+    const res = await listCliModels(connector({ binary: '/opt/kiro-cli' }), 'kiro', { spawnImpl });
+    assert.equal(res.ok, true);
+    assert.deepEqual(res.models, [{ id: 'model-a', label: 'Model A' }]);
+    assert.equal(calls[0].binary, '/opt/kiro-cli');
+    assert.deepEqual(calls[0].args, ['chat', '--list-models']);
+    assert.equal(calls[0].options.env.NO_COLOR, '1');
+    assert.equal(calls[0].input, null);
+  });
+
+  it('reports an empty Kiro response as a failed list rather than inventing models', async () => {
+    const { spawnImpl } = fakeSpawn(answers('Not logged in.'));
+    const res = await listCliModels(connector(), 'kiro', { spawnImpl });
+    assert.equal(res.ok, false);
+    assert.deepEqual(res.models, []);
+  });
   it('knows which CLIs can be asked', () => {
     assert.equal(supportsCliModels('codex'), true);
     assert.equal(supportsCliModels('claude'), true);
