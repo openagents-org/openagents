@@ -2395,6 +2395,13 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
                 event.metadata["target_agents"] = [tgt[len("openagents:"):]]
             elif tgt.startswith("human:"):
                 event.metadata["target_agents"] = ["__no_response__"]
+        if (message_type or "chat") == "chat" and event.source.startswith("openagents:") and (event.target or "").startswith("openagents:"):
+            from app.services.dm_loop_guard import should_quiet
+            if should_quiet(db, str(workspace.id), event.source, event.target):
+                # Stored and visible as usual; it just no longer wakes the other agent.
+                event.metadata["target_agents"] = ["__no_response__"]
+                event.metadata["loop_guard"] = "agent_dm"
+                logger.info("workspace_mod: agent DM loop quieted %s -> %s", event.source, event.target)
         return event
 
     # Online participants — used so routing prefers a live agent over one whose

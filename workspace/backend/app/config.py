@@ -133,6 +133,9 @@ class Config:
     MESSAGE_ROUTER_MODEL: str = os.environ.get("MESSAGE_ROUTER_MODEL", "")
     MESSAGE_ROUTER_BASE_URL: str = os.environ.get("MESSAGE_ROUTER_BASE_URL", "")
     MESSAGE_ROUTER_API_KEY: str = os.environ.get("MESSAGE_ROUTER_API_KEY", "")
+    # Consecutive agent-to-agent chat DMs (with no person messaging either
+    # agent) after which further DMs stop waking the recipient. 0 disables.
+    AGENT_DM_LOOP_LIMIT: int = int(os.environ.get("AGENT_DM_LOOP_LIMIT", "20"))
     ANTHROPIC_API_KEY: str = os.environ.get("ANTHROPIC_API_KEY", "")  # fallback for anthropic provider
 
     # Cloud agents
