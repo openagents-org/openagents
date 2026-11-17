@@ -24,12 +24,22 @@ import { cn } from '@/lib/utils';
 const MobileContext = React.createContext(false);
 const useResponsiveMobile = () => React.useContext(MobileContext);
 
-function Dialog(props: React.ComponentProps<typeof D.Dialog>) {
+function Dialog({
+  dismissible,
+  ...props
+}: React.ComponentProps<typeof D.Dialog> & {
+  /**
+   * Mobile only. `false` keeps the drawer open on an overlay tap, Esc and a
+   * pull-down; only a direct `onOpenChange(false)` closes it. The desktop
+   * dialog's equivalent is preventDefault in DialogContent's
+   * onInteractOutside / onEscapeKeyDown, which the drawer does not receive.
+   */
+  dismissible?: boolean;
+}) {
   const isMobile = useIsMobile();
-  const Root = isMobile ? Drawer : D.Dialog;
   return (
     <MobileContext.Provider value={isMobile}>
-      <Root {...props} />
+      {isMobile ? <Drawer dismissible={dismissible} {...props} /> : <D.Dialog {...props} />}
     </MobileContext.Provider>
   );
 }
