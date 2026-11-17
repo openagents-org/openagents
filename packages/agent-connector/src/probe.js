@@ -36,7 +36,7 @@ const path = require('path');
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
-const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } = require('./adapters/utils');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, stripAnsi, redactSecrets } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
@@ -523,7 +523,9 @@ function failureMessage(res, code, timeoutMs) {
   // file:///…`, with the `Error:` line above them cut off. JSON and URLs stay.
   // Each line is scrubbed before that test: a provider that echoes the whole
   // key (`401 Incorrect API key provided: sk-proj-…`) had the one line that
-  // explains the failure dropped as encoded.
+  // explains the failure dropped as encoded. And it loses its colour first:
+  // with FORCE_COLOR set, Claude Code's red "Ignoring 14 permissions.allow
+  // entries…" got past BENIGN_OUTPUT and was the reason, escapes and all.
   //
   // A CLI's own log records (`2026-11-08T05:37:58Z ERROR module: …`) are kept,
   // shorn of the timestamp, but rank after what it said in plain words. Codex's
@@ -539,7 +541,7 @@ function failureMessage(res, code, timeoutMs) {
   // OpenAI Codex v0.165.0 -------- workdir: …" — which explains nothing.
   // Noise lines (see PROBE_NOISE) are dropped as well.
   const grouped = (s) => {
-    const said = String(s || '').split(/\r?\n/).map((l) => scrub(probeLine(l)))
+    const said = stripAnsi(s).split(/\r?\n/).map((l) => scrub(probeLine(l)))
       .filter((l) => l && !BENIGN_OUTPUT.test(l) && !mostlyEncoded(l) && !/^at\s+\S/.test(l));
     const own = said.filter((l) => !SIDE_SERVICE.test(l));
     const kept = own.length ? own : said;
