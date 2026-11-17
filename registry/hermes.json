@@ -42,7 +42,7 @@
     "status_args": [
       "status"
     ],
-    "logged_in_pattern": "✓\\s*logged in",
+    "logged_in_pattern": "✓\\s*logged in|(?:^|[\\r\\n])[ \\t]*Anthropic[ \\t]+✓(?:[ \\t]|$)|(?:^|[\\r\\n])[ \\t]*Providers:(?:[^,\\r\\n]*,)*[ \\t]*(?!openagents-|none connected[ \\t]*(?:[\\r\\n]|$))[^,\\s]",
     "login_command": "hermes setup",
     "not_ready_message": "Hermes not configured — run: hermes setup",
     "env_vars": [
@@ -68,28 +68,7 @@
       "required": false
     }
   ],
-  "models": [
-    {
-      "id": "anthropic/claude-sonnet-4.6",
-      "label": "Claude Sonnet 4.6 (Nous Portal)",
-      "category": "chat"
-    },
-    {
-      "id": "openai/gpt-5.5-pro",
-      "label": "GPT-5.5 Pro (Nous Portal)",
-      "category": "chat"
-    },
-    {
-      "id": "deepseek/deepseek-v4-pro",
-      "label": "DeepSeek V4 Pro (Nous Portal)",
-      "category": "chat"
-    },
-    {
-      "id": "google/gemini-3-pro-preview",
-      "label": "Gemini 3 Pro Preview (Nous Portal)",
-      "category": "chat"
-    }
-  ],
+  "models": [],
   "vendor": "Nous Research",
   "tagline": "Self-improving agent with tools and profiles.",
   "resolve_env": {

@@ -113,7 +113,7 @@ export class HealthResolver {
    * clear "click Login" hint rather than a misleading "Ready"; unknown (probe
    * failed/timed out) ⇒ optimistic Ready so a working agent is never blocked.
    */
-  hostedLoginHealth(type: string): Record<string, unknown> {
+  hostedLoginHealth(type: string, instanceEnv?: Record<string, string>): Record<string, unknown> {
     if (!this.deps.isInstalled(type)) {
       return {
         installed: false,
@@ -131,7 +131,7 @@ export class HealthResolver {
     // could hit while the field was hidden; now that it's reachable, "signed
     // out" alone must not read as unusable or a user who just pasted a key
     // watches the badge stay red.
-    const hasKey = this.hasConfiguredCredentials(type)
+    const hasKey = !isCliLogin(instanceEnv) && this.hasConfiguredCredentials(type)
     if (signedIn === false && !hasKey) {
       return {
         installed: true,
@@ -268,6 +268,9 @@ export class HealthResolver {
     // set CURSOR_API_KEY skips the browser login, so honor that before login.
     const hostedLogin = HOSTED_LOGIN_AGENTS[type]
     if (hostedLogin) {
+      // A signed-in instance never receives the type's saved key. The cached
+      // type verdict can be API-key-ready while this instance uses CLI auth.
+      if (isCliLogin(instanceEnv)) return this.hostedLoginHealth(type, instanceEnv)
       const hasApiKey =
         !!(
           hostedLogin.apiKeyEnv &&
