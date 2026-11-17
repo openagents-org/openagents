@@ -1,10 +1,11 @@
 """Indexed event polling and short-lived, commit-invalidated stream heads."""
 import hashlib
 import json
+import re
 import time
 import uuid
 
-from sqlalchemy import event, literal_column, select
+from sqlalchemy import event, literal_column, select, text
 from sqlalchemy.orm import Session
 
 from app import cache
@@ -20,6 +21,42 @@ def event_type_filter(prefix):
     if prefix in POLL_PREFIXES:
         return EventRecord.type.like(literal_column("'" + prefix + "%'"))
     return EventRecord.type.startswith(prefix)
+
+
+def _like_prefix_regex(prefix):
+    # SQL LIKE semantics for `prefix%`: '_' matches one character, '%' any run.
+    out = []
+    for ch in prefix:
+        out.append('.' if ch == '_' else '.*' if ch == '%' else re.escape(ch))
+    return re.compile(''.join(out), re.S)
+
+
+_TYPES_SKIP_SCAN = text(
+    "WITH RECURSIVE t(type) AS ("
+    " SELECT min(type) FROM events WHERE network_id = :w"
+    " UNION ALL"
+    " SELECT (SELECT min(e.type) FROM events e WHERE e.network_id = :w AND e.type > t.type)"
+    " FROM t WHERE t.type IS NOT NULL"
+    ") SELECT type FROM t WHERE type IS NOT NULL"
+)
+
+
+def workspace_types_matching(db, workspace_id, prefix):
+    """Event types present in the workspace that `type LIKE prefix%` matches.
+
+    A recursive skip scan over (network_id, type) costs one index probe per
+    distinct type (about 20) instead of reading the workspace's events. Polls
+    then filter with type IN (...) and can range-scan (network_id, type,
+    timestamp); a LIKE with a bound parameter cannot, so a poll for a rare
+    type used to read every heartbeat event in the workspace.
+    """
+    if db.bind.dialect.name == 'postgresql':
+        rows = db.execute(_TYPES_SKIP_SCAN, {'w': str(workspace_id)}).scalars().all()
+    else:  # SQLite (tests)
+        rows = db.execute(select(EventRecord.type).where(
+            EventRecord.network_id == workspace_id).distinct()).scalars().all()
+    pattern = _like_prefix_regex(prefix)
+    return sorted(t for t in rows if pattern.match(t))
 
 
 def _generation_key(workspace_id):

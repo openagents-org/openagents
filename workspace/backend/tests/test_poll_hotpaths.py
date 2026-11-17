@@ -134,3 +134,38 @@ def test_dm_summary_never_reuses_an_entry_after_the_generation_key_is_lost(
     later = time.time() + dm_summary.MERGED_MAX_STALE_SECONDS + 1
     monkeypatch.setattr(time, 'time', lambda: later)
     assert conversations(client, workspace, 'adam')[0]['message_count'] == 2
+
+
+def poll_type(client, workspace, event_type, **params):
+    response = client.get('/v1/events', params={'network': workspace['id'], 'type': event_type, **params},
+                          headers={'X-Workspace-Token': workspace['token']})
+    assert response.status_code == 200
+    return [e['payload']['content'] for e in response.json()['data']['events']]
+
+
+def test_prefix_type_polls_match_like_semantics(client, db, workspace):
+    from app.services.poll_queries import workspace_types_matching
+    for i, kind in enumerate(['workspace.message.posted', 'workspace.messageX', 'workspace.user.heartbeat',
+                              'workspace.toolXresult', 'workspace.tool_result']):
+        db.add(EventRecord(id=str(uuid4()), network_id=workspace['id'], source='openagents:a', target='channel/general',
+                           timestamp=now_ms() + i, type=kind, visibility='channel', payload={'content': kind}))
+    db.commit()
+    assert set(workspace_types_matching(db, workspace['id'], 'workspace.message')) == {'workspace.message.posted', 'workspace.messageX'}
+    # '_' is a single-character wildcard in LIKE, as before.
+    assert set(workspace_types_matching(db, workspace['id'], 'workspace.tool_')) == {'workspace.toolXresult', 'workspace.tool_result'}
+    assert set(poll_type(client, workspace, 'workspace.message')) >= {'workspace.message.posted', 'workspace.messageX'}
+    assert poll_type(client, workspace, 'workspace.nothing') == []
+
+
+def test_cursor_polls_return_exactly_the_newer_events(client, db, workspace):
+    base = now_ms()
+    # Two events share the cursor's timestamp: only the one with the larger id is newer.
+    for event_id, ts, content in [('a-tie', base, 'cursor'), ('b-tie', base, 'same-ms-after'),
+                                  ('c', base - 5, 'older'), ('d', base + 1, 'newer-1'), ('e', base + 2, 'newer-2')]:
+        db.add(EventRecord(id=event_id, network_id=workspace['id'], source='openagents:a', target='channel/general',
+                           timestamp=ts, type='workspace.message.posted', visibility='channel', payload={'content': content}))
+    db.add(EventRecord(id='hb', network_id=workspace['id'], source='human:x', target='channel/general',
+                       timestamp=base + 3, type='workspace.user.heartbeat', visibility='channel', payload={'content': 'hb'}))
+    db.commit()
+    assert poll_type(client, workspace, 'workspace.message', after='a-tie') == ['same-ms-after', 'newer-1', 'newer-2']
+    assert poll_type(client, workspace, 'workspace.message', before='d', sort='desc') == ['same-ms-after', 'cursor', 'older']
