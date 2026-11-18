@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils';
 import { knowledgeTitle } from '@/lib/knowledge-title';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useFormatters, useT } from '@/lib/i18n';
+import { KnowledgeOverview } from './knowledge-overview';
 import { KnowledgeExport } from './knowledge-export';
 import { KnowledgeEditor } from './knowledge-editor';
 import { knowledgeAuthorName, stripLeadingTitle } from './knowledge-utils';
@@ -94,6 +95,8 @@ export function KnowledgeView() {
       toast.error(t('chat.copyFailed'));
     }
   }, [entry, t]);
+
+  if (!entry && !selectedKnowledgeId) return <KnowledgeOverview />;
 
   if (!entry) {
     return (
@@ -194,17 +197,19 @@ export function KnowledgeView() {
                 <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
                 <AccessExplainer compact resourceKind="knowledge" resourceId={entry.id} />
               </div>
-              <Button
-                variant="outline"
-                size="xs"
-                onClick={handleCopyMention}
-                aria-label={t('knowledge.copyMention')}
-                title={`@knowledge:${entry.slug}`}
-                className="text-muted-foreground"
-              >
-                {copied ? <Check data-icon="inline-start" className="text-success" /> : <Copy data-icon="inline-start" />}
-                {t('knowledge.copyMention')}
-              </Button>
+            </div>
+            <div className="mt-5 rounded-xl border border-indigo-500/15 bg-indigo-500/[0.04] p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-semibold">{t('knowledge.library.useTitle')}</p>
+                  <code className="mt-1 block truncate text-xs text-indigo-700 dark:text-indigo-300" title={`@knowledge:${entry.slug}`}>@knowledge:{entry.slug}</code>
+                </div>
+                <Button variant="outline" size="sm" onClick={handleCopyMention}>
+                  {copied ? <Check data-icon="inline-start" className="text-success" /> : <Copy data-icon="inline-start" />}
+                  {t('knowledge.copyMention')}
+                </Button>
+              </div>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('knowledge.library.mentionHint')}</p>
             </div>
           </header>
 

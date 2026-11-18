@@ -375,6 +375,14 @@ export interface WorkspaceCollaborator {
   addedAt: string | null;
 }
 
+export interface WorkspaceFileStorage {
+  usedBytes: number;
+  activeBytes: number;
+  trashBytes: number;
+  /** Null when the server has no workspace storage quota. */
+  limitBytes: number | null;
+}
+
 export interface WorkspaceFile {
   id: string;
   filename: string;

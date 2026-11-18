@@ -31,7 +31,7 @@ function SidebarRailToggle() {
       // (not the viewport) so it stays on that edge when a narrow window
       // scrolls the shell sideways.
       style={{ left: 'var(--sidebar-width)' }}
-      className="group/rail absolute top-1/2 z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
+      className="group/rail absolute top-1/2 z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
     >
       <span className="flex flex-col items-center">
         <span
@@ -79,7 +79,7 @@ export function AppSidebar() {
         collapsible="none"
         className={cn(
           // Fills the shell, which is already the viewport minus any banner.
-          'h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-linear',
+          'h-full shrink-0 overflow-hidden',
         )}
       >
         {/* The list stays mounted while collapsed — the shell simply squeezes

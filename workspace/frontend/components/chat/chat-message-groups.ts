@@ -4,7 +4,6 @@ import type { WorkspaceMessage } from '@/lib/types';
 
 export type MessageGroup =
   | { type: 'chat'; message: WorkspaceMessage }
-  | { type: 'thinking'; sender: string; messages: WorkspaceMessage[] }
   | { type: 'steps'; messages: WorkspaceMessage[] };
 
 export function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
@@ -19,20 +18,11 @@ export function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
   };
 
   messages.forEach((msg) => {
-    if (msg.messageType === 'thinking') {
-      // Thinking is a first-level block (shown with its author), so flush any
-      // pending sub-level steps first to keep ordering. Consecutive thinking
-      // chunks from the same sender collapse into one block.
-      flushSteps();
-      const last = groups[groups.length - 1];
-      if (last && last.type === 'thinking' && last.sender === msg.senderName) {
-        last.messages.push(msg);
-      } else {
-        groups.push({ type: 'thinking', sender: msg.senderName, messages: [msg] });
-      }
-    } else if (msg.messageType === 'status' || msg.messageType === 'todos') {
-      // Tool calls / status / todos stay clustered at the sub level.
+    if (msg.messageType === 'thinking' || msg.messageType === 'status' || msg.messageType === 'todos') {
+      // A continuous run has one activity disclosure, even when reasoning,
+      // tool calls and task snapshots alternate. Real replies separate runs.
       currentSteps.push(msg);
+      if (isTerminalStatus(msg)) flushSteps();
     } else {
       flushSteps();
       groups.push({ type: 'chat', message: msg });
@@ -46,7 +36,6 @@ export function groupMessages(messages: WorkspaceMessage[]): MessageGroup[] {
 // Stable key for a group
 export function groupKey(group: MessageGroup): string {
   if (group.type === 'chat') return group.message.messageId;
-  if (group.type === 'thinking') return `thinking-${group.messages[0].messageId}`;
   return `steps-${group.messages[0].messageId}`;
 }
 

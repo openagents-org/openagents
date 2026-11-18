@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({ fetchFile: vi.fn(), token: 'sam-session', user
 vi.mock('@/lib/api', () => ({ workspaceApi: {fetchFile:mocks.fetchFile} }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({idToken:mocks.token,user:mocks.user}) }));
 import { resetFileObjectUrlCache, useFileObjectUrl } from './use-file-object-url';
+vi.mock('./file-thumbnail', () => ({ createFileThumbnail: vi.fn(async () => new Blob(['thumbnail'])) }));
+import { createFileThumbnail } from './file-thumbnail';
 let host:HTMLDivElement, root:Root;
 function Media() { const state=useFileObjectUrl('private-image'); return createElement('span',{},state.failed?'failed':state.url || 'loading'); }
 beforeEach(() => {
@@ -59,4 +61,21 @@ it('keeps cached images across the hourly sign-in token refresh',async()=>{
   expect(host.textContent).toBe('blob:authenticated');
   expect(mocks.fetchFile).toHaveBeenCalledTimes(1);
   expect(URL.revokeObjectURL).not.toHaveBeenCalled();
+});
+it('keeps small thumbnails separate from the full-resolution preview', async () => {
+  function Image({ thumbnail }: { thumbnail: boolean }) {
+    const s = useFileObjectUrl('same-file', { thumbnail });
+    return createElement('span', {}, s.url || 'loading');
+  }
+  await act(async () => root.render(createElement(Image, { thumbnail: true })));
+  expect(createFileThumbnail).toHaveBeenCalledTimes(1);
+  const thumb = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
+  expect(thumb.size).toBe(new Blob(['thumbnail']).size);
+  await act(async () => root.render(createElement(Image, { thumbnail: false })));
+  expect(mocks.fetchFile).toHaveBeenCalledTimes(2);
+  expect(createFileThumbnail).toHaveBeenCalledTimes(1);
+  const original = vi.mocked(URL.createObjectURL).mock.calls[1][0] as Blob;
+  expect(original.size).toBe(new Blob(['image']).size);
+  await act(async () => root.render(createElement(Image, { thumbnail: true })));
+  expect(mocks.fetchFile).toHaveBeenCalledTimes(2);
 });

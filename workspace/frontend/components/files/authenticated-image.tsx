@@ -8,11 +8,12 @@ import { useT } from '@/lib/i18n';
  * viewport — `loading="lazy"` only defers the <img>, which comes after the
  * fetch, so a grid of thumbnails would otherwise download every image at once.
  */
-export function AuthenticatedImage({ fileId, deferUntilVisible = false, ...props }: ImgHTMLAttributes<HTMLImageElement> & { fileId: string; deferUntilVisible?: boolean }) {
+export function AuthenticatedImage({ fileId, deferUntilVisible = false, thumbnail = false, onUnavailable, ...props }: ImgHTMLAttributes<HTMLImageElement> & { fileId: string; deferUntilVisible?: boolean; thumbnail?: boolean; onUnavailable?: () => void }) {
   const [visible, setVisible] = useState(!deferUntilVisible);
   const placeholder = useRef<HTMLSpanElement>(null);
-  const { url, failed } = useFileObjectUrl(fileId, { enabled: visible });
+  const { url, failed } = useFileObjectUrl(fileId, { enabled: visible, thumbnail });
   const t = useT();
+  useEffect(() => { if (failed) onUnavailable?.(); }, [failed, onUnavailable]);
   useEffect(() => {
     const el = placeholder.current;
     if (visible || !el) return;

@@ -12,6 +12,7 @@ import { useLandingNote } from './use-landing-note';
 import { useDesktopThreadLinks } from './use-desktop-thread-links';
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from './app-sidebar';
+import { ArtifactSplitView } from './artifact-split-view';
 import { AppHeader } from './app-header';
 import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileShell } from './mobile-shell';
@@ -53,7 +54,7 @@ export function Wrapper() {
   useLandingNote();
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
-    hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded,
+    hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded, conversationWidth, setConversationWidth,
     filesSection, selectedAgentName, setSelectedAgentName, openView,
   } = useLayout();
 
@@ -229,17 +230,14 @@ export function Wrapper() {
             </div>
           ) : viewMode === 'threads' && splitBrowser && showBrowserPreview ? (
             /* Split view: conversation + artifact side by side */
-            <div className="flex flex-1 min-w-0">
-              <div className="relative flex-1 min-w-0 overflow-hidden border-e border-border bg-background">
+            <ArtifactSplitView width={conversationWidth} onResize={setConversationWidth} conversation={
+              <>
                 <div className="h-full">
                   <ChatView />
                 </div>
                 {isAgentPanelOpen && <AgentProfilePanel />}
-              </div>
-              <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
-                <ArtifactPanel />
-              </div>
-            </div>
+              </>
+            } preview={<ArtifactPanel />} />
           ) : (
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
               {/* Kept mounted like the views below: remounting a long thread or

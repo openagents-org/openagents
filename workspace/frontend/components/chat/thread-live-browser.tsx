@@ -18,10 +18,12 @@ import { cn } from '@/lib/utils';
 /** A browser stays over the conversation; opening it never narrows the thread. */
 export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessage[] }) {
   const { browserTabs, currentSessionId, activeSessionIds, refreshBrowserTabs, workspace, currentUser } = useWorkspace();
-  const { selectedArtifact, setSelectedArtifact } = useLayout();
+  const { selectedBrowser, browserView, browserWatchOnly, setBrowserView } = useLayout();
   const t = useT();
-  const [minimized, setMinimized] = useState(false);
-  const [fullscreen, setFullscreen] = useState(false);
+  const minimized = browserView === 'minimized';
+  const setMinimized = (value: boolean) => setBrowserView(value ? 'minimized' : 'compact', id ? { kind: 'browser', id } : undefined, !interactive);
+  const fullscreen = browserView === 'fullscreen';
+  const setFullscreen = (value: boolean) => setBrowserView(value ? 'fullscreen' : 'compact', id ? { kind: 'browser', id } : undefined, !interactive);
   const [frameFailed, setFrameFailed] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
   const preferenceKey = browserPreviewPreferenceKey(workspace?.workspaceId || '', currentUser.id, currentSessionId || '');
@@ -34,16 +36,21 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   // working thread may open a preview without an explicit click.
   const automaticTab = working && currentSessionId ? threadBrowserTabs(browserTabs, currentSessionId, messages)
     .find(tab => !tab.asleep && tabHasFreshAgentActivity(tab)) : undefined;
-  const selectedRef = selectedArtifact?.kind === 'browser' ? selectedArtifact.id : null;
+  const selectedRef = selectedBrowser?.id || null;
   const selectedTab = selectedRef ? browserTabs.find(tab => tab.id === selectedRef)
     || resolveThreadBrowserLink(selectedRef, browserTabs, currentSessionId || '', messages) : undefined;
   const selected = selectedRef ? selectedTab?.id || selectedRef : null;
-  const automatic = dismissal?.key === preferenceKey && !dismissal.dismissed ? automaticTab?.id : null;
+  const automatic = browserView !== 'closed' && dismissal?.key === preferenceKey && !dismissal.dismissed ? automaticTab?.id : null;
   const id = selected || automatic;
   const tab = selected ? selectedTab : automaticTab;
-  const interactive = !!selected || !tab || !!tab.asleep || agentReferences.has(tab.id);
+  const interactive = (!!selected && !browserWatchOnly) || !tab || !!tab.asleep || agentReferences.has(tab.id);
 
-  useEffect(() => { setMinimized(false); setFullscreen(false); setFrameFailed(null); }, [id]);
+  useEffect(() => { setFrameFailed(null); }, [id]);
+  useEffect(() => {
+    if (selectedRef && selectedTab && selectedRef !== selectedTab.id) {
+      setBrowserView(browserView || 'compact', { kind: 'browser', id: selectedTab.id }, browserWatchOnly);
+    }
+  }, [selectedRef, selectedTab?.id, browserView, browserWatchOnly, setBrowserView]);
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
     update(); document.addEventListener('visibilitychange', update);
@@ -83,14 +90,14 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
     ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') })
     : t(interactive ? 'threadLiveBrowser.shared' : 'threadLiveBrowser.title');
   const live = tab?.liveUrl && frameFailed !== tab.liveUrl ? `${tab.liveUrl}${tab.liveUrl.includes('?') ? '&' : '?'}embed=1` : null;
-  const close = () => { dismissBrowserPreview(preferenceKey); setDismissal({ key: preferenceKey, dismissed: true }); if (selected) setSelectedArtifact(null); setFullscreen(false); };
+  const close = () => { dismissBrowserPreview(preferenceKey); setDismissal({ key: preferenceKey, dismissed: true }); setBrowserView('closed'); };
   return <aside ref={panel} tabIndex={-1} role={fullscreen ? 'dialog' : undefined} aria-modal={fullscreen || undefined} aria-label={label}
     data-browser-overlay={fullscreen ? 'fullscreen' : 'compact'}
     className={fullscreen ? 'fixed inset-0 z-70 flex flex-col overflow-hidden bg-background outline-none' : cn('absolute top-3 right-3 z-30 flex max-w-[calc(100%-1.5rem)] flex-col overflow-hidden rounded-xl bg-background shadow-xl ring-1 ring-foreground/10 outline-none', interactive ? 'w-100' : 'w-60')}>
     <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
       <Globe className="mr-1 size-3.5 shrink-0 text-success" />
       <button type="button" onClick={() => setMinimized(!minimized)} title={t(minimized ? 'threadLiveBrowser.restore' : 'threadLiveBrowser.minimize')} className="min-w-0 flex-1 truncate text-left text-xs font-medium">{tab?.title || tab?.url || label}</button>
-      <Button variant="ghost" size="icon-xs" onClick={() => { setMinimized(false); setFullscreen(!fullscreen); }} aria-label={t(fullscreen ? 'threadLiveBrowser.collapse' : 'threadLiveBrowser.expand')} className="text-muted-foreground">{fullscreen ? <Minimize2 /> : <Maximize2 />}</Button>
+      <Button variant="ghost" size="icon-xs" onClick={() => { setFullscreen(!fullscreen); }} aria-label={t(fullscreen ? 'threadLiveBrowser.collapse' : 'threadLiveBrowser.expand')} className="text-muted-foreground">{fullscreen ? <Minimize2 /> : <Maximize2 />}</Button>
       {!minimized && !fullscreen && <Button variant="ghost" size="icon-xs" onClick={() => setMinimized(true)} aria-label={t('threadLiveBrowser.minimize')} className="text-muted-foreground"><Minus /></Button>}
       <Button variant="ghost" size="icon-xs" onClick={close} aria-label={t('common.close')} className="text-muted-foreground"><X /></Button>
     </div>
