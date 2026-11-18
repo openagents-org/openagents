@@ -21,6 +21,7 @@ import { MessageAttachments, type MessageAttachment } from './message-attachment
 import { CompletionAudience } from './message-audience';
 import { ReplyCitation, type ReplyCitationData } from './reply-citation';
 import { YumiAgentLocation } from './yumi-agent-location';
+import { messageModel } from './message-model';
 
 export interface AgentMessageRowProps {
   message: WorkspaceMessage;
@@ -71,7 +72,7 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
           <span className="truncate text-sm font-semibold text-foreground">
             {agent ? agentLabel(agent) : message.senderName}
           </span>
-          {agent && <AgentOwnershipBadge agent={agent} />}
+          {agent && <AgentOwnershipBadge agent={agent} model={messageModel(message, agent)} />}
           {timestamp && <span className="font-normal">{timestamp}</span>}
         </MessageHeader>
         <Bubble variant="ghost" className="w-full">

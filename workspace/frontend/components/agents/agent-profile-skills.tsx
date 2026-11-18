@@ -62,10 +62,10 @@ export function InstalledSkillsCard({ agent }: { agent: WorkspaceAgent }) {
   const installed: string[] = (agent.enabledSkills as Record<string, unknown>)?.installed as string[] || [];
   if (installed.length === 0) return null;
   return (
-    <Card size="sm" className="gap-0 py-0">
-      <CardHeader className="flex items-center gap-1.5 border-b py-2.5">
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
+      <CardHeader className="flex items-center gap-1.5 px-0 pb-3 pt-0">
         <Sparkles className="size-3 text-warning" />
-        <span className="text-xs font-medium">{t('agents.installedSkills')}</span>
+        <span className="text-sm font-medium">{t('agents.installedSkills')}</span>
         <span className="ml-auto text-xs text-muted-foreground">{installed.length}</span>
       </CardHeader>
       <CardContent className="px-1.5 py-1.5">

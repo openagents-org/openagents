@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { Check, Copy, KeyRound, Trash2 } from 'lucide-react';
+import { Check, ChevronDown, Copy, KeyRound, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
@@ -10,7 +10,6 @@ import { Spinner } from '@/components/ui/spinner';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import type { CloudAgentConfig } from '@/lib/types';
 
 export interface InfoItem { icon: ReactNode; label: string; value: string; copyable?: boolean }
@@ -20,39 +19,22 @@ export function ConnectionDetailsCard({ items }: { items: InfoItem[] }) {
   const t = useT();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   return (
-    <Card size="sm" className="gap-0 py-0">
-      <CardHeader className="border-b py-2.5">
-        <span className="text-xs font-medium">{t('agents.connectionDetails')}</span>
-      </CardHeader>
-      <CardContent className="divide-y py-3">
+    <details className="group/connection border-b py-5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium [&::-webkit-details-marker]:hidden">
+        {t('agents.connectionDetails')}<ChevronDown className="size-4 text-muted-foreground transition-transform group-open/connection:rotate-180" />
+      </summary>
+      <dl className="mt-4 flex flex-col gap-4">
         {items.map((item) => (
-          <div key={item.label} className="flex items-start gap-3 px-3.5 py-3">
-            <div className="flex w-20 shrink-0 items-center gap-1.5 pt-px">
-              <span className="text-muted-foreground">{item.icon}</span>
-              <span className="text-xs text-muted-foreground">{item.label}</span>
-            </div>
-            <div className="flex min-w-0 flex-1 items-start gap-1">
-              <span className={cn(
-                'text-sm leading-snug break-all',
-                item.label !== 'Type' ? 'font-mono' : 'font-medium capitalize',
-              )}>
-                {item.value}
-              </span>
-              {item.copyable && (
-                <Button
-                  variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground"
-                  title={t('agents.copyField', { field: item.label })}
-                  aria-label={t('agents.copyField', { field: item.label })}
-                  onClick={() => copyToClipboard(item.value)}
-                >
-                  {isCopied ? <Check /> : <Copy />}
-                </Button>
-              )}
-            </div>
+          <div key={item.label} className="min-w-0">
+            <dt className="mb-1 flex items-center gap-1.5 text-xs text-muted-foreground">{item.icon}{item.label}</dt>
+            <dd className="flex min-w-0 items-start justify-between gap-2">
+              <span className="min-w-0 break-all font-mono text-xs leading-relaxed" title={item.value}>{item.value}</span>
+              {item.copyable && <Button variant="ghost" size="icon-xs" className="shrink-0 text-muted-foreground" title={t('agents.copyField', { field: item.label })} aria-label={t('agents.copyField', { field: item.label })} onClick={() => copyToClipboard(item.value)}>{isCopied ? <Check /> : <Copy />}</Button>}
+            </dd>
           </div>
         ))}
-      </CardContent>
-    </Card>
+      </dl>
+    </details>
   );
 }
 
@@ -81,11 +63,11 @@ export function CloudConfigCard({ agentName, config, onUpdated }: { agentName: s
   }, [agentName, newApiKey, onUpdated]);
 
   return (
-    <Card size="sm" className="gap-0 py-0">
-      <CardHeader className="border-b py-2.5">
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
+      <CardHeader className="px-0 pb-3 pt-0">
         <span className="text-xs font-medium">{t('agents.cloudConfiguration')}</span>
       </CardHeader>
-      <CardContent className="flex flex-col gap-3 py-3">
+      <CardContent className="flex flex-col gap-3 px-0 py-0">
         <div className="flex flex-col gap-1.5">
           <div className="flex items-center justify-between">
             <span className="text-xs text-muted-foreground">{t('agents.fieldApiKey')}</span>
@@ -135,17 +117,14 @@ export function CloudConfigCard({ agentName, config, onUpdated }: { agentName: s
 export function DangerZoneCard({ onRemove }: { onRemove: () => void }) {
   const t = useT();
   return (
-    <Card size="sm" className="gap-0 py-0 ring-destructive/30">
-      <CardHeader className="border-b py-2.5">
-        <span className="text-xs font-medium text-destructive">{t('agents.dangerZone')}</span>
-      </CardHeader>
-      <CardContent className="flex items-center justify-between gap-3 py-3">
+    <details className="group/remove pt-5">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm text-muted-foreground [&::-webkit-details-marker]:hidden">
+        {t('agents.dangerZone')}<ChevronDown className="size-4 transition-transform group-open/remove:rotate-180" />
+      </summary>
+      <div className="mt-4 flex flex-col items-start gap-3">
         <p className="text-xs leading-relaxed text-muted-foreground">{t('agents.removeAgentHint')}</p>
-        <Button variant="destructive" size="sm" className="shrink-0" onClick={onRemove}>
-          <Trash2 data-icon="inline-start" />
-          {t('agents.remove')}
-        </Button>
-      </CardContent>
-    </Card>
+        <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/5 hover:text-destructive" onClick={onRemove}><Trash2 data-icon="inline-start" />{t('agents.remove')}</Button>
+      </div>
+    </details>
   );
 }

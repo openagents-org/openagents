@@ -15,7 +15,7 @@ import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
 
-type Part = 'name' | 'monitor';
+type Part = 'name' | 'monitor' | 'services';
 
 /** A read-only value with a copy button inside the field. */
 function CopyField({ id, value, label }: { id: string; value: string; label: string }) {
@@ -39,6 +39,7 @@ export default function GeneralSettingsPage() {
 
   const [name, setName] = useState(workspace.name);
   const [monitorMode, setMonitorMode] = useState(!!workspace.settings?.monitorMode);
+  const [servicesEnabled, setServicesEnabled] = useState(workspace.settings?.services_enabled === true);
   const [saving, setSaving] = useState<Part | null>(null);
 
   // Deliberately without any ?token= — links we surface for sharing must
@@ -48,6 +49,7 @@ export default function GeneralSettingsPage() {
     : '';
 
   const nameDirty = name.trim() !== workspace.name;
+  const servicesDirty = servicesEnabled !== (workspace.settings?.services_enabled === true);
   const monitorDirty = monitorMode !== !!workspace.settings?.monitorMode;
 
   // Each card saves only its own part, so an unsaved edit in another card is
@@ -59,7 +61,7 @@ export default function GeneralSettingsPage() {
       await workspaceApi.updateWorkspace(
         part === 'name'
           ? { name: name.trim() }
-          : { settings: { ...workspace.settings, monitorMode } },
+          : { settings: part === 'services' ? { services_enabled: servicesEnabled } : { monitorMode } },
       );
       await refreshWorkspace();
       toast.success(t('settings.saved'));
@@ -99,6 +101,18 @@ export default function GeneralSettingsPage() {
         </SettingsRow>
         <SettingsRow label={t('settings.workspaceId')} htmlFor="general-workspace-id">
           <CopyField id="general-workspace-id" value={workspace.slug} label={t('common.copy')} />
+        </SettingsRow>
+      </SettingsCard>
+
+      <SettingsCard
+        title={t('settings.services')}
+        description={t('settings.servicesHint')}
+        footer={editable && (
+          <SaveButton dirty={servicesDirty} saving={saving === 'services'} onClick={() => save('services')} />
+        )}
+      >
+        <SettingsRow label={t('settings.enableServices')} htmlFor="general-services-enabled">
+          <Switch id="general-services-enabled" checked={servicesEnabled} onCheckedChange={setServicesEnabled} disabled={!editable} />
         </SettingsRow>
       </SettingsCard>
 

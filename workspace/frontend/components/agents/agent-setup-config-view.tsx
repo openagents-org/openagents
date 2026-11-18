@@ -1,4 +1,5 @@
 'use client';
+import { agentDisplayName } from './agent-display-name';
 import React from 'react';
 import { AlertCircle, ArrowRight, ChevronLeft, ExternalLink, Plus } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
@@ -10,6 +11,7 @@ import { useT } from '@/lib/i18n';
 import type { AgentCatalogEntry } from '@/lib/types';
 import type { AgentSetupProps } from './agent-setup-types';
 import { RuntimeStatusBadge } from './agent-setup-status-hint';
+import { AgentSetupWizard } from './agent-setup-wizard';
 import { AgentSetupFormBody } from './agent-setup-form-body';
 import type { AgentSetupForm } from './use-agent-setup-form';
 
@@ -40,13 +42,17 @@ export function AgentSetupConfigView({ form, props, entry, onSubmit }: { form: A
   const errorText = (className?: string) => <Alert variant="destructive" className={className}><AlertCircle /><AlertDescription>{error}</AlertDescription></Alert>;
   const body = <AgentSetupFormBody form={form} props={props} />;
 
+  if (extensions?.guided && !isEdit && !compact && !extensions.configuration) {
+    return <AgentSetupWizard form={form} props={props} entry={entry} onSubmit={onSubmit} />;
+  }
+
   // ---- Desktop layout: breadcrumb, title, the form beside an info column,
   // and its actions at the bottom of the form.
   if (compact) {
     // Opened on a type (the launcher always does), the way back is to the page
     // that opened it — there is no type list behind this form to return to.
     const leave = isEdit || startType ? onBack : backToSelection;
-    const title = t('connect.agentConfigure', { name: isEdit ? editAgent!.displayName || editAgent!.name : entry.label });
+    const title = t('connect.agentConfigure', { name: isEdit ? editAgent!.displayName || editAgent!.name : agentDisplayName(entry) });
     return (
       <div className="flex h-full min-h-0 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -125,7 +131,7 @@ export function AgentSetupConfigView({ form, props, entry, onSubmit }: { form: A
             <AgentIcon name={entry.name} size={56} className="shadow-sm" />
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <div className="flex items-center gap-2">
-                <h3 className="truncate text-base font-semibold">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : entry.label}</h3>
+                <h3 className="truncate text-base font-semibold">{isEdit ? t('connect.agentConfigure', { name: editAgent!.displayName || editAgent!.name }) : agentDisplayName(entry)}</h3>
                 <RuntimeStatusBadge status={selectedStatus} />
                 {/* Beside "Needs login" the link is the sign-in itself where the
                     host can run it; otherwise it is labelled as docs, because a

@@ -5,12 +5,12 @@ import { expect, it, vi } from 'vitest';
 import { NavRail } from './nav-rail';
 import { OnboardingSurfaceContext } from './onboarding-surface';
 
-const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
+const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0, servicesEnabled: true as boolean | undefined }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
   viewMode: 'threads', railViewMode: 'threads', openView: state.openView, isRailExpanded: true, setThreadFilter: vi.fn(),
 }), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 208 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
+  unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test', settings: { services_enabled: state.servicesEnabled } }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
   currentUser: { id: 'sam@example.com' }, tasks: [], onlineUsers: [], pendingApprovalsByAgent: {}, unreadDmCounts: {},
 }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
@@ -100,4 +100,16 @@ it('puts Manage Agents at the top with Inbox as the envelope beside it, as dashb
     await act(async () => (inbox[0] as HTMLButtonElement).click());
     expect(state.openView).toHaveBeenCalledWith('inbox');
   } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it('hides Services by default and reflects the workspace toggle', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    for (const enabled of [undefined, false, true, false]) {
+      state.servicesEnabled = enabled;
+      await act(async () => root.render(React.createElement(NavRail)));
+      expect(host.textContent?.includes('collab.viewAgents')).toBe(enabled === true);
+    }
+  } finally { state.servicesEnabled = true; await act(async () => root.unmount()); host.remove(); }
 });

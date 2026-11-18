@@ -24,7 +24,7 @@ export function DisplayNameField({ form, placeholder }: { form: AgentSetupForm; 
 }
 
 /** The agent's name, fixed when editing an existing agent. */
-export function AgentNameField({ form }: { form: AgentSetupForm }) {
+export function AgentNameField({ form, concise = false }: { form: AgentSetupForm; concise?: boolean }) {
   const t = useT();
   const { isEdit, selected, name, nameError, nameClash, canRename } = form;
   return (
@@ -34,13 +34,13 @@ export function AgentNameField({ form }: { form: AgentSetupForm }) {
         {/* Locked when editing, so only a new agent asks for it. */}
         {!isEdit && <>{' '}<span className="text-destructive">* {t('connect.requiredMark')}</span></>}
       </FieldLabel>
-      <Input data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { form.setName(e.target.value); form.setNameError(null); form.nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
+      <Input required={!isEdit} data-testid="agent-setup-name" aria-label={t('connect.nodeAgentNameLabel')} aria-invalid={!!(nameError || nameClash)} value={name} onChange={(e) => { form.setName(e.target.value); form.setNameError(null); form.nameTouchedFor.current = selected; }} placeholder={t('connect.nodeAgentNamePlaceholder')} className="h-10 text-sm" disabled={isEdit} />
       {nameError || nameClash
         ? <FieldError data-testid="agent-setup-name-error">{nameError || nameClash}</FieldError>
-        : !isEdit && <FieldDescription>{t('connect.agentNameUniqueHint')}</FieldDescription>}
+        : !isEdit && !concise && <FieldDescription>{t('connect.agentNameUniqueHint')}</FieldDescription>}
       {/* Always on, not a tooltip: a second agent of a type someone
           already runs is a different name away, nothing more. */}
-      {!isEdit && selected && (
+      {!isEdit && selected && !concise && (
         <FieldDescription data-testid="agent-setup-name-hint">
           {t('connect.agentNameMultiHint', { first: defaultAgentNameBase(selected), second: `${defaultAgentNameBase(selected)}-2` })}
         </FieldDescription>
@@ -64,7 +64,7 @@ export function WorkingDirectoryField({ form, api, node, extensions }: { form: A
       <FieldLabel>{t('connect.nodeWorkingDirOptional')}</FieldLabel>
       <div className="flex gap-2">
         <Input data-testid="agent-setup-workdir" aria-label={t('connect.nodeWorkingDirOptional')} value={workingDir} onChange={(e) => setWorkingDir(e.target.value)} placeholder={extensions?.workingDirectoryPlaceholder || t('connect.nodeWorkingDirPlaceholder')} className="h-10 flex-1 font-mono text-sm" />
-        <Button variant="outline" onClick={browse} className="h-10 shrink-0">
+        <Button type="button" variant="outline" onClick={browse} className="h-10 shrink-0">
           <Folder data-icon="inline-start" />{t('connect.nodeBrowse')}
         </Button>
       </div>

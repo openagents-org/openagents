@@ -1857,12 +1857,12 @@ class BaseAdapter {
    * structured field: an earlier attempt matched the word "completed" in the
    * message text and fired on every bash for-loop that ended in `done`.
    */
-  async sendResponse(channel, content, { statusKind = 'completed' } = {}) {
+  async sendResponse(channel, content, { statusKind = 'completed', model } = {}) {
     if (this._isMuted(channel)) return;
     try {
       await this._replyOutbox().enqueue({
         channel, content,
-        metadata: { status_kind: statusKind, ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
+        metadata: { status_kind: statusKind, ...((model || this.modelLabel()) ? { model: model || this.modelLabel() } : {}), ...(this._channelTriggerId?.[channel] ? { in_reply_to: this._channelTriggerId[channel] } : {}) },
       });
     } catch (e) {
       this._log('Could not save or deliver the final reply; check the local response outbox and disk permissions.', 'error');

@@ -22,6 +22,8 @@ const { hostFreeEnv } = require('./host-agent');
 const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
+const { deviceCredentialKey, decryptCredentials } = require('./credential-envelope');
+const { BrowserLogin } = require('./browser-login');
 
 /** Types whose endpoint is one device-wide config file of their own. None
  *  left: OpenClaw gives each keyed agent a private store (adapters/openclaw.js)
@@ -180,7 +182,7 @@ class Daemon {
     this._cliModelsInFlight = new Set(); // sign-in keys whose CLI is being asked right now
     this._cliModelsStartupTimer = null;
     this._cliModelsInterval = null;
-    this._reloadInFlight = null;  // serialize concurrent _reload() calls
+    this._reloadInFlight = null;  // serialize config reloads and explicit restarts
     this._runtimeRepairs = new Map(); // agent type → in-flight reinstall of its supported version
   }
 
@@ -518,12 +520,40 @@ class Daemon {
    * workspace knows this device has `agn login`; for an older device it shows
    * the CLI's own login command instead.
    */
+  /** Install a missing CLI before its native browser sign-in, without creating an agent. */
+  async _prepareBrowserLogin(type) {
+    if (!['claude', 'codex'].includes(type) || !['linux', 'darwin'].includes(process.platform)) {
+      throw new Error('Browser sign-in is not supported for this agent or device.');
+    }
+    const { Installer } = require('./installer');
+    const installer = new Installer(this.registry, this.config.configDir);
+    const existing = installer.which(type);
+    if (existing) return existing;
+    this._loginInstalls ??= new Map();
+    if (!this._loginInstalls.has(type)) {
+      const installing = (async () => {
+        const result = await this._runAgn(['install', type], { timeoutMs: 300_000 });
+        const binary = result.code === 0 && installer.which(type);
+        if (!binary) throw new Error('Could not install the agent for browser sign-in. Please retry.');
+        this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {});
+        return binary;
+      })();
+      this._loginInstalls.set(type, installing);
+    }
+    try { return await this._loginInstalls.get(type); }
+    finally { this._loginInstalls.delete(type); }
+  }
+
   _heartbeatRuntimes() {
     return (this._runtimes || []).map((rt) => {
       if (!rt) return rt;
       // Whatever `agn login` can sign in, which is wider than _hasCliSignIn:
       // OpenCode signs in without the registry marking it a sign-in agent.
       const out = this._agnLoginFor(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
+      if (['claude', 'codex'].includes(rt.type) && ['linux', 'darwin'].includes(process.platform)) {
+        this._browserLoginSupported ??= !!whichBinary('script');
+        if (this._browserLoginSupported) out.browserLogin = true;
+      }
       if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
       return { ...out, cliModels: (listed && listed.models) || null };
@@ -1104,7 +1134,7 @@ class Daemon {
 
 async _runNodeCommand(n, cmd) {
     const action = cmd.action;
-    const args = cmd.args || {};
+    let args = cmd.args || {};
     const name = (args.name || '').trim();
     let ok = false;
     let message = '';
@@ -1117,6 +1147,7 @@ async _runNodeCommand(n, cmd) {
     // belong to another one (they surface in no roster of ours either).
     const AGENT_SCOPED = new Set(['start_agent', 'stop_agent', 'remove_agent', 'configure_agent']);
     try {
+      args = decryptCredentials(this.config.configDir, n.node_id, action, args);
       if (AGENT_SCOPED.has(action)) {
         const existing = this.config.getAgent(name);
         if (!existing || !this._agentOnNodeWorkspace(existing, n)) {
@@ -1252,6 +1283,31 @@ async _runNodeCommand(n, cmd) {
         data = { probe };
         // Push the fresh result right away (same pattern as detect_runtimes).
         this._nodeHeartbeat();
+      } else if (['login_start', 'login_status', 'login_input', 'login_cancel'].includes(action)) {
+        if (!this._browserLogins) this._browserLogins = new BrowserLogin({
+          verify: async (type) => {
+            const result = await this._runAgn(['runtimes', '--json', '--types', type], { timeoutMs: 30_000 });
+            return result.code === 0 && JSON.parse(result.stdout).some(rt => rt.type === type && rt.signedIn === true);
+          },
+          onDone: () => { this._refreshRuntimes().then(() => this._nodeHeartbeat()).catch(() => {}); },
+        });
+        const owner = `${n.workspace_id}:${n.node_id}`;
+        if (action === 'login_start') {
+          const type = args.type;
+          const binary = await this._prepareBrowserLogin(type);
+          data = this._browserLogins.start(owner, type, binary, getEnhancedEnv());
+        } else if (action === 'login_input') {
+          if (!cmd.args?.encryptedCredentials) throw new Error('Authorization codes must be encrypted for this device.');
+          data = this._browserLogins.input(owner, args.sessionId, args.config?.code);
+        } else if (action === 'login_cancel') data = this._browserLogins.cancel(owner, args.sessionId);
+        else data = this._browserLogins.read(owner, args.sessionId);
+        ok = true;
+        message = 'Sign-in status updated';
+      } else if (action === 'credential_key') {
+        const { privateKey, ...publicKey } = deviceCredentialKey(this.config.configDir);
+        data = publicKey;
+        ok = true;
+        message = 'Device encryption ready';
       } else if (action === 'detect_runtimes') {
         await this._refreshRuntimes();
         // Push the fresh detection right away rather than waiting for the next
@@ -1282,7 +1338,7 @@ async _runNodeCommand(n, cmd) {
       }
     } catch (e) {
       ok = false;
-      message = e.message || String(e);
+      message = cmd.args?.encryptedCredentials ? 'Encrypted setup failed. Check the agent on the device and try again.' : e.message || String(e);
       // Undo a create that failed after `agn create`: the entry stays in config
       // without this workspace's binding, so no roster here shows it, the
       // workspace's failed card cannot remove it, and every retry under the
@@ -1495,6 +1551,7 @@ async _runNodeCommand(n, cmd) {
   async stop() {
     if (this._shuttingDown) return;
     this._shuttingDown = true;
+    this._browserLogins?.close();
     this._log('Shutting down...');
 
     if (this._statusInterval) clearInterval(this._statusInterval);
@@ -1582,7 +1639,11 @@ async _runNodeCommand(n, cmd) {
   /**
    * Restart a single agent by name.
    */
-  async restartAgent(agentName) {
+  restartAgent(agentName) {
+    return this._queueConfigOperation(() => this._restartAgentUnsafe(agentName));
+  }
+
+  async _restartAgentUnsafe(agentName) {
     // Set state to 'starting' immediately so UI never sees 'stopped' during restart
     if (this._processes[agentName]) {
       this._processes[agentName].state = 'starting';
@@ -2129,7 +2190,8 @@ async _runNodeCommand(n, cmd) {
       this._log(`${name} adapter error: ${info.lastError}`, 'error');
     }
 
-    delete this._adapters[name];
+    // A forced stop can outlive its slot. Never remove a replacement adapter.
+    if (this._adapters[name] === adapter) delete this._adapters[name];
 
     // Final state: a clean stop (user stop / daemon shutdown) is NEVER an error.
     // A terminal failure recorded by the adapter (join/heartbeat/session-revoked)
@@ -2360,25 +2422,21 @@ async _runNodeCommand(n, cmd) {
     } catch {}
   }
 
-  async _reload() {
-    // Serialize reloads. fs.watch, the 'reload' command, and SIGHUP can
-    // all fire concurrently. Without a mutex, two _reload() calls in flight
-    // may both observe the same stale `this._adapters[name]` entry between
-    // stopAgent() and _launchAgent(), leaving a ghost adapter running
-    // alongside the new one → duplicate bot replies per message.
-    if (this._reloadInFlight) {
-      // Wait for the in-flight reload to finish, then run once more
-      // (the config may have changed again since it started).
-      this._reloadInFlight = this._reloadInFlight.then(
-        () => this._reloadUnsafe(),
-        () => this._reloadUnsafe(),
-      );
-      return this._reloadInFlight;
-    }
-    this._reloadInFlight = this._reloadUnsafe().finally(() => {
-      this._reloadInFlight = null;
+  _queueConfigOperation(operation) {
+    // `agn connect` sends restart while fs.watch is reconciling the preceding
+    // create. Both must finish in order: a reload holding the pre-connect
+    // config must not stop the newly connected adapter or relaunch it locally.
+    const previous = this._reloadInFlight || Promise.resolve();
+    const pending = previous.then(operation, operation);
+    const settled = pending.finally(() => {
+      if (this._reloadInFlight === settled) this._reloadInFlight = null;
     });
-    return this._reloadInFlight;
+    this._reloadInFlight = settled;
+    return settled;
+  }
+
+  _reload() {
+    return this._queueConfigOperation(() => this._reloadUnsafe());
   }
 
   async _reloadUnsafe() {

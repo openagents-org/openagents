@@ -224,7 +224,7 @@ export function NavRail() {
           {showLabels && <SidebarGroupLabel className="px-2">{t('nav.collaboration')}</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
-              {navItems.map((item) => (
+              {navItems.filter((item) => item.mode !== 'agents' || workspace?.settings?.services_enabled === true).map((item) => (
                 <SidebarMenuItem key={item.mode}>
                   <SidebarMenuButton
                     className={cn('relative', !showLabels && 'justify-center!')}
