@@ -5,7 +5,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { artifactFromLink, openArtifactPreview } from '@/lib/thread-artifacts';
 const mocks = vi.hoisted(() => ({
   workspace: { refreshBrowserTabs:vi.fn().mockResolvedValue(undefined),workspace:{workspaceId:'workspace',slug:'demo'}, currentSessionId:'one',currentUser:{id:'owner'},loading:false,files:[] as any[],browserTabs:[] as any[],sessions:[] as any[] },
-  layout:{viewMode:'threads',openArtifact:vi.fn(),setSelectedArtifact:vi.fn(),setShowBrowserPreview:vi.fn(),setSplitBrowser:vi.fn()},
+  layout:{viewMode:'threads',openArtifact:vi.fn(),setSelectedArtifact:vi.fn(),setShowBrowserPreview:vi.fn(),setSplitBrowser:vi.fn(),hasSavedThreadView:false,applyThreadArtifactDefault:vi.fn()},
   get:vi.fn(),fetch:vi.fn(),knowledge:vi.fn(),
 }));
 vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>mocks.workspace}));
@@ -21,15 +21,14 @@ function Controller(){useThreadArtifactPreview();return null;}
 let host:HTMLDivElement,root:Root;
 beforeEach(()=>{Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});vi.clearAllMocks();mocks.workspace.currentSessionId='one';mocks.workspace.files=[];mocks.workspace.browserTabs=[];host=document.createElement('div');document.body.append(host);root=createRoot(host);});
 afterEach(async()=>{await act(async()=>root.unmount());host.remove();});
-it('restores the owner default on each entry and clears previews for an unpinned thread',async()=>{
+it('offers owner defaults without clearing personal previews on thread entry',async()=>{
   mocks.get.mockResolvedValueOnce({artifact:{kind:'file',id:'dashboard'}}).mockResolvedValueOnce({artifact:null});
   await act(async()=>root.render(React.createElement(Controller)));
-  expect(mocks.layout.openArtifact).toHaveBeenCalledWith({kind:'file',id:'dashboard'});
+  expect(mocks.layout.applyThreadArtifactDefault).toHaveBeenCalledWith({kind:'file',id:'dashboard'});
   mocks.workspace.currentSessionId='two';
   await act(async()=>root.render(React.createElement(Controller)));
-  expect(mocks.layout.setSelectedArtifact).toHaveBeenLastCalledWith(null);
-  expect(mocks.layout.setShowBrowserPreview).toHaveBeenLastCalledWith(false);
-  expect(mocks.layout.openArtifact).toHaveBeenCalledTimes(1);
+  expect(mocks.layout.setSelectedArtifact).not.toHaveBeenCalled();
+  expect(mocks.layout.applyThreadArtifactDefault).toHaveBeenCalledTimes(1);
 });
 it('ignores late default responses from a previous thread and respects a manual selection',async()=>{
   let resolveOne:(value:any)=>void=()=>{},resolveTwo:(value:any)=>void=()=>{};
@@ -44,7 +43,7 @@ it('ignores late default responses from a previous thread and respects a manual 
 it('opens a helpful panel for an unavailable pin without exposing its reference',async()=>{
   mocks.get.mockResolvedValue({artifact:null,unavailable:true});
   await act(async()=>root.render(React.createElement(Controller)));
-  expect(mocks.layout.setShowBrowserPreview).toHaveBeenLastCalledWith(true);
+  expect(mocks.layout.applyThreadArtifactDefault).toHaveBeenCalledWith(null, true);
   expect(mocks.layout.openArtifact).not.toHaveBeenCalled();
 });
 it('recognizes canonical document links, uploaded paths, and existing live tabs',()=>{
@@ -105,4 +104,13 @@ it('uses stable browser IDs across navigation and rejects example IDs',()=>{
   expect(artifactFromLink(`/v1/browser/tabs/${id}`,[],[{id,url:'https://new.example/'}] as any,'demo')).toEqual({kind:'browser',id});
   expect(artifactFromLink('/v1/browser/tabs/TAB_ID',[],[],'demo')).toBeNull();
   expect(artifactFromLink(`https://external.example/v1/browser/tabs/${id}`,[],[],'demo')).toBeNull();
+});
+
+it('skips owner defaults when this viewer already has saved thread preferences', async () => {
+  mocks.layout.hasSavedThreadView = true;
+  try {
+    await act(async () => root.render(React.createElement(Controller)));
+    expect(mocks.get).not.toHaveBeenCalled();
+    expect(mocks.layout.applyThreadArtifactDefault).not.toHaveBeenCalled();
+  } finally { mocks.layout.hasSavedThreadView = false; }
 });

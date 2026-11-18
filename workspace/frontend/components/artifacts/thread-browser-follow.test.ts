@@ -5,7 +5,7 @@ import { beforeEach, afterEach, expect, it, vi } from 'vitest';
 import { type ArtifactReference, openArtifactPreview } from '@/lib/thread-artifacts';
 const mocks = vi.hoisted(() => ({
   workspace: { workspace: { workspaceId: 'w' }, currentSessionId: 'one', currentUser: { id: 'me' }, loading: false, files: [], browserTabs: [] as any[] },
-  layout: { viewMode: 'threads', isMobile: false, selectedArtifact: null as ArtifactReference | null, showBrowserPreview: false, openArtifact: vi.fn(), setSelectedArtifact: vi.fn(), setShowBrowserPreview: vi.fn(), setSplitBrowser: vi.fn() },
+  layout: { viewMode: 'threads', isMobile: false, selectedArtifact: null as ArtifactReference | null, showBrowserPreview: false, openArtifact: vi.fn(), setSelectedArtifact: vi.fn(), setShowBrowserPreview: vi.fn(), setSplitBrowser: vi.fn(), hasSavedThreadView: false, applyThreadArtifactDefault: vi.fn() },
   get: vi.fn(),
 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace }));
@@ -42,7 +42,7 @@ it('still opens manually selected browser previews', async () => {
 it('still restores pinned artifacts and protects manual choices from delayed responses', async () => {
   mocks.get.mockResolvedValueOnce({ artifact: { kind: 'file', id: 'pin' } });
   await render();
-  expect(mocks.layout.openArtifact).toHaveBeenCalledWith({ kind: 'file', id: 'pin' });
+  expect(mocks.layout.applyThreadArtifactDefault).toHaveBeenCalledWith({ kind: 'file', id: 'pin' });
   let resolve: (value: any) => void = () => {};
   mocks.get.mockReturnValue(new Promise(r => { resolve = r; }));
   mocks.workspace.currentSessionId = 'two'; await render();

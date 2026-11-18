@@ -100,6 +100,7 @@ export function useUploadQueue(onUploaded: () => Promise<void>): UploadQueue {
 
           try {
             await workspaceApi.uploadFile(file, undefined, {
+              folder: file.name.includes('/') ? file.name.slice(0, file.name.lastIndexOf('/')) : '',
               signal: controller.signal,
               onProgress: (fraction) => patch(id, { progress: fraction }),
             });
@@ -141,8 +142,8 @@ export function useUploadQueue(onUploaded: () => Promise<void>): UploadQueue {
 
     const records = files.map((file): PendingUpload => {
       const id = `upload-${++uploadSeq}`;
-      // The folder rides along as part of the name; the API reads it back off
-      // the prefix, the same way the grid does.
+      // Retain the destination in the queue; uploadFile sends it explicitly
+      // so an empty path stays at the root and names avoid legacy rewriting.
       filesRef.current.set(
         id,
         folder ? new File([file], `${folder}/${file.name}`, { type: file.type }) : file,

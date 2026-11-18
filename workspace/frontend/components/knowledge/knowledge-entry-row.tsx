@@ -1,6 +1,6 @@
 'use client';
 
-import { FileText, Pencil, Share2, Trash2 } from 'lucide-react';
+import { BookOpen, Pencil, Share2, Trash2 } from 'lucide-react';
 import { ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 import { Button } from '@/components/ui/button';
 import { useFormatters, useT } from '@/lib/i18n';
@@ -49,7 +49,7 @@ export function KnowledgeEntryRow({
         selected ? 'border-border bg-accent shadow-xs' : 'border-transparent hover:bg-muted/50',
       )}
     >
-      <FileText className={cn('mt-0.5 size-4 shrink-0', selected ? 'text-foreground/80' : 'text-muted-foreground/60')} />
+      <BookOpen className={cn('mt-0.5 size-4 shrink-0', selected ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60')} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <p className="min-w-0 flex-1 line-clamp-2 text-sm leading-snug font-medium text-foreground" title={title}>
@@ -58,7 +58,7 @@ export function KnowledgeEntryRow({
           <span className="shrink-0"><ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} /></span>
         </div>
         {entry.description && (
-          <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
+          <p className="line-clamp-1 text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
         )}
         <div className="mt-1 flex min-h-6 items-center gap-2 pr-20">
           <span className="truncate text-xs text-muted-foreground">{timeAgo(entry.updatedAt || entry.createdAt)}</span>

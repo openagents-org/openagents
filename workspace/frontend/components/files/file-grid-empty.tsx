@@ -10,7 +10,7 @@ import type { FileTypeFilter } from './file-utils';
  * Nothing to be recent about — a workspace with no files at all. On mobile,
  * where the folder panel is a separate pane, it offers the way to reach it.
  */
-export function FilesEmptyWorkspace({ onBrowseFolders }: { onBrowseFolders?: () => void }) {
+export function FilesEmptyWorkspace({ onUpload, onBrowseFolders }: { onUpload: () => void; onBrowseFolders?: () => void }) {
   const t = useT();
   return (
     <Empty className="flex-1">
@@ -21,14 +21,18 @@ export function FilesEmptyWorkspace({ onBrowseFolders }: { onBrowseFolders?: () 
         <EmptyTitle>{t('files.emptyTitle')}</EmptyTitle>
         <EmptyDescription className="text-balance">{t('files.emptyBody')}</EmptyDescription>
       </EmptyHeader>
-      {onBrowseFolders && (
-        <EmptyContent>
+      <EmptyContent>
+        <Button size="sm" onClick={onUpload}>
+          <Upload data-icon="inline-start" />
+          {t('files.uploadFiles')}
+        </Button>
+        {onBrowseFolders && (
           <Button variant="outline" size="sm" onClick={onBrowseFolders}>
             <PanelLeft data-icon="inline-start" />
             {t('files.browseFolders')}
           </Button>
-        </EmptyContent>
-      )}
+        )}
+      </EmptyContent>
     </Empty>
   );
 }

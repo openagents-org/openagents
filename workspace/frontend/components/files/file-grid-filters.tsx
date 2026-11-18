@@ -34,30 +34,27 @@ export function FileGridFilters({
   const shown = categories.filter((c) => c.id === 'all' || c.count > 0 || c.id === typeFilter);
 
   return (
-    <div className="flex shrink-0 flex-col gap-3 border-b px-4 py-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="text-xs text-muted-foreground">{t('files.filterByType')}</span>
-        <InputGroup className="w-full md:w-56">
-          <InputGroupAddon>
-            <Search />
+    <div className="flex shrink-0 flex-col gap-3 border-b px-4 py-3 @3xl:flex-row @3xl:items-center">
+      <InputGroup className="w-full @3xl:w-56 @3xl:shrink-0">
+        <InputGroupAddon>
+          <Search />
+        </InputGroupAddon>
+        <InputGroupInput
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder={t('files.searchFilesPlaceholder')}
+          aria-label={t('files.searchFilesLabel')}
+          className="text-xs"
+        />
+        {search && (
+          <InputGroupAddon align="inline-end">
+            <InputGroupButton size="icon-xs" onClick={() => onSearch('')} aria-label={t('files.clearSearch')}>
+              <X />
+            </InputGroupButton>
           </InputGroupAddon>
-          <InputGroupInput
-            value={search}
-            onChange={(e) => onSearch(e.target.value)}
-            placeholder={t('files.searchFilesPlaceholder')}
-            aria-label={t('files.searchFilesLabel')}
-            className="text-xs"
-          />
-          {search && (
-            <InputGroupAddon align="inline-end">
-              <InputGroupButton size="icon-xs" onClick={() => onSearch('')} aria-label={t('files.clearSearch')}>
-                <X />
-              </InputGroupButton>
-            </InputGroupAddon>
-          )}
-        </InputGroup>
-      </div>
-      <div className="overflow-x-auto pb-1">
+        )}
+      </InputGroup>
+      <div className="min-w-0 overflow-x-auto @3xl:ms-auto">
         <ToggleGroup
           type="single"
           variant="outline"
