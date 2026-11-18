@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, Plus, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
+import { X, Plus, Globe, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -19,6 +19,7 @@ import { ModelCard, ReadOnlyModelCard } from './agent-profile-model-card';
 import { InstalledSkillsCard } from './agent-profile-skills';
 import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem } from './agent-profile-sections';
 import { useAgentModelOptions } from './use-agent-model-options';
+import { WorkdirCard } from './agent-profile-workdir-card';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
@@ -120,7 +121,6 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     : [
         { icon: <Monitor className="size-3.5" />, label: t('agents.fieldType'), value: displayType },
         { icon: <Globe className="size-3.5" />, label: t('agents.fieldServer'), value: agent.serverHost || '—' },
-        { icon: <Folder className="size-3.5" />, label: t('agents.fieldFolder'), value: agent.workingDir || '—' },
         agentId,
       ];
 
@@ -155,18 +155,24 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
           </Button>
         </div>
 
-        <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+        {/* Only the close row and the footer stay put; everything between
+            scrolls here. Cards keep their height (shrink-0): a Card clips its
+            overflow, so a squeezed one cut off the end of a long description.
+            overscroll-contain keeps the thread behind from scrolling along. */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-3.5 pb-3 *:shrink-0">
+          <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 
-        {/* Scrollable content */}
-        <div className="flex flex-1 flex-col gap-3 overflow-y-auto px-3.5">
-          <AgentSharingButton agentName={agent.agentName} />
-          <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
-          <ConnectionDetailsCard items={infoItems} />
-
-          {/* The built-in assistant shows its server-set model read-only. */}
+          {/* The settings people come here to change, first: the name is
+              edited in the header above, then the model and the folder. The
+              built-in assistant shows its server-set model read-only. */}
           {modelReadOnly
             ? <ReadOnlyModelCard model={models.currentModel} managed={isManaged} />
             : <ModelCard m={models} />}
+          {!isCloud && <WorkdirCard agent={agent} canManage={canManage} />}
+
+          <AgentSharingButton agentName={agent.agentName} />
+          <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+          <ConnectionDetailsCard items={infoItems} />
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}

@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
 import type { NodeAgent, WorkspaceNode } from '@/lib/types';
 import { NodeAgentItem } from './node-agent-item';
+import { NodeOfflineHelp } from './node-offline-help';
 import { NodePendingAgent } from './node-pending-agent';
 import { NodeSummary } from './node-summary';
 import { useAgentToggles } from './use-agent-toggles';
@@ -160,7 +161,7 @@ export function NodeCard({
             )}
           </div>
 
-          {!online && <p className="text-xs text-warning">{t('connect.nodeOfflineActionHint')}</p>}
+          {!online && <NodeOfflineHelp />}
 
           {!hasAny ? (
             <Empty className="p-4">
@@ -179,7 +180,9 @@ export function NodeCard({
                 <NodePendingAgent
                   key={`pending-${p.name}`}
                   pending={p}
+                  deviceOnline={online}
                   onRetry={() => onRetryPending(p)}
+                  onRecheck={onChanged}
                   onDismiss={() => onDismissPending(p.name)}
                 />
               ))}

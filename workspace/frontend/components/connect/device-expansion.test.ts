@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
   listMyAcentaAgents: vi.fn(() => Promise.resolve([])), getMyAcentaUsage: vi.fn(() => Promise.resolve(null)),
   listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
+  listNodeCommands: vi.fn(() => Promise.resolve([])),
 }));
 const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn(), cloudAgentsPending: false, consumeCloudAgents: vi.fn(), desktop: null as null | Record<string, unknown> }));
 vi.mock('@/lib/account-api', () => ({ sendSetupEmail: api.sendSetupEmail }));

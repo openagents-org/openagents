@@ -80,11 +80,18 @@ describe('pendingResponderName', () => {
   });
 });
 
-it('only predicts leading mentions while thread response routing is pending', () => {
+it('only predicts agent mentions while thread response routing is pending', () => {
   for (const responseMode of ['proactive', 'passive'] as const) {
     const options = { responseMode, mentions: ['claude-dev'], mentionedHumans: [] };
     expect(expectsAgentResponse({ ...options, content: '@claude-dev help' })).toBe(true);
-    expect(expectsAgentResponse({ ...options, content: 'look at @claude-dev' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: 'look at @claude-dev' })).toBe(true);
+    expect(expectsAgentResponse({ ...options, content: '随便讲一句话 @claude-dev' })).toBe(true);
+    expect(expectsAgentResponse({ ...options, content: '`@claude-dev` is mentioned in the docs' })).toBe(false);
+    // The server's handle boundaries: these are not mentions there either.
+    expect(expectsAgentResponse({ ...options, content: 'see @claude-dev+notes' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: 'see @claude-dev.io' })).toBe(false);
+    expect(expectsAgentResponse({ ...options, content: '看一下@claude-dev，谢谢' })).toBe(true);
+    expect(expectsAgentResponse({ ...options, content: '```\n@claude-dev run\n```' })).toBe(false);
     expect(expectsAgentResponse({ ...options, content: '@claude-dev@example.com hi' })).toBe(false);
     expect(expectsAgentResponse({ ...options, content: 'Sam, are you there?' })).toBe(false);
     expect(expectsAgentResponse({ ...options, content: 'hi', dmCounterpart: 'claude-dev' })).toBe(true);

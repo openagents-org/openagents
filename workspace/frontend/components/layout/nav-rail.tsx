@@ -255,13 +255,15 @@ export function NavRail() {
           Manage Agents (or on the collapsed rail), and inviting is the
           Members header's "+". */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        {/* Expanded, search takes the row and the avatar keeps its own width,
+            so the footer has no empty stretch between them. */}
         <div
           className={cn(
-            'flex gap-0.5',
-            showLabels ? 'flex-row items-center justify-between px-1' : 'flex-col items-center',
+            'flex',
+            showLabels ? 'flex-row items-center gap-2' : 'flex-col items-center gap-0.5',
           )}
         >
-          <SearchMenu iconOnly />
+          <SearchMenu iconOnly={!showLabels} />
           <UserMenu side="right" align="end" />
         </div>
 

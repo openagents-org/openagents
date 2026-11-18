@@ -120,6 +120,12 @@ export const RAIL_WIDTH_EXPANDED = 208;
 export type MobilePane = 'list' | 'detail';
 export type ConnectSetupRequest = { method: 'desktop' | 'terminal' };
 
+/** Which device agent's full settings to open, and the device it is on. */
+export interface EditAgentRequest {
+  agentName: string;
+  nodeId: string;
+}
+
 interface LayoutState {
   selectedArtifact: ArtifactReference | null;
   setSelectedArtifact: (artifact: ArtifactReference | null) => void;
@@ -150,6 +156,13 @@ interface LayoutState {
   addAgentPending: boolean;
   /** The connect view calls this once it has opened the gallery. */
   consumeAddAgent: () => void;
+  /** Close the agent profile and open Connect Agents on the full settings of
+   * one device agent. */
+  openEditAgent: (request: EditAgentRequest) => void;
+  /** Set by `openEditAgent` until the devices tab acts on it. */
+  editAgentPending: EditAgentRequest | null;
+  /** The devices tab calls this once it has acted on the request. */
+  consumeEditAgent: () => void;
   threadFilter: 'all' | 'channels' | 'starred' | 'archived' | 'dms';
   setThreadFilter: (filter: 'all' | 'channels' | 'starred' | 'archived' | 'dms') => void;
   selectedAgentName: string | null;
@@ -330,6 +343,15 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   };
   const consumeAddAgent = useCallback(() => setAddAgentPending(false), []);
 
+  const [editAgentPending, setEditAgentPending] = useState<EditAgentRequest | null>(null);
+  const openEditAgent = (request: EditAgentRequest) => {
+    setSelectedAgentName(null);
+    // A fresh object per click, so asking again for the same agent re-runs.
+    setEditAgentPending({ ...request });
+    openView('connect');
+  };
+  const consumeEditAgent = useCallback(() => setEditAgentPending(null), []);
+
   // Sidebar widths now come from <SidebarProvider> (components/ui/sidebar).
   const cssVariables = useMemo(() => ({
     '--header-height-mobile': '60px',
@@ -379,6 +401,9 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       openAddAgent,
       addAgentPending,
       consumeAddAgent,
+      openEditAgent,
+      editAgentPending,
+      consumeEditAgent,
       threadFilter,
       setThreadFilter,
       selectedAgentName,

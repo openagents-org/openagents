@@ -152,6 +152,9 @@ export interface NodeCommand {
   status: 'pending' | 'running' | 'done' | 'error';
   result: { ok: boolean; message: string | null; data?: unknown } | null;
   agentName: string | null;
+  agentType?: string | null;
+  /** create_agent only: what it was submitted with, minus keys and endpoints. */
+  draft?: { name: string; type: string; workingDir?: string; model?: string; codexWireApi?: 'responses' | 'chat' };
   createdAt: string | null;
   finishedAt: string | null;
 }
