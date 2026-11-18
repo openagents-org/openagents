@@ -4,6 +4,8 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentProfilePanel } from './agent-profile-panel';
 
+const navigation = vi.hoisted(() => ({ setCurrentSessionId: vi.fn(), createSession: vi.fn() }));
+
 const api = vi.hoisted(() => ({
   getAgentCatalogDetail: vi.fn(),
   listNodes: vi.fn(),
@@ -37,7 +39,8 @@ vi.mock('@/lib/workspace-context', () => ({
       joinedAt: null,
     }],
     refreshWorkspace: vi.fn(),
-    createSession: vi.fn(),
+    ...navigation,
+    currentUser: { id: 'owner@example.com', isAuthenticated: true },
   }),
 }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
@@ -72,6 +75,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.clearAllMocks();
   api.getAgentCatalogDetail.mockReset();
   api.listNodes.mockReset().mockResolvedValue([]);
   api.getAgentDirectory.mockReset().mockResolvedValue([]);
@@ -93,6 +97,19 @@ describe('agent model settings', () => {
     });
     await act(async () => { await Promise.resolve(); });
   }
+
+  it('opens the agent direct message instead of creating a thread', async () => {
+    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [] });
+    await renderPanel();
+    const button = Array.from(container.querySelectorAll('button'))
+      .find((item) => item.textContent === 'agents.directMessage');
+    expect(button).toBeDefined();
+    await act(async () => button?.click());
+    expect(navigation.setCurrentSessionId).toHaveBeenCalledWith(
+      'dm:human:owner@example.com,openagents:codex-demo-key',
+    );
+    expect(navigation.createSession).not.toHaveBeenCalled();
+  });
 
   it('keeps the model card visible and explains a catalog failure', async () => {
     api.getAgentCatalogDetail.mockRejectedValue(new Error('catalog unavailable'));

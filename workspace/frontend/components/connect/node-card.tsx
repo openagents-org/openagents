@@ -154,7 +154,7 @@ export function NodeCard({
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">{t('connect.nodeAgents')}</span>
             {hasAny && (
-              <Button size="sm" variant="outline" onClick={onAddAgent}>
+              <Button size="lg" className="px-4 shadow-sm has-data-[icon=inline-start]:pl-3" onClick={onAddAgent}>
                 <Plus data-icon="inline-start" />{t('connect.nodeAddAgent')}
               </Button>
             )}

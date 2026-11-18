@@ -58,7 +58,7 @@ router = APIRouter(prefix="/v1/workspaces", tags=["Workspaces"])
 AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 
 PUBLIC_WORKSPACE_SETTINGS = frozenset({
-    "theme", "monitorMode", "browser_enabled", "slack_browser_previews",
+    "theme", "monitorMode", "services_enabled", "browser_enabled", "slack_browser_previews",
 })
 
 
@@ -482,6 +482,8 @@ def update_workspace(
         unknown = set(body.settings) - PUBLIC_WORKSPACE_SETTINGS
         if unknown:
             return json_response(ResponseCode.BAD_REQUEST, "Unsupported workspace settings; use the dedicated configuration fields")
+        if "services_enabled" in body.settings and type(body.settings["services_enabled"]) is not bool:
+            return json_response(ResponseCode.BAD_REQUEST, "services_enabled must be a boolean")
         # Clients only receive public settings. Replacing the entire stored map
         # with that round-trip would silently erase keys and server metadata.
         workspace.settings = {**(workspace.settings or {}), **body.settings}

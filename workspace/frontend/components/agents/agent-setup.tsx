@@ -32,7 +32,6 @@ export function AgentSetup(props: AgentSetupProps) {
   // ---- Selection mode: the agent marketplace --------------------------------
   const statusOf = (name: string) => runtimeStatus(runtimeByType[name]);
   const checkingOf = (name: string) => detecting && !runtimeByType[name];
-  const featured = catalog.filter((e) => e.featured);
   const readyCount = catalog.filter((e) => {
     const s = statusOf(e.name);
     return s === 'ready' || s === 'needs_login';
@@ -70,7 +69,7 @@ export function AgentSetup(props: AgentSetupProps) {
   return (
     <MarketGallery
       {...shared}
-      featured={featured}
+      onPreload={(type) => { void props.api.getAgentCatalogDetail(type).catch(() => {}); }}
       subtitle={contextLabel || t('connect.agentRunsOn', { device: node.name })}
     />
   );

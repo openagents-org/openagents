@@ -357,32 +357,35 @@ if [ -n "$NEEDS_PATH" ]; then
     fi
     ADDED_TO=""
 
-    # Auto-add to shell profile
-    for rc in "$HOME/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.profile"; do
-        if [ -f "$rc" ]; then
-            if ! grep -qF "$NEEDS_PATH" "$rc" 2>/dev/null; then
-                echo "" >> "$rc"
-                echo "# Added by OpenAgents installer" >> "$rc"
-                echo "$PATH_LINE" >> "$rc"
-                ADDED_TO="$rc"
+    # curl | bash runs a child shell; configure the user's actual shell, not
+    # whichever unrelated rc file happens to exist first. Cover interactive
+    # terminals and login shells, which read different files.
+    USER_SHELL="${SHELL:-/bin/sh}"
+    case "${USER_SHELL##*/}" in
+        zsh) RC_FILES=("$HOME/.zshrc" "$HOME/.zprofile") ;;
+        bash)
+            RC_FILES=("$HOME/.bashrc")
+            if [ -f "$HOME/.bash_profile" ]; then
+                RC_FILES+=("$HOME/.bash_profile")
+            elif [ -f "$HOME/.bash_login" ]; then
+                RC_FILES+=("$HOME/.bash_login")
             else
-                ADDED_TO="$rc (already configured)"
+                RC_FILES+=("$HOME/.profile")
             fi
-            break
+            ;;
+        *) RC_FILES=("$HOME/.profile") ;;
+    esac
+    for rc in "${RC_FILES[@]}"; do
+        if ! grep -qF "$PATH_LINE" "$rc" 2>/dev/null; then
+            printf '\n# Added by OpenAgents installer\n%s\n' "$PATH_LINE" >> "$rc"
         fi
+        ADDED_TO="${ADDED_TO:+$ADDED_TO, }$rc"
     done
-
-    # If no rc file found, create .profile
-    if [ -z "$ADDED_TO" ]; then
-        echo "# Added by OpenAgents installer" > "$HOME/.profile"
-        echo "$PATH_LINE" >> "$HOME/.profile"
-        ADDED_TO="$HOME/.profile (created)"
-    fi
 
     ok "PATH configured in ${ADDED_TO}"
     echo ""
-    echo "  ${DIM}Restart your terminal, or run:${RESET}"
-    echo "    ${BOLD}source ${ADDED_TO%% *}${RESET}"
+    echo "  ${DIM}To use agn in this terminal now, run:${RESET}"
+    echo "    ${BOLD}$PATH_LINE${RESET}"
     echo ""
 fi
 

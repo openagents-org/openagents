@@ -125,6 +125,8 @@ export interface NodeRuntime {
    * codex`). Absent from launchers too old to have `agn login`, and for types
    * with no sign-in of their own. */
   loginCommand?: string | null;
+  /** The device can relay its native CLI's browser sign-in. Missing on older connectors. */
+  browserLogin?: boolean;
   probe?: NodeProbe | null;
 }
 

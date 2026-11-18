@@ -9,7 +9,7 @@ import { createElement } from 'react';
 import { renderToString } from 'react-dom/server';
 import { messages as en } from '@/lib/i18n/messages/en-US';
 import { translate } from '@/lib/i18n/translate';
-import type { WorkspaceNode } from '@/lib/types';
+import type { AgentCatalogEntry, WorkspaceNode } from '@/lib/types';
 import { AgentSetup, type AgentSetupApi, type CatalogState } from './agent-setup';
 
 vi.mock('@/lib/i18n', () => ({
@@ -25,6 +25,32 @@ function render(catalogState?: CatalogState) {
     node, catalog: [], catalogState, api, onBack: () => {}, onChanged: () => {},
   }));
 }
+
+describe('AgentSetup gallery ordering', () => {
+  const renderAgents = (names: string[]) => renderToString(createElement(AgentSetup, {
+    node, api, onBack: () => {}, onChanged: () => {},
+    catalog: names.map((name) => ({ name, label: name, description: '', tags: [], featured: true, install_command: '', homepage: '', builtin: true })) as AgentCatalogEntry[],
+  }));
+
+  it('uses the website order and highlights exactly its first seven agents', () => {
+    const html = renderAgents(['pi', 'custom-agent', 'openclaw', 'gemini', 'deepseek', 'cursor', 'hermes', 'opencode', 'claude', 'codex']);
+    const cards = [...html.matchAll(/data-testid="market-card-([^"]+)"[^>]*>(.*?)<\/button>/g)];
+    expect(cards.map((match) => match[1])).toEqual([
+      'codex', 'claude', 'opencode', 'hermes', 'cursor', 'deepseek', 'openclaw', 'gemini', 'pi', 'custom-agent',
+    ]);
+    expect(cards.filter((match) => match[2].includes('Featured')).map((match) => match[1])).toEqual([
+      'codex', 'claude', 'opencode', 'hermes', 'cursor', 'deepseek', 'openclaw',
+    ]);
+    expect(html).toMatch(/<h2[^>]*>Codex<\/h2>/);
+  });
+
+  it('does not promote other agents when the catalog omits featured types', () => {
+    const html = renderAgents(['pi', 'gemini', 'claude']);
+    const cards = [...html.matchAll(/data-testid="market-card-([^"]+)"[^>]*>(.*?)<\/button>/g)];
+    expect(cards.map((match) => match[1])).toEqual(['claude', 'gemini', 'pi']);
+    expect(cards.filter((match) => match[2].includes('Featured')).map((match) => match[1])).toEqual(['claude']);
+  });
+});
 
 describe('AgentSetup gallery with an empty catalog', () => {
   it('says the list is loading while it loads', () => {

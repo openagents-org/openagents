@@ -1686,7 +1686,7 @@ export function WorkspaceProvider({
         let requestedThread = linkedThread
           ? resolveThreadLink(threadLocation, channelSessions.map((s) => s.sessionId), myAddress(currentUserRef.current))
           : requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId));
-        if (linkedThread && isOpaqueThreadId(linkedThread)) {
+        if (linkedThread && !requestedThread && isOpaqueThreadId(linkedThread)) {
           try { requestedThread = (await workspaceApi.resolveThreadLink(linkedThread)).session_id; }
           catch { /* Legacy channel IDs still use access-filtered discovery above. */ }
           if (cancelled) return;
