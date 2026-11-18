@@ -62,9 +62,9 @@ it('offers a key, the desktop app, and agn login on a device that has it', async
   expect(text).toContain(t('connect.nodeNeedsLoginDesktop', { device: 'racknerd-363e14e', label: codexEntry.label }));
   expect(hint().querySelector('code')!.textContent).toBe('agn login codex');
   expect(downloads()).toEqual([
+    'https://openagents.org/api/download/launcher/windows',
     'https://openagents.org/api/download/launcher/mac',
     'https://openagents.org/api/download/launcher/mac-intel',
-    'https://openagents.org/api/download/launcher/windows',
   ]);
 });
 

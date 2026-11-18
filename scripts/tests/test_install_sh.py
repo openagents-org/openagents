@@ -80,6 +80,31 @@ esac
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual((self.root / 'downloads').read_text(), 'runtime\n')
 
+    def test_bash_paths_work_despite_an_existing_zshrc(self):
+        (self.root / '.zshrc').write_text('# unrelated shell\n')
+        self.env['SHELL'] = '/bin/bash'
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual((self.root / '.zshrc').read_text(), '# unrelated shell\n')
+        for profile in ('.bashrc', '.profile'):
+            found = subprocess.check_output(
+                ['bash', '-c', '. "$HOME/' + profile + '"; agn'],
+                env=self.env, text=True).strip()
+            self.assertEqual(found, '1.2.3')
+        self.assertIn('export PATH=', result.stderr)
+        before = (self.root / '.bashrc').read_text()
+        self.assertEqual(self.run_installer().returncode, 0)
+        self.assertEqual((self.root / '.bashrc').read_text(), before)
+
+    def test_zsh_creates_both_startup_files_despite_an_existing_bashrc(self):
+        (self.root / '.bashrc').write_text('# unrelated shell\n')
+        self.env['SHELL'] = '/bin/zsh'
+        result = self.run_installer()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for profile in ('.zshrc', '.zprofile'):
+            self.assertIn('export PATH=', (self.root / profile).read_text())
+        self.assertEqual((self.root / '.bashrc').read_text(), '# unrelated shell\n')
+
     def test_registry_failure_has_actionable_error(self):
         self.env['FAIL_REGISTRY'] = '1'
         self.env['FAIL_MIRROR'] = '1'

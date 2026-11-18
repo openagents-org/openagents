@@ -51,15 +51,17 @@ export function KnowledgeEntryRow({
     >
       <FileText className={cn('mt-0.5 size-4 shrink-0', selected ? 'text-foreground/80' : 'text-muted-foreground/60')} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p className="line-clamp-2 text-sm leading-snug font-medium text-foreground" title={title}>
-          {title}
-        </p>
+        <div className="flex items-start justify-between gap-2">
+          <p className="min-w-0 flex-1 line-clamp-2 text-sm leading-snug font-medium text-foreground" title={title}>
+            {title}
+          </p>
+          <span className="shrink-0"><ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} /></span>
+        </div>
         {entry.description && (
           <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
         )}
         <div className="mt-1 flex min-h-6 items-center gap-2 pr-20">
           <span className="truncate text-xs text-muted-foreground">{timeAgo(entry.updatedAt || entry.createdAt)}</span>
-          <ArtifactVisibilityBadge kind="knowledge" visibility={entry.visibility} effectiveVisibility={entry.effectiveVisibility} />
         </div>
       </div>
 

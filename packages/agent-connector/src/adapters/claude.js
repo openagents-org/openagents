@@ -960,6 +960,7 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       if (eventType === 'assistant') {
+        if (typeof event.message?.model === 'string' && event.message.model.trim()) pp.responseModel = event.message.model.trim();
         pp.awaitingToolResult = false;
         const blocks = (event.message || {}).content || [];
         for (const block of blocks) {
@@ -1032,7 +1033,7 @@ class ClaudeAdapter extends BaseAdapter {
           const trailing = pp.lastResponseText.join('\n').trim();
           if (trailing && !event.is_error) {
             this._resetIdleTimer(pp.msgChannel);
-            try { await this.sendResponse(pp.msgChannel, trailing); } catch {}
+            try { await this.sendResponse(pp.msgChannel, trailing, { model: pp.responseModel }); } catch {}
           }
           pp.lastResponseText.length = 0;
           // The plan nudge was held back while background work ran (see
@@ -1108,6 +1109,7 @@ class ClaudeAdapter extends BaseAdapter {
    * if the process dies mid-message.
    */
   _sendToPersistentProc(pp, content) {
+    pp.responseModel = null;
     pp.lastResponseText = [];
     pp.lastErrorText = '';
     pp.hasToolUseSinceLastText = false;
@@ -1238,7 +1240,7 @@ class ClaudeAdapter extends BaseAdapter {
    */
   async _postTurnOutcome(pp, msgChannel, finalResponse) {
     if (finalResponse) {
-      try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed' }); } catch {}
+      try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed', model: pp.responseModel }); } catch {}
     } else if (pp.lastErrorText) {
       try { await this.sendError(msgChannel, this._formatClaudeError(pp.lastErrorText)); } catch {}
     } else if (!pp.everPostedAnything) {

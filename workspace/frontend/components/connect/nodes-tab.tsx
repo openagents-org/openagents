@@ -242,7 +242,7 @@ export function NodesTab({
   const listReady = !(loading && nodes.length === 0) && !(loadFailed && nodes.length === 0);
   if (canConnectHere && listReady && !pairing && (nodes.length === 0 || choosing)) {
     return (
-      <div className="p-6 flex flex-col gap-5 max-w-2xl mx-auto w-full">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
         {nodes.length > 0 && (
           <button
             onClick={() => setChoosing(false)}
@@ -264,12 +264,12 @@ export function NodesTab({
   }
 
   return (
-    <div className="p-6 flex flex-col gap-5 max-w-2xl mx-auto w-full">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
       {/* Heading + refresh */}
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-heading text-lg font-medium">{t('connect.nodeHeading')}</h3>
-          <p className="text-sm text-muted-foreground">{t('connect.nodeSubtitle')}</p>
+          <h3 className="font-heading text-lg font-semibold">{t('connect.nodeHeading')}</h3>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">{t('connect.nodeSubtitle')}</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
           {nodes.length > 0 && (
@@ -306,12 +306,21 @@ export function NodesTab({
           </EmptyContent>
         </Empty>
       ) : nodes.length === 0 ? (
-        <Empty className="border">
+        <Empty className="rounded-2xl border bg-muted/20 px-5 py-10 sm:py-12">
           <EmptyHeader>
-            <EmptyMedia variant="icon"><Server /></EmptyMedia>
+            <EmptyMedia variant="icon" className="size-10 rounded-xl"><Server className="size-5" /></EmptyMedia>
             <EmptyTitle>{t('connect.nodeEmptyTitle')}</EmptyTitle>
             <EmptyDescription>{t('connect.nodeEmptyBody')}</EmptyDescription>
           </EmptyHeader>
+          <EmptyContent className="mt-2">
+            <Button onClick={onGenerate} disabled={pairingLoading} className="w-full" size="lg">
+              {pairingLoading ? (
+                <><Spinner data-icon="inline-start" />{t('connect.nodeGenerating')}</>
+              ) : (
+                <><Plus data-icon="inline-start" />{t('connect.nodeConnect')}</>
+              )}
+            </Button>
+          </EmptyContent>
         </Empty>
       ) : (
         <div className="flex flex-col gap-3">
@@ -333,16 +342,6 @@ export function NodesTab({
         </div>
       )}
 
-      {/* A new workspace can start pairing without a device roster. */}
-      {loadFailed && nodes.length === 0 ? null : nodes.length === 0 ? (
-        <Button onClick={onGenerate} disabled={pairingLoading} className="w-full" size="lg">
-          {pairingLoading ? (
-            <><Spinner data-icon="inline-start" />{t('connect.nodeGenerating')}</>
-          ) : (
-            <><Plus data-icon="inline-start" />{t('connect.nodeConnect')}</>
-          )}
-        </Button>
-      ) : null}
     </div>
   );
 }

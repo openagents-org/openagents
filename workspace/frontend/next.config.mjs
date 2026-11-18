@@ -30,7 +30,7 @@ const nextConfig = {
     return [
       {
         source: '/wsapi/:path*',
-        destination: 'https://workspace-endpoint.openagents.org/:path*',
+        destination: `${process.env.WORKSPACE_DEV_API_TARGET || 'https://workspace-endpoint.openagents.org'}/:path*`,
       },
     ];
   },

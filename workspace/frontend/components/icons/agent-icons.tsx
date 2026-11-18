@@ -29,7 +29,7 @@ const BARE = new Set([
  * the text colour — black on the light theme, light on the dark one — where an
  * <img> would leave them black and lost on a dark surface.
  */
-const MONO = new Set(['goose']);
+const MONO = new Set(['codex', 'goose']);
 
 /**
  * An icon drawn the way the vendor draws it. Most are app tiles — a full-bleed
