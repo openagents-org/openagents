@@ -561,6 +561,19 @@ class CodexAdapter extends BaseAdapter {
               + 'so it continues in a new one. Earlier context in this thread is not carried over.');
           } catch {}
           continue;
+        } else if (threadId && attempt === 0 && CodexAdapter._threadUnverifiable(result)) {
+          // The thread carries reasoning that another account sealed, and
+          // codex sends it back with every turn (and with every compaction),
+          // so the service refused each later message in this channel.
+          this._log(`Thread ${threadId} for ${msgChannel} holds content this account cannot verify; starting a new one`);
+          delete this._channelThreads[msgChannel];
+          this._saveSessions();
+          try {
+            await this.sendStatus(msgChannel, 'Codex could no longer read back this conversation\'s earlier turns '
+              + '(this happens after Codex is signed in to a different account), so it continues in a new one. '
+              + 'Earlier context in this thread is not carried over.');
+          } catch {}
+          continue;
         } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
           // started: a thread codex cannot resume fails at once with nothing
@@ -892,6 +905,21 @@ class CodexAdapter extends BaseAdapter {
   static _threadTooLarge({ errorMessage, stderr } = {}) {
     const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
     return /array_above_max_length|context_length_exceeded/i.test(reason);
+  }
+
+  /**
+   * True when the service could not verify the thread's encrypted reasoning.
+   * Seen as `Error running remote compact task: {"error":{"message":"The
+   * encrypted content for item rs_… could not be verified. Reason: Encrypted
+   * content item_id did not match the target item id.", "code":
+   * "invalid_encrypted_content"}}` on every message of two agents, after their
+   * user signed Codex in to another ChatGPT account: the items were sealed for
+   * the old one, and codex resends them each turn. The run's error, else what
+   * its stderr gives as the reason (_stderrReason), as for _threadTooLarge.
+   */
+  static _threadUnverifiable({ errorMessage, stderr } = {}) {
+    const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
+    return /invalid_encrypted_content|encrypted content\b.{0,120}\bcould not be (?:verified|decrypted)/i.test(reason);
   }
 
   /**

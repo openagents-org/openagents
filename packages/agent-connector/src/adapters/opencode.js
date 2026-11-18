@@ -132,6 +132,7 @@ const FAILURE_MESSAGES = {
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   shared_db_migrated: "OpenCode could not open its session database: a newer OpenCode (2.x, or the OpenCode desktop app) on this device has converted it to a format the OpenCode CLI that OpenAgents runs cannot read, and running it on a database of its own did not help either. Reinstall OpenCode from the launcher, or set OPENCODE_DB in this agent's configuration to the full path of a new file, then retry.",
+  malformed_tool_call: "The model sent back a tool call OpenCode could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
@@ -1789,6 +1790,13 @@ class OpenCodeAdapter extends BaseAdapter {
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
+    } else if (has(/expected '?function\.name'? to be a string|tool call[^.]{0,40}(?:without|missing|no) (?:a )?(?:function )?name/)) {
+      // The provider streamed a tool call with no tool name, and the AI SDK
+      // under OpenCode refused it: "Expected 'function.name' to be a string."
+      // Six times in a row from one user's agents on GLM / DeepSeek models
+      // (daily errors dashboard, 2026-11-18), each read as "OpenCode failed
+      // for an undetermined reason".
+      category = 'malformed_tool_call';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets

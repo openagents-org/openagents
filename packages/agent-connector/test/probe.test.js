@@ -848,6 +848,68 @@ describe('a CLI verdict that explains nothing defers to the endpoint', () => {
   });
 });
 
+describe('a relay that only serves the coding CLIs it recognises', () => {
+  // Daily errors dashboard, 2026-11-18: one OpenCode agent was told "invalid
+  // API key" eight times in a minute for this 403.
+  const REFUSAL = 'HTTP 403: {"error":{"code":"client_not_allowed","message":"本站仅支持编程客户端使用：Codex、Claude Code、'
+    + 'OpenCode、ZCode、DeepSeek Harness、Hermes Agent、Minis、WorkBuddy、Cursor、pi"}}';
+  const OPENCODE = {
+    name: 'opencode', label: 'OpenCode',
+    resolve_env: { rules: [{ from: 'LLM_API_KEY', to: 'OPENAI_API_KEY' }, { from: 'LLM_BASE_URL', to: 'OPENAI_BASE_URL' }] },
+  };
+  const CLAUDE = { name: 'claude', label: 'Claude Code CLI', probe: { args: ['5'], timeout_s: 1 } };
+
+  function withLLM(answer, run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async () => answer },
+    };
+    return run().finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('reports a direct test it turned away as unchecked, not as a bad key', async () => {
+    const connector = fakeConnector({ entry: OPENCODE, health: { installed: true, ready: true } });
+    const r = await withLLM({ success: false, error: REFUSAL }, () => probeAgentType(connector, 'opencode', {
+      agentEnv: { LLM_API_KEY: 'sk-oc-123456', LLM_BASE_URL: 'https://relay.example/v1', LLM_MODEL: 'glm-5' },
+    }));
+    assert.equal(r.ok, null);
+    assert.equal(r.code, CODE.CLIENT_ONLY);
+    assert.equal(r.method, 'llm_api');
+    assert.match(r.message, /client_not_allowed/);
+    assert.match(r.message, /send the agent a message/);
+    assert.deepEqual(r.guidance || [], []);
+  });
+
+  it('leaves the CLI verdict standing when the fallback test is turned away', async () => {
+    const connector = fakeConnector({
+      entry: CLAUDE,
+      health: { installed: true, ready: true, binary: 'sleep' },
+      env: { ANTHROPIC_API_KEY: 'sk-test', ANTHROPIC_BASE_URL: 'https://relay.example' },
+    });
+    const r = await withLLM({ success: false, error: REFUSAL }, () => probeAgentType(connector, 'claude', { timeoutMs: 400 }));
+    assert.equal(r.method, 'cli');
+    assert.equal(r.code, CODE.TIMEOUT);
+  });
+
+  it('still reads any other 403 as a refused key', () => {
+    assert.equal(classifyFailure('HTTP 403: {"error":{"message":"invalid token"}}'), CODE.INVALID_API_KEY);
+  });
+});
+
+describe('an endpoint that names the model ids it takes', () => {
+  it('reads "model must be a model ID such as author/model" as a bad model', () => {
+    assert.equal(
+      classifyFailure('HTTP 400: {"error":{"code":400,"message":"model must be a model ID such as author/model","metadata":{"error_type":"invalid_request"}}}'),
+      CODE.BAD_MODEL,
+    );
+  });
+});
+
 describe('out-of-credit is not only an English 402', () => {
   it('reads a relay saying it in Chinese, and at 403', () => {
     // The relay this came from answers 403 with its own wording; the original

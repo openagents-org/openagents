@@ -775,6 +775,43 @@ describe('Codex — what counts as a stale thread', () => {
     assert.equal(CodexAdapter._threadTooLarge({}), false);
   });
 
+  // Daily errors dashboard, 2026-11-17: two agents failed every message for
+  // hours after their user signed Codex in to another ChatGPT account.
+  it('a thread whose encrypted content this account cannot verify is dropped, said so, and run fresh', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+        errorMessage: 'Error running remote compact task: {"type":"error","error":{"message":"The encrypted content for item '
+          + 'rs_0c2f9e1d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f could not be verified. Reason: Encrypted content item_id did not '
+          + 'match the target item id.","type":"invalid_request_error","param":null,"code":"invalid_encrypted_content"}}' },
+      { exitCode: 0, responseText: 'fresh answer', turnStarted: true },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes('resume'));
+    assert.ok(!calls[1].includes('resume'));
+    assert.deepEqual(sent.map((s) => s.kind), ['status', 'response'], JSON.stringify(sent));
+    assert.match(sent[0].m, /different account/);
+    assert.equal(sent[1].m, 'fresh answer');
+  });
+
+  it('a new thread that still fails verification is reported, not run a third time', async () => {
+    const unverifiable = { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+      errorMessage: 'The encrypted content for item rs_1 could not be verified.' };
+    const { fake, calls, sent } = fakeAdapter([unverifiable, unverifiable]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.equal(sent[sent.length - 1].kind, 'error');
+    assert.match(sent[sent.length - 1].m, /could not be verified/);
+  });
+
+  it('only the run error or the stderr reason counts as unverifiable content', () => {
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'code: invalid_encrypted_content' }), true);
+    assert.equal(CodexAdapter._threadUnverifiable({ stderr: 'Error: The encrypted content for item rs_9 could not be decrypted' }), true);
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'usage limit', stderr: 'Error: invalid_encrypted_content' }), false);
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'stream disconnected before completion' }), false);
+    assert.equal(CodexAdapter._threadUnverifiable({}), false);
+  });
+
   it('a thread codex cannot find is dropped and the turn run fresh', async () => {
     const { fake, calls, sent } = fakeAdapter([
       { exitCode: 1, responseText: '', turnStarted: false,
