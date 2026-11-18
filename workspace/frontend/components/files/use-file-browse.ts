@@ -157,12 +157,12 @@ export function useFileBrowse() {
    * listed ones while leaving the uploading ones would make the filter lie.
    */
   const uploadsHere = useMemo(() => {
-    if (!currentPath) return [];
-    const listed = new Set(contents.files.map((e) => e.displayName));
+    const listed = new Set(contents.files.map((e) => e.file.filename));
     const q = search.toLowerCase();
     return pendingUploads.filter((upload) => {
-      if (upload.folder !== currentPath) return false;
-      if (upload.status === 'done' && listed.has(upload.name)) return false;
+      if (currentPath && upload.folder !== currentPath) return false;
+      const filename = upload.folder ? `${upload.folder}/${upload.name}` : upload.name;
+      if (upload.status === 'done' && listed.has(filename)) return false;
       if (q && !upload.name.toLowerCase().includes(q)) return false;
       if (typeFilter === 'folders') return false;
       if (typeFilter === 'all') return true;

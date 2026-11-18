@@ -37,7 +37,7 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
   const agentDrag = useDragScroll();
   const queueDrag = useDragScroll();
   const { agents, files, browserTabs, currentSessionId, sessions } = useWorkspace();
-  const { selectedArtifact, setSelectedAgentName } = useLayout();
+  const { selectedArtifact, selectedBrowser, setSelectedAgentName } = useLayout();
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
@@ -120,7 +120,7 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
         </TabsContent>
         <TabsContent value="artifacts" className="mt-0 min-w-0">
           <ul {...artifactDrag} ref={artifactRow} aria-label={t('artifactPanel.title')} className={ROW}>
-            {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedArtifact?.kind === 'browser' && selectedArtifact.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
+            {browsers.map(tab => <li key={tab.id} className="w-40 shrink-0 snap-start"><button type="button" onClick={() => openArtifactPreview({ kind: 'browser', id: tab.id })} title={tab.title || tab.url} aria-pressed={selectedBrowser?.id === tab.id} className="group flex h-full w-full flex-col gap-1.5 rounded-lg border bg-background p-1.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/50 aria-pressed:border-primary/50 aria-pressed:bg-primary/5">
               <span className="relative flex h-16 w-full flex-col items-center justify-center gap-1 overflow-hidden rounded-md border border-success/20 bg-success/10 text-success"><Globe className="size-6" /><span className="max-w-full truncate px-2 text-xs">{tabHasFreshAgentActivity(tab) ? t('threadResources.browsing', { agent: (tab.activity?.actor || '').replace(/^openagents:/, '') }) : t('threadResources.liveBrowser')}</span>
                 <BrowserThumbnail tabId={tab.id} pageUrl={tab.url} title={tab.title || tab.url} enabled={!tab.asleep} className="absolute inset-0 h-full border-0" />
               </span>

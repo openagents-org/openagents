@@ -122,6 +122,12 @@ export function KnowledgeList() {
         </div>
       </div>
 
+      <div className="shrink-0 px-3 pt-3">
+        <button type="button" onClick={() => { setSelectedKnowledgeId(null); if (isMobile) openMobileDetail(); }} className="flex w-full items-center gap-2 rounded-lg bg-indigo-500/[0.06] px-3 py-2.5 text-start text-xs font-medium text-indigo-700 hover:bg-indigo-500/10 focus-visible:outline-2 focus-visible:outline-ring dark:text-indigo-300">
+          <BookOpen className="size-4 shrink-0" />{t('knowledge.library.overview')}<ChevronRight className="ms-auto size-3.5 shrink-0" />
+        </button>
+        <p className="px-1 pt-2 text-xs leading-5 text-muted-foreground">{t('knowledge.library.listHint')}</p>
+      </div>
       {/* Search */}
       <div className="shrink-0 px-3 pt-3 pb-1">
         <InputGroup className="bg-muted/30">
