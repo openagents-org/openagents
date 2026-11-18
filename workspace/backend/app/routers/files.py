@@ -30,7 +30,7 @@ import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.config import config
@@ -1425,7 +1425,27 @@ def list_files(
             for f in rows
         ],
         "total": total,
+        # Aggregate bytes across the workspace, including private files and
+        # recoverable trash. Never derive storage from a viewer-filtered page.
+        **({"storage": _workspace_storage_usage(db, str(workspace.id))} if offset == 0 else {}),
     })
+
+
+def _workspace_storage_usage(db: Session, workspace_id: str) -> dict:
+    active, trash = db.execute(
+        select(
+            func.coalesce(func.sum(case((FileRecord.status == "active", FileRecord.size), else_=0)), 0),
+            func.coalesce(func.sum(case((FileRecord.status == "deleted", FileRecord.size), else_=0)), 0),
+        ).where(FileRecord.workspace_id == workspace_id)
+    ).one()
+    return {
+        "used_bytes": int(active + trash),
+        "active_bytes": int(active),
+        "trash_bytes": int(trash),
+        # There is currently no workspace quota in the storage configuration.
+        # Only report a capacity here when the backend implements one.
+        "limit_bytes": None,
+    }
 
 
 # ---------------------------------------------------------------------------

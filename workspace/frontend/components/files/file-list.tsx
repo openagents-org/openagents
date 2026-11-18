@@ -16,6 +16,7 @@ import { useT } from "@/lib/i18n"
 import { dirname, isKeepFile } from "./file-utils"
 import { FolderTreeRow } from "./folder-tree-row"
 import { useFolderActions } from "./use-folder-actions"
+import { FileStorageUsage } from "./file-storage-usage"
 
 /** A section label in the panel: personal folders, folders, trash. */
 function PanelSection({ label, className }: { label: string; className?: string }) {
@@ -245,6 +246,7 @@ export function FileList() {
           </>
         )}
       </div>
+      <FileStorageUsage />
     </div>
   )
 }

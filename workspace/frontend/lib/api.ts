@@ -56,6 +56,7 @@ import type {
   RegistryLeaderboardEntry,
   RegistrySkill,
   WorkspaceFile,
+  WorkspaceFileStorage,
   WorkspaceMe,
   WorkspaceNode,
   WorkspaceRole,
@@ -1022,16 +1023,25 @@ class WorkspaceApi {
       /** Fraction uploaded, 0–1. Never fires if the browser can't measure it. */
       onProgress?: (fraction: number) => void;
       signal?: AbortSignal;
+      /** Explicit destination; empty string means workspace root. */
+      folder?: string;
     },
   ): Promise<WorkspaceFile> {
     const formData = new FormData();
-    formData.append('file', file);
+    const explicitFolder = options?.folder !== undefined;
+    if (explicitFolder) {
+      formData.append('files', file, file.name.split('/').pop() || file.name);
+      formData.append('path', options.folder!);
+      formData.append('on_conflict', 'rename');
+    } else {
+      formData.append('file', file);
+    }
     formData.append('network', this.workspaceId);
     if (channelName) formData.append('channel_name', channelName);
 
     return new Promise<WorkspaceFile>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${API_URL}/v1/files`);
+      xhr.open('POST', `${API_URL}/v1/files${explicitFolder ? '/upload' : ''}`);
       if (this.token) xhr.setRequestHeader('X-Workspace-Token', this.token);
       if (this.bearerToken) xhr.setRequestHeader('Authorization', `Bearer ${this.bearerToken}`);
 
@@ -1047,7 +1057,13 @@ class WorkspaceApi {
           return;
         }
         try {
-          resolve(mapFileResponse(JSON.parse(xhr.responseText).data));
+          const data = JSON.parse(xhr.responseText).data;
+          const uploaded = explicitFolder ? data.files?.[0] : data;
+          if (!uploaded) {
+            reject(new Error(data.skipped?.[0]?.detail || data.skipped?.[0]?.reason || 'Upload failed'));
+            return;
+          }
+          resolve(mapFileResponse(uploaded));
         } catch {
           reject(new Error('Upload failed: malformed response'));
         }
@@ -1075,22 +1091,35 @@ class WorkspaceApi {
    * drops folders and makes their counts shrink as new files arrive, so we
    * walk the pages until we have them all.
    */
-  async listFiles(): Promise<{ files: WorkspaceFile[]; total: number }> {
+  async listFiles(): Promise<{ files: WorkspaceFile[]; total: number; storage?: WorkspaceFileStorage }> {
     const PAGE_SIZE = 200; // the endpoint's hard ceiling
     const MAX_PAGES = 25;  // 5k files: a backstop, not an expected limit
     const files: WorkspaceFile[] = [];
     let total = 0;
+    let storage: WorkspaceFileStorage | undefined;
 
     for (let page = 0; page < MAX_PAGES; page++) {
-      const raw = await this.request<{ files: Record<string, unknown>[]; total: number }>(
+      const raw = await this.request<{
+        files: Record<string, unknown>[];
+        total: number;
+        storage?: { used_bytes: number; active_bytes: number; trash_bytes: number; limit_bytes: number | null };
+      }>(
         `/v1/files?network=${this.workspaceId}&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`
       );
       total = raw.total;
+      if (page === 0 && raw.storage) {
+        storage = {
+          usedBytes: raw.storage.used_bytes,
+          activeBytes: raw.storage.active_bytes,
+          trashBytes: raw.storage.trash_bytes,
+          limitBytes: raw.storage.limit_bytes,
+        };
+      }
       files.push(...raw.files.map(mapFileResponse));
       if (raw.files.length < PAGE_SIZE || files.length >= total) break;
     }
 
-    return { files, total };
+    return { files, total, storage };
   }
 
   /** Download bytes as the signed-in viewer, including for headerless image elements. */
