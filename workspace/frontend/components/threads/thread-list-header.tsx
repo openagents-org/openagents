@@ -1,26 +1,26 @@
 'use client';
 
-import { ArrowDownAZ, ArrowDownWideNarrow, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { ChevronDown, Filter, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { ListToggleButton } from '@/components/layout/list-collapse-button';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuTrigger,
+  DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { SortOrder } from './thread-list-utils';
+import { TABS, type FilterTab, type SortOrder } from './thread-list-utils';
 
 interface ThreadListHeaderProps {
   unreadCount: number;
   onNewThread: () => void;
   onRefresh: () => void;
   onSort: (order: SortOrder) => void;
+  sortOrder: SortOrder;
 }
 
-export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort }: ThreadListHeaderProps) {
+export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort, sortOrder }: ThreadListHeaderProps) {
   const t = useT();
   return (
     <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
@@ -41,42 +41,19 @@ export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort }
           <Plus data-icon="inline-start" />
           {t('threads.newThread')}
         </Button>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t('threads.refresh')} onClick={onRefresh} className="text-muted-foreground">
-              <RefreshCw />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('common.refresh')}</TooltipContent>
-        </Tooltip>
-
         <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label={t('threads.sort')} className="text-muted-foreground">
-                  <SlidersHorizontal />
-                </Button>
-              </DropdownMenuTrigger>
-            </TooltipTrigger>
-            <TooltipContent>{t('threads.sort')}</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="end" className="w-48">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>{t('threads.sortBy')}</DropdownMenuLabel>
-              <DropdownMenuItem onClick={() => onSort('recent')}>
-                <ArrowDownWideNarrow />
-                {t('threads.sortRecent')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onSort('oldest')}>
-                <ArrowDownWideNarrow className="rotate-180" />
-                {t('threads.sortOldest')}
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => onSort('title')}>
-                <ArrowDownAZ />
-                {t('threads.sortTitle')}
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label={t('threadProjects.viewOptions')} title={t('threadProjects.viewOptions')} className="text-muted-foreground"><SlidersHorizontal /></Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>{t('threads.sortBy')}</DropdownMenuLabel>
+            <DropdownMenuRadioGroup value={sortOrder} onValueChange={value => onSort(value as SortOrder)}>
+              <DropdownMenuRadioItem value="recent">{t('threads.sortRecent')}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="oldest">{t('threads.sortOldest')}</DropdownMenuRadioItem>
+              <DropdownMenuRadioItem value="title">{t('threads.sortTitle')}</DropdownMenuRadioItem>
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup><DropdownMenuItem onSelect={onRefresh}><RefreshCw />{t('threads.refresh')}</DropdownMenuItem></DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -86,15 +63,16 @@ export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort }
 
 interface ThreadSearchProps {
   value: string;
+  inline?: boolean;
   searching: boolean;
   onChange: (value: string) => void;
 }
 
-export function ThreadSearch({ value, searching, onChange }: ThreadSearchProps) {
+export function ThreadSearch({ value, searching, onChange, inline = false }: ThreadSearchProps) {
   const t = useT();
   return (
-    <div className="shrink-0 border-b border-border/60 px-3 py-2">
-      <InputGroup className="h-7">
+    <div className={inline ? 'min-w-0 flex-1' : 'shrink-0 px-3 pt-2 pb-1'}>
+      <InputGroup className="h-8 rounded-lg bg-muted/25 shadow-none">
         <InputGroupAddon>
           <Search className="size-3" />
         </InputGroupAddon>
@@ -119,4 +97,25 @@ export function ThreadSearch({ value, searching, onChange }: ThreadSearchProps) 
       </InputGroup>
     </div>
   );
+}
+
+/** Conversation type is a single labeled filter rather than another row of tabs. */
+export function ThreadConversationFilter({ value, counts, onChange, disabled = false }: { value: FilterTab; counts: Record<FilterTab, number | undefined>; onChange: (value: FilterTab) => void; disabled?: boolean }) {
+  const t = useT();
+  const tab = TABS.find(tab => tab.id === value)!;
+  const count = counts[value];
+  return <DropdownMenu>
+    <DropdownMenuTrigger asChild>
+      <Button variant="ghost" size="sm" className="max-w-[52%] gap-1.5 px-2 text-xs text-muted-foreground" disabled={disabled} aria-label={t('threadProjects.filter')}>
+        <Filter className="size-3.5 shrink-0" /><span className="truncate">{value === 'all' ? t('threadProjects.allConversations') : t(tab.labelKey)}</span>
+        {!!count && <span className="text-[10px] tabular-nums">{count}</span>}<ChevronDown className="size-3 shrink-0" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" className="w-56">
+      <DropdownMenuLabel>{t('threadProjects.show')}</DropdownMenuLabel>
+      <DropdownMenuRadioGroup value={value} onValueChange={next => onChange(next as FilterTab)}>
+        {TABS.map(tab => <DropdownMenuRadioItem key={tab.id} value={tab.id}>{tab.id === 'all' ? t('threadProjects.allConversations') : t(tab.labelKey)}{!!counts[tab.id] && <span className="ml-auto text-xs tabular-nums text-muted-foreground">{counts[tab.id]}</span>}</DropdownMenuRadioItem>)}
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>;
 }
