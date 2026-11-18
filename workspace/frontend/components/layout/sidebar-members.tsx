@@ -2,7 +2,7 @@
 import { DmUnreadBadge } from './dm-unread-badge';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Users, ChevronDown, ChevronRight, Settings, UserPlus } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Settings, UserPlus } from 'lucide-react';
 import { currentRouteSearch } from '@/lib/route-search';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -57,7 +57,7 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
       <div className={cn('flex items-center', !showLabels && 'justify-center')}>
         {showLabels && <SidebarGroupLabel asChild className="min-w-0 flex-1 cursor-pointer px-2 focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none">
           <button type="button" onClick={() => setMembersOpen(prev => !prev)} aria-expanded={membersOpen} aria-controls="rail-member-list" title={membersLabel}>
-            <Users className="me-1 size-3 shrink-0" /><span className="truncate">{membersLabel}</span>
+            <span className="truncate">{membersLabel}</span>
             <ChevronDown className={cn('ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200', !membersOpen && '-rotate-90')} />
           </button>
         </SidebarGroupLabel>}

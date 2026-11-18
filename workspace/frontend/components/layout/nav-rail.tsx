@@ -31,8 +31,6 @@ import {
 useLayout,type ViewMode
 } from './layout-context';
 import { SearchMenu } from './search-menu';
-import { NotificationsMenu } from './notifications-menu';
-import { InviteMemberButton } from './invite-member-button';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
 import { RailEdge } from './rail-edge';
@@ -253,17 +251,17 @@ export function NavRail() {
         <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
-      {/* Global tools */}
+      {/* Global tools. No bell or invite here: Inbox already sits beside
+          Manage Agents (or on the collapsed rail), and inviting is the
+          Members header's "+". */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
         <div
           className={cn(
             'flex gap-0.5',
-            showLabels ? 'flex-row items-center justify-evenly px-1' : 'flex-col items-center',
+            showLabels ? 'flex-row items-center justify-between px-1' : 'flex-col items-center',
           )}
         >
           <SearchMenu iconOnly />
-          <NotificationsMenu side="right" align="end" />
-          <InviteMemberButton />
           <UserMenu side="right" align="end" />
         </div>
 
