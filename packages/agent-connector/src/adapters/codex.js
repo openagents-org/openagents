@@ -522,6 +522,11 @@ class CodexAdapter extends BaseAdapter {
           // error left in daemon.log. Say it stopped, and why.
           if (CodexAdapter._endedEarly(result)) {
             await this._sendRunFailure(msgChannel, result, { partial: true });
+            // Failed after some text (an auto-compaction refused mid-turn):
+            // the reply is posted, so no rerun, but the next message must not
+            // resume the same thread and fail again.
+            const unusable = threadId ? CodexAdapter._unusableThread(result) : null;
+            if (unusable) await this._dropThread(msgChannel, unusable);
           }
           return;
         } else if (!planRetried && !this._effectiveModel() && !this._customProvider
@@ -549,17 +554,13 @@ class CodexAdapter extends BaseAdapter {
           } catch {}
           attempt--;
           continue;
-        } else if (threadId && attempt === 0 && CodexAdapter._threadTooLarge(result)) {
-          // The thread holds an item the API will no longer take, and codex
-          // sends the whole thread with every turn, so every later message in
-          // this channel failed the same way. Only a new thread runs again.
-          this._log(`Thread ${threadId} for ${msgChannel} exceeds an API limit; starting a new one`);
-          delete this._channelThreads[msgChannel];
-          this._saveSessions();
-          try {
-            await this.sendStatus(msgChannel, 'This Codex conversation grew past what the model API accepts, '
-              + 'so it continues in a new one. Earlier context in this thread is not carried over.');
-          } catch {}
+        } else if (threadId && attempt === 0 && CodexAdapter._unusableThread(result)) {
+          // The thread holds something the service will no longer take (an
+          // item over an API limit, or reasoning sealed for another account),
+          // and codex resends the whole thread with every turn, so every later
+          // message in this channel failed the same way. Only a new thread
+          // runs again.
+          await this._dropThread(msgChannel, CodexAdapter._unusableThread(result));
           continue;
         } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
@@ -572,13 +573,16 @@ class CodexAdapter extends BaseAdapter {
           delete this._channelThreads[msgChannel];
           this._saveSessions();
           continue;
-        } else if (fromAgent && CodexAdapter._finishedQuietly(result)) {
+        } else if (fromAgent && !result.ranTools && CodexAdapter._finishedQuietly(result)) {
           // Another agent wrote ("received", "noted") and codex ended its
           // turn with nothing to add, as the prompt tells it to. Posting
           // "Codex couldn't run" for that read as a failure: the daily errors
           // dashboard of 2026-11-17 had one agent post it 14 times in two
           // minutes while two agents acknowledged each other. A status says
-          // so and wakes nobody. A person's message still gets the error.
+          // so and wakes nobody. A person's message still gets the error, and
+          // so does a turn that ran commands or edited files and then said
+          // nothing: that was a task, and whoever asked for it has to hear
+          // that no answer came.
           this._log(`Turn from another agent in ${msgChannel} ended with no reply; not posting one`);
           try { await this.sendStatus(msgChannel, 'Nothing to add, so no reply was posted.'); } catch {}
           return;
@@ -637,6 +641,7 @@ class CodexAdapter extends BaseAdapter {
       let lastErrorMessage = '';
       let turnFailed = false;
       let turnStarted = false;
+      let ranTools = false;
       let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
@@ -678,6 +683,7 @@ class CodexAdapter extends BaseAdapter {
             try { await this.sendThinking(msgChannel, item.text); } catch {}
           } else if (item.type === 'command_execution') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             const cmdText = (item.command || '').slice(0, 200);
             const exitCode = item.exit_code;
             const output = (item.output || '').slice(0, 500);
@@ -689,6 +695,7 @@ class CodexAdapter extends BaseAdapter {
             this._log(`Command: ${cmdText} → exit ${exitCode}`);
           } else if (item.type === 'file_change') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             // codex reports the edited files in `changes`; `filename` is the
             // legacy shape and was always empty on current CLIs.
             const filename = Array.isArray(item.changes) && item.changes.length
@@ -754,6 +761,7 @@ class CodexAdapter extends BaseAdapter {
           errorMessage: lastErrorMessage,
           turnFailed,
           turnStarted,
+          ranTools,
         });
       });
 
@@ -892,6 +900,52 @@ class CodexAdapter extends BaseAdapter {
   static _threadTooLarge({ errorMessage, stderr } = {}) {
     const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
     return /array_above_max_length|context_length_exceeded/i.test(reason);
+  }
+
+  /**
+   * Why the channel's thread can no longer be resumed, as `{ log, status }`
+   * (what the daemon log and the channel are told), or null when it can.
+   */
+  static _unusableThread(result) {
+    if (CodexAdapter._threadTooLarge(result)) {
+      return {
+        log: 'exceeds an API limit',
+        status: 'This Codex conversation grew past what the model API accepts, so it continues in a new one. '
+          + 'Earlier context in this thread is not carried over.',
+      };
+    }
+    if (CodexAdapter._threadUnverifiable(result)) {
+      return {
+        log: 'holds content this account cannot verify',
+        status: 'Codex could no longer read back this conversation\'s earlier turns (this happens after Codex is '
+          + 'signed in to a different account), so it continues in a new one. Earlier context in this thread is not '
+          + 'carried over.',
+      };
+    }
+    return null;
+  }
+
+  /** Forget the channel's thread, and say why in the log and the channel. */
+  async _dropThread(msgChannel, { log, status }) {
+    this._log(`Thread ${this._channelThreads[msgChannel]} for ${msgChannel} ${log}; starting a new one`);
+    delete this._channelThreads[msgChannel];
+    this._saveSessions();
+    try { await this.sendStatus(msgChannel, status); } catch {}
+  }
+
+  /**
+   * True when the service could not verify the thread's encrypted reasoning.
+   * Seen as `Error running remote compact task: {"error":{"message":"The
+   * encrypted content for item rs_… could not be verified. Reason: Encrypted
+   * content item_id did not match the target item id.", "code":
+   * "invalid_encrypted_content"}}` on every message of two agents, after their
+   * user signed Codex in to another ChatGPT account: the items were sealed for
+   * the old one, and codex resends them each turn. The run's error, else what
+   * its stderr gives as the reason (_stderrReason), as for _threadTooLarge.
+   */
+  static _threadUnverifiable({ errorMessage, stderr } = {}) {
+    const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
+    return /invalid_encrypted_content|encrypted content\b.{0,120}\bcould not be (?:verified|decrypted)/i.test(reason);
   }
 
   /**

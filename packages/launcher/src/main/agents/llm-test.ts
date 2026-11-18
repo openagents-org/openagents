@@ -519,6 +519,31 @@ export async function testLLMConnection(
   env: Record<string, string>,
   agentType?: string,
 ): Promise<LLMTestResult> {
+  const result = await runConnectionTest(env, agentType)
+  return !result.success && clientOnlyRefusal(result.error)
+    ? { success: false, unsupported: true, reason: "clientOnly", error: result.error }
+    : result
+}
+
+/**
+ * A relay that serves only the coding CLIs it recognises, and refused this
+ * test for not being one: `HTTP 403: {"error":{"code":"client_not_allowed",
+ * "message":"本站仅支持编程客户端使用：Codex、Claude Code、OpenCode、…"}}`. Shown
+ * as a failed key, though the agent's own CLI may well be let through. Only
+ * these words: an English "only allows authorized clients" is as likely a key
+ * refused for real. The device-side probe reads it the same way (core
+ * probe.js).
+ */
+const CLIENT_ONLY_REFUSAL = /client_not_allowed|仅支持[^。.\n]{0,24}客户端/i
+
+function clientOnlyRefusal(error: string | undefined): boolean {
+  return CLIENT_ONLY_REFUSAL.test(error || "")
+}
+
+async function runConnectionTest(
+  env: Record<string, string>,
+  agentType?: string,
+): Promise<LLMTestResult> {
   const pick = (...names: string[]): string => {
     for (const n of names) {
       if (!n) continue

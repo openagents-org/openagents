@@ -432,7 +432,8 @@
       "cline": "Cline targets your selected provider — this provider can’t be tested directly here. Save the settings and launch the agent to verify (or run `cline auth`).",
       "codearts": "CodeArts Agent authenticates with a Huawei Cloud access key pair, which Huawei Cloud checks when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify.",
       "qoder": "Qoder checks a personal access token against its own service when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify, or sign in with `qodercli login` (`qoderclicn login` for the China edition) instead.",
-      "kiro": "Kiro checks its API key against its own service when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify, or sign in with `kiro-cli login` instead."
+      "kiro": "Kiro checks its API key against its own service when the agent runs — there’s no endpoint to test it against here. Save it and launch the agent to verify, or sign in with `kiro-cli login` instead.",
+      "clientOnly": "This endpoint only takes requests from the coding tools it recognises, so it turned away this test, which calls it directly — that says nothing about the key. Save the settings and send the agent a message: a normal reply confirms it works."
     },
     "unprobeableTitle": "This agent isn’t tested here",
     "endpointMismatch": {

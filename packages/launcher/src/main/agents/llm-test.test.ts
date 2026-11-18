@@ -743,3 +743,36 @@ describe("testLLMConnection against a catalogue with dead entries", () => {
     expect(calls).toHaveLength(2)
   })
 })
+
+describe("testLLMConnection on a relay that only serves coding CLIs", () => {
+  // Daily errors dashboard, 2026-11-18: the same relay's 403 read as a refused
+  // key on the device probe; the setup form showed it as a red failure.
+  const REFUSAL =
+    '{"error":{"code":"client_not_allowed","message":"本站仅支持编程客户端使用：Codex、Claude Code、OpenCode、ZCode、Cursor、pi"}}'
+  const env = { LLM_API_KEY: "sk-relay", LLM_BASE_URL: "https://relay.example.com/v1", LLM_MODEL: "glm-5" }
+
+  it("reports it as nothing to test here, not as a failed key", async () => {
+    script = [{ kind: "ok", status: 403, body: REFUSAL }]
+    const r = await testLLMConnection(env, "opencode")
+    expect(r.success).toBe(false)
+    expect(r.unsupported).toBe(true)
+    expect(r.reason).toBe("clientOnly")
+    expect(r.error).toMatch(/client_not_allowed/)
+  })
+
+  it("still reports any other 403 as a failure", async () => {
+    script = [{ kind: "ok", status: 403, body: '{"error":{"message":"This API key only allows requests from authorized clients"}}' }]
+    const r = await testLLMConnection(env, "opencode")
+    expect(r.success).toBe(false)
+    expect(r.unsupported).toBeUndefined()
+  })
+
+  it("has copy in every locale", () => {
+    for (const lang of ["en", "zh"]) {
+      const file = path.join(__dirname, "../../renderer/i18n/locales", lang, "agents.json")
+      const copy = JSON.parse(fs.readFileSync(file, "utf-8")).credentials.unprobeable.clientOnly
+      expect(typeof copy).toBe("string")
+      expect(copy.length).toBeGreaterThan(20)
+    }
+  })
+})

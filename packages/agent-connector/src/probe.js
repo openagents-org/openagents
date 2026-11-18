@@ -69,6 +69,7 @@ const CODE = {
   CLI_ERROR: 'cli_error',
   INSTALL_INCOMPLETE: 'install_incomplete',
   ENDPOINT_INCOMPATIBLE: 'endpoint_incompatible',
+  CLIENT_ONLY: 'client_only',
 };
 
 const BENIGN_OUTPUT = BENIGN_CLI_OUTPUT;
@@ -172,7 +173,7 @@ function classifyOutputText(text) {
   // "Model 'x' is not available. This gateway only allows: …" is how the
   // OpenAgents gateway refuses a model; read as a CLI error it sent people to
   // a terminal to debug a model name.
-  if (/unrecognized_model|model_not_found|invalid model|no such model|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported|is not available)/.test(text)) return CODE.BAD_MODEL;
+  if (/unrecognized_model|model_not_found|invalid model|no such model|model must be a (?:valid )?model id|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported|is not available)/.test(text)) return CODE.BAD_MODEL;
   if (/\b50[234]\b|service (is )?(temporarily )?unavailable|temporarily unavailable|bad gateway|gateway time-?out/.test(text)) return CODE.SERVICE_UNAVAILABLE;
   return null;
 }
@@ -294,6 +295,9 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
 async function directApiVerdict(agentEnv, entry, model, baseUrl, protocol) {
   const res = await callLLM(agentEnv, model, baseUrl, protocol);
   if (!res || res.success) return null;
+  // The endpoint turned the test away for not being the agent's CLI; that
+  // says nothing about the CLI's own run.
+  if (clientOnlyRefusal(res.error)) return null;
   const code = directFailureCode(res.error, protocol);
   if (code === CODE.CLI_ERROR) return null;
   return {
@@ -384,6 +388,28 @@ function directFailureCode(error, protocol) {
     if (!probeOnly) return CODE.ENDPOINT_INCOMPATIBLE;
   }
   return classifyFailure(error, {});
+}
+
+/**
+ * A relay that serves only the coding CLIs it recognises, and refused the
+ * direct test for not being one: `HTTP 403: {"error":{"code":
+ * "client_not_allowed","message":"本站仅支持编程客户端使用：Codex、Claude Code、
+ * OpenCode、…"}}`. Read as any 403, it came back "invalid API key" — eight
+ * times in a minute for one OpenCode agent on the daily errors dashboard of
+ * 2026-11-18 — for a key the CLI itself may well be let through with. Only
+ * these words: an English "only allows authorized clients" is as likely a
+ * key refused for real.
+ */
+const CLIENT_ONLY_REFUSAL = /client_not_allowed|仅支持[^。.\n]{0,24}客户端/i;
+
+/** The start of a refusal, where its code and reason are, scrubbed and capped. */
+function head(text, cap) {
+  const s = scrub(String(text || '').trim());
+  return s.length > cap ? `${s.slice(0, cap)}…` : s;
+}
+
+function clientOnlyRefusal(error) {
+  return CLIENT_ONLY_REFUSAL.test(String(error || ''));
 }
 
 /** The field a refusing endpoint named (`"param":"client_metadata"`), or ''. */
@@ -910,6 +936,16 @@ async function probeAgentType(connector, type, opts = {}) {
         ok: true, method: 'llm_api', code: CODE.OK,
         message: 'Responded',
         reply: tail(res.response || '', REPLY_CAP),
+      });
+    }
+    // Could not be checked, not failed: the endpoint only answers the coding
+    // CLIs it recognises, and this test is not one of them.
+    if (res && clientOnlyRefusal(res.error)) {
+      return done({
+        ok: null, method: 'llm_api', code: CODE.CLIENT_ONLY,
+        message: 'This endpoint only takes requests from the coding tools it recognises, and it turned away the '
+          + `connection test, which calls it directly (${head(res.error, 240)}). The key and model could not be `
+          + 'checked ahead of time; send the agent a message, and a normal reply confirms it works.',
       });
     }
     const code = directFailureCode(res && res.error, protocol);

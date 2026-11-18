@@ -82,6 +82,7 @@ const FAILURE_MESSAGES = {
   process_crashed: 'CodeArts Agent exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "CodeArts Agent's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   config_invalid: 'CodeArts Agent would not start because one of its config files is invalid — the file and what is wrong with it are below. Correct or remove that entry, then retry.',
+  malformed_tool_call: "The model sent back a tool call CodeArts Agent could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   unknown_error: 'CodeArts Agent failed for an undetermined reason. Open diagnostics or retry.',
 };
 
