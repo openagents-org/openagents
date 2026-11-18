@@ -21,7 +21,7 @@ function withCode(text: string, codes: string[]): React.ReactNode[] {
  * signed in on its device — from the desktop app, or for a device paired from
  * the command line, with `command` in a terminal there.
  */
-export function NeedsCredentialsHint({ label, device, command, note, os }: { label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
+export function NeedsCredentialsHint({ label, device, command, note, os, accountSignedOut }: { accountSignedOut?: boolean; label: string; device: string; command: string; note?: MessageKey; os?: string | null }) {
   const t = useT();
   // Already in the desktop app: no point offering to download it.
   const downloads = desktopHost() ? [] : desktopDownloads(t);
@@ -33,7 +33,9 @@ export function NeedsCredentialsHint({ label, device, command, note, os }: { lab
   const fullPath = `${os === 'win32' ? '& ' : ''}"${t('connect.nodeNeedsLoginPath')}" ${command.split(/\s+/).slice(1).join(' ')}`.trim();
   return (
     <div data-testid="agent-setup-needs-credentials" className="flex flex-col gap-2">
-      <p>{t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
+      <p>{accountSignedOut
+        ? t('connect.deviceAccountSignedOutHint', { label, device })
+        : t(command ? 'connect.nodeNeedsLoginHint' : 'connect.nodeNeedsKeyHint')}</p>
       <div>
         <p className="font-semibold">{t('connect.nodeNeedsLoginKeyTitle')}</p>
         <p>{t('connect.nodeNeedsLoginKeyStep')}</p>

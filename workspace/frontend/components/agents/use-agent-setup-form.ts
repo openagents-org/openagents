@@ -68,7 +68,7 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
     : !!(editAgent.apiKeyMasked || editAgent.baseUrlHost));
   // An agent being edited is judged on what it runs on, not on its type.
   const selectedStatus = runtimeStatus(selected ? runtimeByType[selected] : undefined, editOnKey);
-  const signIn = selected && selectedStatus === 'needs_login' ? extensions?.signIn?.(selected) : undefined;
+  const signIn = selected && (selectedStatus === 'needs_login' || selectedStatus === 'signed_out') ? extensions?.signIn?.(selected) : undefined;
 
   // Say a name is taken while it is typed, not after the device refuses it. A
   // name the device refused last time stays flagged on retry: that agent is
@@ -170,7 +170,8 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
     setBaseUrl('');
     setModel('');
     setCustomModel(false);
-    setShowCreds(runtimeStatus(runtimeByType[typeName]) === 'needs_login');
+    const status = runtimeStatus(runtimeByType[typeName]);
+    setShowCreds(status === 'needs_login' || status === 'signed_out');
     creds.setUseDeviceKey(null);
     creds.setSignInPick(null);
     creds.setCredsTouched(false);

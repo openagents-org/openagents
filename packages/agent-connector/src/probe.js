@@ -970,4 +970,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, codexProbeArgs, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { killTree, probeAgentType, codexProbeArgs, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };

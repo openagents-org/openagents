@@ -107,8 +107,10 @@ export interface NodeRuntime {
   typeReady?: boolean;
   /** The CLI is signed in on the device, keys aside: what an agent on "the
    * account signed in on the device" runs on. Null for a type with no
-   * sign-in; absent from devices too old to report it. */
+   * sign-in or an inconclusive check; absent from devices too old to report it. */
   signedIn?: boolean | null;
+  /** When the device last asked the CLI for its account, including inconclusive attempts. */
+  signInCheckedAt?: string;
   /** How the type authenticates on the device: `subscription` is the CLI's
    * sign-in, but a type with a key as well reads `api_key`. */
   auth?: { mode: 'subscription' | 'api_key' | 'none'; keyMasked: string | null } | null;

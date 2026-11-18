@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { AgentCatalogDetail, NodeAgent, NodeRuntime, WorkspaceNode } from '@/lib/types';
+import { runtimeStatus } from './agent-setup-status';
 import { HINT_ONLY_SIGN_IN } from './agent-setup-types';
 
 /**
@@ -45,7 +46,8 @@ export function useAgentCredentials({ node, editAgent, editOnKey, detail, select
   // devices new enough; a type ready on its sign-in, or ready at all, from
   // older ones.
   const signInOffered = byok && !keyOnly;
-  const signedInOnDevice = !!selectedRuntime?.installed && !!(selectedRuntime.signedIn
+  const codeBuddyStatus = selected === 'codebuddy' ? runtimeStatus(selectedRuntime) : null;
+  const signedInOnDevice = codeBuddyStatus ? codeBuddyStatus === 'signed_in' : !!selectedRuntime?.installed && !!(selectedRuntime.signedIn
     ?? (selectedRuntime.auth ? selectedRuntime.auth.mode === 'subscription' : selectedRuntime.ready));
   // Null until picked, so the default follows a detection that can arrive
   // after the form opens. An agent being edited opens on the sign-in it runs
@@ -81,7 +83,7 @@ export function useAgentCredentials({ node, editAgent, editOnKey, detail, select
   // signing in later is a fine plan. Never a block, and an edit only warns.
   // One not installed yet cannot be signed in before it exists.
   const signInUnconfirmed = signInOffered && noKeyPicked && !keylessModel
-    && !!selectedRuntime?.installed && !signedInOnDevice;
+    && !!selectedRuntime?.installed && !signedInOnDevice && (!codeBuddyStatus || codeBuddyStatus === 'signed_out');
   const [credsError, setCredsError] = useState(false);
   const credsFieldRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setCredsError(false); }, [keyMissing, signInUnconfirmed, selected]);

@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils';
 import type { NodeAgent } from '@/lib/types';
 import { HINT_ONLY_SIGN_IN, SAME_TYPE_SHOWN, type AgentSetupProps } from './agent-setup-types';
 import { NeedsCredentialsHint } from './agent-setup-credentials-hint';
-import type { runtimeStatus } from './agent-setup-status';
+import { marketStatusMeta, type runtimeStatus } from './agent-setup-status';
 import type { AgentSetupForm } from './use-agent-setup-form';
 
 type Status = ReturnType<typeof runtimeStatus>;
@@ -19,14 +19,8 @@ type Status = ReturnType<typeof runtimeStatus>;
  *  across the app — not a tinted block. */
 export function RuntimeStatusBadge({ status }: { status: Status }) {
   const t = useT();
-  const map = {
-    ready: { label: t('connect.nodeRuntimeReady'), dot: 'bg-success', text: '' },
-    needs_login: { label: t('connect.nodeRuntimeNeedsLogin'), dot: 'bg-warning', text: '' },
-    not_installed: { label: t('connect.nodeRuntimeWillInstall'), dot: 'bg-muted-foreground', text: 'text-muted-foreground' },
-    unknown: { label: '', dot: '', text: '' },
-  } as const;
-  const b = map[status];
-  if (!b.label) return null;
+  if (status === 'unknown') return null;
+  const b = marketStatusMeta(t, status);
   return (
     <Badge variant="outline" className={b.text}>
       <span className={cn('size-1.5 rounded-full', b.dot)} />
@@ -40,16 +34,29 @@ export function AgentStatusHint({ form, node }: { form: AgentSetupForm; node: Ag
   const t = useT();
   const { selected, selectedEntry, selectedStatus, detail, runtimeByType, creds } = form;
   const label = selectedEntry?.label || selected || '';
-  const Icon = selectedStatus === 'ready' ? CheckCircle2 : selectedStatus === 'needs_login' ? TriangleAlert : Info;
+  const ready = selectedStatus === 'ready' || selectedStatus === 'signed_in' || selectedStatus === 'key_configured';
+  const needsLogin = selectedStatus === 'needs_login' || selectedStatus === 'signed_out';
+  const Icon = ready ? CheckCircle2 : needsLogin ? TriangleAlert : Info;
   return (
     <Alert data-testid="agent-setup-status-hint">
-      <Icon className={selectedStatus === 'ready' ? 'text-success' : selectedStatus === 'needs_login' ? 'text-warning' : 'text-muted-foreground'} />
+      <Icon className={ready ? 'text-success' : needsLogin ? 'text-warning' : 'text-muted-foreground'} />
       {/* Room for the sign-in steps: no paragraph gaps, and download links stay buttons. */}
       <AlertDescription className="[&_a[data-slot=button]]:no-underline [&_p:not(:last-child)]:mb-0">
         {selectedStatus === 'ready' && t('connect.nodeReadyHint')}
-        {selectedStatus === 'needs_login' && (detail?.provider_locked
+        {selectedStatus === 'signed_in' && t('connect.deviceAccountReadyHint', { label, device: node.name || node.hostname || '' })}
+        {selectedStatus === 'key_configured' && t('connect.deviceAccountKeyHint')}
+        {selectedStatus === 'sign_in_unknown' && (
+          <span>{t('connect.deviceAccountUnknownHint', { label })}{' '}
+            <Button variant="link" size="xs" disabled={form.detecting} onClick={form.reDetect}>
+              {t(form.detecting ? 'connect.nodeDetecting' : 'connect.nodeReDetect')}
+            </Button>
+          </span>
+        )}
+        {selectedStatus === 'incompatible' && selected && runtimeByType[selected]?.message}
+        {needsLogin && (detail?.provider_locked
           ? t('connect.nodeProviderLockedHint', { label })
           : <NeedsCredentialsHint
+              accountSignedOut={selectedStatus === 'signed_out'}
               label={label}
               device={node.name || node.hostname || ''}
               // A device new enough to have `agn login` says so; an older
