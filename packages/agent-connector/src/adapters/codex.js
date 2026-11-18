@@ -573,13 +573,16 @@ class CodexAdapter extends BaseAdapter {
           delete this._channelThreads[msgChannel];
           this._saveSessions();
           continue;
-        } else if (fromAgent && CodexAdapter._finishedQuietly(result)) {
+        } else if (fromAgent && !result.ranTools && CodexAdapter._finishedQuietly(result)) {
           // Another agent wrote ("received", "noted") and codex ended its
           // turn with nothing to add, as the prompt tells it to. Posting
           // "Codex couldn't run" for that read as a failure: the daily errors
           // dashboard of 2026-11-17 had one agent post it 14 times in two
           // minutes while two agents acknowledged each other. A status says
-          // so and wakes nobody. A person's message still gets the error.
+          // so and wakes nobody. A person's message still gets the error, and
+          // so does a turn that ran commands or edited files and then said
+          // nothing: that was a task, and whoever asked for it has to hear
+          // that no answer came.
           this._log(`Turn from another agent in ${msgChannel} ended with no reply; not posting one`);
           try { await this.sendStatus(msgChannel, 'Nothing to add, so no reply was posted.'); } catch {}
           return;
@@ -638,6 +641,7 @@ class CodexAdapter extends BaseAdapter {
       let lastErrorMessage = '';
       let turnFailed = false;
       let turnStarted = false;
+      let ranTools = false;
       let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
@@ -679,6 +683,7 @@ class CodexAdapter extends BaseAdapter {
             try { await this.sendThinking(msgChannel, item.text); } catch {}
           } else if (item.type === 'command_execution') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             const cmdText = (item.command || '').slice(0, 200);
             const exitCode = item.exit_code;
             const output = (item.output || '').slice(0, 500);
@@ -690,6 +695,7 @@ class CodexAdapter extends BaseAdapter {
             this._log(`Command: ${cmdText} → exit ${exitCode}`);
           } else if (item.type === 'file_change') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             // codex reports the edited files in `changes`; `filename` is the
             // legacy shape and was always empty on current CLIs.
             const filename = Array.isArray(item.changes) && item.changes.length
@@ -755,6 +761,7 @@ class CodexAdapter extends BaseAdapter {
           errorMessage: lastErrorMessage,
           turnFailed,
           turnStarted,
+          ranTools,
         });
       });
 

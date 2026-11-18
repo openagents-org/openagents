@@ -302,7 +302,8 @@ class OpenCodeAdapter extends BaseAdapter {
    * their rules alone.
    */
   static _userRulesExternalDirs(env, runCwd) {
-    const mentions = (text) => /external_directory|"permission"\s*:\s*("|\{\s*"\*")/.test(String(text || ''));
+    const mentions = (text) => /external_directory/.test(String(text || ''))
+      || OpenCodeAdapter._setsEveryPermission(String(text || ''));
     if (mentions(env.OPENCODE_CONFIG_CONTENT)) return true;
     const home = env.HOME || env.USERPROFILE || os.homedir();
     const globalDir = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode');
@@ -318,6 +319,38 @@ class OpenCodeAdapter extends BaseAdapter {
     return files.some((file) => {
       try { return mentions(fs.readFileSync(file, 'utf-8')); } catch { return false; }
     });
+  }
+
+  /**
+   * Whether a config's text sets every permission at once: `"permission":
+   * "deny"`, or a `"*"` key anywhere in the permission object — not only as
+   * its first key: `{"bash": {"git *": "allow"}, "*": "deny"}` was read as
+   * no rule, and the external_directory allow then went over a lockdown.
+   * Only the object's own keys count, not a `"*"` inside a nested rule.
+   */
+  static _setsEveryPermission(text) {
+    const re = /"permission"\s*:\s*/g;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      let i = m.index + m[0].length;
+      if (text[i] === '"') return true;
+      if (text[i] !== '{') continue;
+      let depth = 0;
+      let inString = false;
+      for (let start = i; i < text.length; i++) {
+        const c = text[i];
+        if (inString) {
+          if (c === '\\') i++;
+          else if (c === '"') {
+            inString = false;
+            // A key of the permission object itself.
+            if (depth === 1 && text.slice(start, i + 1) === '"*"' && /^\s*:/.test(text.slice(i + 1))) return true;
+          }
+        } else if (c === '"') { inString = true; start = i; }
+        else if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) break;
+      }
+    }
+    return false;
   }
 
   _spawnEnv(channel, { contextFile = null } = {}) {
@@ -1324,6 +1357,12 @@ class OpenCodeAdapter extends BaseAdapter {
         if (!roles[part.messageID]) early.push(part);
         else if (roles[part.messageID] === 'assistant') emit(part);
       } else if (ev.type === 'message.part.delta' && props.sessionID === sid) {
+        watchdog.touch();
+      } else if ((ev.type === 'message.part.updated' && props.part && children.has(props.part.sessionID))
+        || (ev.type === 'message.part.delta' && children.has(props.sessionID))) {
+        // A subagent at work is the turn at work: its parts are not this
+        // channel's reply, but a long task run in a child session left the
+        // turn's own session quiet until the watchdog stopped it.
         watchdog.touch();
       }
     });

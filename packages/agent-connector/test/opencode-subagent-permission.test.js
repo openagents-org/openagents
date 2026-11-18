@@ -76,6 +76,18 @@ describe('OpenCode — subagents may use folders outside the working directory',
     assert.equal(spawnEnv(baseEnv()).OPENCODE_PERMISSION, undefined);
   });
 
+  it('leaves it out when the wildcard is not the first permission key', () => {
+    fs.writeFileSync(path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({ permission: { bash: { 'git *': 'allow' }, '*': 'deny' } }, null, 2));
+    assert.equal(spawnEnv(baseEnv()).OPENCODE_PERMISSION, undefined);
+  });
+
+  it('still passes it when a "*" only appears inside one tool\'s rules', () => {
+    fs.writeFileSync(path.join(home, '.config', 'opencode', 'opencode.json'),
+      JSON.stringify({ permission: { bash: { '*': 'ask', 'git status': 'allow' }, edit: 'allow' } }));
+    assert.deepEqual(JSON.parse(spawnEnv(baseEnv()).OPENCODE_PERMISSION), { external_directory: 'allow' });
+  });
+
   it('leaves it out for a rule in a project file above the working directory', () => {
     fs.mkdirSync(path.join(root, 'work', '.opencode'), { recursive: true });
     fs.writeFileSync(path.join(root, 'work', '.opencode', 'opencode.json'),

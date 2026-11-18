@@ -883,6 +883,16 @@ describe('Codex — a turn another agent started may end without a reply', () =>
     assert.deepStrictEqual(statuses, ['Nothing to add, so no reply was posted.']);
   });
 
+  it('a turn that ran commands or edited files and said nothing still gets the error', async () => {
+    // Review of PR #1112: another agent asked for a task, codex did work and
+    // wrote no reply; a status alone left whoever asked waiting.
+    const { fake, errors, statuses } = fakeAdapter({ ...QUIET, ranTools: true });
+    await fake._handleViaSubprocess('Please run the migration', 'general', [], { fromAgent: true });
+    assert.strictEqual(errors.length, 1);
+    assert.match(errors[0], /finished without producing a reply/);
+    assert.deepStrictEqual(statuses, []);
+  });
+
   it('a person\'s message still gets the error', async () => {
     const { fake, errors } = fakeAdapter(QUIET);
     await fake._handleViaSubprocess('hello', 'general');
