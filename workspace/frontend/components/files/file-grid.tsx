@@ -133,7 +133,7 @@ export function FileGrid() {
 
   return (
     <div
-      className={cn('flex h-full flex-col', dragOver && hasFolder && 'bg-primary/5 ring-2 ring-primary/40 ring-inset')}
+      className={cn('flex h-full min-h-0 min-w-0 flex-col overflow-hidden', dragOver && hasFolder && 'bg-primary/5 ring-2 ring-primary/40 ring-inset')}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
