@@ -1,5 +1,4 @@
 'use client';
-import { Users } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
 
@@ -22,9 +21,10 @@ export function AgentSectionLabel({ owned, online, total, first, showLabels = tr
   }
   return (
     <li role="presentation" aria-label={label} className={cn('mx-2', !first && 'mt-1.5 border-t border-sidebar-border pt-1.5')}>
-      <span className={cn('flex items-center gap-1.5 px-0.5 pb-0.5 text-xs font-medium leading-5 text-sidebar-foreground/70', labelClassName)}>
-        <Users className="size-3 shrink-0" />
-        <span className="truncate" title={label}>{label}</span>
+      {/* No icon, as with the Agents and Members headings: a people glyph
+          here read the same as the Members one. */}
+      <span className={cn('block truncate px-0.5 pb-0.5 text-xs font-medium leading-5 text-sidebar-foreground/70', labelClassName)} title={label}>
+        {label}
       </span>
     </li>
   );

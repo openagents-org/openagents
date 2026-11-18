@@ -8,7 +8,7 @@ import { OnboardingSurfaceContext } from './onboarding-surface';
 const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0 }));
 vi.mock('./layout-context', () => ({ useLayout: () => ({
   viewMode: 'threads', railViewMode: 'threads', openView: state.openView, isRailExpanded: true, setThreadFilter: vi.fn(),
-}), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 256 }));
+}), RAIL_WIDTH_COLLAPSED: 48, RAIL_WIDTH_EXPANDED: 208 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   unreadThreadsTotal: state.unreadThreadsTotal, workspace: { name: 'Test' }, agents: [{ agentName: 'shared', ownerEmail: 'maya@example.com', status: 'online', canStartThread: true }],
   currentUser: { id: 'sam@example.com' }, tasks: [], onlineUsers: [], pendingApprovalsByAgent: {}, unreadDmCounts: {},
@@ -27,8 +27,6 @@ vi.mock('@/components/ui/tooltip', () => {
 vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('./sidebar-members', () => ({ SidebarMembers: () => null }));
 vi.mock('./search-menu', () => ({ SearchMenu: () => null }));
-vi.mock('./notifications-menu', () => ({ NotificationsMenu: () => null }));
-vi.mock('./invite-member-button', () => ({ InviteMemberButton: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
 vi.mock('./rail-edge', () => ({ RailEdge: () => null }));
 vi.stubGlobal('React', React);
