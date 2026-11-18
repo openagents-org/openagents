@@ -6,7 +6,6 @@ import { cn } from '@/lib/utils';
 import { MessageReactionsProvider } from './message-reactions';
 import { ChatMessage } from './chat-message';
 import { IntermediateSteps } from './intermediate-steps';
-import { ThinkingMessage } from './thinking-message';
 import { WorkingBubble } from './working-bubble';
 import { Button } from '@/components/ui/button';
 import { Marker, MarkerContent } from '@/components/ui/marker';
@@ -183,13 +182,6 @@ function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder
                       onMentionPerson={onMentionPerson}
                       onReply={onReply}
                       onRecall={recall}
-                    />
-                  ) : group.type === 'thinking' ? (
-                    <ThinkingMessage
-                      sender={group.sender}
-                      messages={group.messages}
-                      agents={agents}
-                      isActive={index === groups.length - 1}
                     />
                   ) : (
                     <IntermediateSteps
