@@ -68,5 +68,6 @@ jobs:
           DO_DEPLOY_KNOWN_HOSTS: ${{ secrets.DO_DEPLOY_KNOWN_HOSTS }}
           DO_PRIMARY_HOST: ${{ vars.DO_PRIMARY_HOST }}
           DO_SECONDARY_HOST: ${{ vars.DO_SECONDARY_HOST }}
+          DO_EXTRA_HOSTS: ${{ vars.DO_EXTRA_HOSTS }}
           GH_TOKEN: ${{ github.token }}
         run: python3 workspace/operations/digitalocean/cd/ci.py

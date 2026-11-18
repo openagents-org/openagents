@@ -5,7 +5,8 @@ class RolloutError(RuntimeError):
 
 
 def rollout(nodes, balancer, image, migrate, verify_public, record, settle):
-    """Update secondary then primary; keep a verified peer available throughout.
+    """Update the peers in order, then the primary; every other node stays
+    ready and in the pool while one node is drained and replaced.
 
     Migrations must be explicitly backward compatible. Rollback changes images,
     never database schema or data. Failed rollback nodes remain out of the pool.
@@ -13,16 +14,17 @@ def rollout(nodes, balancer, image, migrate, verify_public, record, settle):
     before = {n.name: n.status() for n in nodes}
     for n in nodes:
         if not before[n.name]['ready']:
-            raise RolloutError('Both nodes must be ready before deployment')
+            raise RolloutError('Every node must be ready before deployment')
         n.validate(image)
     if not balancer.contains_all(nodes):
-        raise RolloutError('Expected both backend nodes in the load balancer')
+        raise RolloutError('Expected exactly the configured backend nodes in the load balancer')
     migrate()
     changed = []
     try:
         for n in nodes:
-            peer = next(other for other in nodes if other is not n)
-            if not peer.status()['ready']:
+            # A drained node forwards new requests to a peer; with more than two
+            # nodes any of them may receive them, so all must be ready.
+            if not all(other.status()['ready'] for other in nodes if other is not n):
                 raise RolloutError('Peer is not ready; refusing to drain node')
             changed.append(n)  # include partial failures during drain/activation
             balancer.remove(n)
@@ -39,8 +41,7 @@ def rollout(nodes, balancer, image, migrate, verify_public, record, settle):
         # Restore a healthy old-image node first; it can serve its peer's rollback.
         for n in reversed(changed):
             try:
-                peer = next(other for other in nodes if other is not n)
-                if not peer.status()['ready']:
+                if not any(other.status()['ready'] for other in nodes if other is not n):
                     raise RolloutError('No healthy peer for rollback')
                 balancer.remove(n)
                 n.route('peer')
