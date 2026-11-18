@@ -1,4 +1,5 @@
 'use client';
+import { agentDisplayName, agentDisplayTagline } from './agent-display-name';
 
 import React, { useEffect, useState } from 'react';
 import { ArrowRight, ChevronRight, Plus, RefreshCw, Search, Sparkles } from 'lucide-react';
@@ -12,8 +13,14 @@ import type { AgentCatalogEntry } from '@/lib/types';
 import { MarketLogo, type CatalogState } from './agent-setup';
 import { CatalogStateNotice, MarketStatusBadge, marketStatusMeta, type GalleryStatus } from './agent-setup-status';
 
-/** Listed first, under "Popular", in this order. */
-const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencode', 'hermes', 'pi', 'kimi', 'deepseek'];
+/** Display order from the official agent catalog at https://openagents.org/agents. */
+const MARKET_AGENT_ORDER = [
+  'codex', 'claude', 'opencode', 'hermes', 'cursor', 'deepseek', 'openclaw',
+  'gemini', 'codebuddy', 'antigravity', 'pi', 'kimi', 'copilot', 'cline',
+  'aider', 'goose', 'amp', 'codearts', 'commandcode', 'openworker',
+  'nanoclaw', 'mini-swe-agent',
+];
+const MARKET_FEATURED_AGENTS = MARKET_AGENT_ORDER.slice(0, 7);
 
 // The gallery draws in the app's own tokens — cards on `bg-card`, the
 // near-black (near-white in dark) `primary` for the one filled button — so it
@@ -21,11 +28,12 @@ const MARKET_POPULAR_AGENTS = ['claude', 'openclaw', 'codex', 'cursor', 'opencod
 // and violet accent of its own, which no other page uses.
 
 /** Rotating featured spotlight above the marketplace grid. */
-function MarketHero({ slides, statusOf, checkingOf, onPick }: {
+function MarketHero({ slides, statusOf, checkingOf, onPick, onPreload }: {
   slides: AgentCatalogEntry[];
   statusOf: (name: string) => GalleryStatus;
   checkingOf: (name: string) => boolean;
   onPick: (name: string) => void;
+  onPreload?: (name: string) => void;
 }) {
   const t = useT();
   const [i, setI] = useState(0);
@@ -49,10 +57,10 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
           <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <Sparkles className="size-3" /> {t('connect.marketFeatured')}
           </div>
-          <h2 className="mt-1 text-lg font-semibold tracking-tight truncate">{a.label}</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground max-w-lg line-clamp-2">{a.tagline || a.description}</p>
+          <h2 className="mt-1 text-lg font-semibold tracking-tight truncate">{agentDisplayName(a)}</h2>
+          <p className="mt-0.5 text-sm text-muted-foreground max-w-lg line-clamp-2">{agentDisplayTagline(a)}</p>
           <div className="mt-3 flex items-center gap-3">
-            <Button size="sm" onClick={() => onPick(a.name)}>
+            <Button size="sm" onClick={() => onPick(a.name)} onPointerEnter={() => onPreload?.(a.name)} onFocus={() => onPreload?.(a.name)}>
               <Plus /> {t('connect.marketAddToDevice')}
             </Button>
             <MarketStatusBadge status={status} checking={checkingOf(a.name)} className="hidden sm:inline-flex" />
@@ -78,7 +86,7 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
             <button
               key={s.name}
               onClick={() => setI(idx)}
-              aria-label={s.label}
+              aria-label={agentDisplayName(s)}
               aria-current={idx === i % slides.length}
               className={cn(
                 'h-1.5 rounded-full transition-colors',
@@ -92,23 +100,35 @@ function MarketHero({ slides, statusOf, checkingOf, onPick }: {
   );
 }
 
-function MarketCard({ entry, status, checking, onPick }: {
+function MarketCard({ entry, status, checking, featured, onPick, onPreload }: {
   entry: AgentCatalogEntry;
   status: GalleryStatus;
   checking: boolean;
+  featured: boolean;
   onPick: () => void;
+  onPreload?: () => void;
 }) {
   const t = useT();
   return (
     <button
       onClick={onPick}
+      onPointerEnter={onPreload}
+      onFocus={onPreload}
       data-testid={`market-card-${entry.name}`}
-      className="group flex flex-col gap-3 rounded-xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-foreground/20 hover:bg-accent/40"
+      className={cn(
+        'group flex flex-col gap-3 rounded-xl border bg-card p-4 text-left shadow-xs transition-colors hover:border-foreground/30 hover:bg-accent/40',
+        featured && 'border-foreground/20 bg-muted/25',
+      )}
     >
+      {featured && (
+        <span className="inline-flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+          <Sparkles className="size-3" aria-hidden="true" /> {t('connect.marketFeatured')}
+        </span>
+      )}
       <div className="flex items-center gap-3">
         <MarketLogo name={entry.name} size={32} className="rounded-lg" />
         <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold leading-tight truncate">{entry.label}</div>
+          <div className="text-sm font-semibold leading-tight truncate">{agentDisplayName(entry)}</div>
           <div className="mt-0.5 font-mono text-xs text-muted-foreground truncate">{entry.vendor || entry.tags?.[0] || ''}</div>
         </div>
       </div>
@@ -132,13 +152,12 @@ function MarketCard({ entry, status, checking, onPick }: {
  * category chips, then the types as cards — popular ones first.
  */
 export function MarketGallery({
-  catalog, catalogState, visible, featured, readyCount, detecting, detectTimedOut, onReDetect,
-  categories, category, onCategory, query, onQuery, statusOf, checkingOf, subtitle, onPick, onBack,
+  catalog, catalogState, visible, readyCount, detecting, detectTimedOut, onReDetect,
+  categories, category, onCategory, query, onQuery, statusOf, checkingOf, subtitle, onPick, onPreload, onBack,
 }: {
   catalog: AgentCatalogEntry[];
   catalogState?: CatalogState;
   visible: AgentCatalogEntry[];
-  featured: AgentCatalogEntry[];
   readyCount: number;
   detecting: boolean;
   detectTimedOut: boolean;
@@ -153,14 +172,24 @@ export function MarketGallery({
   /** Which workspace and device the agent is added to. */
   subtitle: React.ReactNode;
   onPick: (name: string) => void;
+  onPreload?: (name: string) => void;
   onBack: () => void;
 }) {
   const t = useT();
   const q = query.trim();
-  const popular = MARKET_POPULAR_AGENTS
+  const featured = MARKET_FEATURED_AGENTS
+    .map((n) => catalog.find((e) => e.name === n))
+    .filter((e): e is AgentCatalogEntry => !!e);
+  const popular = MARKET_FEATURED_AGENTS
     .map((n) => visible.find((e) => e.name === n))
     .filter((e): e is AgentCatalogEntry => !!e);
-  const others = visible.filter((e) => !MARKET_POPULAR_AGENTS.includes(e.name));
+  const rank = (name: string) => {
+    const index = MARKET_AGENT_ORDER.indexOf(name);
+    return index < 0 ? MARKET_AGENT_ORDER.length : index;
+  };
+  const others = visible
+    .filter((e) => !MARKET_FEATURED_AGENTS.includes(e.name))
+    .sort((a, b) => rank(a.name) - rank(b.name));
 
   const section = (title: string, entries: AgentCatalogEntry[]) => entries.length > 0 && (
     <div className="flex flex-col gap-2.5">
@@ -168,7 +197,8 @@ export function MarketGallery({
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {entries.map((entry) => (
           <MarketCard key={entry.name} entry={entry} status={statusOf(entry.name)} checking={checkingOf(entry.name)}
-            onPick={() => onPick(entry.name)} />
+            featured={MARKET_FEATURED_AGENTS.includes(entry.name)}
+            onPick={() => onPick(entry.name)} onPreload={() => onPreload?.(entry.name)} />
         ))}
       </div>
     </div>
@@ -198,7 +228,7 @@ export function MarketGallery({
         </Button>
       </div>
 
-      <MarketHero slides={featured} statusOf={statusOf} checkingOf={checkingOf} onPick={onPick} />
+      <MarketHero slides={featured} statusOf={statusOf} checkingOf={checkingOf} onPick={onPick} onPreload={onPreload} />
 
       {/* Toolbar: search + category chips */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-2.5">

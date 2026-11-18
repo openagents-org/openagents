@@ -183,28 +183,30 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   );
 
   return (
-    <div className="flex flex-col gap-2">
-      <div className="overflow-hidden rounded-2xl border border-warning/70 bg-gradient-to-br from-warning/10 via-background to-background">
-        <div className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:p-6">
-          <img src="/providers/acenta.svg" alt="" className="size-14 shrink-0 rounded-xl" />
-          <div className="flex-1 min-w-0">
+    <div className="flex flex-col gap-3">
+      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="flex flex-col gap-5 p-5 sm:p-6">
+          <div className="flex items-start gap-4">
+            <img src="/providers/acenta.svg" alt="" className="size-12 shrink-0 rounded-xl" />
+            <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2.5">
               <h3 className="text-lg font-semibold tracking-tight">Acenta</h3>
-              <span className="rounded-full border border-warning/70 bg-warning/10 px-2 py-0.5 text-xs font-medium text-warning">{t('connect.acentaHostedBadge')}</span>
+              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{t('connect.acentaHostedBadge')}</span>
             </div>
-            <p className="mt-2 max-w-lg text-sm leading-relaxed text-muted-foreground">{t('connect.acentaMarketplaceDescription')}</p>
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t('connect.acentaMarketplaceDescription')}</p>
+            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
               {account && !account.hasAccount ? t('connect.acentaNoAccount')
                 : account?.hasAccount && mine.length === 0 ? t('connect.acentaNoAgents')
                 : atLimit ? t('connect.acentaAgentLimit', { limit: account!.agentLimit })
                 : t('connect.acentaMarketplaceSetup')}
             </p>
+            </div>
           </div>
-          <div className="shrink-0 sm:ml-2">
-            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available || atLimit} className="w-full sm:w-auto">
+          <div className="border-t border-border pt-4">
+            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available || atLimit} className="w-full">
               {account?.hasAccount ? <><Plus className="size-3.5 mr-1.5" />{t('connect.acentaNewAgent')}</> : <>{t('connect.acentaGetStarted')} <ArrowUpRight className="size-3.5 ml-1.5" /></>}
             </Button>
-            {!provider.available && <p className="mt-2 max-w-48 text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
+            {!provider.available && <p className="mt-2 text-center text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
           </div>
         </div>
       </div>

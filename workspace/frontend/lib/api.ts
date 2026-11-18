@@ -245,6 +245,9 @@ class WorkspaceApi {
   // (workspace-issued sessions, the desktop host which pushes renewals itself).
   private bearerRefresher: (() => Promise<string | null>) | null = null;
   private refreshInFlight: Promise<string | null> | null = null;
+  // Public registry metadata is shared across workspaces. Reuse hover preloads
+  // and reopenings briefly, but always retry failed requests.
+  private agentDetailCache = new Map<string, { expiresAt: number; promise: Promise<AgentCatalogDetail> }>();
 
   configure(workspaceId: string, token: string, bearerToken?: string) {
     this.workspaceId = workspaceId;
@@ -359,7 +362,7 @@ class WorkspaceApi {
   // ---------------------------------------------------------------------------
 
   async getWorkspace(): Promise<Workspace> {
-    return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}`);
+    return this.request<Workspace>(`/v1/workspaces/${this.workspaceId}`, { signal: AbortSignal.timeout(15_000) });
   }
 
   async updateWorkspace(updates: { name?: string; settings?: Record<string, unknown>; browserfabric_api_key?: string; require_login?: boolean }): Promise<Workspace> {
@@ -456,7 +459,7 @@ class WorkspaceApi {
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,
-    action: 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models',
+    action: 'login_start' | 'login_status' | 'login_input' | 'login_cancel' | 'credential_key' | 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models',
     args: Record<string, unknown> = {},
   ): Promise<NodeCommand> {
     return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {
@@ -778,7 +781,7 @@ class WorkspaceApi {
   async discover(readAt?: Record<string, number>): Promise<NetworkDiscovery> {
     const params = new URLSearchParams({ network: this.workspaceId });
     if (readAt) params.set('read_at', JSON.stringify(Object.fromEntries(Object.entries(readAt).filter(([id]) => !id.startsWith('dm:')).slice(-100))));
-    return this.request<NetworkDiscovery>(`/v1/discover?${params}`);
+    return this.request<NetworkDiscovery>(`/v1/discover?${params}`, { signal: AbortSignal.timeout(15_000) });
   }
 
   /** Get network profile metadata. */
@@ -1558,7 +1561,17 @@ class WorkspaceApi {
 
   /** Fetch full detail for one agent type (install/uninstall + supported models). */
   async getAgentCatalogDetail(agentType: string): Promise<AgentCatalogDetail> {
-    return this.request<AgentCatalogDetail>(`/v1/agent-catalog/${encodeURIComponent(agentType)}`);
+    const cached = this.agentDetailCache.get(agentType);
+    if (cached && cached.expiresAt > Date.now()) return cached.promise;
+    const promise = this.request<AgentCatalogDetail>(`/v1/agent-catalog/${encodeURIComponent(agentType)}`, {
+      signal: AbortSignal.timeout(8_000),
+    });
+    this.agentDetailCache.set(agentType, { expiresAt: Date.now() + 60_000, promise });
+    try { return await promise; }
+    catch (error) {
+      if (this.agentDetailCache.get(agentType)?.promise === promise) this.agentDetailCache.delete(agentType);
+      throw error;
+    }
   }
 
   /**
@@ -2799,7 +2812,7 @@ class WorkspaceApi {
   }
 
   async resolveThreadLink(id: string): Promise<{ id: string; session_id: string }> {
-    return this.request(`/v1/thread-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`);
+    return this.request(`/v1/thread-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, { signal: AbortSignal.timeout(8_000) });
   }
 
   async publishWebProject(body: ProjectUpload, id?: string): Promise<{id: string; revision: string}> {

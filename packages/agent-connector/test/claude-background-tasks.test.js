@@ -130,6 +130,28 @@ describe('stream handling (fake CLI)', () => {
     }
   }
 
+  it('attaches the CLI-reported response model and clears it for the next turn', async () => {
+    const adapter = mkAdapter();
+    const replies = [];
+    adapter.sendResponse = async (channel, content, options) => replies.push({ channel, content, options });
+    const { pp, proc } = attach(adapter);
+    try {
+      const turn = adapter._sendToPersistentProc(pp, 'hello');
+      proc.emitLine({ type: 'assistant', message: { model: 'claude-sonnet-4-6', content: [{ type: 'text', text: 'Hello.' }] } });
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await turn;
+      await adapter._postTurnOutcome(pp, 'general', adapter._composeFinalResponse(pp));
+      assert.equal(replies[0].options.model, 'claude-sonnet-4-6');
+      const next = adapter._sendToPersistentProc(pp, 'again');
+      assert.equal(pp.responseModel, null);
+      proc.emitLine({ type: 'result', session_id: 's1' });
+      await next;
+    } finally {
+      adapter._stopWatchdog(pp);
+      if (pp.idleTimer) clearTimeout(pp.idleTimer);
+    }
+  });
+
   it('tracks background_tasks_changed and holds then resumes the plan', async () => {
     const adapter = mkAdapter();
     const remaining = [{ content: 'merge and deploy', status: 'in_progress' }];

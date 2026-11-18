@@ -148,7 +148,7 @@ def _format_node(node: Node, now: datetime, owner_email: Optional[str] = None) -
 
 
 # Remote agent-management actions the daemon knows how to execute.
-ALLOWED_COMMAND_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models"}
+ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
 # a name). `detect_runtimes` / `list_dir` are node-wide and take no agent;
 # `probe_agent` smoke-tests a runtime and accepts either a type or a name.
@@ -446,6 +446,18 @@ def enqueue_command(
         return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can manage its agents")
 
     args = dict(body.args or {})
+    if "encryptedCredentials" in args:
+        if action not in {"create_agent", "configure_agent", "login_input"} or any(k in args for k in ("apiKey", "config", "modelAccessId")):
+            return json_response(ResponseCode.BAD_REQUEST, "Encrypted credentials cannot be mixed with server-managed credentials")
+        envelope = args["encryptedCredentials"]
+        if not isinstance(envelope, dict) or envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
+            return json_response(ResponseCode.BAD_REQUEST, "Invalid credential envelope")
+    if action == "login_start" and args.get("type") not in {"claude", "codex"}:
+        return json_response(ResponseCode.BAD_REQUEST, "Unsupported browser sign-in")
+    if action in {"login_status", "login_input", "login_cancel"} and not isinstance(args.get("sessionId"), str):
+        return json_response(ResponseCode.BAD_REQUEST, "Missing sign-in session")
+    if action == "login_input" and "encryptedCredentials" not in args:
+        return json_response(ResponseCode.BAD_REQUEST, "Authorization codes must be encrypted for the device")
     if action in AGENT_SCOPED_ACTIONS:
         if not (args.get("name") or "").strip():
             return json_response(ResponseCode.BAD_REQUEST, "Missing agent name")
