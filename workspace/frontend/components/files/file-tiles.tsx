@@ -105,10 +105,9 @@ export function FolderRowIcon({ className }: { className?: string }) {
  * shows its own pixels wherever the layout has room, and every other kind keeps
  * the glyph.
  *
- * There is no resizing endpoint — the thumbnail is the whole file, fetched off
- * the same download route the preview uses. That's what the guards below are
- * for: a format the browser can decode, a size worth spending, and lazy
- * loading so only the tiles you scroll past cost anything.
+ * There is no resizing endpoint: download the original, then cache a small
+ * raster for grid/list display. The byte guard and lazy loading limit network
+ * work; serialized decoding and bounded dimensions limit browser pixel memory.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Formats every browser we target can decode. HEIC and TIFF are images by
@@ -208,6 +207,8 @@ function FileThumbnail({
       <AuthenticatedImage
         fileId={file.id}
         deferUntilVisible
+        thumbnail
+        onUnavailable={() => setBroken(true)}
         // Decorative: the filename sits right beside it in every caller.
         alt=""
         loading="lazy"
