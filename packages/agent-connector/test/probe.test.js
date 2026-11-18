@@ -899,6 +899,14 @@ describe('a relay that only serves the coding CLIs it recognises', () => {
   it('still reads any other 403 as a refused key', () => {
     assert.equal(classifyFailure('HTTP 403: {"error":{"message":"invalid token"}}'), CODE.INVALID_API_KEY);
   });
+
+  it('reads an English allow-list refusal as a refused key, not as unchecked', async () => {
+    const connector = fakeConnector({ entry: OPENCODE, health: { installed: true, ready: true } });
+    const r = await withLLM({ success: false, error: 'HTTP 403: This API key only allows requests from authorized clients' },
+      () => probeAgentType(connector, 'opencode', { agentEnv: { LLM_API_KEY: 'sk-oc-123456', LLM_BASE_URL: 'https://relay.example/v1' } }));
+    assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.INVALID_API_KEY);
+  });
 });
 
 describe('an endpoint that names the model ids it takes', () => {

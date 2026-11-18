@@ -396,9 +396,17 @@ function directFailureCode(error, protocol) {
  * "client_not_allowed","message":"本站仅支持编程客户端使用：Codex、Claude Code、
  * OpenCode、…"}}`. Read as any 403, it came back "invalid API key" — eight
  * times in a minute for one OpenCode agent on the daily errors dashboard of
- * 2026-11-18 — for a key the CLI itself may well be let through with.
+ * 2026-11-18 — for a key the CLI itself may well be let through with. Only
+ * these words: an English "only allows authorized clients" is as likely a
+ * key refused for real.
  */
-const CLIENT_ONLY_REFUSAL = /client_not_allowed|仅支持[^。.\n]{0,24}客户端|only (?:supports?|allows?|accepts?|serves?) [^.\n]{0,40}\bclients?\b/i;
+const CLIENT_ONLY_REFUSAL = /client_not_allowed|仅支持[^。.\n]{0,24}客户端/i;
+
+/** The start of a refusal, where its code and reason are, scrubbed and capped. */
+function head(text, cap) {
+  const s = scrub(String(text || '').trim());
+  return s.length > cap ? `${s.slice(0, cap)}…` : s;
+}
 
 function clientOnlyRefusal(error) {
   return CLIENT_ONLY_REFUSAL.test(String(error || ''));
@@ -936,7 +944,7 @@ async function probeAgentType(connector, type, opts = {}) {
       return done({
         ok: null, method: 'llm_api', code: CODE.CLIENT_ONLY,
         message: 'This endpoint only takes requests from the coding tools it recognises, and it turned away the '
-          + `connection test, which calls it directly (${scrub(String(res.error).trim()).slice(0, 240)}). The key and model could not be `
+          + `connection test, which calls it directly (${head(res.error, 240)}). The key and model could not be `
           + 'checked ahead of time; send the agent a message, and a normal reply confirms it works.',
       });
     }

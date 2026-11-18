@@ -804,6 +804,18 @@ describe('Codex — what counts as a stale thread', () => {
     assert.match(sent[sent.length - 1].m, /could not be verified/);
   });
 
+  it('a reply cut short by unverifiable content is posted, and the next message starts a new thread', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: 'Looking at the skill list', turnStarted: true, turnFailed: true,
+        errorMessage: 'Error running remote compact task: {"error":{"code":"invalid_encrypted_content"}}' },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 1);
+    assert.equal(fake._channelThreads.general, undefined);
+    assert.equal(sent[0].kind, 'response');
+    assert.match(sent[sent.length - 1].m, /continues in a new one/);
+  });
+
   it('only the run error or the stderr reason counts as unverifiable content', () => {
     assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'code: invalid_encrypted_content' }), true);
     assert.equal(CodexAdapter._threadUnverifiable({ stderr: 'Error: The encrypted content for item rs_9 could not be decrypted' }), true);

@@ -1790,13 +1790,6 @@ class OpenCodeAdapter extends BaseAdapter {
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
-    } else if (has(/expected '?function\.name'? to be a string|tool call[^.]{0,40}(?:without|missing|no) (?:a )?(?:function )?name/)) {
-      // The provider streamed a tool call with no tool name, and the AI SDK
-      // under OpenCode refused it: "Expected 'function.name' to be a string."
-      // Six times in a row from one user's agents on GLM / DeepSeek models
-      // (daily errors dashboard, 2026-11-18), each read as "OpenCode failed
-      // for an undetermined reason".
-      category = 'malformed_tool_call';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets
@@ -1825,6 +1818,14 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'network_error';
     } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
       category = 'provider_server_error';
+    } else if (has(/expected '?function\.name'? to be a string/)) {
+      // The provider streamed a tool call with no tool name, and the AI SDK
+      // under OpenCode refused it: "Expected 'function.name' to be a string."
+      // Six times in a row from one user's agents on GLM / DeepSeek models
+      // (daily errors dashboard, 2026-11-18), each read as "OpenCode failed
+      // for an undetermined reason". After the provider categories: a key,
+      // credit or network failure in the same output is the cause to report.
+      category = 'malformed_tool_call';
     } else if (has(/timeout|timed out/)) {
       category = 'timeout';
     } else if (err) {

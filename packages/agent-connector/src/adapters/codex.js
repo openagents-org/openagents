@@ -522,6 +522,11 @@ class CodexAdapter extends BaseAdapter {
           // error left in daemon.log. Say it stopped, and why.
           if (CodexAdapter._endedEarly(result)) {
             await this._sendRunFailure(msgChannel, result, { partial: true });
+            // Failed after some text (an auto-compaction refused mid-turn):
+            // the reply is posted, so no rerun, but the next message must not
+            // resume the same thread and fail again.
+            const unusable = threadId ? CodexAdapter._unusableThread(result) : null;
+            if (unusable) await this._dropThread(msgChannel, unusable);
           }
           return;
         } else if (!planRetried && !this._effectiveModel() && !this._customProvider
@@ -549,30 +554,13 @@ class CodexAdapter extends BaseAdapter {
           } catch {}
           attempt--;
           continue;
-        } else if (threadId && attempt === 0 && CodexAdapter._threadTooLarge(result)) {
-          // The thread holds an item the API will no longer take, and codex
-          // sends the whole thread with every turn, so every later message in
-          // this channel failed the same way. Only a new thread runs again.
-          this._log(`Thread ${threadId} for ${msgChannel} exceeds an API limit; starting a new one`);
-          delete this._channelThreads[msgChannel];
-          this._saveSessions();
-          try {
-            await this.sendStatus(msgChannel, 'This Codex conversation grew past what the model API accepts, '
-              + 'so it continues in a new one. Earlier context in this thread is not carried over.');
-          } catch {}
-          continue;
-        } else if (threadId && attempt === 0 && CodexAdapter._threadUnverifiable(result)) {
-          // The thread carries reasoning that another account sealed, and
-          // codex sends it back with every turn (and with every compaction),
-          // so the service refused each later message in this channel.
-          this._log(`Thread ${threadId} for ${msgChannel} holds content this account cannot verify; starting a new one`);
-          delete this._channelThreads[msgChannel];
-          this._saveSessions();
-          try {
-            await this.sendStatus(msgChannel, 'Codex could no longer read back this conversation\'s earlier turns '
-              + '(this happens after Codex is signed in to a different account), so it continues in a new one. '
-              + 'Earlier context in this thread is not carried over.');
-          } catch {}
+        } else if (threadId && attempt === 0 && CodexAdapter._unusableThread(result)) {
+          // The thread holds something the service will no longer take (an
+          // item over an API limit, or reasoning sealed for another account),
+          // and codex resends the whole thread with every turn, so every later
+          // message in this channel failed the same way. Only a new thread
+          // runs again.
+          await this._dropThread(msgChannel, CodexAdapter._unusableThread(result));
           continue;
         } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
@@ -905,6 +893,37 @@ class CodexAdapter extends BaseAdapter {
   static _threadTooLarge({ errorMessage, stderr } = {}) {
     const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
     return /array_above_max_length|context_length_exceeded/i.test(reason);
+  }
+
+  /**
+   * Why the channel's thread can no longer be resumed, as `{ log, status }`
+   * (what the daemon log and the channel are told), or null when it can.
+   */
+  static _unusableThread(result) {
+    if (CodexAdapter._threadTooLarge(result)) {
+      return {
+        log: 'exceeds an API limit',
+        status: 'This Codex conversation grew past what the model API accepts, so it continues in a new one. '
+          + 'Earlier context in this thread is not carried over.',
+      };
+    }
+    if (CodexAdapter._threadUnverifiable(result)) {
+      return {
+        log: 'holds content this account cannot verify',
+        status: 'Codex could no longer read back this conversation\'s earlier turns (this happens after Codex is '
+          + 'signed in to a different account), so it continues in a new one. Earlier context in this thread is not '
+          + 'carried over.',
+      };
+    }
+    return null;
+  }
+
+  /** Forget the channel's thread, and say why in the log and the channel. */
+  async _dropThread(msgChannel, { log, status }) {
+    this._log(`Thread ${this._channelThreads[msgChannel]} for ${msgChannel} ${log}; starting a new one`);
+    delete this._channelThreads[msgChannel];
+    this._saveSessions();
+    try { await this.sendStatus(msgChannel, status); } catch {}
   }
 
   /**

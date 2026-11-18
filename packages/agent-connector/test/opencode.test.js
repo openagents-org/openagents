@@ -383,6 +383,14 @@ describe('OpenCode — a tool call the model sent without a name', () => {
     assert.equal(cls.detail, "Expected 'function.name' to be a string.");
   });
 
+  it('reports a refused key over a nameless tool call earlier in the output', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: "WARN retrying: Expected 'function.name' to be a string.",
+      stdoutErr: { name: 'APIError', status: 401, message: 'Unauthorized' },
+    });
+    assert.equal(cls.category, 'auth_failed');
+  });
+
   it('still reads a refused key as a refused key', () => {
     const cls = OpenCodeAdapter._classifyFailure({
       code: 1, signal: null, stdout: '', stderr: '', stdoutErr: { name: 'APIError', status: 401, message: 'Unauthorized' },
