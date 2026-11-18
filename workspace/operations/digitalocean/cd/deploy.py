@@ -162,17 +162,38 @@ def verify(public=False):
     return {'verified': True}
 
 
+def peers(cfg):
+    """Remote nodes the coordinator rolls out before itself, in order.
+
+    `peers` lists them as {"name", "host", "droplet_id"}; the original
+    single-peer keys (peer_host, peer_droplet_id) still describe one secondary."""
+    if cfg.get('peers'):
+        out = [{'name': str(p['name']), 'host': str(p['host']), 'droplet_id': int(p['droplet_id'])}
+               for p in cfg['peers']]
+    else:
+        out = [{'name': 'secondary', 'host': str(cfg['peer_host']), 'droplet_id': int(cfg['peer_droplet_id'])}]
+    for p in out:
+        if not re.fullmatch(r'[0-9.]+', p['host']) or not re.fullmatch(r'[a-z0-9-]+', p['name']):
+            raise ValueError('Invalid peer configuration')
+    if len({p['name'] for p in out}) != len(out) or len({p['droplet_id'] for p in out}) != len(out):
+        raise ValueError('Duplicate peer configuration')
+    return out
+
+
 class Node:
-    def __init__(self, name, cfg, remote=False):
+    def __init__(self, name, cfg, remote=False, host=None, droplet_id=None):
         self.name, self.cfg, self.remote = name, cfg, remote
-        self.id = cfg['peer_droplet_id'] if remote else cfg['droplet_id']
+        if remote and host is None:  # original single-peer configuration
+            host, droplet_id = cfg['peer_host'], cfg['peer_droplet_id']
+        self.host = host
+        self.id = droplet_id if remote else cfg['droplet_id']
 
     def rpc(self, verb, arg=None):
         if not self.remote:
             return dispatch('peer', [verb] + ([arg] if arg else []))
         args = ['ssh', '-i', str(CD / 'secrets/peer-key'), '-o', 'BatchMode=yes',
                 '-o', 'StrictHostKeyChecking=yes', '-o', 'UserKnownHostsFile=' + str(CD / 'peer-known-hosts'),
-                '-o', 'ConnectTimeout=10', 'root@' + self.cfg['peer_host'],
+                '-o', 'ConnectTimeout=10', 'root@' + self.host,
                 ' '.join([verb] + ([arg] if arg else []))]
         return json.loads(command(args, capture=True, timeout=300))
 
@@ -240,7 +261,7 @@ def deploy(sha):
     if not cfg['coordinator']: raise ValueError('Deploy requires coordinator')
     with lock('deployment'):
         image = 'openagents-backend:release-' + sha
-        nodes = [Node('secondary', cfg, True), Node('primary', cfg)]
+        nodes = [Node(p['name'], cfg, True, p['host'], p['droplet_id']) for p in peers(cfg)] + [Node('primary', cfg)]
         def record(result):
             result.update(release=sha, timestamp=time.time())
             write_private(CD / 'last-result.json', json.dumps(result))

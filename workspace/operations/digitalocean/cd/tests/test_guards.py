@@ -60,4 +60,22 @@ class CommandGuards(unittest.TestCase):
             with self.assertRaises(ValueError): deploy.validate('openagents-backend:release-'+'a'*40)
 
 
+
+class PeerConfiguration(unittest.TestCase):
+    base = {'droplet_id': 1, 'peer_host': '10.0.0.2', 'peer_droplet_id': 2}
+    def test_single_peer_configuration_still_works(self):
+        self.assertEqual(deploy.peers(self.base), [{'name': 'secondary', 'host': '10.0.0.2', 'droplet_id': 2}])
+        node = deploy.Node('secondary', self.base, True)
+        self.assertEqual((node.host, node.id), ('10.0.0.2', 2))
+    def test_peer_list_in_order(self):
+        cfg = {**self.base, 'peers': [{'name': 'secondary', 'host': '10.0.0.2', 'droplet_id': 2},
+                                      {'name': 'prod3', 'host': '10.0.0.3', 'droplet_id': 3}]}
+        self.assertEqual([p['name'] for p in deploy.peers(cfg)], ['secondary', 'prod3'])
+    def test_invalid_or_duplicate_peers_rejected(self):
+        for peers in ([{'name': 'x', 'host': '10.0.0.2;id', 'droplet_id': 2}],
+                      [{'name': 'a b', 'host': '10.0.0.2', 'droplet_id': 2}],
+                      [{'name': 'a', 'host': '10.0.0.2', 'droplet_id': 2}, {'name': 'b', 'host': '10.0.0.3', 'droplet_id': 2}]):
+            with self.assertRaises(ValueError): deploy.peers({**self.base, 'peers': peers})
+
+
 if __name__ == '__main__': unittest.main()
