@@ -19,6 +19,17 @@
         "en": "A refreshed workspace sidebar and title bar",
         "zh": "工作区侧栏与标题栏焕新"
       }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Clearer connection test for relays that only accept coding tools",
+        "zh": "仅支持编程工具的中转站，连接测试不再误报"
+      },
+      "description": {
+        "en": "Such an endpoint turns away the direct test, so the result now says it cannot be checked here instead of reporting the key as failed.",
+        "zh": "这类接口会拒绝直连测试，现在结果会说明无法在此检测，不再显示为密钥校验失败。"
+      }
     }
   ]
 }
