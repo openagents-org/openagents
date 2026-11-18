@@ -44,14 +44,12 @@ from sqlalchemy import select
 from app import cache
 from app.database import SessionLocal
 from app.models import Channel, ChannelMember, IntegrationBinding, Workspace
+from app.services.telegram_markdown import telegram_messages
 
 logger = logging.getLogger(__name__)
 
 CHANNEL_PREFIX = "ext-"
 
-# Telegram hard limit is 4096 chars/message; we chunk up to 3 messages.
-_TELEGRAM_CHUNK = 4000
-_TELEGRAM_MAX_CHUNKS = 3
 # Slack's hard limit is ~40k; stay well under it.
 _SLACK_MAX_CHARS = 12000
 
@@ -358,7 +356,8 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     error: Optional[str] = None
     try:
         if platform == "telegram":
-            _send_telegram(binding.bot_token, chat_id, sender, content)
+            _send_telegram(binding.bot_token, chat_id, sender, content,
+                           markdown=source.startswith("openagents:"))
         elif platform == "slack":
             _send_slack(binding.bot_token, chat_id, sender, content,
                         is_agent=source.startswith("openagents:"), thread_ts=thread_root)
@@ -370,19 +369,20 @@ def relay_for_event(workspace_id: str, event: dict) -> None:
     _record_binding_result(str(binding.id), error)
 
 
-def _send_telegram(bot_token: str, chat_id: str, sender: str, content: str) -> None:
-    text = f"{sender}:\n{content}"
-    chunks = [text[i:i + _TELEGRAM_CHUNK] for i in range(0, len(text), _TELEGRAM_CHUNK)]
-    if len(chunks) > _TELEGRAM_MAX_CHUNKS:
-        chunks = chunks[:_TELEGRAM_MAX_CHUNKS]
-        chunks[-1] += "\n… (truncated)"
+def _send_telegram(bot_token: str, chat_id: str, sender: str, content: str, *, markdown: bool = True) -> None:
+    url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
     with httpx.Client(timeout=15.0) as client:
-        for chunk in chunks:
-            resp = client.post(
-                f"https://api.telegram.org/bot{bot_token}/sendMessage",
-                json={"chat_id": chat_id, "text": chunk},
-            )
+        for chunk in telegram_messages(sender, content, markdown=markdown):
+            payload = {"chat_id": chat_id, **chunk}
+            resp = client.post(url, json=payload)
             data = resp.json()
+            # A rejected entity (including a URL Telegram won't accept) must
+            # not cost the user their reply. Retry only this explicit rejection.
+            description = str(data.get("description", "")).lower()
+            if resp.status_code == 400 and "entities" in payload and ("entit" in description or "url" in description):
+                del payload["entities"]
+                resp = client.post(url, json=payload)
+                data = resp.json()
             if not data.get("ok"):
                 raise RuntimeError(f"telegram sendMessage: {data.get('description', resp.status_code)}")
 
