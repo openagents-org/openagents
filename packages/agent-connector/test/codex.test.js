@@ -775,6 +775,55 @@ describe('Codex — what counts as a stale thread', () => {
     assert.equal(CodexAdapter._threadTooLarge({}), false);
   });
 
+  // Daily errors dashboard, 2026-11-17: two agents failed every message for
+  // hours after their user signed Codex in to another ChatGPT account.
+  it('a thread whose encrypted content this account cannot verify is dropped, said so, and run fresh', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+        errorMessage: 'Error running remote compact task: {"type":"error","error":{"message":"The encrypted content for item '
+          + 'rs_0c2f9e1d7a6b5c4d3e2f1a0b9c8d7e6f5a4b3c2d1e0f could not be verified. Reason: Encrypted content item_id did not '
+          + 'match the target item id.","type":"invalid_request_error","param":null,"code":"invalid_encrypted_content"}}' },
+      { exitCode: 0, responseText: 'fresh answer', turnStarted: true },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].includes('resume'));
+    assert.ok(!calls[1].includes('resume'));
+    assert.deepEqual(sent.map((s) => s.kind), ['status', 'response'], JSON.stringify(sent));
+    assert.match(sent[0].m, /different account/);
+    assert.equal(sent[1].m, 'fresh answer');
+  });
+
+  it('a new thread that still fails verification is reported, not run a third time', async () => {
+    const unverifiable = { exitCode: 1, responseText: '', turnStarted: true, turnFailed: true,
+      errorMessage: 'The encrypted content for item rs_1 could not be verified.' };
+    const { fake, calls, sent } = fakeAdapter([unverifiable, unverifiable]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 2);
+    assert.equal(sent[sent.length - 1].kind, 'error');
+    assert.match(sent[sent.length - 1].m, /could not be verified/);
+  });
+
+  it('a reply cut short by unverifiable content is posted, and the next message starts a new thread', async () => {
+    const { fake, calls, sent } = fakeAdapter([
+      { exitCode: 1, responseText: 'Looking at the skill list', turnStarted: true, turnFailed: true,
+        errorMessage: 'Error running remote compact task: {"error":{"code":"invalid_encrypted_content"}}' },
+    ]);
+    await fake._handleViaSubprocess('hi', 'general');
+    assert.equal(calls.length, 1);
+    assert.equal(fake._channelThreads.general, undefined);
+    assert.equal(sent[0].kind, 'response');
+    assert.match(sent[sent.length - 1].m, /continues in a new one/);
+  });
+
+  it('only the run error or the stderr reason counts as unverifiable content', () => {
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'code: invalid_encrypted_content' }), true);
+    assert.equal(CodexAdapter._threadUnverifiable({ stderr: 'Error: The encrypted content for item rs_9 could not be decrypted' }), true);
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'usage limit', stderr: 'Error: invalid_encrypted_content' }), false);
+    assert.equal(CodexAdapter._threadUnverifiable({ errorMessage: 'stream disconnected before completion' }), false);
+    assert.equal(CodexAdapter._threadUnverifiable({}), false);
+  });
+
   it('a thread codex cannot find is dropped and the turn run fresh', async () => {
     const { fake, calls, sent } = fakeAdapter([
       { exitCode: 1, responseText: '', turnStarted: false,
@@ -800,5 +849,126 @@ describe('Codex — what counts as a stale thread', () => {
     assert.equal(sent.length, 1);
     assert.equal(sent[0].kind, 'error');
     assert.match(sent[0].m, /lost its connection/);
+  });
+});
+
+/**
+ * Field report 2026-11-17 (daily errors dashboard): two agents acknowledged
+ * each other in a channel, codex ended each turn with nothing to add, and one
+ * agent posted "Codex couldn't run — Codex finished without producing a
+ * reply" 14 times in two minutes.
+ */
+describe('Codex — a turn another agent started may end without a reply', () => {
+  const fakeAdapter = (result) => {
+    const errors = [];
+    const statuses = [];
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      agentEnv: {}, workspaceModel: null, _directModel: 'gpt-test',
+      _directApiKey: '', _directBaseUrl: '', _codexBin: 'codex',
+      _channelThreads: {}, workingDir: '',
+      _buildSystemContext: () => 'system context', _log: () => {},
+      _spawnCodex: async () => result,
+      sendError: async (c, content) => { errors.push(content); },
+      sendStatus: async (c, content) => { statuses.push(content); },
+      sendResponse: async () => { throw new Error('no reply expected'); },
+    });
+    return { fake, errors, statuses };
+  };
+  const QUIET = { responseText: '', stderr: '', exitCode: 0, turnStarted: true };
+
+  it('posts a status, not an error, when codex finished cleanly', async () => {
+    const { fake, errors, statuses } = fakeAdapter(QUIET);
+    await fake._handleViaSubprocess('Noted, thanks.', 'general', [], { fromAgent: true });
+    assert.deepStrictEqual(errors, []);
+    assert.deepStrictEqual(statuses, ['Nothing to add, so no reply was posted.']);
+  });
+
+  it('a turn that ran commands or edited files and said nothing still gets the error', async () => {
+    // Review of PR #1112: another agent asked for a task, codex did work and
+    // wrote no reply; a status alone left whoever asked waiting.
+    const { fake, errors, statuses } = fakeAdapter({ ...QUIET, ranTools: true });
+    await fake._handleViaSubprocess('Please run the migration', 'general', [], { fromAgent: true });
+    assert.strictEqual(errors.length, 1);
+    assert.match(errors[0], /finished without producing a reply/);
+    assert.deepStrictEqual(statuses, []);
+  });
+
+  it('a person\'s message still gets the error', async () => {
+    const { fake, errors } = fakeAdapter(QUIET);
+    await fake._handleViaSubprocess('hello', 'general');
+    assert.strictEqual(errors.length, 1);
+    assert.match(errors[0], /finished without producing a reply/);
+  });
+
+  it('a run that failed is reported whoever sent the message', async () => {
+    for (const result of [
+      { ...QUIET, errorMessage: 'stream disconnected before completion' },
+      { ...QUIET, turnFailed: true, errorMessage: 'turn failed' },
+      { ...QUIET, exitCode: 1 },
+      { ...QUIET, exitCode: null, signal: 'SIGTERM' },
+    ]) {
+      const { fake, errors } = fakeAdapter(result);
+      await fake._handleViaSubprocess('Noted, thanks.', 'general', [], { fromAgent: true });
+      assert.strictEqual(errors.length, 1, JSON.stringify(result));
+      assert.doesNotMatch(errors[0], /finished without producing a reply/);
+    }
+  });
+
+  it('_handleMessage marks another agent\'s message, but not a workflow step handed on', async () => {
+    const seen = [];
+    const fake = Object.assign(Object.create(CodexAdapter.prototype), {
+      channelName: 'general', _useCliMode: true, _log: () => {},
+      _autoTitleChannel: async () => {}, sendStatus: async () => {},
+      _handleViaSubprocess: async (content, channel, atts, opts) => { seen.push(opts.fromAgent); },
+    });
+    await fake._handleMessage({ content: 'noted', senderType: 'agent' });
+    await fake._handleMessage({ content: 'next step', senderType: 'agent', metadata: { orchestration: { action: 'next' } } });
+    await fake._handleMessage({ content: 'hi', senderType: 'human' });
+    assert.deepStrictEqual(seen, [true, false, false]);
+  });
+});
+
+/**
+ * Field report 2026-11-17: an agent pointed at a DeepSeek-compatible endpoint
+ * with no model set failed every message with "The supported API model names
+ * are deepseek-flash, deepseek-v4-pro, but you passed gpt-6.1-sol": Codex had
+ * sent its own default.
+ */
+describe('Codex — an endpoint that serves other models', () => {
+  const REFUSAL = 'The supported API model names are deepseek-flash, deepseek-v4-pro, but you passed gpt-6.1-sol. (request_id: 5f3a55aa)';
+
+  it('names the default Codex sent when no model is set, and the models the endpoint serves', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: REFUSAL, exitCode: 1 }, { modelChosen: false });
+    assert.ok(detail.startsWith(REFUSAL), detail);
+    assert.match(detail, /This endpoint serves deepseek-flash, deepseek-v4-pro\./);
+    assert.match(detail, /No model is set for this agent, so Codex sent its own default \(gpt-6\.1-sol\)\./);
+    assert.match(detail, /Pick one of those models/);
+  });
+
+  it('does not blame a missing model when one was chosen', () => {
+    const detail = CodexAdapter._failureDetail({ errorMessage: REFUSAL, exitCode: 1 });
+    assert.match(detail, /This endpoint serves deepseek-flash, deepseek-v4-pro\. Pick one/);
+    assert.doesNotMatch(detail, /No model is set/);
+  });
+
+  it('the channel is told which case it is', async () => {
+    const sent = [];
+    const ctx = Object.assign(Object.create(CodexAdapter.prototype), {
+      workspaceModel: null, _directModel: '', _planFallbackModel: null, _customProvider: null,
+      sendError: async (c, content) => { sent.push(content); },
+    });
+    await ctx._sendRunFailure('chan', { errorMessage: REFUSAL, exitCode: 1 });
+    assert.match(sent[0], /Codex couldn't run/);
+    assert.match(sent[0], /sent its own default \(gpt-6\.1-sol\)/);
+  });
+});
+
+describe('Codex — an endpoint with a long list of models', () => {
+  it('still explains when the list pushes the passed model past the quoted cap', () => {
+    const names = Array.from({ length: 60 }, (_, i) => `vendor-model-${i}`).join(', ');
+    const errorMessage = `The supported API model names are ${names}, but you passed gpt-6.1-sol.`;
+    const detail = CodexAdapter._failureDetail({ errorMessage, exitCode: 1 }, { modelChosen: false });
+    assert.match(detail, /sent its own default \(gpt-6\.1-sol\)/);
+    assert.match(detail, /This endpoint serves vendor-model-0, .*…\./);
   });
 });

@@ -414,7 +414,9 @@ class CodexAdapter extends BaseAdapter {
     await this.sendStatus(msgChannel, 'thinking...');
 
     if (this._useCliMode) {
-      await this._handleViaSubprocess(content, msgChannel, attachments);
+      // Another agent's message, not a workflow step handed on to this one.
+      const fromAgent = msg.senderType === 'agent' && !this._isWorkflowHandoff(msg);
+      await this._handleViaSubprocess(content, msgChannel, attachments, { fromAgent });
     } else if (this._directMode) {
       await this._handleViaDirectApi(content, msgChannel, attachments);
     } else {
@@ -432,7 +434,7 @@ class CodexAdapter extends BaseAdapter {
     return workspaceModel || String(this._directModel || '').trim();
   }
 
-  async _handleViaSubprocess(content, msgChannel, attachments = []) {
+  async _handleViaSubprocess(content, msgChannel, attachments = [], { fromAgent = false } = {}) {
     // A missing cwd fails the spawn itself, and Node blames the shell for it
     // ("spawn C:\Windows\system32\cmd.exe ENOENT"), which names nothing the
     // user can fix. A configured folder that was never made (or was cleaned
@@ -520,6 +522,11 @@ class CodexAdapter extends BaseAdapter {
           // error left in daemon.log. Say it stopped, and why.
           if (CodexAdapter._endedEarly(result)) {
             await this._sendRunFailure(msgChannel, result, { partial: true });
+            // Failed after some text (an auto-compaction refused mid-turn):
+            // the reply is posted, so no rerun, but the next message must not
+            // resume the same thread and fail again.
+            const unusable = threadId ? CodexAdapter._unusableThread(result) : null;
+            if (unusable) await this._dropThread(msgChannel, unusable);
           }
           return;
         } else if (!planRetried && !this._effectiveModel() && !this._customProvider
@@ -547,17 +554,13 @@ class CodexAdapter extends BaseAdapter {
           } catch {}
           attempt--;
           continue;
-        } else if (threadId && attempt === 0 && CodexAdapter._threadTooLarge(result)) {
-          // The thread holds an item the API will no longer take, and codex
-          // sends the whole thread with every turn, so every later message in
-          // this channel failed the same way. Only a new thread runs again.
-          this._log(`Thread ${threadId} for ${msgChannel} exceeds an API limit; starting a new one`);
-          delete this._channelThreads[msgChannel];
-          this._saveSessions();
-          try {
-            await this.sendStatus(msgChannel, 'This Codex conversation grew past what the model API accepts, '
-              + 'so it continues in a new one. Earlier context in this thread is not carried over.');
-          } catch {}
+        } else if (threadId && attempt === 0 && CodexAdapter._unusableThread(result)) {
+          // The thread holds something the service will no longer take (an
+          // item over an API limit, or reasoning sealed for another account),
+          // and codex resends the whole thread with every turn, so every later
+          // message in this channel failed the same way. Only a new thread
+          // runs again.
+          await this._dropThread(msgChannel, CodexAdapter._unusableThread(result));
           continue;
         } else if (result.exitCode !== 0 && threadId && attempt === 0 && !result.turnStarted && !CodexAdapter._serviceRefused(result)) {
           // Stale thread — clear and retry fresh. Only when the turn never
@@ -570,6 +573,19 @@ class CodexAdapter extends BaseAdapter {
           delete this._channelThreads[msgChannel];
           this._saveSessions();
           continue;
+        } else if (fromAgent && !result.ranTools && CodexAdapter._finishedQuietly(result)) {
+          // Another agent wrote ("received", "noted") and codex ended its
+          // turn with nothing to add, as the prompt tells it to. Posting
+          // "Codex couldn't run" for that read as a failure: the daily errors
+          // dashboard of 2026-11-17 had one agent post it 14 times in two
+          // minutes while two agents acknowledged each other. A status says
+          // so and wakes nobody. A person's message still gets the error, and
+          // so does a turn that ran commands or edited files and then said
+          // nothing: that was a task, and whoever asked for it has to hear
+          // that no answer came.
+          this._log(`Turn from another agent in ${msgChannel} ended with no reply; not posting one`);
+          try { await this.sendStatus(msgChannel, 'Nothing to add, so no reply was posted.'); } catch {}
+          return;
         } else {
           // Surface the actual reason (turn.failed message, stderr, exit code)
           // instead of a generic "no response" — mirrors the OpenCode adapter
@@ -625,6 +641,7 @@ class CodexAdapter extends BaseAdapter {
       let lastErrorMessage = '';
       let turnFailed = false;
       let turnStarted = false;
+      let ranTools = false;
       let reconnectNoted = false;
       let _pendingLines = Promise.resolve();
 
@@ -666,6 +683,7 @@ class CodexAdapter extends BaseAdapter {
             try { await this.sendThinking(msgChannel, item.text); } catch {}
           } else if (item.type === 'command_execution') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             const cmdText = (item.command || '').slice(0, 200);
             const exitCode = item.exit_code;
             const output = (item.output || '').slice(0, 500);
@@ -677,6 +695,7 @@ class CodexAdapter extends BaseAdapter {
             this._log(`Command: ${cmdText} → exit ${exitCode}`);
           } else if (item.type === 'file_change') {
             hasToolUseSinceLastText = true;
+            ranTools = true;
             // codex reports the edited files in `changes`; `filename` is the
             // legacy shape and was always empty on current CLIs.
             const filename = Array.isArray(item.changes) && item.changes.length
@@ -742,6 +761,7 @@ class CodexAdapter extends BaseAdapter {
           errorMessage: lastErrorMessage,
           turnFailed,
           turnStarted,
+          ranTools,
         });
       });
 
@@ -831,7 +851,11 @@ class CodexAdapter extends BaseAdapter {
    * reply, instead of a generic "No response generated".
    */
   async _sendRunFailure(msgChannel, result, { partial = false } = {}) {
-    const detail = CodexAdapter._failureDetail(result, { customProvider: this._customProvider });
+    const detail = CodexAdapter._failureDetail(result, {
+      customProvider: this._customProvider,
+      // What _effectiveModel() reads, plus a plan fallback already picked.
+      modelChosen: Boolean(String(this.workspaceModel || this._directModel || this._planFallbackModel || '').trim()),
+    });
     if (partial) {
       const body = detail
         ? `It stopped before finishing this task.\n\n> ${detail}`
@@ -856,6 +880,16 @@ class CodexAdapter extends BaseAdapter {
   }
 
   /**
+   * True when codex ended its turn normally and simply wrote no reply: exit
+   * 0, no signal, no turn.failed and no error event. Anything else is a run
+   * that failed, whoever sent the message.
+   */
+  static _finishedQuietly({ exitCode, signal, turnFailed, errorMessage, responseText } = {}) {
+    return exitCode === 0 && !signal && !turnFailed
+      && !String(errorMessage || '').trim() && !String(responseText || '').trim();
+  }
+
+  /**
    * True when the API refused the thread itself as too big. Seen as
    * `[ArrayParam] [input[77].content] [array_above_max_length] Invalid
    * 'input[77].content': array too long` on every message of one channel: an
@@ -866,6 +900,52 @@ class CodexAdapter extends BaseAdapter {
   static _threadTooLarge({ errorMessage, stderr } = {}) {
     const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
     return /array_above_max_length|context_length_exceeded/i.test(reason);
+  }
+
+  /**
+   * Why the channel's thread can no longer be resumed, as `{ log, status }`
+   * (what the daemon log and the channel are told), or null when it can.
+   */
+  static _unusableThread(result) {
+    if (CodexAdapter._threadTooLarge(result)) {
+      return {
+        log: 'exceeds an API limit',
+        status: 'This Codex conversation grew past what the model API accepts, so it continues in a new one. '
+          + 'Earlier context in this thread is not carried over.',
+      };
+    }
+    if (CodexAdapter._threadUnverifiable(result)) {
+      return {
+        log: 'holds content this account cannot verify',
+        status: 'Codex could no longer read back this conversation\'s earlier turns (this happens after Codex is '
+          + 'signed in to a different account), so it continues in a new one. Earlier context in this thread is not '
+          + 'carried over.',
+      };
+    }
+    return null;
+  }
+
+  /** Forget the channel's thread, and say why in the log and the channel. */
+  async _dropThread(msgChannel, { log, status }) {
+    this._log(`Thread ${this._channelThreads[msgChannel]} for ${msgChannel} ${log}; starting a new one`);
+    delete this._channelThreads[msgChannel];
+    this._saveSessions();
+    try { await this.sendStatus(msgChannel, status); } catch {}
+  }
+
+  /**
+   * True when the service could not verify the thread's encrypted reasoning.
+   * Seen as `Error running remote compact task: {"error":{"message":"The
+   * encrypted content for item rs_… could not be verified. Reason: Encrypted
+   * content item_id did not match the target item id.", "code":
+   * "invalid_encrypted_content"}}` on every message of two agents, after their
+   * user signed Codex in to another ChatGPT account: the items were sealed for
+   * the old one, and codex resends them each turn. The run's error, else what
+   * its stderr gives as the reason (_stderrReason), as for _threadTooLarge.
+   */
+  static _threadUnverifiable({ errorMessage, stderr } = {}) {
+    const reason = String(errorMessage || '').trim() || CodexAdapter._stderrReason(stderr);
+    return /invalid_encrypted_content|encrypted content\b.{0,120}\bcould not be (?:verified|decrypted)/i.test(reason);
   }
 
   /**
@@ -892,7 +972,7 @@ class CodexAdapter extends BaseAdapter {
    * The cap applies to the quoted reason, before the advice is added, so a
    * long stderr cannot push the advice out of the message.
    */
-  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null } = {}) {
+  static _failureDetail({ errorMessage, stderr, exitCode, signal } = {}, { customProvider = null, modelChosen = true } = {}) {
     // A clean exit with no turn.failed and no error event is codex saying the
     // turn finished; it just wrote no reply. Whatever stderr holds then is not
     // why (a skill it skipped, its ChatGPT connector), and quoting it read as
@@ -903,8 +983,9 @@ class CodexAdapter extends BaseAdapter {
       || (finished ? '' : CodexAdapter._stderrReason(stderr))
       || (signal ? `codex was terminated by ${signal}` : '')
       || (exitCode ? `codex exited with code ${exitCode}` : '');
-    const reason = CodexAdapter._redact(CodexAdapter._unwrap(raw)).slice(0, FAILURE_DETAIL_CAP).trim();
-    return reason ? CodexAdapter._explain(reason, stderr, { customProvider }) : '';
+    const full = CodexAdapter._redact(CodexAdapter._unwrap(raw));
+    const reason = full.slice(0, FAILURE_DETAIL_CAP).trim();
+    return reason ? CodexAdapter._explain(reason, stderr, { customProvider, modelChosen, full }) : '';
   }
 
   /**
@@ -993,7 +1074,22 @@ class CodexAdapter extends BaseAdapter {
    * match is on the backend's own wording, so an unrelated failure is passed
    * through untouched.
    */
-  static _explain(detail, stderr = '', { customProvider = null } = {}) {
+  static _explain(detail, stderr = '', { customProvider = null, modelChosen = true, full = '' } = {}) {
+    // An endpoint that serves other models than the one Codex sent. Seen as
+    // "The supported API model names are deepseek-flash, deepseek-v4-pro, but
+    // you passed gpt-6.1-sol" on every message of an agent pointed at a
+    // DeepSeek-compatible endpoint with no model set: Codex then sends its
+    // own default, which only OpenAI serves. Read from the whole reason: a
+    // long list of names can push "but you passed" past the quoted cap.
+    const served = /supported (?:API )?model names are (.+?),? but you passed ['"`]?([^'"`\s(,]+)/i.exec(full || detail);
+    if (served) {
+      const names = served[1].length > 300 ? `${served[1].slice(0, 300)}…` : served[1];
+      const passed = served[2].replace(/\.+$/, '');
+      const why = modelChosen ? ''
+        : `No model is set for this agent, so Codex sent its own default (${passed}). `;
+      return `${detail}\n\nThis endpoint serves ${names.trim()}. ${why}` +
+        'Pick one of those models for this agent (the model menu in the thread, or the agent\'s settings).';
+    }
     // A custom Responses endpoint refusing a field Codex always sends. Nothing
     // the user retries changes that; which endpoint to use, or the chat-only
     // mode, does.

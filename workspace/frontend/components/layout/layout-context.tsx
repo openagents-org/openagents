@@ -109,11 +109,12 @@ function writeRailPref(expanded: boolean) {
 }
 
 /**
- * The rail's two widths. Expanded matches shadcn's default sidebar (16rem), so
- * the Manage Agents button and the inbox envelope fit side by side.
+ * The rail's two widths. Expanded is 13rem: a little narrower than shadcn's
+ * default sidebar (16rem), which took close to a quarter of a 100% zoom page;
+ * the Manage Agents button and the inbox envelope still fit side by side.
  */
 export const RAIL_WIDTH_COLLAPSED = 52;
-export const RAIL_WIDTH_EXPANDED = 256;
+export const RAIL_WIDTH_EXPANDED = 208;
 
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';

@@ -95,6 +95,7 @@ const FAILURE_MESSAGES = {
   cwd_unavailable: "MiMo Code's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   session_missing: 'MiMo Code no longer has this conversation\'s session. Send the message again to start a new one.',
   config_invalid: 'MiMo Code would not start because one of its config files is invalid — the file and what is wrong with it are below. Correct or remove that entry, then retry.',
+  malformed_tool_call: "The model sent back a tool call MiMo Code could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   unknown_error: 'MiMo Code failed for an undetermined reason. Open diagnostics or retry.',
 };
 

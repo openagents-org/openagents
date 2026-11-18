@@ -431,7 +431,8 @@
       "cline": "Cline 面向你选定的服务商，该服务商无法在此直接测试——保存后启动智能体即可验证，或运行 `cline auth`。",
       "codearts": "CodeArts Agent 使用华为云访问密钥（AK/SK）认证，由华为云在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证。",
       "qoder": "Qoder 的个人访问令牌由 Qoder 自己的服务在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证，也可以改用 `qodercli login`（国内版为 `qoderclicn login`）登录。",
-      "kiro": "Kiro 的 API Key 由 Kiro 自己的服务在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证，也可以改用 `kiro-cli login` 登录。"
+      "kiro": "Kiro 的 API Key 由 Kiro 自己的服务在智能体运行时校验，此处没有可测的接口——保存后启动智能体即可验证，也可以改用 `kiro-cli login` 登录。",
+      "clientOnly": "这个接口只接受它认可的编程客户端的请求，所以拒绝了这里的直连测试，这不代表密钥有问题。保存设置后给智能体发一条消息，能正常回复即说明可用。"
     },
     "unprobeableTitle": "该智能体无需在此测试",
     "endpointMismatch": {

@@ -1,8 +1,9 @@
 'use client';
 import * as React from 'react';
-import { ChevronDown, Settings } from 'lucide-react';
+import { ChevronDown, Plus, Settings } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { AgentRosterHints, isDeviceOffline } from '@/components/agents/agent-roster-hints';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Separator } from '@/components/ui/separator';
 import {
@@ -34,7 +35,7 @@ import { MoreAgents } from './more-agents';
  * opens the agent's settings.
  */
 export function RailAgents({ showLabels }: { showLabels: boolean }) {
-  const { openView, setSelectedAgentName, setThreadFilter, openMobileDetail } = useLayout();
+  const { openView, openAddAgent, setSelectedAgentName, setThreadFilter, openMobileDetail } = useLayout();
   const {
     agents, pendingApprovalsByAgent, currentUser, setCurrentSessionId, unreadDmCounts, dmConversations,
   } = useWorkspace();
@@ -63,19 +64,33 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
           keeping presence visible is the rail's whole job. */}
       <Collapsible open={!showLabels || agentsOpen} onOpenChange={setAgentsOpen} asChild>
       <SidebarGroup className="px-1.5">
-        {showLabels && (
-          <SidebarGroupLabel asChild className="cursor-pointer px-2">
-            <CollapsibleTrigger title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}>
-              {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
-              <ChevronDown
-                className={cn(
-                  'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
-                  !agentsOpen && '-rotate-90',
-                )}
-              />
-            </CollapsibleTrigger>
-          </SidebarGroupLabel>
-        )}
+        {/* Laid out as the Members header below: the fold chevron, then a
+            "+" straight to the add-agent gallery. */}
+        <div className={cn('flex items-center', !showLabels && 'justify-center')}>
+          {showLabels && (
+            <SidebarGroupLabel asChild className="min-w-0 flex-1 cursor-pointer px-2">
+              <CollapsibleTrigger title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}>
+                <span className="truncate">{t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}</span>
+                <ChevronDown
+                  className={cn(
+                    'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
+                    !agentsOpen && '-rotate-90',
+                  )}
+                />
+              </CollapsibleTrigger>
+            </SidebarGroupLabel>
+          )}
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="shrink-0 text-muted-foreground"
+            aria-label={t('nav.addAgent')}
+            title={t('nav.addAgent')}
+            onClick={openAddAgent}
+          >
+            <Plus />
+          </Button>
+        </div>
         <CollapsibleContent>
         <SidebarGroupContent id="rail-agent-list">
           <SidebarMenu className="gap-0.5">

@@ -89,6 +89,22 @@ const CUSTOM_PROVIDER_ID = 'openagents-gateway';
 const ownDbPath = () => path.join(os.homedir(), '.openagents', 'opencode', 'opencode.db');
 const SHARED_DB_MIGRATED_RE = /database is not empty and has no session table/i;
 
+// Lets OpenCode's subagents read and write outside the working directory, as
+// the main session already may. `opencode run --dangerously-skip-permissions`
+// answers only the main session's permission prompts (opencode-ai 1.17.11,
+// packages/opencode/src/cli/cmd/run.ts: `permission.sessionID !== sessionID`
+// is skipped). A subagent started by the task tool runs in a child session,
+// and `external_directory` defaults to "ask", so its prompt went unanswered
+// until the idle watchdog stopped the turn: "OpenCode timed out before
+// producing a reply" (daily errors dashboard, 2026-11-17, ~10 runs from 4
+// users). Fixed upstream in 1.19.0, which also answers child sessions; the
+// pinned 1.17.11 is not. OPENCODE_PERMISSION is merged over the user's config
+// last (packages/opencode/src/config/config.ts), so it is left out when the
+// user set it, wrote an external_directory rule of their own, or set every
+// permission at once.
+const SUBAGENT_PERMISSION = JSON.stringify({ external_directory: 'allow' });
+const CONFIG_FILES = ['opencode.json', 'opencode.jsonc', path.join('.opencode', 'opencode.json'), path.join('.opencode', 'opencode.jsonc')];
+
 // Short, de-identified, actionable user messages per failure category. These
 // must NEVER default to "run auth login": only credential_missing / auth_failed
 // mention authentication. Diagnostics (exit code, signal, redacted stdout/
@@ -116,6 +132,7 @@ const FAILURE_MESSAGES = {
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
   shared_db_migrated: "OpenCode could not open its session database: a newer OpenCode (2.x, or the OpenCode desktop app) on this device has converted it to a format the OpenCode CLI that OpenAgents runs cannot read, and running it on a database of its own did not help either. Reinstall OpenCode from the launcher, or set OPENCODE_DB in this agent's configuration to the full path of a new file, then retry.",
+  malformed_tool_call: "The model sent back a tool call OpenCode could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
@@ -275,9 +292,73 @@ class OpenCodeAdapter extends BaseAdapter {
     touch();
     return { touch, cancel, timeoutMs };
   }
+
+  /**
+   * Whether the user's own OpenCode config has an external_directory rule,
+   * or sets every permission at once (`"permission": "deny"` or
+   * `{"*": "deny"}`): the global config and ~/.opencode, OPENCODE_CONFIG and
+   * OPENCODE_CONFIG_DIR, the inline config, and the project files from the
+   * run's folder up. A text match is enough, and errs toward leaving
+   * their rules alone.
+   */
+  static _userRulesExternalDirs(env, runCwd) {
+    const mentions = (text) => /external_directory/.test(String(text || ''))
+      || OpenCodeAdapter._setsEveryPermission(String(text || ''));
+    if (mentions(env.OPENCODE_CONFIG_CONTENT)) return true;
+    const home = env.HOME || env.USERPROFILE || os.homedir();
+    const globalDir = path.join(env.XDG_CONFIG_HOME || path.join(home, '.config'), 'opencode');
+    const files = ['config.json', 'opencode.json', 'opencode.jsonc'].map((f) => path.join(globalDir, f));
+    files.push(...['opencode.json', 'opencode.jsonc'].map((f) => path.join(home, '.opencode', f)));
+    if (env.OPENCODE_CONFIG) files.push(env.OPENCODE_CONFIG);
+    if (env.OPENCODE_CONFIG_DIR) files.push(...['opencode.json', 'opencode.jsonc'].map((f) => path.join(env.OPENCODE_CONFIG_DIR, f)));
+    for (let dir = runCwd ? path.resolve(runCwd) : ''; dir; ) {
+      files.push(...CONFIG_FILES.map((f) => path.join(dir, f)));
+      const up = path.dirname(dir);
+      dir = up === dir ? '' : up;
+    }
+    return files.some((file) => {
+      try { return mentions(fs.readFileSync(file, 'utf-8')); } catch { return false; }
+    });
+  }
+
+  /**
+   * Whether a config's text sets every permission at once: `"permission":
+   * "deny"`, or a `"*"` key anywhere in the permission object — not only as
+   * its first key: `{"bash": {"git *": "allow"}, "*": "deny"}` was read as
+   * no rule, and the external_directory allow then went over a lockdown.
+   * Only the object's own keys count, not a `"*"` inside a nested rule.
+   */
+  static _setsEveryPermission(text) {
+    const re = /"permission"\s*:\s*/g;
+    for (let m = re.exec(text); m; m = re.exec(text)) {
+      let i = m.index + m[0].length;
+      if (text[i] === '"') return true;
+      if (text[i] !== '{') continue;
+      let depth = 0;
+      let inString = false;
+      for (let start = i; i < text.length; i++) {
+        const c = text[i];
+        if (inString) {
+          if (c === '\\') i++;
+          else if (c === '"') {
+            inString = false;
+            // A key of the permission object itself.
+            if (depth === 1 && text.slice(start, i + 1) === '"*"' && /^\s*:/.test(text.slice(i + 1))) return true;
+          }
+        } else if (c === '"') { inString = true; start = i; }
+        else if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) break;
+      }
+    }
+    return false;
+  }
+
   _spawnEnv(channel, { contextFile = null } = {}) {
     const env = { ...(this.agentEnv || process.env) };
     if (!env.OPENCODE_DB && fs.existsSync(ownDbPath())) env.OPENCODE_DB = ownDbPath();
+    if (!env.OPENCODE_PERMISSION && !OpenCodeAdapter._userRulesExternalDirs(env, this._resolveCwd())) {
+      env.OPENCODE_PERMISSION = SUBAGENT_PERMISSION;
+    }
     if (!this._wiresWorkspaceMcp()) return env;
     // Give OpenCode the workspace tools (publish, todos, browser, ...) through
     // our MCP server, as the Claude adapter does. Merged into any inline config
@@ -1235,6 +1316,7 @@ class OpenCodeAdapter extends BaseAdapter {
     const emitted = new Set();
     const roles = {};
     const early = [];  // parts seen before their message's role
+    const children = new Set();  // subagent sessions started from this turn's session
     let pending = Promise.resolve();
     let timedOut = false;
     const watchdog = this._createIdleWatchdog(() => {
@@ -1261,15 +1343,26 @@ class OpenCodeAdapter extends BaseAdapter {
         for (let k = early.length - 1; k >= 0; k--) {
           if (roles[early[k].messageID]) { const [part] = early.splice(k, 1); if (roles[part.messageID] === 'assistant') emit(part); }
         }
-      } else if (ev.type === 'permission.asked' && props.sessionID === sid) {
+      } else if (ev.type === 'session.created' && props.info && props.info.parentID
+        && (props.info.parentID === sid || children.has(props.info.parentID))) {
+        children.add(props.info.id);
+      } else if (ev.type === 'permission.asked' && (props.sessionID === sid || children.has(props.sessionID))) {
+        // A subagent's prompt arrives from its own child session; left
+        // unanswered it held the turn until the idle watchdog stopped it.
         watchdog.touch();
-        server.replyPermission(sid, props.id, 'once').catch(() => {});
+        server.replyPermission(props.sessionID, props.id, 'once').catch(() => {});
       } else if (ev.type === 'message.part.updated' && props.part && props.part.sessionID === sid) {
         watchdog.touch();
         const part = props.part;
         if (!roles[part.messageID]) early.push(part);
         else if (roles[part.messageID] === 'assistant') emit(part);
       } else if (ev.type === 'message.part.delta' && props.sessionID === sid) {
+        watchdog.touch();
+      } else if ((ev.type === 'message.part.updated' && props.part && children.has(props.part.sessionID))
+        || (ev.type === 'message.part.delta' && children.has(props.sessionID))) {
+        // A subagent at work is the turn at work: its parts are not this
+        // channel's reply, but a long task run in a child session left the
+        // turn's own session quiet until the watchdog stopped it.
         watchdog.touch();
       }
     });
@@ -1764,6 +1857,14 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'network_error';
     } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
       category = 'provider_server_error';
+    } else if (has(/expected '?function\.name'? to be a string/)) {
+      // The provider streamed a tool call with no tool name, and the AI SDK
+      // under OpenCode refused it: "Expected 'function.name' to be a string."
+      // Six times in a row from one user's agents on GLM / DeepSeek models
+      // (daily errors dashboard, 2026-11-18), each read as "OpenCode failed
+      // for an undetermined reason". After the provider categories: a key,
+      // credit or network failure in the same output is the cause to report.
+      category = 'malformed_tool_call';
     } else if (has(/timeout|timed out/)) {
       category = 'timeout';
     } else if (err) {

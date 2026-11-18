@@ -371,6 +371,34 @@ const CONFIG_JSON_STDERR = '\x1b[91m\x1b[1mError: \x1b[0mConfig file at /workspa
   + '--- JSONC Input ---\n{"provider": {,}\n\n--- Errors ---\nValueExpected at line 1, column 15\n'
   + '   Line 1: {"provider": {,}\n                        ^\nCloseBraceExpected at line 2, column 1\n--- End ---\n';
 
+describe('OpenCode — a tool call the model sent without a name', () => {
+  // Daily errors dashboard, 2026-11-18: six runs in a row on GLM / DeepSeek
+  // models, each reported as "an undetermined reason".
+  it('says the model sent it, not that the reason is unknown', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: '',
+      stdoutErr: { name: 'UnknownError', message: "Expected 'function.name' to be a string." },
+    });
+    assert.equal(cls.category, 'malformed_tool_call');
+    assert.equal(cls.detail, "Expected 'function.name' to be a string.");
+  });
+
+  it('reports a refused key over a nameless tool call earlier in the output', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: "WARN retrying: Expected 'function.name' to be a string.",
+      stdoutErr: { name: 'APIError', status: 401, message: 'Unauthorized' },
+    });
+    assert.equal(cls.category, 'auth_failed');
+  });
+
+  it('still reads a refused key as a refused key', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: '', stdoutErr: { name: 'APIError', status: 401, message: 'Unauthorized' },
+    });
+    assert.equal(cls.category, 'auth_failed');
+  });
+});
+
 describe('OpenCode — an invalid config file', () => {
   it('names the file and what is wrong with it, not "an undetermined reason"', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, signal: null, stdout: '', stderr: CONFIG_SCHEMA_STDERR });

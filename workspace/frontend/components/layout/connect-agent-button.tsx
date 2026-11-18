@@ -39,7 +39,8 @@ export function ConnectAgentButton({ label, active, showLabels = true, onClick }
         'data-active:bg-primary data-active:text-primary-foreground data-active:hover:bg-primary/90',
         'focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
         !showLabels && 'justify-center! px-0',
-        needsAgent && !active && 'ring-2 ring-primary/30 ring-offset-2 ring-offset-sidebar',
+        // Inset, so the hint never grows the button past the inbox beside it.
+        needsAgent && !active && 'ring-2 ring-inset ring-primary-foreground/30',
       )}
     >
       <CirclePlus aria-hidden="true" />

@@ -127,6 +127,45 @@ describe('OpenCode — warm server', { skip: process.platform === 'win32' && 'th
     assert.deepEqual(server.permissions, [['ses_1', 'per_1', 'once']]);
   });
 
+  it('answers permission requests from subagent sessions it started', async () => {
+    // opencode-ai 1.17.11: a task-tool subagent runs in a child session and
+    // asks for external_directory there; unanswered, the turn sat idle until
+    // the watchdog stopped it.
+    const created = (id, parentID) => ({ type: 'session.created', properties: { sessionID: id, info: { id, parentID } } });
+    const asked = (id, sessionID) => ({ type: 'permission.asked', properties: { id, sessionID, permission: 'external_directory' } });
+    const server = fakeServer({
+      live: [created('ses_child', 'ses_1'), created('ses_grandchild', 'ses_child'), created('ses_stranger', 'ses_other'),
+        asked('per_1', 'ses_child'), asked('per_2', 'ses_grandchild'), asked('per_3', 'ses_stranger')],
+      final: [part('p2', 'text', { text: 'ok', ...ended })],
+    });
+    const { adapter } = makeAdapter(server, { sessionId: 'ses_1' });
+    await adapter._runOpencode('hello', 'thread');
+    assert.deepEqual(server.permissions, [['ses_child', 'per_1', 'once'], ['ses_grandchild', 'per_2', 'once']]);
+  });
+
+  it('counts a subagent at work as the turn at work, without posting its parts', async () => {
+    // Review of PR #1112: a long task run in a child session left the turn's
+    // own session quiet, and the idle watchdog stopped the turn.
+    const created = { type: 'session.created', properties: { sessionID: 'ses_child', info: { id: 'ses_child', parentID: 'ses_1' } } };
+    const childPart = part('c1', 'text', { sessionID: 'ses_child', messageID: 'msg_c', text: 'subagent notes', ...ended });
+    const strangerPart = part('s1', 'text', { sessionID: 'ses_other', messageID: 'msg_s', text: 'not ours', ...ended });
+    const server = fakeServer({
+      live: [created, updated(childPart), { type: 'message.part.delta', properties: { sessionID: 'ses_child', delta: 'x' } },
+        updated(strangerPart), { type: 'message.part.delta', properties: { sessionID: 'ses_other', delta: 'y' } }],
+      final: [part('p2', 'text', { text: 'ok', ...ended })],
+    });
+    const { adapter, posted } = makeAdapter(server, { sessionId: 'ses_1' });
+    let touches = 0;
+    const real = adapter._createIdleWatchdog.bind(adapter);
+    adapter._createIdleWatchdog = (onTimeout) => {
+      const w = real(onTimeout);
+      return { ...w, touch: () => { touches++; w.touch(); } };
+    };
+    assert.equal(await adapter._runOpencode('hello', 'thread'), 'ok');
+    assert.equal(touches, 2);
+    assert.equal(posted.some(([, t]) => /subagent notes|not ours/.test(t)), false);
+  });
+
   it('fails like opencode run when the turn ends in an error', async () => {
     const server = fakeServer({ final: [], error: { name: 'ProviderAuthError', data: { message: 'Invalid API key' } } });
     const { adapter } = makeAdapter(server, { sessionId: 'ses_1' });
