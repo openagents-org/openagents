@@ -1,8 +1,9 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
-import { Layers, LogIn } from "lucide-react"
+import { ExternalLink, Layers, LogIn } from "lucide-react"
 
 import { Button } from "@renderer/components/ui/button"
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@renderer/components/ui/tooltip"
 import {
   Table,
   TableBody,
@@ -51,8 +52,9 @@ const own = (e: React.MouseEvent): void => e.stopPropagation()
  * A bare list of names and states left most of the width empty.
  *
  * A row opens the agent's settings, as Configure in its menu does; the hover
- * says so. The row itself keeps one action, the way into its workspace —
- * everything else is in the menu.
+ * says so. The row itself keeps one action, the way into its workspace, with
+ * the same workspace in the browser beside it on a wide window (in the menu
+ * on a narrow one) — everything else is in the menu.
  */
 export function AgentsTable({
   rows,
@@ -64,6 +66,7 @@ export function AgentsTable({
   onConnect,
   onDisconnect,
   onOpenWorkspace,
+  onOpenInBrowser,
   onRemove,
 }: Props): React.JSX.Element {
   const { t } = useTranslation()
@@ -164,6 +167,18 @@ export function AgentsTable({
                             <LogIn data-icon="inline-start" />
                             {t("agents.list.enterWorkspace")}
                           </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button size="icon-sm" variant="ghost" className="hidden text-muted-foreground lg:inline-flex"
+                                  data-testid={`agent-open-browser-${agent.name}`}
+                                  aria-label={t("agents.list.openInBrowser")} onClick={() => onOpenInBrowser(agent)}>
+                                  <ExternalLink />
+                                </Button>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">{t("agents.list.openInBrowser")}</TooltipContent>
+                            </Tooltip>
+                          </TooltipProvider>
                         </>
                       ) : (
                         <Button size="sm" data-testid={`agent-connect-${agent.name}`} onClick={() => onConnect(agent)}>
@@ -171,7 +186,7 @@ export function AgentsTable({
                         </Button>
                       )}
                       <AgentRowMenu agent={agent} running={running} connected={connected} busy={pending.has(agent.name)}
-                        onRename={onRename} onConfigure={onConfigure} onOpenTerminal={onOpenTerminal} onToggle={onToggle}
+                        onRename={onRename} onConfigure={onConfigure} onOpenTerminal={onOpenTerminal} onOpenInBrowser={onOpenInBrowser} onToggle={onToggle}
                         onDisconnect={onDisconnect} onRemove={onRemove} />
                     </div>
                   </TableCell>

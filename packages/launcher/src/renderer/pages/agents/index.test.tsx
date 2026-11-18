@@ -63,6 +63,7 @@ function installApi(overrides: Partial<Api> = {}): Api {
     }),
     signalReload: vi.fn().mockResolvedValue(undefined),
     openExternal: vi.fn(),
+    getSetting: vi.fn().mockResolvedValue(undefined),
     // NewAgentDialog prefills the working folder from the OS home dir and lets
     // the user browse for one; agent rows with a CLI can open a terminal.
     listPaths: vi.fn().mockResolvedValue({ home: "/home/test" }),
@@ -191,6 +192,63 @@ describe("Agents page — Join workspace vs Open Workspace gating", () => {
     expect(
       screen.queryByRole("button", { name: /^join workspace$/i }),
     ).not.toBeInTheDocument()
+  })
+})
+
+describe("Agents page — list order and the browser", () => {
+  // The order they were added in, as the device config keeps it: a row no
+  // longer moves when another agent posts, starts or stops.
+  it("lists agents in the order they were added", async () => {
+    installApi({
+      listAgents: vi.fn().mockResolvedValue([
+        makeAgent({ name: "zeta", network: "team-x", state: "running" }),
+        makeAgent({ name: "alpha", network: "team-x" }),
+        makeAgent({ name: "mid", network: null }),
+      ]),
+    })
+    render(<Agents showToast={showToast} />)
+
+    await screen.findByText("zeta")
+    const names = screen.getAllByRole("row").map((r) => r.textContent || "")
+      .map((text) => ["zeta", "alpha", "mid"].find((n) => text.includes(n)))
+      .filter(Boolean)
+    expect(names).toEqual(["zeta", "alpha", "mid"])
+  })
+
+  it("opens the agent's workspace in the browser without starting it", async () => {
+    const api = installApi({
+      listAgents: vi.fn().mockResolvedValue([makeAgent({ name: "joined", network: "team-x" })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-x", slug: "team-x", name: "Team X", endpoint: "", token: "t" },
+      ]),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+
+    await user.click(await screen.findByTestId("agent-open-browser-joined"))
+    await waitFor(() =>
+      expect(api.openExternal).toHaveBeenCalledWith("https://workspace.openagents.org/team-x"),
+    )
+    expect(api.startAgent).not.toHaveBeenCalled()
+  })
+
+  // Self-hosted: a record without its own address opens on the configured
+  // deployment, never on openagents.org.
+  it("opens a self-hosted workspace on the configured deployment", async () => {
+    const api = installApi({
+      listAgents: vi.fn().mockResolvedValue([makeAgent({ name: "joined", network: "team-x" })]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-x", slug: "team-x", name: "Team X", endpoint: "", token: "t" },
+      ]),
+      getSetting: vi.fn().mockResolvedValue("https://ws.example.com"),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+
+    await user.click(await screen.findByTestId("agent-open-browser-joined"))
+    await waitFor(() =>
+      expect(api.openExternal).toHaveBeenCalledWith("https://ws.example.com/team-x"),
+    )
   })
 })
 
