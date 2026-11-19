@@ -1,0 +1,18 @@
+# PUBLIC_URL is the site address: https://agents.example.com gets a
+# certificate automatically (ports 80/443 must reach this host);
+# http://localhost serves plain HTTP for a local trial.
+{$PUBLIC_URL} {
+	encode gzip
+
+	# API (and agent connections) on the same origin, under /api.
+	handle_path /api/* {
+		request_body {
+			max_size 70MB
+		}
+		reverse_proxy backend:8000
+	}
+
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

@@ -7,6 +7,8 @@
 
 'use strict';
 
+const { workspaceWebUrl } = require('./web-url');
+
 const { isCliLogin } = require('./env');
 
 /**
@@ -31,9 +33,7 @@ function loadAgentRows(connector) {
       const net = networks.find(n => n.slug === agent.network || n.id === agent.network);
       if (net) {
         const slug = net.slug || net.id;
-        const isLocal = (net.endpoint || '').includes('localhost') || (net.endpoint || '').includes('127.0.0.1');
-        if (isLocal) workspace = `${net.endpoint}/${slug}`;
-        else workspace = `workspace.openagents.org/${slug}`;
+        workspace = workspaceWebUrl(slug, net.endpoint).replace(/^https:\/\//, '');
       } else {
         workspace = agent.network;
       }

@@ -4,6 +4,11 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { desktopHost } from './desktop-host';
 import { workspaceApi } from './api';
 import { clearWorkspaceSession, loadWorkspaceSession, type WorkspaceSession } from './workspace-session';
+import {
+  fetchAuthConfig, isLocalAuthMode, needsAuthConfig, resolveAuthMode, setCurrentAuthMode,
+  type AuthConfig, type AuthMode,
+} from './auth-config';
+import { goToCentralLogin } from './auth-redirects';
 
 interface OpenAgentsUser {
   email: string;
@@ -15,7 +20,14 @@ interface OpenAgentsAuthContextValue {
   user: OpenAgentsUser | null;
   idToken: string | null;
   loading: boolean;
+  /** First-party hosted app (central openagents.org login + Firebase). Same as authMode === 'hosted'. */
   isOpenAgentsDomain: boolean;
+  /** How people sign in on this instance — see lib/auth-config. */
+  authMode: AuthMode;
+  /** Whether pages must have a signed-in person (hosted or local accounts). */
+  loginRequired: boolean;
+  /** The backend's /v1/auth/config, when it was fetched and answered. */
+  authConfig: AuthConfig | null;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   /** Sign in on a workspace session just issued by the sign-in callback. */
@@ -48,18 +60,63 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   const [user, setUser] = useState<OpenAgentsUser | null>(null);
   const [idToken, setIdToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isOpenAgentsDomain, setIsOpenAgentsDomain] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>('none');
+  const [authConfig, setAuthConfig] = useState<AuthConfig | null>(null);
 
   useEffect(() => {
     const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
-    const isDomain = OPENAGENTS_HOSTNAMES.includes(hostname);
-    setIsOpenAgentsDomain(isDomain);
+    const desktop = !!desktopHost();
+    const firstParty = OPENAGENTS_HOSTNAMES.includes(hostname);
+    let cancelled = false;
+    let cleanup: (() => void) | undefined;
 
-    if (!isDomain) {
-      setLoading(false);
-      return;
+    const start = (config: AuthConfig | null) => {
+      if (cancelled) return;
+      const mode = resolveAuthMode({ hostname, firstParty, desktop, config });
+      setCurrentAuthMode(mode);
+      setAuthConfig(config);
+      setAuthMode(mode);
+      if (mode === 'none') { setLoading(false); return; }
+      cleanup = mode === 'local' ? startLocal() : startHosted();
+    };
+
+    // Production hosts (and the desktop app) decide without the network.
+    if (needsAuthConfig(hostname, desktop)) void fetchAuthConfig().then(start);
+    else start(null);
+
+    return () => {
+      cancelled = true;
+      cleanup?.();
+    };
+  }, []);
+
+  /** Self-hosted local accounts: only the stored workspace session, never Firebase. */
+  function startLocal(): () => void {
+    let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+    const signedOut = () => { setUser(null); setIdToken(null); };
+    const stored = loadWorkspaceSession();
+    if (stored) {
+      setUser({ email: stored.email, displayName: stored.displayName || stored.email, photoURL: null });
+      setIdToken(stored.token);
+      // There is no silent renewal for a local session: when it lapses the
+      // gates see "signed out" and send the person to /login.
+      const ms = (stored.expiresAt - 60) * 1000 - Date.now();
+      if (ms < 2 ** 31 - 1) expiryTimer = setTimeout(() => { clearWorkspaceSession(); signedOut(); }, Math.max(ms, 0));
     }
+    // A 401 with a session that has since expired means "sign in again".
+    workspaceApi.setBearerRefresher(async () => {
+      if (!loadWorkspaceSession()) signedOut();
+      return null;
+    });
+    setLoading(false);
+    return () => {
+      if (expiryTimer) clearTimeout(expiryTimer);
+      workspaceApi.setBearerRefresher(null);
+    };
+  }
 
+  /** The hosted app: workspace session or Firebase, exactly as before local accounts existed. */
+  function startHosted(): (() => void) | undefined {
     // A workspace-issued session (the Google-free path, see lib/workspace-session)
     // is authoritative on its own: restore it immediately, without waiting on
     // — or being overridden by — Firebase, which may be unreachable.
@@ -72,10 +129,10 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       });
       setIdToken(stored.token);
       setLoading(false);
-      return;
+      return undefined;
     }
 
-    if (desktopHost()) { setLoading(false); return; }
+    if (desktopHost()) { setLoading(false); return undefined; }
 
     // Dynamically import firebase to avoid loading it on non-openagents domains
     let unsubscribe: (() => void) | undefined;
@@ -149,7 +206,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       if (onVisible) document.removeEventListener('visibilitychange', onVisible);
       workspaceApi.setBearerRefresher(null);
     };
-  }, []);
+  }
 
   // In the desktop app the launcher owns the session and pushes renewals here;
   // the page never decides on its own that the account has ended.
@@ -161,6 +218,8 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   const signIn = useCallback(async () => {
     const host = desktopHost();
     if (host) { host.signIn(); return; }
+    // Local accounts sign in on this origin's /login form, never Firebase.
+    if (isLocalAuthMode()) { goToCentralLogin(); return; }
     const { signInWithGoogle, getIdToken, getFreshIdToken, getResolvedEmail } = await import('./firebase');
     const firebaseUser = await signInWithGoogle();
     const token = await getIdToken();
@@ -202,12 +261,20 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     setIdToken(null);
     const host = desktopHost();
     if (host) { host.signOut(); return; }
+    if (isLocalAuthMode()) return;
     const { signOutUser } = await import('./firebase');
     await signOutUser();
   }, []);
 
   return (
-    <OpenAgentsAuthContext.Provider value={{ user, idToken, loading, isOpenAgentsDomain, signIn, signOut, adoptWorkspaceSession }}>
+    <OpenAgentsAuthContext.Provider value={{
+      user, idToken, loading,
+      isOpenAgentsDomain: authMode === 'hosted',
+      authMode,
+      loginRequired: authMode !== 'none',
+      authConfig,
+      signIn, signOut, adoptWorkspaceSession,
+    }}>
       {children}
     </OpenAgentsAuthContext.Provider>
   );

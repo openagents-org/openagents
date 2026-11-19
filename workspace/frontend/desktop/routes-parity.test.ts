@@ -10,6 +10,7 @@ import { expect, it } from 'vitest';
 // Pages that only make sense in a browser are listed here instead.
 const WEB_ONLY = new Set([
   '/login', // the launcher signs in through central login
+  '/reset-password', // local-account reset links, opened from email in a browser
   '/auth/callback',
   '/auth/desktop',
   '/oauth/authorize', // third-party OAuth consent

@@ -1,6 +1,8 @@
 node_modules
 .next
-.git
-.env*
-*.log
+out
+coverage
 *.tsbuildinfo
+.env*
+!.env.example
+workspace-test-response.png

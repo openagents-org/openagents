@@ -9,6 +9,7 @@
 const blessed = require('blessed');
 const { AgentConnector } = require('./index');
 const { loadAgentRows, connectAvailable } = require('./agent-rows');
+const { workspaceWebUrl } = require('./web-url');
 const path = require('path');
 const fs = require('fs');
 const { spawn } = require('child_process');
@@ -993,8 +994,7 @@ function createTUI() {
     for (const net of networks) {
       const name = net.name || net.slug || net.id;
       const slug = net.slug || net.id;
-      const isLocal = (net.endpoint || '').includes('localhost') || (net.endpoint || '').includes('127.0.0.1');
-      const url = isLocal ? `${net.endpoint}/${slug}` : `https://workspace.openagents.org/${slug}`;
+      const url = workspaceWebUrl(slug, net.endpoint);
       items.push(`  ${name.padEnd(30)} {gray-fg}${url}{/gray-fg}`);
       rowActions.push(`existing:${slug}`);
     }
@@ -1232,13 +1232,7 @@ function createTUI() {
       return;
     }
     const slug = net.slug || net.id;
-    const isLocal = (net.endpoint || '').includes('localhost') || (net.endpoint || '').includes('127.0.0.1');
-    let url;
-    if (isLocal) {
-      url = `${net.endpoint}/${slug}`;
-    } else {
-      url = `https://workspace.openagents.org/${slug}`;
-    }
+    let url = workspaceWebUrl(slug, net.endpoint);
     if (net.token) url += `?token=${net.token}`;
 
     // Try opening in browser

@@ -32,7 +32,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   const t = useT();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
+  const { user, idToken, loading: authLoading, loginRequired, signIn } = useOpenAgentsAuth();
 
   const urlToken = searchParams.get('token');
   const query = urlToken ? `?token=${encodeURIComponent(urlToken)}` : '';
@@ -68,7 +68,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   const [error, setError] = useState<'denied' | 'load' | null>(null);
 
   useEffect(() => {
-    if (token === null || authLoading || (isOpenAgentsDomain && (!user || !idToken))) return;
+    if (token === null || authLoading || (loginRequired && (!user || !idToken))) return;
     workspaceApi.configure(workspaceId, token, idToken || undefined);
     let cancelled = false;
     Promise.all([workspaceApi.getWorkspace(), workspaceApi.getMe()])
@@ -85,7 +85,7 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
         setError(msg.includes('API 401') || msg.includes('API 403') ? 'denied' : 'load');
       });
     return () => { cancelled = true; };
-  }, [token, workspaceId, idToken, authLoading, isOpenAgentsDomain, user, credentialKey]);
+  }, [token, workspaceId, idToken, authLoading, loginRequired, user, credentialKey]);
 
   const refreshWorkspace = useCallback(async () => {
     setWorkspace(await workspaceApi.getWorkspace());
@@ -97,13 +97,13 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
   }, [workspaceId, workspace, me, token, refreshWorkspace, query, loadedFor, credentialKey]);
 
   useEffect(() => {
-    if (!authLoading && isOpenAgentsDomain && (!user || !idToken)) redirectToLogin();
-  }, [authLoading, isOpenAgentsDomain, user, idToken]);
-  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return null;
+    if (!authLoading && loginRequired && (!user || !idToken)) redirectToLogin();
+  }, [authLoading, loginRequired, user, idToken]);
+  if (authLoading || (loginRequired && (!user || !idToken))) return null;
 
   if (error === 'denied') {
     // A signed-out visitor on the hosted domain may simply need to log in.
-    if (isOpenAgentsDomain && !user && !authLoading) {
+    if (loginRequired && !user && !authLoading) {
       return (
         <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-8">
           <div className="flex flex-col items-center gap-2 text-center">

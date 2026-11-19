@@ -10,7 +10,12 @@ import app.browser_maintenance as maintenance
 
 
 @pytest.mark.parametrize('enabled', [None, 'false', 'true'])
-def test_replica_lifespan(monkeypatch, enabled):
+def test_replica_lifespan(monkeypatch, tmp_path, enabled):
+    # The lifespan may generate a local-auth session secret; keep it out of
+    # the shared config and off the real filesystem.
+    from app.config import config
+    monkeypatch.setattr(config, 'WORKSPACE_SESSION_SECRET', config.WORKSPACE_SESSION_SECRET)
+    monkeypatch.setattr(config, 'DATA_DIR', str(tmp_path))
     if enabled is None:
         monkeypatch.delenv('BACKGROUND_JOBS_ENABLED', raising=False)
     else:

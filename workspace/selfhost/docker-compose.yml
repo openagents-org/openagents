@@ -1,0 +1,102 @@
+# OpenAgents Workspace — self-hosted stack.
+#
+#   cp .env.example .env    # set DB_PASSWORD and PUBLIC_URL
+#   docker compose up -d
+#
+# Caddy serves PUBLIC_URL with automatic HTTPS: the web app at / and the API
+# at /api (same origin). Images come from GHCR; `docker compose up -d --build`
+# builds them from this checkout instead (e.g. on develop).
+name: openagents
+
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://openagents:${DB_PASSWORD:?set DB_PASSWORD in .env}@db:5432/openagents
+  # Everything below is derived from PUBLIC_URL; override in .env only if you must.
+  FRONTEND_BASE_URL: ${PUBLIC_URL:?set PUBLIC_URL in .env}
+  PUBLIC_API_BASE: ${PUBLIC_URL}/api
+  CORS_ORIGINS: ${PUBLIC_URL}
+  GOOGLE_OAUTH_REDIRECT_URI: ${PUBLIC_URL}/api/v1/cloud-agents/google/callback
+  # Local email/password login; the session secret is generated into /data on first start.
+  DATA_DIR: /data
+  # Trust X-Forwarded-For from Caddy (the backend isn't published outside the compose network).
+  FORWARDED_ALLOW_IPS: "*"
+  FILE_STORAGE_BACKEND: ${FILE_STORAGE_BACKEND:-local}
+  FILE_STORAGE_PATH: /data/files
+  # Same collaboration features as openagents.org.
+  THREAD_COLLABORATION_ENABLED: "true"
+  THREAD_AGENT_ACCESS_ENABLED: "true"
+  COMPLETION_ROUTING_ENABLED: "true"
+  BACKGROUND_JOBS_ENABLED: "true"
+  # Message routing uses the shared OpenAgents routing model by default (a
+  # public community key, rate-limited per IP). Point these at your own
+  # server to self-host the model too.
+  MESSAGE_ROUTER_BASE_URL: ${MESSAGE_ROUTER_BASE_URL:-https://router-llm-api.openagents.org/v1}
+  MESSAGE_ROUTER_MODEL: ${MESSAGE_ROUTER_MODEL:-openagents-routing-qwen3.5-2b}
+  MESSAGE_ROUTER_API_KEY: ${MESSAGE_ROUTER_API_KEY:-rk-community-YvCnZ92BNRTDAsXwGpb1PX3j}
+  # Any other backend setting (RESEND_API_KEY, BROWSERFABRIC_API_KEY, S3_*,
+  # REDIS_URL, tuning knobs...) is passed through from .env via env_file.
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: openagents
+      POSTGRES_USER: openagents
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U openagents -d openagents"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    image: ghcr.io/openagents-org/openagents-workspace-backend:${OPENAGENTS_VERSION:-latest}
+    build:
+      context: ../backend
+      dockerfile: production.Dockerfile
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    # Apply database migrations, then start the API.
+    entrypoint: ["sh", "-c", "alembic upgrade head && exec ./entrypoint.sh"]
+    environment: *backend-env
+    volumes:
+      - data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    image: ghcr.io/openagents-org/openagents-workspace-frontend:${OPENAGENTS_VERSION:-latest}
+    build:
+      context: ../frontend
+      args:
+        NEXT_PUBLIC_API_URL: /api
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    environment:
+      PUBLIC_URL: ${PUBLIC_URL}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - backend
+      - frontend
+
+volumes:
+  pgdata:
+  data:
+  caddy_data:
+  caddy_config:

@@ -2,14 +2,15 @@ name: Self-hosted release
 
 # Cuts a self-hosted (open-source) release of the Workspace:
 #   1. fast-forwards `release` to a develop commit (default develop HEAD),
-#   2. tags it `workspace-v<version>` and creates a GitHub Release,
-#   3. publishes the backend image to GHCR:
-#        ghcr.io/<owner>/openagents-workspace-backend:<version> and :latest
+#   2. tags it `openagents-v<version>` and creates a GitHub Release,
+#   3. publishes the images used by workspace/selfhost/docker-compose.yml:
+#        ghcr.io/<owner>/openagents-workspace-backend:<version> (+ :latest)
+#        ghcr.io/<owner>/openagents-workspace-frontend:<version> (+ :latest)
+#      The frontend is built with NEXT_PUBLIC_API_URL=/api (same-origin API
+#      behind Caddy), so one image works on any domain.
 #
 # `release` never deploys anything; hosted production lives on
-# openagents-release (promote-release.yml). The frontend bakes its API URL in
-# at build time, so self-hosters build it from source with docker compose
-# (see workspace/README.md).
+# openagents-release (promote-release.yml).
 #
 #   gh workflow run selfhost-release.yml -f version=1.0.0
 
@@ -55,7 +56,7 @@ jobs:
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
             echo "::error::version must look like 1.2.3 or 1.2.3-rc.1"; exit 1
           fi
-          TAG="workspace-v$VERSION"
+          TAG="openagents-v$VERSION"
           git fetch --quiet --tags origin develop release
           if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
             echo "::error::tag $TAG already exists"; exit 1
@@ -64,7 +65,7 @@ jobs:
           REL_SHA=$(git rev-parse origin/release)
           git merge-base --is-ancestor "$TARGET_SHA" origin/develop || { echo "::error::$TARGET_SHA is not on develop"; exit 1; }
           git merge-base --is-ancestor "$REL_SHA" "$TARGET_SHA" || { echo "::error::release has commits not on develop; cannot fast-forward"; exit 1; }
-          PREV=$(git tag -l 'workspace-v*' --sort=-v:refname | head -1)
+          PREV=$(git tag -l 'openagents-v*' --sort=-v:refname | head -1)
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "sha=$TARGET_SHA" >> "$GITHUB_OUTPUT"
           echo "prev=$PREV" >> "$GITHUB_OUTPUT"
@@ -84,25 +85,35 @@ jobs:
           git tag "$TAG" "$SHA"
           git push "git@github.com:${{ github.repository }}.git" "$SHA:refs/heads/release" "refs/tags/$TAG"
 
-      - name: Build and push backend image
+      - name: Build and push images
         env:
           SHA: ${{ steps.v.outputs.sha }}
           VERSION: ${{ inputs.version }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/openagents-workspace-backend"
+          OWNER="${GITHUB_REPOSITORY_OWNER,,}"
+          BACKEND="ghcr.io/$OWNER/openagents-workspace-backend"
+          FRONTEND="ghcr.io/$OWNER/openagents-workspace-frontend"
           echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           git checkout --quiet "$SHA"
+          LABELS=(--label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}"
+                  --label org.opencontainers.image.version="$VERSION"
+                  --label org.opencontainers.image.revision="$SHA")
           docker build --file workspace/backend/production.Dockerfile \
-            --build-arg RELEASE_SHA="$SHA" \
-            --label org.opencontainers.image.source="https://github.com/${GITHUB_REPOSITORY}" \
-            --label org.opencontainers.image.version="$VERSION" \
-            --tag "$IMAGE:$VERSION" workspace/backend
-          TAGS=("$VERSION")
-          if [[ "$VERSION" != *-* ]]; then docker tag "$IMAGE:$VERSION" "$IMAGE:latest"; TAGS+=(latest); fi
-          for t in "${TAGS[@]}"; do docker push "$IMAGE:$t"; done
-          echo "IMAGE=$IMAGE" >> "$GITHUB_ENV"
+            --build-arg RELEASE_SHA="$SHA" "${LABELS[@]}" \
+            --tag "$BACKEND:$VERSION" workspace/backend
+          docker build --build-arg NEXT_PUBLIC_API_URL=/api "${LABELS[@]}" \
+            --tag "$FRONTEND:$VERSION" workspace/frontend
+          for IMAGE in "$BACKEND" "$FRONTEND"; do
+            docker push "$IMAGE:$VERSION"
+            if [[ "$VERSION" != *-* ]]; then
+              docker tag "$IMAGE:$VERSION" "$IMAGE:latest"
+              docker push "$IMAGE:latest"
+            fi
+          done
+          echo "BACKEND=$BACKEND" >> "$GITHUB_ENV"
+          echo "FRONTEND=$FRONTEND" >> "$GITHUB_ENV"
 
       - name: GitHub Release
         env:
@@ -113,11 +124,11 @@ jobs:
         run: |
           set -euo pipefail
           {
-            echo "Self-hosted OpenAgents Workspace $VERSION."
+            echo "Self-hosted OpenAgents $VERSION."
             echo ""
-            echo "Backend image: \`$IMAGE:$VERSION\`"
+            echo "Images: \`$BACKEND:$VERSION\`, \`$FRONTEND:$VERSION\`"
             echo ""
-            echo "Setup: see [workspace/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/$TAG/workspace/README.md#self-hosting)."
+            echo "Setup: see [workspace/selfhost/README.md](https://github.com/${GITHUB_REPOSITORY}/blob/$TAG/workspace/selfhost/README.md)."
             echo ""
             echo "### Changes"
             if [ -n "$PREV" ]; then git log --no-merges --format='- %s (%h)' "$PREV..$TAG" | head -200
@@ -125,4 +136,4 @@ jobs:
           } > notes.md
           FLAGS=()
           [[ "$VERSION" == *-* ]] && FLAGS+=(--prerelease)
-          gh release create "$TAG" --title "Workspace $VERSION (self-hosted)" --notes-file notes.md --verify-tag "${FLAGS[@]}"
+          gh release create "$TAG" --title "OpenAgents $VERSION (self-hosted)" --notes-file notes.md --verify-tag "${FLAGS[@]}"

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/reui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/reui/input';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { isLocalAuthMode } from '@/lib/auth-config';
 import { listAccountWorkspaces, createAccountWorkspace, type AccountWorkspace } from '@/lib/account-api';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useCreateWorkspace } from '@/hooks/use-create-workspace';
@@ -695,6 +696,11 @@ function MembershipHome({
     } catch {
       /* already signed out */
     }
+    // Local accounts (self-hosted): nothing central to end — back to /login.
+    if (isLocalAuthMode()) {
+      window.location.replace('/login');
+      return;
+    }
     // Also end the central openagents.org session — otherwise the login
     // redirect immediately re-authenticates and bounces back here. On localhost
     // there's no central login, so just fall through to the inline sign-in gate.
@@ -743,7 +749,7 @@ function MembershipHome({
       <header className="sticky top-0 z-10 border-b-2 border-black bg-white/85 backdrop-blur-sm">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
           <a
-            href="https://openagents.org"
+            href={isLocalAuthMode() ? '/' : 'https://openagents.org'}
             className="flex items-center gap-2.5 rounded-md transition-transform hover:-translate-y-0.5 focus:outline-none"
             title={t('dashboard.backToHome')}
           >
@@ -909,6 +915,11 @@ function SignInGate({ signIn }: { signIn: () => Promise<void> }) {
   );
 }
 
+function LocalSignInRedirect() {
+  useEffect(() => { window.location.replace('/login'); }, []);
+  return <FullscreenSpinner />;
+}
+
 // ---------------------------------------------------------------------------
 // Page Root
 // ---------------------------------------------------------------------------
@@ -922,6 +933,13 @@ export default function HomePage() {
   // marketing LandingPage (with its install curl commands) on the workspace
   // domain before the effect runs.
   if (oa.loading) return <FullscreenSpinner />;
+
+  // Self-hosted with local accounts: the same Membership Home behind this
+  // origin's own /login — no marketing page, no openagents.org round-trip.
+  if (oa.authMode === 'local') {
+    if (!oa.user || !oa.idToken) return <LocalSignInRedirect />;
+    return <MembershipHome idToken={oa.idToken} userEmail={oa.user.email} onSignOut={oa.signOut} />;
+  }
 
   // On the OpenAgents-hosted app, `/` is the enforced-login Membership Home.
   if (oa.isOpenAgentsDomain) {

@@ -143,3 +143,24 @@ def send_onboarding_reminder(to_email: str, workspace_name: str, link: str, stag
     You're receiving this because you created a workspace on OpenAgents.</p>
 </div>"""
     return send_email(to_email, subject, body)
+
+
+def send_password_reset_email(to_email: str, link: str, ttl_minutes: int = 60) -> bool:
+    """Self-hosted local accounts: a one-time link to choose a new password."""
+    url = html.escape(link)
+    body = f"""\
+<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;max-width:520px;margin:0 auto;padding:32px 24px;color:#18181b">
+  <h2 style="margin:0 0 16px;font-size:20px">Reset your password</h2>
+  <p style="margin:0 0 24px;font-size:14px;line-height:1.6">
+    Someone asked to set a new password for this email address on OpenAgents Workspace.
+    The link works once and expires in {int(ttl_minutes)} minutes.</p>
+  <a href="{url}"
+     style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;font-size:14px;font-weight:600;padding:10px 20px;border-radius:8px">
+    Choose a new password</a>
+  <p style="margin:24px 0 0;font-size:12px;color:#71717a;line-height:1.6">
+    Or paste this link into your browser:<br>
+    <a href="{url}" style="color:#71717a">{url}</a></p>
+  <p style="margin:16px 0 0;font-size:12px;color:#a1a1aa">
+    If you didn't ask for this, you can ignore this email; your password stays the same.</p>
+</div>"""
+    return send_email(to_email, "Reset your OpenAgents Workspace password", body)

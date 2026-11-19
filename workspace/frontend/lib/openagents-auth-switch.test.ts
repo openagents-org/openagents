@@ -13,6 +13,13 @@ vi.mock('./workspace-session', () => ({
   clearWorkspaceSession: mocks.clear,
 }));
 vi.mock('./api', () => ({ workspaceApi: { setBearerRefresher: mocks.setRefresher } }));
+// jsdom runs on localhost, which asks the backend for its auth config; answer
+// "no config" (an older or hosted backend) so the hosted flow runs.
+vi.mock('./auth-config', async (importOriginal) => ({
+  ...await importOriginal<typeof import('./auth-config')>(),
+  fetchAuthConfig: () => Promise.resolve(null),
+}));
+const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 vi.mock('./firebase', () => ({
   signInWithGoogle: mocks.signIn, getIdToken: mocks.getToken, getFreshIdToken: mocks.fresh,
   getResolvedEmail: mocks.resolvedEmail,
@@ -35,6 +42,7 @@ beforeEach(async () => {
   container = document.createElement('div'); document.body.append(container);
   root = createRoot(container);
   await act(async () => root.render(React.createElement(OpenAgentsAuthProvider, null, React.createElement(View))));
+  await flush();
 });
 afterEach(async () => {
   await act(async () => root.unmount()); container.remove(); vi.unstubAllGlobals();

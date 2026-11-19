@@ -23,6 +23,19 @@ export interface AccountWorkspace {
   untouched?: boolean | null;
 }
 
+/** The message a backend error body carries (`message`, or FastAPI's `detail`). */
+export function backendErrorMessage(body: unknown, status: number): string {
+  const b = body as { message?: unknown; detail?: unknown } | null;
+  if (typeof b?.message === 'string' && b.message) return b.message;
+  if (typeof b?.detail === 'string' && b.detail) return b.detail;
+  // FastAPI request validation: detail is a list of { msg }.
+  if (Array.isArray(b?.detail)) {
+    const msgs = b.detail.map((d) => (d as { msg?: unknown })?.msg).filter((m): m is string => typeof m === 'string');
+    if (msgs.length) return msgs.join('; ');
+  }
+  return `API error (${status})`;
+}
+
 async function bearerFetch<T>(path: string, idToken: string, options: RequestInit = {}): Promise<T> {
   const res = await fetch(`${API_URL}${path}`, {
     ...options,
@@ -34,7 +47,7 @@ async function bearerFetch<T>(path: string, idToken: string, options: RequestIni
   });
   if (!res.ok) {
     const body = await res.json().catch(() => null);
-    throw new Error(body?.message || body?.detail || `API error (${res.status})`);
+    throw new Error(backendErrorMessage(body, res.status));
   }
   const json = await res.json();
   return json.data as T;

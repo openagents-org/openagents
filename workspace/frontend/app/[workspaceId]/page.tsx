@@ -192,7 +192,8 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const t = useT();
   const searchParams = useSearchParams();
   const token = searchParams.get('token');
-  const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
+  // loginRequired: the hosted app or a self-hosted instance with local accounts.
+  const { user, idToken, loading: authLoading, loginRequired, signIn } = useOpenAgentsAuth();
 
   useEffect(() => {
     if (token) {
@@ -211,11 +212,11 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   }, [workspaceId, token, idToken]);
 
   useEffect(() => {
-    if (!authLoading && isOpenAgentsDomain && (!user || !idToken)) redirectToLogin();
-  }, [authLoading, isOpenAgentsDomain, user, idToken]);
+    if (!authLoading && loginRequired && (!user || !idToken)) redirectToLogin();
+  }, [authLoading, loginRequired, user, idToken]);
 
   // Wait for the person's identity before ever configuring a token-only client.
-  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return <WorkspaceLoadingSplash />;
+  if (authLoading || (loginRequired && (!user || !idToken))) return <WorkspaceLoadingSplash />;
 
   // Has workspace token in URL — use it directly
   if (token) {
@@ -231,7 +232,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   }
 
   // No token — check if user is logged in via OpenAgents
-  if (isOpenAgentsDomain) {
+  if (loginRequired) {
     if (authLoading) {
       return <WorkspaceLoadingSplash />;
     }

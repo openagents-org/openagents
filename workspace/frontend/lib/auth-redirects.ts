@@ -1,4 +1,5 @@
 import { desktopHost } from './desktop-host';
+import { isLocalAuthMode } from './auth-config';
 
 // Central auth redirects for the workspace app.
 //
@@ -16,6 +17,13 @@ const CENTRAL = 'https://openagents.org';
 // so every account provider is available and its return URL is preserved.
 const INLINE_LOGIN = process.env.NEXT_PUBLIC_INLINE_LOGIN === '1';
 
+/** Self-hosted local accounts: sign-in is this origin's own /login page. */
+function goToLocalLogin(returnTo?: string): void {
+  const target = returnTo ?? window.location.pathname + window.location.search + window.location.hash;
+  const path = target && target !== '/' ? `/login?returnTo=${encodeURIComponent(target)}` : '/login';
+  window.location.href = path;
+}
+
 function isLocalhost(): boolean {
   if (INLINE_LOGIN) return true;
   return typeof window !== 'undefined' && window.location.hostname === 'localhost';
@@ -30,6 +38,7 @@ export function goToCentralLogin(fallbackSignIn?: () => void, options?: { forceC
   if (typeof window === 'undefined') return;
   const host = desktopHost();
   if (host) { host.signIn(); return; }
+  if (isLocalAuthMode()) { goToLocalLogin(); return; }
   if (isLocalhost() && !options?.forceCentral) {
     fallbackSignIn?.();
     return;
@@ -48,7 +57,11 @@ export async function goToCentralLogout(signOut: () => Promise<void>): Promise<v
   } catch {
     /* already signed out */
   }
-  if (typeof window === 'undefined' || isLocalhost() || desktopHost()) return;
+  if (typeof window === 'undefined' || desktopHost()) return;
+  // Local accounts: no central session to end — back to this origin's sign-in,
+  // returning to where the person was (an invite page, say) after they sign in.
+  if (isLocalAuthMode()) { goToLocalLogin(); return; }
+  if (isLocalhost()) return;
   window.location.href = `${CENTRAL}/logout`;
 }
 
@@ -56,6 +69,11 @@ export async function goToCentralLogout(signOut: () => Promise<void>): Promise<v
 export function redirectToLogin(): void {
   if (typeof window === 'undefined') return;
   if (desktopHost()) { desktopHost()?.signIn(); return; }
+  if (isLocalAuthMode()) {
+    const returnTo = window.location.pathname + window.location.search + window.location.hash;
+    window.location.replace(returnTo && returnTo !== '/' ? `/login?returnTo=${encodeURIComponent(returnTo)}` : '/login');
+    return;
+  }
   if (isLocalhost() || window.location.hostname === 'workspace-preview.openagents.org') {
     const returnTo = window.location.pathname + window.location.search + window.location.hash;
     window.location.replace(`/login?returnTo=${encodeURIComponent(returnTo)}`);

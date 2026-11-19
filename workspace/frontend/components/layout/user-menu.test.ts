@@ -9,7 +9,7 @@ vi.mock('next/navigation', () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.fn() }) }));
 vi.mock('@/hooks/use-me', () => ({ useMe: () => state.me }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({ workspace: { slug: 'demo' }, token: 'saved-token' }) }));
-vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: { email: 'sam@example.com' }, isOpenAgentsDomain: true }) }));
+vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: { email: 'sam@example.com' }, isOpenAgentsDomain: true, loginRequired: true, authMode: 'hosted' }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('./language-menu', () => ({ LanguageMenuSub: () => null }));

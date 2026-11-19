@@ -14,6 +14,7 @@ import {
 } from '@/lib/account-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin } from '@/lib/auth-redirects';
+import { ChangePasswordCard } from '@/components/auth/change-password-card';
 import { useT } from '@/lib/i18n';
 
 const AVATAR_SIZE = 256;
@@ -48,7 +49,7 @@ type Part = 'avatar' | 'name';
 
 export default function ProfileSettingsPage() {
   const t = useT();
-  const { user, idToken, loading: authLoading, signIn } = useOpenAgentsAuth();
+  const { user, idToken, loading: authLoading, signIn, authMode } = useOpenAgentsAuth();
   const fileInput = useRef<HTMLInputElement>(null);
 
   const [profile, setProfile] = useState<AccountProfile | null>(null);
@@ -212,6 +213,10 @@ export default function ProfileSettingsPage() {
       <SettingsCard title={t('profile.emailTitle')} description={t('profile.emailHint')}>
         <Input aria-label={t('profile.emailTitle')} value={profile.email} readOnly disabled className="max-w-sm" />
       </SettingsCard>
+
+      {/* Local accounts (self-hosted) own their password here; hosted
+          accounts manage sign-in on openagents.org. */}
+      {authMode === 'local' && idToken && <ChangePasswordCard idToken={idToken} />}
     </div>
   );
 }

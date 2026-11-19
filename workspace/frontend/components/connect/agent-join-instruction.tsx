@@ -3,10 +3,11 @@
 import { Check, Copy } from 'lucide-react';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useT } from '@/lib/i18n';
+import { connectorEndpointFlag } from '@/lib/api-base';
 
 /** What an agent already open (Claude Code, Codex, ...) runs to connect itself: `agn join`. */
 export function agentJoinCommand(code: string) {
-  return `npx -y @openagents-org/agent-launcher@latest join ${code}`;
+  return `npx -y @openagents-org/agent-launcher@latest join ${code}${connectorEndpointFlag()}`;
 }
 
 /**

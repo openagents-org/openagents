@@ -51,7 +51,7 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
   const isCustom = skill.sourceType === 'workspace_file';
   const isRegistry = skill.sourceType === 'registry';
   const ghUrl = skillGitHubUrl(skill);
-  const { user: identityUser, isOpenAgentsDomain } = useOpenAgentsAuth();
+  const { user: identityUser, loginRequired } = useOpenAgentsAuth();
   const t = useT();
   const { busy: acting, run } = useSkillActionLock();
   const [pending, setPending] = useState<'visibility' | 'fork' | 'publish' | null>(null);
@@ -115,7 +115,7 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
   });
 
   const publishBlocked = !identityUser
-    ? t(isOpenAgentsDomain ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
+    ? t(loginRequired ? 'skills.publishSignInRequired' : 'skills.publishUnavailableSelfHosted')
     : undefined;
 
   return (
