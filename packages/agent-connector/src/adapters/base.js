@@ -387,7 +387,8 @@ class BaseAdapter {
       return true;
     } catch (e) {
       const { reason, message } = classifyJoinError(e);
-      this._log(`${message} (status: ${e && e.statusCode != null ? e.statusCode : 'n/a'})`);
+      const status = httpStatusOf(e);
+      this._log(`${message} (status: ${status != null ? status : 'n/a'})`);
       this._reportStatus(reason, message);
       return false;
     }

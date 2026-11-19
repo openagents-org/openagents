@@ -112,8 +112,12 @@ function classifyJoinError(err) {
   let detail;
   if (sc === 401 || sc === 403) detail = `authentication rejected (HTTP ${sc})`;
   else if (sc === 404) detail = 'workspace not found (HTTP 404)';
-  else if (typeof sc === 'number') detail = `HTTP ${sc}`;
-  else detail = redactDiagnostic(err && err.message) || 'network error';
+  else if (typeof sc === 'number') {
+    // Keep the server's explanation (e.g. why a join was rejected with 400)
+    // instead of reducing it to a bare status code.
+    const msg = redactDiagnostic(err && err.message);
+    detail = msg && msg !== `HTTP ${sc}` ? `HTTP ${sc}: ${msg}` : `HTTP ${sc}`;
+  } else detail = redactDiagnostic(err && err.message) || 'network error';
   return {
     reason: REASON.WORKSPACE_JOIN_FAILED,
     message: `Workspace join failed: ${detail}`,

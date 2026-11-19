@@ -90,6 +90,19 @@ describe('classifyJoinError', () => {
     const r = classifyJoinError({ statusCode: 404 });
     assert.match(r.message, /not found/i);
   });
+  it('other HTTP status keeps the server message (redacted) in the detail', () => {
+    const err = new Error('agent_name must match display name token=abc123');
+    err.status = 400;
+    const r = classifyJoinError(err);
+    assert.match(r.message, /HTTP 400/);
+    assert.match(r.message, /agent_name must match display name/);
+    assert.doesNotMatch(r.message, /abc123/);
+  });
+  it('generic "HTTP <n>" message is not duplicated', () => {
+    const err = new Error('HTTP 500');
+    err.status = 500;
+    assert.equal(classifyJoinError(err).message, 'Workspace join failed: HTTP 500');
+  });
   it('network error (no status) → workspace_join_failed, never "not installed"', () => {
     const r = classifyJoinError(new Error('ECONNREFUSED 1.2.3.4:443'));
     assert.equal(r.reason, REASON.WORKSPACE_JOIN_FAILED);
