@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, Loader2, RotateCcw } from 'lucide-react';
+import { Check, Loader2 } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -18,7 +18,7 @@ import type { PairingCode } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import { ConnectAgentView } from './connect-agent-view';
 
-const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
+const WelcomePage = dynamic(() => import('./welcome-scroll').then(module => module.WelcomeScroll), { ssr: false });
 
 // ---------------------------------------------------------------------------
 // First-run onboarding — a brand-new workspace (no agents, no nodes) goes
@@ -34,18 +34,35 @@ const WelcomeFilm = dynamic(() => import('./welcome-film'), { ssr: false });
 // browser they happen to be in.
 const WELCOME_FILM_SEEN_KEY = 'oa:welcomeFilmSeen';
 
-export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {}) {
+export function FirstRunOnboarding({ onDismiss, onWelcomeChange, onWelcomeComplete, forceWelcome = false, previewWelcome = false }: {
+  onDismiss?: () => void;
+  onWelcomeChange?: (visible: boolean) => void;
+  onWelcomeComplete?: () => void;
+  /** Explicitly reopening Welcome ignores the previous completion flag. */
+  forceWelcome?: boolean;
+  /** Explicit workspace preview: replay without changing the account's completion flag. */
+  previewWelcome?: boolean;
+} = {}) {
   const t = useT();
   const isDesktop = desktopHost() !== null;
   const { idToken: welcomeIdToken } = useOpenAgentsAuth();
   const [welcomeDone, setWelcomeDone] = useState(
-    () => typeof window === 'undefined' || localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1',
+    () => {
+      if (previewWelcome || forceWelcome) return false;
+      try { return typeof window !== 'undefined' && localStorage.getItem(WELCOME_FILM_SEEN_KEY) === '1'; }
+      catch { return false; }
+    },
   );
+
+  useEffect(() => {
+    onWelcomeChange?.(!welcomeDone);
+    return () => onWelcomeChange?.(false);
+  }, [welcomeDone, onWelcomeChange]);
 
   // Account-level check: another device may already have played the intro.
   // The film starts optimistically; if the server says "seen", end it quietly.
   useEffect(() => {
-    if (welcomeDone || !welcomeIdToken) return;
+    if (previewWelcome || forceWelcome || welcomeDone || !welcomeIdToken) return;
     let cancelled = false;
     getAccountProfile(welcomeIdToken)
       .then((p) => {
@@ -56,53 +73,27 @@ export function FirstRunOnboarding({ onDismiss }: { onDismiss?: () => void } = {
       .catch(() => { /* offline/legacy backend — browser flag still applies */ });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [welcomeIdToken]);
+  }, [welcomeIdToken, previewWelcome, forceWelcome]);
 
-  const finishWelcome = useCallback((skipped: boolean) => {
-    try { localStorage.setItem(WELCOME_FILM_SEEN_KEY, '1'); } catch { /* private mode */ }
-    if (welcomeIdToken) {
+  const finishWelcome = useCallback(() => {
+    if (!previewWelcome) {
+      try { localStorage.setItem(WELCOME_FILM_SEEN_KEY, '1'); } catch { /* private mode */ }
+    }
+    if (welcomeIdToken && !previewWelcome) {
       updateAccountProfile(welcomeIdToken, { welcomeSeen: true }).catch(() => {});
     }
     setWelcomeDone(true);
-  }, [welcomeIdToken]);
+    onWelcomeComplete?.();
+  }, [welcomeIdToken, previewWelcome, onWelcomeComplete]);
 
-  // Value first: three pillar slides (hub → collaboration → humans+agents)
-  // play full screen before any ask (download, pairing). Each slide animates
-  // once and holds its closing frame; the user pages with prev/next, the last
-  // slide's CTA — or skipping at any point — drops into the pairing step.
-  // On phones the slides letterbox like any landscape video and the controls
-  // keep full-size touch targets.
+  // The introduction lives inside the shell; the navigation stays visible.
+  // Both exit actions finish the same once-per-account welcome and reveal setup.
   if (!welcomeDone) {
-    return (
-      // fixed, not h-full: the intro owns the entire viewport, covering the
-      // nav rail / header (desktop) and header / tab bar (mobile) alike.
-      <div className="fixed inset-0 z-[100] overflow-hidden bg-white">
-        <WelcomeFilm
-          embedded
-          onEnded={() => finishWelcome(false)}
-          onSkip={() => finishWelcome(true)}
-          skipLabel={t('onboarding.skipIntro')}
-          ctaLabel={t('onboarding.getStarted')}
-        />
-      </div>
-    );
+    return <WelcomePage embedded onContinue={finishWelcome} />;
   }
-
-  const footer = (
-    <div className="pt-4 text-center">
-      <button
-        onClick={() => {
-          setWelcomeDone(false);
-        }}
-        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <RotateCcw className="size-3.5" />{t('onboarding.replayIntro')}
-      </button>
-    </div>
-  );
   return isDesktop
-    ? <NodeOnboardingStep onDismiss={onDismiss} footer={footer} />
-    : <ConnectAgentView autoPair onDismiss={onDismiss} footer={footer} />;
+    ? <NodeOnboardingStep onDismiss={onDismiss} />
+    : <ConnectAgentView autoPair onDismiss={onDismiss} />;
 }
 
 /** Bottom progress indicator for the onboarding flow. */

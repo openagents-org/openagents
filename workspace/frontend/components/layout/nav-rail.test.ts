@@ -3,6 +3,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import { NavRail } from './nav-rail';
+import { NavSecondary } from './nav-secondary';
 import { OnboardingSurfaceContext } from './onboarding-surface';
 
 const state = vi.hoisted(() => ({ openView: vi.fn(), unreadThreadsTotal: 0, servicesEnabled: true as boolean | undefined }));
@@ -102,6 +103,23 @@ it('puts Manage Agents at the top with Inbox as the envelope beside it, as dashb
   } finally { await act(async () => root.unmount()); host.remove(); }
 });
 
+it('shows an active Welcome tab only during the introduction, then selects Connect Agent', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const button = (label: string) => [...host.querySelectorAll('button')].find(b => b.textContent === label);
+  try {
+    await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider,
+      { value: { active: true, welcome: true } }, React.createElement(NavRail))));
+    expect(button('nav.welcome')?.getAttribute('aria-current')).toBe('page');
+    expect(button('nav.manageAgents')?.getAttribute('data-active')).toBe('false');
+    expect(button('views.files')).toBeDefined();
+    await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider,
+      { value: { active: true, welcome: false } }, React.createElement(NavRail))));
+    expect(button('nav.welcome')).toBeUndefined();
+    expect(button('nav.manageAgents')?.getAttribute('data-active')).toBe('true');
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
 it('hides Services by default and reflects the workspace toggle', async () => {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
@@ -113,3 +131,39 @@ it('hides Services by default and reflects the workspace toggle', async () => {
     }
   } finally { state.servicesEnabled = true; await act(async () => root.unmount()); host.remove(); }
 });
+
+it('keeps Welcome accessible outside the tour until an agent is added and restores it when empty', async () => {
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  const openWelcome = vi.fn();
+  const welcome = () => [...host.querySelectorAll('button')].find(b => b.textContent === 'nav.welcome');
+  try {
+    const render = (available: boolean) => root.render(React.createElement(OnboardingSurfaceContext.Provider,
+      { value: { active: false, welcome: false, welcomeAvailable: available, onOpenWelcome: openWelcome } }, React.createElement(NavRail)));
+    await act(async () => render(true));
+    expect(welcome()?.getAttribute('data-active')).toBe('false');
+    await act(async () => welcome()!.click());
+    expect(openWelcome).toHaveBeenCalledOnce();
+    await act(async () => render(false));
+    expect(welcome()).toBeUndefined();
+    await act(async () => render(true));
+    expect(welcome()).toBeDefined();
+  } finally { await act(async () => root.unmount()); host.remove(); }
+});
+
+it.each([['desktop', NavRail], ['mobile', NavSecondary]] as const)(
+  'opens agent setup directly from Welcome in the %s navigation', async (_name, Navigation) => {
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    const openConnect = vi.fn();
+    try {
+      await act(async () => root.render(React.createElement(OnboardingSurfaceContext.Provider,
+        { value: { active: true, welcome: true, welcomeAvailable: true, onOpenConnect: openConnect } },
+        React.createElement(Navigation))));
+      const connect = [...host.querySelectorAll('button')].find(button => button.textContent === 'nav.manageAgents')!;
+      expect(connect.getAttribute('data-active')).toBe('false');
+      await act(async () => connect.click());
+      expect(openConnect).toHaveBeenCalledOnce();
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  },
+);
