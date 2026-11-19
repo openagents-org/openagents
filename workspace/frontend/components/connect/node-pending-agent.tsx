@@ -1,5 +1,5 @@
 'use client';
-import { AlertTriangle, Pencil, Trash2 } from 'lucide-react';
+import { AlertTriangle, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,15 +14,20 @@ import type { PendingAgent } from './node-card';
 const PENDING_STALL_MS = 120_000;
 
 /**
- * Where an agent being added stands. While its create command is pending or
- * running on the device the spinner is the true state, not a guess — a queued
- * install of a large runtime takes minutes. A placeholder that outlives any
- * realistic spin-up otherwise has stalled: the agent failed to come up or lost
- * its workspace binding, and saying so beats a spinner that never ends.
+ * Where an agent being added stands, step by step: queued until the device
+ * picks the command up (`waiting`), installed and configured there
+ * (`installing`), then joining the workspace until the device reports it
+ * (`starting`). While the command is pending or running the spinner is the
+ * true state, not a guess — a queued install of a large runtime takes
+ * minutes, and an offline device runs it when it reconnects. A placeholder
+ * that outlives any realistic join otherwise has stalled: the agent failed to
+ * come up or lost its workspace binding, and saying so beats a spinner that
+ * never ends.
  */
-export function pendingState(p: PendingAgent): 'failed' | 'installing' | 'stalled' | 'starting' {
+export function pendingState(p: PendingAgent): 'failed' | 'waiting' | 'installing' | 'stalled' | 'starting' {
   if (p.cmdStatus === 'error') return 'failed';
-  if (p.commandId && p.cmdStatus !== 'done') return 'installing';
+  if (p.commandId && (!p.cmdStatus || p.cmdStatus === 'pending')) return 'waiting';
+  if (p.commandId && p.cmdStatus === 'running') return 'installing';
   if (typeof p.at === 'number' && Date.now() - p.at > PENDING_STALL_MS) return 'stalled';
   return 'starting';
 }
@@ -30,12 +35,17 @@ export function pendingState(p: PendingAgent): 'failed' | 'installing' | 'stalle
 /** An agent being added, shown until the device reports it. */
 export function NodePendingAgent({
   pending: p,
+  deviceOnline,
   onRetry,
+  onRecheck,
   onDismiss,
 }: {
   pending: PendingAgent;
+  deviceOnline: boolean;
   /** Reopen the add form as it was submitted. */
   onRetry: () => void;
+  /** Ask the device list again whether the agent has joined. */
+  onRecheck: () => void;
   onDismiss: () => void;
 }) {
   const t = useT();
@@ -44,6 +54,7 @@ export function NodePendingAgent({
   const badge = {
     failed: { variant: 'destructive' as const, icon: <AlertTriangle />, text: t('connect.nodeAgentFailed') },
     stalled: { variant: 'warning' as const, icon: <AlertTriangle />, text: t('connect.nodeAgentStalled') },
+    waiting: { variant: 'info' as const, icon: <Spinner data-icon="inline-start" />, text: t('connect.nodeAgentWaiting') },
     installing: { variant: 'info' as const, icon: <Spinner data-icon="inline-start" />, text: t('connect.nodeAgentInstalling') },
     starting: { variant: 'info' as const, icon: <Spinner data-icon="inline-start" />, text: t('connect.nodeAgentStarting') },
   }[state];
@@ -91,7 +102,22 @@ export function NodePendingAgent({
         ) : (
           <div className="flex items-center gap-2 border-t border-dashed pt-2 text-xs">
             {state === 'stalled' ? (
-              <span className="text-warning">{t('connect.nodeAgentStalledHint')}</span>
+              <>
+                <span className="min-w-0 flex-1 text-warning">{t('connect.nodeAgentStalledHint')}</span>
+                <Button size="sm" variant="ghost" onClick={onRecheck}>
+                  <RefreshCw data-icon="inline-start" />{t('connect.nodeAgentRecheck')}
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  onClick={onDismiss}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                  title={t('connect.remove')}
+                  aria-label={t('connect.remove')}
+                >
+                  <Trash2 />
+                </Button>
+              </>
             ) : (
               <>
                 <span className="relative flex size-2 items-center justify-center">
@@ -99,7 +125,9 @@ export function NodePendingAgent({
                   <span className="size-1.5 rounded-full bg-primary" />
                 </span>
                 <span className="text-muted-foreground">
-                  {state === 'installing' ? t('connect.nodeAgentInstallingHint') : t('connect.nodeAgentSpinningUp')}
+                  {state === 'waiting'
+                    ? t(deviceOnline ? 'connect.nodeAgentWaitingHint' : 'connect.nodeAgentWaitingOfflineHint')
+                    : state === 'installing' ? t('connect.nodeAgentInstallingHint') : t('connect.nodeAgentSpinningUp')}
                 </span>
               </>
             )}

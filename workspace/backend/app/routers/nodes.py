@@ -157,16 +157,26 @@ ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_
 AGENT_SCOPED_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "list_models"}
 
 
+# What a browser may read back of a create_agent command, so a page opened
+# later can show the add in progress and refill a failed one for a retry. Keys,
+# base URLs and the agent's own credential fields stay with the daemon.
+_CREATE_DRAFT_FIELDS = ("name", "type", "workingDir", "model", "codexWireApi")
+
+
 def _format_command(cmd: NodeCommand, *, include_args: bool = False) -> dict:
+    args = cmd.command or {}
     out = {
         "commandId": str(cmd.id),
         "action": cmd.action,
         "status": cmd.status,
         "result": cmd.result,
-        "agentName": (cmd.command or {}).get("name") if cmd.command else None,
+        "agentName": args.get("name"),
+        "agentType": args.get("type"),
         "createdAt": cmd.created_at.isoformat() if cmd.created_at else None,
         "finishedAt": cmd.finished_at.isoformat() if cmd.finished_at else None,
     }
+    if cmd.action == "create_agent":
+        out["draft"] = {k: args[k] for k in _CREATE_DRAFT_FIELDS if args.get(k)}
     if include_args:
         # Only the daemon (machine-authenticated) receives raw args, which may
         # carry an API key for the agent being created.
@@ -638,8 +648,10 @@ def post_command_result(
 
     cmd.status = "done" if body.ok else "error"
     cmd.result = {"ok": body.ok, "message": body.message, "data": body.data}
-    # Scrub the stored args (may hold an API key) now that we're done with them.
-    cmd.command = {"name": (cmd.command or {}).get("name")} if cmd.command else {}
+    # Scrub the stored args (may hold an API key) now that we're done with them,
+    # keeping what the history shows and a retry refills (see _CREATE_DRAFT_FIELDS).
+    args = cmd.command or {}
+    cmd.command = {k: args[k] for k in ("name", *_CREATE_DRAFT_FIELDS) if args.get(k)} if args else {}
     cmd.finished_at = _now()
     db.commit()
     return success_response(_format_command(cmd))

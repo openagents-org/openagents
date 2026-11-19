@@ -1,6 +1,20 @@
 import { hasAllMention } from './people-mentions';
 import type { WorkspaceAgent } from './types';
 
+/**
+ * Whether the server will read `content` as addressing one of `agents`: the
+ * same rule as _explicit_human_mentions in workspace_mod.py, so a bubble never
+ * waits on a mention the server does not route. Code is not prose, and a
+ * handle must stand alone (not inside an email, not followed by `+x` or `_x`).
+ */
+function mentionsKnownAgent(content: string, agents: readonly string[]): boolean {
+  if (!agents.length) return false;
+  const prose = content.replace(/```[\s\S]*?```|`[^`]*`/g, '');
+  const handles = [...agents].sort((a, b) => b.length - a.length)
+    .map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+  return new RegExp(`(?<![a-zA-Z0-9_@.+-])@(?:${handles})(?![a-zA-Z0-9_@+-]|\\.[a-zA-Z0-9_])`).test(prose);
+}
+
 /** Match people-only routing before showing an optimistic agent response. */
 export function expectsAgentResponse(opts: {
   content: string;
@@ -12,9 +26,9 @@ export function expectsAgentResponse(opts: {
   if (opts.dmCounterpart) return !opts.dmCounterpart.startsWith('human:');
   if (opts.responseMode) {
     // Proactive decisions are not known until the router answers. Only show
-    // an immediate pending bubble for a deterministic leading agent mention.
-    const lead = opts.content.match(/^\s*@([\w-]+)(?![\w@.+-])/)?.[1];
-    return !!lead && opts.mentions.includes(lead);
+    // an immediate pending bubble for an agent mention, which the server
+    // honors wherever it sits in the message.
+    return mentionsKnownAgent(opts.content, opts.mentions);
   }
   if (opts.mentions.length > 0) return true;
   return !hasAllMention(opts.content) && opts.mentionedHumans.length === 0 &&

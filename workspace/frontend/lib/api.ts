@@ -470,8 +470,8 @@ class WorkspaceApi {
   }
 
   /** Recent remote commands for a node (to show pending/done status). */
-  async listNodeCommands(nodeId: string): Promise<NodeCommand[]> {
-    return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands`);
+  async listNodeCommands(nodeId: string, limit?: number): Promise<NodeCommand[]> {
+    return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands${limit ? `?limit=${limit}` : ''}`);
   }
 
   /** Remove/forget a node from the workspace (owner/admin only). */

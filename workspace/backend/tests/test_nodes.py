@@ -238,6 +238,19 @@ class TestNodeCommands:
         hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["device_token"])).json()["data"]
         assert hist[0]["status"] == "done"
         assert "args" not in hist[0]
+        # A page opened later can show and refill the add, without the key.
+        assert hist[0]["agentType"] == "claude"
+        assert hist[0]["draft"] == {"name": "coder", "type": "claude"}
+
+    def test_create_history_keeps_only_safe_draft_fields(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        args = {"name": "coder", "type": "codex", "workingDir": "/work", "model": "gpt-5", "codexWireApi": "chat",
+                "apiKey": "sk-secret", "baseUrl": "https://relay.example/v1", "config": {"SK": "secret"}}
+        client.post(f"/v1/nodes/{node_id}/commands", json={"action": "create_agent", "args": args}, headers=_tok(ws["device_token"]))
+        hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["device_token"])).json()["data"]
+        assert hist[0]["draft"] == {"name": "coder", "type": "codex", "workingDir": "/work", "model": "gpt-5", "codexWireApi": "chat"}
+        assert "secret" not in str(hist[0])
 
     def test_device_credential_key_command_is_owner_only(self, client):
         ws = _make_workspace(client)

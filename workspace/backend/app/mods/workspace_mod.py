@@ -1351,13 +1351,15 @@ async def _conversation_targets(event, channel, db, workspace, known_agents):
                 targets.append(name)
             remaining = re.sub(r"^\s*(?:(?:,|and\b|&)\s*)?(?=@)", "", remaining[len(name) + 1:]).lstrip()
         return targets
-    if (channel.response_mode or "proactive") == "passive":
-        return []
-    if _addresses_people_only(event) and not _explicit_human_mentions(content, known_agents):
-        return []
+    # An @agent anywhere in a person's message addresses that agent, in either
+    # mode: "看一下这个 @codex" means the same as "@codex 看一下这个".
     if event.metadata.get("blocked_agents"):
         return []  # Never redirect a denied explicit request to someone else.
     mentions = _explicit_human_mentions(content, known_agents)
+    if (channel.response_mode or "proactive") == "passive":
+        return mentions
+    if _addresses_people_only(event) and not mentions:
+        return []
     if mentions:
         return mentions
     from app.models import WorkspaceMember
@@ -2174,7 +2176,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
 
     Routing rules (human messages):
     - Starts with @agent-name → route to that agent only
-    - Passive: no leading agent mention → no agent response
+    - Passive: no agent mention anywhere in the message → no agent response
     - Proactive: classify human vs agent audience and choose an agent or stop
 
     Routing rules (agent messages in multi-agent threads):
