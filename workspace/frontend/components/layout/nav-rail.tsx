@@ -30,7 +30,7 @@ import { useT } from '@/lib/i18n';
 import {
 useLayout,type ViewMode
 } from './layout-context';
-import { NotificationsMenu } from './notifications-menu';
+import { DesktopNotificationPrompt } from '@/components/threads/desktop-notification-prompt';
 import { SearchMenu } from './search-menu';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
@@ -252,8 +252,9 @@ export function NavRail() {
         <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
-      {/* Global tools, including notification permission inside the bell menu. */}
+      {/* Notification permission stays inside the rail, above the global tools. */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
+        <DesktopNotificationPrompt hidden={!showLabels} />
         <div
           className={cn(
             'flex gap-0.5',
@@ -261,7 +262,6 @@ export function NavRail() {
           )}
         >
           <SearchMenu iconOnly />
-          <NotificationsMenu side="right" align="end" />
           <UserMenu side="right" align="end" />
         </div>
 
