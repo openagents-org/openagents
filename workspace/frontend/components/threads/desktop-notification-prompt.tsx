@@ -12,13 +12,8 @@ function currentPermission(): string | null {
   return Notification.permission;
 }
 
-/**
- * One-line ask for desktop-notification permission, shown at the top of the
- * thread list the first time the user has a DM / mention signal or opens a DM.
- * Permission is only ever requested from the Enable click — never on load.
- */
-export function DesktopNotificationPrompt() {
-  const t = useT();
+/** Permission is requested only after the user clicks Enable in the bell menu. */
+export function useDesktopNotificationPrompt() {
   const { signals, currentSessionId } = useWorkspace();
   const [permission, setPermission] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(true);
@@ -44,7 +39,6 @@ export function DesktopNotificationPrompt() {
     dismissed,
     triggered,
   });
-  if (!show) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -59,6 +53,15 @@ export function DesktopNotificationPrompt() {
       setPermission(currentPermission());
     }
   };
+
+  return { show, dismiss, enable };
+}
+
+/** A compact prompt inside the sidebar bell's popover, never above the thread list. */
+export function DesktopNotificationPrompt({ prompt }: { prompt: ReturnType<typeof useDesktopNotificationPrompt> }) {
+  const t = useT();
+  if (!prompt.show) return null;
+  const { enable, dismiss } = prompt;
 
   return (
     <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2 text-xs">

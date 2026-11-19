@@ -30,6 +30,7 @@ import { useT } from '@/lib/i18n';
 import {
 useLayout,type ViewMode
 } from './layout-context';
+import { NotificationsMenu } from './notifications-menu';
 import { SearchMenu } from './search-menu';
 import { UserMenu } from './user-menu';
 import { SidebarMembers } from './sidebar-members';
@@ -252,9 +253,7 @@ export function NavRail() {
         <SidebarMembers showLabels={showLabels} />
       </SidebarContent>
 
-      {/* Global tools. No bell or invite here: Inbox already sits beside
-          Manage Agents (or on the collapsed rail), and inviting is the
-          Members header's "+". */}
+      {/* Global tools, including notification permission inside the bell menu. */}
       <SidebarFooter className="gap-1 px-1.5 pb-3">
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
@@ -266,6 +265,7 @@ export function NavRail() {
           )}
         >
           <SearchMenu iconOnly />
+          <NotificationsMenu side="right" align="end" />
           <UserMenu side="right" align="end" />
         </div>
 

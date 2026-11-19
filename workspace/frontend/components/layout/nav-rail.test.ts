@@ -26,6 +26,7 @@ vi.mock('@/components/ui/tooltip', () => {
 });
 vi.mock('next/image', () => ({ default: () => null }));
 vi.mock('./sidebar-members', () => ({ SidebarMembers: () => null }));
+vi.mock('./notifications-menu', () => ({ NotificationsMenu: () => null }));
 vi.mock('./search-menu', () => ({ SearchMenu: () => null }));
 vi.mock('./user-menu', () => ({ UserMenu: () => null }));
 vi.mock('./rail-edge', () => ({ RailEdge: () => null }));

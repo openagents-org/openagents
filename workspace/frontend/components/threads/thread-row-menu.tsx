@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Archive, ArchiveRestore, GitFork, Hash, MessageSquare, MoreVertical, Pencil, Pin, PinOff, Star, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -13,7 +14,7 @@ import {
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 
 /** The ⋮ menu on a thread row: rename, fork, channel/pin/star/archive, delete. */
-export function ThreadRowMenu({ session }: { session: WorkspaceSession }) {
+export function ThreadRowMenu({ session, projectActions }: { session: WorkspaceSession; projectActions?: ReactNode }) {
   const { updateSession, renameSession, forkSession } = useWorkspace();
   const prompt = usePrompt();
   const confirm = useConfirm();
@@ -71,6 +72,7 @@ export function ThreadRowMenu({ session }: { session: WorkspaceSession }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-52">
         <DropdownMenuGroup>
+          {projectActions}
           <DropdownMenuItem onClick={(e) => { e.stopPropagation(); void rename(); }}>
             <Pencil />
             <span>{t('common.rename')}</span>
