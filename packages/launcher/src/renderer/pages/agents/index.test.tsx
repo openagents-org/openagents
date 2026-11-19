@@ -7,6 +7,15 @@ import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
 import type { Agent } from "../../types"
 
+// The row menu (Radix) measures itself on open; jsdom ships no ResizeObserver.
+class ResizeObserverStub {
+  observe(): void {}
+  unobserve(): void {}
+  disconnect(): void {}
+}
+globalThis.ResizeObserver ??=
+  ResizeObserverStub as unknown as typeof ResizeObserver
+
 // Analytics fires network calls (posthog) — stub it out for the jsdom run.
 vi.mock("../../lib/analytics", () => ({ capture: vi.fn(), group: vi.fn() }))
 

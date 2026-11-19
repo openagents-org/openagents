@@ -29,7 +29,7 @@ export function EdgeToggle({
       onClick={onClick}
       style={style}
       className={cn(
-        'group/rail z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring',
+        'group/rail z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring',
         className,
       )}
     >
