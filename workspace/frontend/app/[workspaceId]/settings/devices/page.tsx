@@ -1,14 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
 import { Laptop, RefreshCw, Ticket, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import { IconAction } from '@/components/settings/icon-action';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import type { PairingCode, WorkspaceNode } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -86,34 +90,36 @@ export default function DevicesSettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('admin.devicesTitle')} description={t('admin.devicesDescription')} />
       {!editable && <ReadOnlyBanner />}
 
       {editable && host && (
-        <Card size="sm"><CardContent className="flex items-center justify-between gap-4">
-          <div><p className="text-sm font-medium">{t('admin.connectThisComputer')}</p><p className="mt-1 text-sm text-muted-foreground">{t('admin.connectThisComputerHint')}</p></div>
-          <Button onClick={connectComputer} disabled={connecting}>
-            {connecting ? <Spinner /> : <Laptop className="size-4" />}
-            {t('admin.connectThisComputer')}
-          </Button>
-        </CardContent></Card>
+        <SettingsCard
+          title={t('admin.connectThisComputer')}
+          description={t('admin.connectThisComputerHint')}
+          action={(
+            <Button size="sm" onClick={connectComputer} disabled={connecting}>
+              {connecting ? <Spinner data-icon="inline-start" /> : <Laptop data-icon="inline-start" />}
+              {t('admin.connectThisComputer')}
+            </Button>
+          )}
+        />
       )}
 
       {editable && (
-        <Card size="sm"><CardContent className="flex flex-col gap-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-1.5">
-              <Ticket className="size-4 text-muted-foreground" />
-              <span className="text-sm font-medium">{t('admin.generatePairingCode')}</span>
-            </div>
-            <Button size="sm" onClick={mintCode} disabled={minting}>
-              {minting ? <Spinner /> : t('admin.generatePairingCode')}
+        <SettingsCard
+          title={t('admin.generatePairingCode')}
+          action={(
+            <Button size="sm" variant="outline" onClick={mintCode} disabled={minting}>
+              {minting ? <Spinner data-icon="inline-start" /> : <Ticket data-icon="inline-start" />}
+              {t('admin.generatePairingCode')}
             </Button>
-          </div>
+          )}
+        >
           {pairing && (
-            <div className="flex flex-col gap-1 rounded-md bg-muted/40 p-3 text-center">
-              <p className="font-mono text-2xl font-semibold tracking-[0.3em]">{pairing.code}</p>
+            <div className="flex flex-col gap-1 rounded-lg bg-muted p-4 text-center">
+              <p className="font-mono text-2xl font-semibold tracking-widest">{pairing.code}</p>
               <p className="text-xs text-muted-foreground">
                 {t('admin.pairingCodeHint', {
                   minutes: Math.max(1, Math.round(pairing.expiresInSeconds / 60)),
@@ -121,62 +127,56 @@ export default function DevicesSettingsPage() {
               </p>
             </div>
           )}
-        </CardContent></Card>
+        </SettingsCard>
       )}
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">{t('admin.navDevices')}</span>
+      <SettingsCard
+        title={t('admin.navDevices')}
+        action={(
           <Button variant="ghost" size="sm" onClick={loadNodes} disabled={loading}>
-            <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+            <RefreshCw data-icon="inline-start" className={loading ? 'animate-spin' : undefined} />
             {t('admin.refreshList')}
           </Button>
-        </div>
-
+        )}
+      >
         {loading && nodes.length === 0 ? (
-          <div className="flex items-center justify-center py-10">
-            <Spinner className="size-5 text-muted-foreground" />
-          </div>
+          <ListLoading />
         ) : nodes.length === 0 ? (
-          <p className="py-4 text-sm text-muted-foreground">{t('admin.noDevices')}</p>
+          <ListEmpty icon={<Laptop />}>{t('admin.noDevices')}</ListEmpty>
         ) : (
-          <Card className="gap-0 divide-y py-0">
+          <SettingsList>
             {nodes.map((n) => (
-              <div key={n.nodeId} className="flex items-center gap-3 px-4 py-3">
-                <Laptop className="size-5 shrink-0 text-muted-foreground" />
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-2 truncate text-sm font-medium">
-                    {n.name || n.hostname || n.nodeId}
-                    <span
-                      className={`size-2 shrink-0 rounded-full ${
-                        n.status === 'online' ? 'bg-success' : 'bg-muted-foreground/60'
-                      }`}
-                      title={n.status}
-                    />
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
+              <Item key={n.nodeId} size="sm">
+                <ItemMedia variant="icon">
+                  <Laptop className="size-5 text-muted-foreground" />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                  <ItemTitle>
+                    <span className="truncate">{n.name || n.hostname || n.nodeId}</span>
+                    <Badge variant={n.status === 'online' ? 'success' : 'secondary'}>
+                      {n.status === 'online' ? t('agents.online') : t('agents.offline')}
+                    </Badge>
+                  </ItemTitle>
+                  <ItemDescription className="line-clamp-1 text-xs">
                     {[n.os, n.launcherVersion && `v${n.launcherVersion}`,
                       t('admin.agentsOnNode', { count: n.agents.length }),
                       n.lastHeartbeatAt &&
                         t('admin.lastSeen', { time: new Date(n.lastHeartbeatAt).toLocaleString() }),
                     ].filter(Boolean).join(' · ')}
-                  </p>
-                </div>
+                  </ItemDescription>
+                </ItemContent>
                 {editable && (
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => forget(n)}
-                    title={t('admin.forgetDevice')}
-                  >
-                    <Trash2 className="size-4 text-muted-foreground" />
-                  </Button>
+                  <ItemActions>
+                    <IconAction label={t('admin.forgetDevice')} destructive onClick={() => forget(n)}>
+                      <Trash2 />
+                    </IconAction>
+                  </ItemActions>
                 )}
-              </div>
+              </Item>
             ))}
-          </Card>
+          </SettingsList>
         )}
-      </div>
+      </SettingsCard>
     </div>
   );
 }

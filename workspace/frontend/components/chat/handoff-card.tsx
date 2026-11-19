@@ -8,7 +8,8 @@ import type { HandoffRecord } from '@/lib/handoff';
 import { useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { Card, CardContent, CardFooter, CardHeader } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { MarkdownContent } from './markdown-content';
 
@@ -29,22 +30,22 @@ export function HandoffCard({ handoff, agents, agentNames, agentLabels }: {
   };
   return (
     <Card size="sm" className="max-w-2xl gap-2">
-      <CardHeader className="flex min-w-0 items-center gap-2 border-b">
-        <ArrowRightLeft aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="shrink-0 text-xs font-semibold tracking-wider text-muted-foreground uppercase">
+      <CardHeader className="border-b">
+        <CardTitle className="flex items-center gap-2">
+          <ArrowRightLeft aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
           {t('collab.handoff.title')}
-        </span>
-        <span className="flex min-w-0 items-center gap-1.5 text-xs font-medium">
+        </CardTitle>
+        <CardDescription className="flex min-w-0 items-center gap-1.5 text-xs">
           <AgentAvatar name={handoff.from} size={16} />
           <span className="truncate">{label(handoff.from)}</span>
-          <ArrowRight aria-hidden="true" className="size-3 shrink-0 text-muted-foreground" />
+          <ArrowRight aria-hidden="true" className="size-3 shrink-0" />
           <AgentAvatar name={handoff.to} size={16} />
           <span className="truncate">{label(handoff.to)}</span>
-        </span>
+        </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">
         <div>
-          <p className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{t('collab.handoff.request')}</p>
+          <p className="text-xs font-medium text-muted-foreground">{t('collab.handoff.request')}</p>
           <MarkdownContent content={handoff.request} agentNames={agentNames} agentLabels={agentLabels} />
         </div>
         {handoff.context && <HandoffSection title={t('collab.handoff.context')} body={handoff.context} />}
@@ -63,10 +64,12 @@ function HandoffSection({ title, body }: { title: string; body: string }) {
   const [open, setOpen] = useState(false);
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <CollapsibleTrigger className="flex items-center gap-1 rounded-sm text-xs font-medium tracking-wider text-muted-foreground uppercase outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
-        <ChevronRight aria-hidden="true" className={cn('size-3 transition-transform', open && 'rotate-90')} />
-        {title}
-        <span className="tracking-normal normal-case text-muted-foreground/70">· {open ? t('collab.handoff.hide') : t('collab.handoff.show')}</span>
+      <CollapsibleTrigger asChild>
+        <Button variant="ghost" size="xs" className="-ml-2 text-muted-foreground">
+          <ChevronRight data-icon="inline-start" aria-hidden="true" className={cn('transition-transform', open && 'rotate-90')} />
+          {title}
+          <span className="font-normal text-muted-foreground">· {open ? t('collab.handoff.hide') : t('collab.handoff.show')}</span>
+        </Button>
       </CollapsibleTrigger>
       <CollapsibleContent className="mt-1 text-sm whitespace-pre-wrap text-foreground/90">{body}</CollapsibleContent>
     </Collapsible>

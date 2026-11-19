@@ -1,14 +1,14 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ChevronDown, FlaskConical, Plus, RefreshCw, Waypoints } from 'lucide-react';
+import { ChevronDown, FlaskConical, Plus, RefreshCw, RotateCcw, Waypoints } from 'lucide-react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { DetailHeader } from '@/components/layout/app-header';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import {
   DropdownMenuGroup,
   DropdownMenu,
@@ -114,7 +114,7 @@ export function WorkflowsView() {
                 {templates.map(({ key, loop, tpl }) => (
                   <DropdownMenuItem key={key} onClick={() => openTemplate(tpl)} className="flex-col items-start gap-0.5">
                     <span className="font-medium">
-                      {tpl.name} {loop && <span className="text-warning">↺</span>}
+                      {tpl.name} {loop && <RotateCcw role="img" aria-label={t('workflows.gateEnable')} className="inline size-3 text-warning" />}
                     </span>
                     <span className="text-xs text-muted-foreground">{tpl.steps.map((s) => s.name).join(' → ')}</span>
                   </DropdownMenuItem>
@@ -124,14 +124,9 @@ export function WorkflowsView() {
           </DropdownMenu>
         </div>}
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon-sm" onClick={refreshWorkflows} aria-label={t('common.refresh')} className="text-muted-foreground">
+        <WithTooltip label={t('common.refresh')}><Button variant="ghost" size="icon-sm" onClick={refreshWorkflows} aria-label={t('common.refresh')} className="text-muted-foreground">
               <RefreshCw />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('common.refresh')}</TooltipContent>
-        </Tooltip>
+            </Button></WithTooltip>
       </DetailHeader>
 
       <Alert role="note" className="rounded-none border-x-0 border-t-0 border-warning/30 bg-warning/10 text-warning">

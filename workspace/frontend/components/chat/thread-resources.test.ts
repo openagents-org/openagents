@@ -19,7 +19,7 @@ vi.mock('@/components/files/file-utils', () => ({ FileTile: ({ file }: any) => R
 import { ThreadResources } from './thread-resources';
 let root: Root, host: HTMLDivElement;
 beforeEach(async () => {
-  vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.clearAllMocks(); mocks.canEdit.value = true;
+  vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} }); vi.clearAllMocks(); mocks.canEdit.value = true;
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   await act(async () => root.render(React.createElement(ThreadResources)));
 });
@@ -55,7 +55,7 @@ it('explains why someone else\'s agent cannot be edited instead of leaving a sil
 it('says no reviewer is available when the agent is alone in the thread', async () => {
   await act(async () => host.querySelectorAll('[role=tab]')[1].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
   await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="threadResources.instructAgent scout"]')!.click());
-  const select = host.querySelector('select')!;
+  const select = host.querySelector<HTMLButtonElement>('[role=combobox]')!;
   expect(select.disabled).toBe(true);
   expect(select.textContent).toBe('threadCollaboration.noReviewer');
   expect(host.querySelector<HTMLButtonElement>('button[type=submit]')!.disabled).toBe(false);
@@ -76,7 +76,7 @@ it('switches to artifact cards and opens the correct browser', async () => {
   expect(row.scrollBy).toHaveBeenLastCalledWith({ left: -336, behavior: 'smooth' });
   const opened = vi.fn(); window.addEventListener('workspace:open-artifact', opened);
   try {
-    await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(el => el.getAttribute('title') === 'XE')!.click());
+    await act(async () => Array.from(host.querySelectorAll<HTMLButtonElement>('button')).find(el => el.textContent?.includes('XE'))!.click());
     expect(opened.mock.calls[0][0].detail).toEqual({ kind: 'browser', id: 'live' });
   } finally { window.removeEventListener('workspace:open-artifact', opened); }
 });

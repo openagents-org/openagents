@@ -3,7 +3,6 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
@@ -94,62 +93,60 @@ export function IntegrationConnectForm({
     </Field>
   );
 
+  // Rendered inside the chat platforms card, so it is a group of fields rather
+  // than a card of its own.
   return (
-    <Card size="sm">
-      <CardContent>
-        <FieldGroup className="gap-4">
-          <FieldDescription>{t(copy.help)}</FieldDescription>
-          {platform === 'lark' && secretField('integration-app-id', t('admin.larkAppIdLabel'), appId, setAppId, 'cli_…')}
+    <FieldGroup className="gap-4">
+      <FieldDescription>{t(copy.help)}</FieldDescription>
+      {platform === 'lark' && secretField('integration-app-id', t('admin.larkAppIdLabel'), appId, setAppId, 'cli_…')}
+      {secretField(
+        'integration-bot-token',
+        t(copy.token),
+        botToken,
+        setBotToken,
+        copy.tokenPlaceholder ? t(copy.tokenPlaceholder) : '',
+      )}
+      {platform === 'slack' &&
+        secretField(
+          'integration-signing-secret',
+          t('admin.slackSigningSecretLabel'),
+          signingSecret,
+          setSigningSecret,
+          t('admin.slackSigningSecretPlaceholder'),
+        )}
+      {platform === 'lark' && (
+        <>
           {secretField(
-            'integration-bot-token',
-            t(copy.token),
-            botToken,
-            setBotToken,
-            copy.tokenPlaceholder ? t(copy.tokenPlaceholder) : '',
+            'integration-verification-token',
+            t('admin.larkVerificationTokenLabel'),
+            verificationToken,
+            setVerificationToken,
+            t('admin.larkCredentialsHint'),
           )}
-          {platform === 'slack' &&
-            secretField(
-              'integration-signing-secret',
-              t('admin.slackSigningSecretLabel'),
-              signingSecret,
-              setSigningSecret,
-              t('admin.slackSigningSecretPlaceholder'),
-            )}
-          {platform === 'lark' && (
-            <>
-              {secretField(
-                'integration-verification-token',
-                t('admin.larkVerificationTokenLabel'),
-                verificationToken,
-                setVerificationToken,
-                t('admin.larkCredentialsHint'),
-              )}
-              {secretField(
-                'integration-encrypt-key',
-                t('admin.larkEncryptKeyLabel'),
-                encryptKey,
-                setEncryptKey,
-                t('admin.larkEncryptKeyPlaceholder'),
-              )}
-            </>
+          {secretField(
+            'integration-encrypt-key',
+            t('admin.larkEncryptKeyLabel'),
+            encryptKey,
+            setEncryptKey,
+            t('admin.larkEncryptKeyPlaceholder'),
           )}
-          <Field>
-            <FieldLabel htmlFor="integration-default-agent">{t('admin.integrationDefaultAgent')}</FieldLabel>
-            <IntegrationAgentSelect
-              id="integration-default-agent"
-              value={defaultAgent}
-              agents={agents}
-              onChange={setDefaultAgent}
-            />
-          </Field>
-        </FieldGroup>
-      </CardContent>
-      <CardFooter className="justify-end">
+        </>
+      )}
+      <Field>
+        <FieldLabel htmlFor="integration-default-agent">{t('admin.integrationDefaultAgent')}</FieldLabel>
+        <IntegrationAgentSelect
+          id="integration-default-agent"
+          value={defaultAgent}
+          agents={agents}
+          onChange={setDefaultAgent}
+        />
+      </Field>
+      <div className="flex justify-end">
         <Button size="sm" onClick={connect} disabled={connecting || incomplete}>
           {connecting && <Spinner data-icon="inline-start" />}
           {t(copy.connect)}
         </Button>
-      </CardFooter>
-    </Card>
+      </div>
+    </FieldGroup>
   );
 }

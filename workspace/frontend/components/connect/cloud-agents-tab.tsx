@@ -1,18 +1,18 @@
 'use client';
 import { useEffect } from 'react';
-import { Trash2, MessageSquare, Image as ImageIcon, Volume2, ChevronLeft } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { useTokenPayModels } from '@/hooks/use-tokenpay-models';
 import { useT } from '@/lib/i18n';
 import { workspaceApi } from '@/lib/api';
 import { HostedAgentsSection } from './hosted-agents-section';
-import { cn } from '@/lib/utils';
+import { CategoryIcon, ConnectedCloudAgents } from './cloud-connected-agents';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Field, FieldDescription, FieldLabel, FieldSeparator, FieldTitle } from '@/components/ui/field';
-import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
@@ -25,11 +25,6 @@ SelectItem,
 SelectTrigger,
 SelectValue,
 } from '@/components/ui/select';
-
-function CategoryIcon({ category, className }: { category: string; className?: string }) {
-  const Icon = category === 'image' ? ImageIcon : category === 'audio' ? Volume2 : MessageSquare;
-  return <Icon className={cn('text-foreground/70', className)} />;
-}
 
 // ---------------------------------------------------------------------------
 // Cloud Agents Tab
@@ -184,7 +179,7 @@ export function CloudAgentsTab({
                         <RadioGroupItem value={m.id} id={`cloud-model-${m.id}`} />
                         <CategoryIcon category={m.category} className="size-3.5 shrink-0" />
                         <FieldTitle className="flex-1">{m.label}</FieldTitle>
-                        <span className="text-xs text-muted-foreground uppercase tracking-wide">{m.category}</span>
+                        <Badge variant="secondary">{m.category}</Badge>
                       </Field>
                     </FieldLabel>
                   ))}
@@ -296,39 +291,7 @@ export function CloudAgentsTab({
       </div>
       <HostedAgentsSection onChanged={onHostedChanged} />
 
-      {/* Connected cloud agents */}
-      {connectedAgents.length > 0 && (
-        <ItemGroup className="gap-2">
-          <FieldSeparator>{t('connect.connected')}</FieldSeparator>
-          {connectedAgents.map((agent) => (
-            <Item key={agent.agentName} variant="outline" size="sm" role="listitem">
-              <ItemMedia>
-                <ProviderIcon name={agent.provider} size={28} />
-              </ItemMedia>
-              <ItemContent className="min-w-0 gap-0.5">
-                <ItemTitle>
-                  @{agent.agentName}
-                  <CategoryIcon category={agent.category} className="size-3 text-muted-foreground" />
-                </ItemTitle>
-                <ItemDescription className="text-xs">{agent.model}</ItemDescription>
-              </ItemContent>
-              <ItemActions>
-                <span className="font-mono text-xs text-muted-foreground">{agent.apiKeyMasked}</span>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  onClick={() => onRemove(agent.agentName)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  title={t('connect.remove')}
-                  aria-label={t('connect.remove')}
-                >
-                  <Trash2 />
-                </Button>
-              </ItemActions>
-            </Item>
-          ))}
-        </ItemGroup>
-      )}
+      <ConnectedCloudAgents agents={connectedAgents} onRemove={onRemove} />
     </div>
   );
 }

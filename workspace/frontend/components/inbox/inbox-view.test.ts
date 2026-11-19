@@ -43,9 +43,9 @@ it('shows a red dot for an unread high-priority notification', async () => {
   expect(cls).not.toContain('invisible');
 });
 
-it.each(['normal', 'low'] as const)('shows a neutral dot for an unread %s notification', async (priority) => {
+it.each(['normal', 'low'] as const)('shows the same red unread dot for an unread %s notification', async (priority) => {
   const cls = await dotFor({ priority, isRead: false });
-  expect(cls).toContain('bg-primary');
+  expect(cls).toContain('bg-destructive');
   expect(cls).not.toContain('invisible');
 });
 

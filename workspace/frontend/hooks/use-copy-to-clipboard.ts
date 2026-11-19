@@ -12,7 +12,8 @@ export function useCopyToClipboard({
   const [isCopied, setIsCopied] = React.useState(false);
 
   const copyToClipboard = (value: string) => {
-    if (typeof window === 'undefined' || !navigator.clipboard.writeText) {
+    // navigator.clipboard is undefined on insecure origins (self-hosted over plain http).
+    if (typeof window === 'undefined' || !navigator.clipboard?.writeText) {
       return;
     }
 

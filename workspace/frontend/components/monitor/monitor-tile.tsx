@@ -16,6 +16,7 @@ import {
   Wrench,
   Eye,
 } from 'lucide-react';
+import { Kbd } from '@/components/ui/kbd';
 import { Spinner } from '@/components/ui/spinner';
 import type { WorkspaceAgent, WorkspaceMessage, WorkspaceSession } from '@/lib/types';
 import type { TileData } from './use-monitor-tiles';
@@ -137,11 +138,11 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
 
   return (
     <button
+      type="button"
       onClick={onClick}
       className={cn(
-        'flex flex-col text-left border border-input rounded-xl bg-background shadow-xs cursor-pointer p-3 overflow-hidden transition-[translate,box-shadow] hover:-translate-y-0.5 hover:shadow-md',
+        'flex cursor-pointer flex-col overflow-hidden rounded-xl bg-card p-3 text-left text-card-foreground ring-1 ring-foreground/10 transition-colors outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50',
         isActive && 'thread-wip',
-        isCompleted && 'bg-success/10 ring-1 ring-success/30 animate-[glow_2s_ease-in-out_infinite]',
       )}
     >
       {/* Header: avatars + title + time */}
@@ -158,14 +159,12 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
           {session.title || t('monitor.untitled')}
         </span>
         {isCompleted ? (
-          <CheckCircle2 className="size-3.5 shrink-0 text-success" />
+          <CheckCircle2 className="size-3.5 shrink-0 text-success" aria-label={t('threads.finished')} />
         ) : (
           <span className="text-xs text-muted-foreground shrink-0">{displayTime}</span>
         )}
         {shortcutKey && (
-          <kbd className="size-4 flex items-center justify-center rounded text-xs font-mono font-medium bg-muted text-muted-foreground border border-input shrink-0">
-            {shortcutKey}
-          </kbd>
+          <Kbd className="shrink-0">{shortcutKey}</Kbd>
         )}
       </div>
 
@@ -207,7 +206,9 @@ export function MonitorTile({ session, tileData, isActive, isCompleted, agents, 
                       parsed.type === 'thinking' && 'italic',
                       parsed.type === 'compacting' && 'text-info/80 italic',
                     )}>
-                      {parsed.label}
+                      {parsed.type === 'compacting' ? t('monitor.compacting')
+                        : parsed.type === 'thinking' && parsed.label === 'thinking...' ? t('monitor.thinking')
+                        : parsed.label}
                     </span>
                   </div>
                 );

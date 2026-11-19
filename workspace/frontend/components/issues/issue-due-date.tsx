@@ -32,11 +32,11 @@ export function IssueDueDate({ issue, busy, canEdit, update }: {
     <h3 id={`issue-due-date-heading-${issue.id}`} className="shrink-0 text-xs font-medium text-muted-foreground">{t('issues.dueDate')}</h3>
     {canEdit ? <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <button type="button" disabled={busy} aria-label={`${t('issues.dueDate')}: ${label}`} className="group flex min-h-8 min-w-0 flex-1 items-center gap-2.5 rounded-md border border-transparent px-1.5 py-1 text-left text-xs transition-colors hover:border-border hover:bg-muted/40 disabled:opacity-50">
-          <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
-          <span className={cn('flex-1', issue.due_date ? 'font-medium' : 'text-muted-foreground')}>{label}</span>
-          <ChevronDown className="size-3.5 text-muted-foreground/60" />
-        </button>
+        <Button variant="ghost" size="sm" disabled={busy} aria-label={`${t('issues.dueDate')}: ${label}`} className="min-w-0 flex-1 justify-start gap-2.5 px-1.5 text-xs">
+          <CalendarDays data-icon="inline-start" className="size-4 text-muted-foreground" />
+          <span className={cn('flex-1 text-left', issue.due_date ? 'font-medium' : 'font-normal text-muted-foreground')}>{label}</span>
+          <ChevronDown data-icon="inline-end" className="text-muted-foreground" />
+        </Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-auto p-0">
         <Calendar

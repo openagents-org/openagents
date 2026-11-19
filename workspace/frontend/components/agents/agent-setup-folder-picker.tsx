@@ -93,7 +93,7 @@ export function FolderPicker({
           <div className="py-1">
             {roots.length > 0 && (
               <div className="mb-1 flex flex-col gap-1.5 border-b px-3 py-2">
-                <div className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                <div className="text-xs font-medium text-muted-foreground">
                   {t('connect.nodePickerLocations')}
                 </div>
                 <div className="flex flex-wrap gap-1.5">

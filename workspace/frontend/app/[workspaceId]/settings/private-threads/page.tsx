@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/select';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { ListEmpty, ListError, ListLoading } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import { displayNameFromEmail } from '@/lib/collab';
@@ -76,23 +77,18 @@ export default function PrivateThreadsSettingsPage() {
   }), [threads]);
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('adminThreads.title')} description={t('adminThreads.description')} />
       {!editable && <ReadOnlyBanner />}
 
       {!editable ? (
-        <p className="text-sm text-muted-foreground">{t('adminThreads.adminOnly')}</p>
+        <ListEmpty icon={<Lock />}>{t('adminThreads.adminOnly')}</ListEmpty>
       ) : threads === null ? (
-        <div className="flex items-center justify-center py-10">
-          <Spinner className="size-5 text-muted-foreground" />
-        </div>
+        <ListLoading />
       ) : failed ? (
-        <div className="flex items-center gap-3">
-          <p className="text-sm text-destructive">{t('adminThreads.loadFailed')}</p>
-          <Button variant="outline" size="sm" onClick={load}>{t('common.retry')}</Button>
-        </div>
+        <ListError onRetry={load}>{t('adminThreads.loadFailed')}</ListError>
       ) : sorted.length === 0 ? (
-        <p className="py-4 text-sm text-muted-foreground">{t('adminThreads.empty')}</p>
+        <ListEmpty icon={<Lock />}>{t('adminThreads.empty')}</ListEmpty>
       ) : (
         <Card className="py-0">
           <Table>
@@ -196,9 +192,9 @@ function TransferOwnerDialog({
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-2">
-          <Label className="font-normal">{t('adminThreads.newOwner')}</Label>
+          <Label htmlFor="transfer-new-owner" className="font-normal">{t('adminThreads.newOwner')}</Label>
           <Select value={email} onValueChange={setEmail}>
-            <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+            <SelectTrigger id="transfer-new-owner" className="w-full"><SelectValue /></SelectTrigger>
             <SelectContent>
               <SelectGroup>{candidates.map((m) => (
                 <SelectItem key={m.email} value={m.email}>
@@ -213,7 +209,7 @@ function TransferOwnerDialog({
             {t('common.cancel')}
           </Button>
           <Button className="min-w-24" onClick={transfer} disabled={busy || !email}>
-            {busy ? <Spinner /> : <ArrowRightLeft className="size-4" />}
+            {busy ? <Spinner data-icon="inline-start" /> : <ArrowRightLeft data-icon="inline-start" />}
             {t('adminThreads.transferConfirm')}
           </Button>
         </DialogFooter>

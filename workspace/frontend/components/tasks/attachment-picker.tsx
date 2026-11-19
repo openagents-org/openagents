@@ -2,7 +2,18 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { FileIcon, Film, Paperclip, RotateCw, X } from 'lucide-react';
+import {
+  Attachment,
+  AttachmentAction,
+  AttachmentActions,
+  AttachmentContent,
+  AttachmentDescription,
+  AttachmentMedia,
+  AttachmentTitle,
+} from '@/components/ui/attachment';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
 import { MAX_UPLOAD_BYTES, useFileUploads, type UploadItem } from '@/components/files/use-file-uploads';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -13,54 +24,45 @@ import type { WorkspaceFile } from '@/lib/types';
 const ATTACH_ACCEPT =
   'image/*,video/*,.pdf,.txt,.md,.json,.csv,.xlsx,.xls,.doc,.docx,.ppt,.pptx,.xml,.html,.css,.js,.ts,.py,.rb,.go,.rs,.java,.c,.cpp,.h,.hpp,.sh,.yaml,.yml,.toml,.zip';
 
+function RemoveAction({ label, disabled, onClick }: { label: string; disabled?: boolean; onClick: () => void }) {
+  return (
+    <WithTooltip label={label}><AttachmentAction disabled={disabled} onClick={onClick} aria-label={label}>
+          <X />
+        </AttachmentAction></WithTooltip>
+  );
+}
+
 function PendingCard({ item, onRemove, onRetry }: { item: UploadItem; onRemove: () => void; onRetry: () => void }) {
   const t = useT();
   const failed = item.status === 'failed';
   const percent = item.progress === null ? null : Math.round(item.progress * 100);
   return (
-    <div className={cn('group relative overflow-hidden rounded-lg border bg-muted', failed && 'border-destructive/50')}
-      title={item.file.name}>
-      {item.preview ? (
-        <img src={item.preview} alt={item.file.name} className={cn('h-16 w-auto max-w-36 object-cover', !failed && 'opacity-60')} />
-      ) : (
-        <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
-          {item.file.type.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-          <span className="w-full truncate text-center text-xs text-muted-foreground">{item.file.name}</span>
-        </div>
-      )}
-      {failed ? (
-        <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-1 bg-destructive px-1.5 py-0.5 text-xs text-white">
-          <span className="truncate" role="alert">
+    <Attachment size="sm" state={failed ? 'error' : 'uploading'} className="max-w-60">
+      <AttachmentMedia variant={item.preview ? 'image' : 'icon'}>
+        {item.preview ? <img src={item.preview} alt={item.file.name} /> : item.file.type.startsWith('video/') ? <Film /> : <FileIcon />}
+      </AttachmentMedia>
+      <AttachmentContent>
+        <AttachmentTitle>{item.file.name}</AttachmentTitle>
+        {failed ? (
+          <AttachmentDescription role="alert">
             {t(item.error === 'tooLarge' ? 'tasks.attachTooLarge' : 'tasks.attachFailed', { size: MAX_UPLOAD_BYTES / (1024 * 1024) })}
-          </span>
-          {item.error !== 'tooLarge' && (
-            <button type="button" onClick={onRetry} className="shrink-0 rounded p-0.5 hover:bg-white/20" aria-label={t('common.retry')} title={t('common.retry')}>
-              <RotateCw className="size-3" />
-            </button>
-          )}
-        </div>
-      ) : (
-        <div className="absolute inset-x-0 bottom-0" role="progressbar" aria-label={item.file.name}
-          aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined}>
-          <div className="mx-1 mb-0.5 text-right text-xs font-medium tabular-nums text-foreground">
-            {percent === null ? t('tasks.attachUploading') : `${percent}%`}
-          </div>
-          <div className="h-1 bg-foreground/10">
-            <div className={cn('h-full bg-primary transition-[width]', percent === null && 'w-1/3 animate-pulse')}
-              style={percent === null ? undefined : { width: `${percent}%` }} />
-          </div>
-        </div>
-      )}
-      <button
-        type="button"
-        onClick={onRemove}
-        className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/60 text-background"
-        aria-label={t(failed ? 'common.remove' : 'tasks.attachCancel', { name: item.file.name })}
-        title={t(failed ? 'common.remove' : 'tasks.attachCancel', { name: item.file.name })}
-      >
-        <X className="size-3" />
-      </button>
-    </div>
+          </AttachmentDescription>
+        ) : (
+          <>
+            <AttachmentDescription className="tabular-nums">{percent === null ? t('tasks.attachUploading') : `${percent}%`}</AttachmentDescription>
+            <Progress value={percent} aria-label={item.file.name} className="mt-1" />
+          </>
+        )}
+      </AttachmentContent>
+      <AttachmentActions>
+        {failed && item.error !== 'tooLarge' && (
+          <WithTooltip label={t('common.retry')}><AttachmentAction onClick={onRetry} aria-label={t('common.retry')}>
+                <RotateCw />
+              </AttachmentAction></WithTooltip>
+        )}
+        <RemoveAction label={t(failed ? 'common.remove' : 'tasks.attachCancel', { name: item.file.name })} onClick={onRemove} />
+      </AttachmentActions>
+    </Attachment>
   );
 }
 
@@ -158,10 +160,10 @@ export function AttachmentPicker({
       }}
     >
       {!compact && (
-        <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
-          <Paperclip className="size-3.5" />
+        <div className="flex items-center gap-1.5 text-sm leading-snug font-medium">
+          <Paperclip className="size-3.5 text-muted-foreground" />
           {t('tasks.fieldAttachments')}
-          <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
+          <span className="font-normal text-muted-foreground">({t('common.optional')})</span>
         </div>
       )}
 
@@ -171,28 +173,19 @@ export function AttachmentPicker({
             const f = resolve(id);
             const isImage = f?.contentType.startsWith('image/');
             return (
-              <div key={id} className="group relative overflow-hidden rounded-lg border bg-muted">
-                {isImage && f ? (
-                  <AuthenticatedImage fileId={f.id} alt={f.filename} className="h-16 w-auto max-w-36 object-cover" />
-                ) : (
-                  <div className="flex h-16 w-24 flex-col items-center justify-center gap-1 px-2">
-                    {f?.contentType.startsWith('video/') ? <Film className="size-4 text-muted-foreground" /> : <FileIcon className="size-4 text-muted-foreground" />}
-                    <span className="w-full truncate text-center text-xs text-muted-foreground">
-                      {f?.filename ?? t('tasks.attachedFile')}
-                    </span>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => remove(id)}
-                  className="absolute top-0.5 right-0.5 flex size-5 items-center justify-center rounded-full bg-foreground/60 text-background opacity-100 transition-opacity focus-visible:opacity-100 sm:opacity-0 sm:group-hover:opacity-100"
-                  title={t('common.remove')}
-                  aria-label={t('common.remove')}
-                >
-                  <X className="size-3" />
-                </button>
-              </div>
+              <Attachment key={id} size="sm" className="max-w-60">
+                <AttachmentMedia variant={isImage && f ? 'image' : 'icon'}>
+                  {isImage && f
+                    ? <AuthenticatedImage fileId={f.id} alt={f.filename} />
+                    : f?.contentType.startsWith('video/') ? <Film /> : <FileIcon />}
+                </AttachmentMedia>
+                <AttachmentContent>
+                  <AttachmentTitle>{f?.filename ?? t('tasks.attachedFile')}</AttachmentTitle>
+                </AttachmentContent>
+                <AttachmentActions>
+                  <RemoveAction label={t('common.remove')} disabled={disabled} onClick={() => remove(id)} />
+                </AttachmentActions>
+              </Attachment>
             );
           })}
           {uploads.items.map((item) => (

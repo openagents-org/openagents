@@ -1,6 +1,7 @@
 'use client';
 
 import { ApprovalCard } from '@/components/chat/approval-card';
+import { Badge } from '@/components/ui/badge';
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useT } from '@/lib/i18n';
@@ -73,8 +74,9 @@ export function NotificationSection({
 
   return (
     <section className="flex flex-col gap-2">
-      <h3 className="px-1 text-xs font-medium tracking-wider text-muted-foreground uppercase">
-        {title} ({items.length})
+      <h3 className="flex items-center gap-2 px-1 text-sm font-medium">
+        {title}
+        <Badge variant="secondary" className="tabular-nums">{items.length}</Badge>
       </h3>
       <Card className="gap-0 divide-y py-0">
         {items.map((n) => {

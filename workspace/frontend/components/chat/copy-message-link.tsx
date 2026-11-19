@@ -8,6 +8,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { messageLink } from '@/lib/thread-link';
 import { shareOrigin } from '@/lib/share-origin';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export function CopyMessageLink({ messageId }: { messageId: string }) {
   const { workspace, currentSessionId } = useWorkspace();
@@ -25,5 +26,5 @@ export function CopyMessageLink({ messageId }: { messageId: string }) {
     } catch { toast.error(t('reactions.linkFailed')); }
     finally { setBusy(false); }
   };
-  return <Button variant="ghost" size="icon-xs" className="text-muted-foreground" disabled={busy} title={t('reactions.copyLink')} aria-label={t('reactions.copyLink')} onClick={() => void copy()} onBlur={() => setCopied(false)}>{copied ? <Check /> : <Link />}</Button>;
+  return <WithTooltip label={t('reactions.copyLink')}><Button variant="ghost" size="icon-xs" className="text-muted-foreground" disabled={busy} aria-label={t('reactions.copyLink')} onClick={() => void copy()} onBlur={() => setCopied(false)}>{copied ? <Check /> : <Link />}</Button></WithTooltip>;
 }

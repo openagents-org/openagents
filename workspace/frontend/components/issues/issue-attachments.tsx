@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { Paperclip } from 'lucide-react';
+import { Attachment, AttachmentContent, AttachmentMedia, AttachmentTitle, AttachmentTrigger } from '@/components/ui/attachment';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 import { AuthenticatedImage } from '@/components/files/authenticated-image';
@@ -42,19 +43,23 @@ export function IssueAttachments({ files, workspaceId }: {
       const name = file.filename.split(/[\\/]/).pop() || file.filename;
       const image = isImage(file, name);
       const previewable = image || isVideo(file, name);
-      const cardClass ="group min-w-0 overflow-hidden rounded-lg border bg-background transition-colors hover:border-primary/40 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-      const content = <>
-        {image && <div className="flex aspect-[4/3] items-center justify-center overflow-hidden border-b bg-muted/30 p-1.5">
-          <AuthenticatedImage fileId={file.file_id} alt={name} loading="lazy" className="size-full object-contain" />
-        </div>}
-        <div className="flex min-w-0 items-center gap-2 px-3 py-2 text-xs">
-          <Paperclip className="size-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{name}</span>
-        </div>
-      </>;
-      return previewable
-        ? <button key={file.file_id} type="button" title={file.filename} className={cn(cardClass, 'text-left', image && 'cursor-zoom-in')} onClick={() => setPreviewId(file.file_id)}>{content}</button>
-        : <a key={file.file_id} href={resourcePath(workspaceId, 'files', file.file_id)} title={file.filename} className={cardClass}>{content}</a>;
+      return <Attachment key={file.file_id} size="sm" orientation={image ? 'vertical' : 'horizontal'} className="w-full min-w-0 has-data-[slot=attachment-content]:w-full">
+        {previewable
+          ? <AttachmentTrigger aria-label={file.filename} className={cn(image && 'cursor-zoom-in')} onClick={() => setPreviewId(file.file_id)} />
+          : <AttachmentTrigger asChild><a href={resourcePath(workspaceId, 'files', file.file_id)} aria-label={file.filename} /></AttachmentTrigger>}
+        {/* Images keep the 4:3 frame and are shown whole (contain), not
+            cropped to the primitive's square cover: a screenshot attached to
+            an issue is only useful if nothing is cut off. */}
+        <AttachmentMedia
+          variant={image ? 'image' : 'icon'}
+          className={cn(image && 'aspect-4/3 bg-muted/30 p-1.5 *:[img]:aspect-auto *:[img]:size-full *:[img]:object-contain')}
+        >
+          {image ? <AuthenticatedImage fileId={file.file_id} alt={name} loading="lazy" /> : <Paperclip />}
+        </AttachmentMedia>
+        <AttachmentContent>
+          <AttachmentTitle>{name}</AttachmentTitle>
+        </AttachmentContent>
+      </Attachment>;
     })}
   </div>
     <Dialog open={!!preview} onOpenChange={open => { if (!open) setPreviewId(null); }}>

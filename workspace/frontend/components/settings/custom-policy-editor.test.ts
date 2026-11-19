@@ -12,6 +12,16 @@ vi.mock('@/components/settings/admin-context', () => ({
   canAdminister: () => state.editable,
 }));
 vi.mock('@/lib/api', () => ({ workspaceApi: { listApprovals: vi.fn(), getApprovalPolicy: vi.fn(), updateApprovalPolicy: vi.fn(), getTeam: vi.fn(), resolveApproval: vi.fn() } }));
+// Radix Select only opens through pointer events jsdom lacks; a native select
+// stands in so the tests can pick values. `name` carries the field's id suffix.
+vi.mock('@/components/ui/select', () => ({
+  Select: ({ name, value, disabled, onValueChange, children }: { name?: string; value: string; disabled?: boolean; onValueChange: (v: string) => void; children: React.ReactNode }) =>
+    React.createElement('select', { name, value, disabled, onChange: (e: React.ChangeEvent<HTMLSelectElement>) => onValueChange(e.target.value) }, children),
+  SelectTrigger: () => null, SelectValue: () => null,
+  SelectContent: ({ children }: { children: React.ReactNode }) => children,
+  SelectGroup: ({ children }: { children: React.ReactNode }) => children,
+  SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => React.createElement('option', { value }, children),
+}));
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 let root: Root;
@@ -41,7 +51,7 @@ it('adds a template, edits the requirement, saves and removes it', async () => {
   await render();
   await act(async () => button('approvals.template.production.title').click());
   expect(document.querySelector('textarea')?.value).toBe('approvals.template.production.description');
-  const select = document.querySelector('select[id$="-policy"]') as HTMLSelectElement;
+  const select = document.querySelector('select[name$="-policy"]') as HTMLSelectElement;
   await act(async () => { select.value = 'owner'; select.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => button('common.save').click());
   const saved = vi.mocked(workspaceApi.updateApprovalPolicy).mock.calls[0][0];
@@ -93,18 +103,18 @@ it('selects a specific member and preserves the choice through saving and tab sw
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(textarea, 'Deploy production');
     textarea.dispatchEvent(new Event('input', { bubbles: true }));
-    const select = document.querySelector('select[id$="-policy"]') as HTMLSelectElement;
+    const select = document.querySelector('select[name$="-policy"]') as HTMLSelectElement;
     select.value = 'member'; select.dispatchEvent(new Event('change', { bubbles: true }));
   });
   expect(button('common.save').disabled).toBe(true);
-  const member = document.querySelector('select[id$="-member"]') as HTMLSelectElement;
+  const member = document.querySelector('select[name$="-member"]') as HTMLSelectElement;
   expect(member.textContent).toContain('Sam');
   expect(member.textContent).not.toContain('Viewer');
   await act(async () => { member.value = 'sam@example.com'; member.dispatchEvent(new Event('change', { bubbles: true })); });
   await act(async () => (document.querySelector('[role="tab"][id$="pending"]') as HTMLButtonElement).focus());
   expect(document.querySelector('textarea')).toBeNull();
   await act(async () => (document.querySelector('[role="tab"][id$="policy"]') as HTMLButtonElement).focus());
-  expect((document.querySelector('select[id$="-member"]') as HTMLSelectElement).value).toBe('sam@example.com');
+  expect((document.querySelector('select[name$="-member"]') as HTMLSelectElement).value).toBe('sam@example.com');
   await act(async () => button('common.save').click());
   expect(workspaceApi.updateApprovalPolicy).toHaveBeenCalledWith([expect.objectContaining({ policy: 'member', approver_email: 'sam@example.com' })]);
 });

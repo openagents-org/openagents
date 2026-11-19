@@ -76,11 +76,15 @@ vi.mock('@/components/ui/select', async () => {
   };
 });
 
+// The profile opens as a sheet, which portals out of the render container,
+// so queries look at the whole document.
 let root: Root;
 let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // jsdom has no ResizeObserver; Radix measures with it once the sheet opens.
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   vi.clearAllMocks();
   api.getAgentCatalogDetail.mockReset();
   api.listNodes.mockReset().mockResolvedValue([]);
@@ -109,7 +113,7 @@ describe('agent model settings', () => {
   it('opens the agent direct message instead of creating a thread', async () => {
     api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [] });
     await renderPanel();
-    const button = Array.from(container.querySelectorAll('button'))
+    const button = Array.from(document.body.querySelectorAll('button'))
       .find((item) => item.textContent === 'agents.directMessage');
     expect(button).toBeDefined();
     await act(async () => button?.click());
@@ -124,8 +128,8 @@ describe('agent model settings', () => {
 
     await renderPanel();
 
-    expect(container.textContent).toContain('agents.fieldModel');
-    expect(container.textContent).toContain('catalog unavailable');
+    expect(document.body.textContent).toContain('agents.fieldModel');
+    expect(document.body.textContent).toContain('catalog unavailable');
   });
 
   it('offers manual model entry when the catalog has no usable models', async () => {
@@ -135,7 +139,7 @@ describe('agent model settings', () => {
 
     await renderPanel();
 
-    expect(container.querySelector('input[aria-label="agents.fieldModel"]')).not.toBeNull();
+    expect(document.body.querySelector('input[aria-label="agents.fieldModel"]')).not.toBeNull();
   });
 
   it('retries catalog loading after an error', async () => {
@@ -149,7 +153,7 @@ describe('agent model settings', () => {
       });
 
     await renderPanel();
-    const retry = Array.from(container.querySelectorAll('button'))
+    const retry = Array.from(document.body.querySelectorAll('button'))
       .find((button) => button.textContent === 'agents.modelRetry');
     expect(retry).toBeDefined();
 
@@ -159,7 +163,7 @@ describe('agent model settings', () => {
     });
 
     expect(api.getAgentCatalogDetail).toHaveBeenCalledTimes(2);
-    expect(container.textContent).not.toContain('catalog unavailable');
+    expect(document.body.textContent).not.toContain('catalog unavailable');
   });
 
   const catalog = {
@@ -172,7 +176,7 @@ describe('agent model settings', () => {
     nodeId: 'n1',
     agents: [{ name: 'codex-demo-key', type: 'codex', status: 'running', ...agent }],
   }];
-  const options = () => Array.from(container.querySelectorAll('[data-option]'))
+  const options = () => Array.from(document.body.querySelectorAll('[data-option]'))
     .map((el) => el.getAttribute('data-option'));
 
   it('offers a signed-in agent the models its own CLI lists for the account', async () => {
@@ -185,8 +189,8 @@ describe('agent model settings', () => {
     await renderPanel();
 
     expect(options()).toEqual(['__default__', 'gpt-6-astra', 'gpt-5.5']);
-    expect(container.textContent).toContain('GPT-6-Astra');
-    expect(container.textContent).toContain('agents.modelAccountHint');
+    expect(document.body.textContent).toContain('GPT-6-Astra');
+    expect(document.body.textContent).toContain('agents.modelAccountHint');
   });
 
   it('keeps the catalog list when the node reports none for the agent', async () => {
@@ -198,7 +202,7 @@ describe('agent model settings', () => {
     await renderPanel();
 
     expect(options()).toEqual(['__default__', 'gpt-catalog']);
-    expect(container.textContent).not.toContain('agents.modelAccountHint');
+    expect(document.body.textContent).not.toContain('agents.modelAccountHint');
   });
 });
 
@@ -208,9 +212,9 @@ describe('agent working folder', () => {
     await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
     await act(async () => { await Promise.resolve(); });
 
-    expect(container.textContent).toContain('C:\\Users\\tester');
-    expect(container.textContent).toContain('agents.workdirDevice');
-    const edit = Array.from(container.querySelectorAll('button'))
+    expect(document.body.textContent).toContain('C:\\Users\\tester');
+    expect(document.body.textContent).toContain('agents.workdirDevice');
+    const edit = Array.from(document.body.querySelectorAll('button'))
       .find((button) => button.textContent === 'agents.workdirEdit');
     expect(edit).toBeDefined();
     await act(async () => { edit?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
@@ -224,8 +228,8 @@ describe('agent working folder', () => {
     await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
     await act(async () => { await Promise.resolve(); });
 
-    expect(container.textContent).toContain('C:\\Users\\tester');
-    const edit = Array.from(container.querySelectorAll('button'))
+    expect(document.body.textContent).toContain('C:\\Users\\tester');
+    const edit = Array.from(document.body.querySelectorAll('button'))
       .find((button) => button.textContent === 'agents.workdirEdit');
     expect(edit).toBeUndefined();
   });

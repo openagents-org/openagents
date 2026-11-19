@@ -1,5 +1,6 @@
 import { addressName, dmCounterpart } from '@/lib/dm';
 import type { MessageKey } from '@/lib/i18n';
+import { UNREAD_COUNT_CLASS } from '@/components/ui/unread-badge';
 
 // ── DM helpers ──
 
@@ -70,7 +71,6 @@ export const ROW_BASE =
 export const ROW_SELECTED = 'rounded-md border-transparent bg-accent ring-1 ring-inset ring-foreground/20';
 export const ROW_IDLE = 'hover:bg-muted/50 has-data-[state=open]:bg-muted/50';
 
-/** Unread-count pills share the nav rail's unread accent (DmUnreadBadge): neutral ink, "something new". */
-export const UNREAD_ACCENT = 'bg-primary text-primary-foreground';
-/** The "@" pill asks for the viewer's attention, so it takes the nav rail's red count colour. */
-export const MENTION_ACCENT = 'bg-destructive text-white';
+/** Unread-count and "@" pills use the app-wide solid red unread count (UnreadBadge). */
+export const UNREAD_ACCENT = UNREAD_COUNT_CLASS;
+export const MENTION_ACCENT = UNREAD_COUNT_CLASS;

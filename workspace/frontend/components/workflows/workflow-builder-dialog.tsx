@@ -112,33 +112,38 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
           <FieldGroup className="gap-4">
             {/* Meta */}
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('workflows.namePlaceholder')}
-                aria-label={t('workflows.namePlaceholder')}
-                autoFocus
-                className="flex-1"
-              />
-              <Field orientation="horizontal" className="w-auto shrink-0">
-                <FieldLabel htmlFor="workflow-max-iterations" className="text-xs whitespace-nowrap text-muted-foreground">
+              <Field className="flex-1">
+                <FieldLabel htmlFor="workflow-name">{t('workflows.namePlaceholder')}</FieldLabel>
+                <Input
+                  id="workflow-name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder={t('workflows.namePlaceholder')}
+                  autoFocus
+                />
+              </Field>
+              <Field className="w-auto shrink-0">
+                <FieldLabel htmlFor="workflow-max-iterations" className="whitespace-nowrap">
                   {t('workflows.maxIterations')}
                 </FieldLabel>
                 <Input
                   id="workflow-max-iterations"
                   type="number" min={1} max={50} value={maxIterations}
                   onChange={(e) => setMaxIterations(Math.max(1, Math.min(50, Number(e.target.value) || 1)))}
-                  className="w-16"
+                  className="w-24"
                 />
               </Field>
             </div>
-            <Textarea
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t('workflows.descriptionPlaceholder')}
-              aria-label={t('workflows.descriptionPlaceholder')}
-              rows={2}
-            />
+            <Field>
+              <FieldLabel htmlFor="workflow-description">{t('workflows.description')}</FieldLabel>
+              <Textarea
+                id="workflow-description"
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                placeholder={t('workflows.descriptionPlaceholder')}
+                rows={2}
+              />
+            </Field>
 
             <WorkflowStepCanvas steps={steps} selectedId={selectedId} onSelect={setSelectedId} onAdd={addStep} />
 

@@ -5,10 +5,13 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { agentLabel } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 import type { WorkspaceIssue } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
+import { UnreadBadge } from '@/components/ui/unread-badge';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { IssueLabel } from './issue-label';
 import { IssueAvatar, StatusIcon, authorName, statusKeys, useIssueTime } from './issue-ui';
 
@@ -75,13 +78,7 @@ export function IssueRow({ issue, asCard = false, isSelected, unread, copied, de
               {issue.title}
             </span>
             {!!unread && (
-              <span
-                aria-label={t('issues.unreadUpdates', { count: unread })}
-                title={t('issues.unreadUpdates', { count: unread })}
-                className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-destructive-foreground tabular-nums"
-              >
-                {unread > 99 ? '99+' : unread}
-              </span>
+              <UnreadBadge count={unread} aria-label={t('issues.unreadUpdates', { count: unread })} />
             )}
             {!!issue.labels?.length && <span className="flex max-w-full flex-wrap gap-1.5">{issue.labels.map(label => <IssueLabel key={label} label={label} />)}</span>}
           </div>
@@ -118,28 +115,26 @@ export function IssueRow({ issue, asCard = false, isSelected, unread, copied, de
       </div>
     </button>
     <div className={cn('absolute bottom-3 flex items-center gap-1', asCard ? 'right-3' : 'right-4 sm:right-7')}>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        aria-label={t('issues.copyIssueLink', { title: issue.title })}
-        title={t('issues.copyLink')}
-        onClick={onCopyLink}
-        className="text-muted-foreground"
-      >
-        {copied ? <Check /> : <Link2 />}
-      </Button>
+      <WithTooltip label={t('issues.copyLink')}><Button
+            variant="ghost"
+            size="icon-xs"
+            aria-label={t('issues.copyIssueLink', { title: issue.title })}
+            onClick={onCopyLink}
+            className="text-muted-foreground"
+          >
+            {copied ? <Check /> : <Link2 />}
+          </Button></WithTooltip>
       {issue.can_delete && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('issues.deleteIssue', { title: issue.title })}
-          title={t('common.delete')}
-          disabled={deleting}
-          onClick={onDelete}
-          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Trash2 />
-        </Button>
+        <WithTooltip label={t('common.delete')}><Button
+              variant="ghost"
+              size="icon-xs"
+              className={destructiveIconClass}
+              aria-label={t('issues.deleteIssue', { title: issue.title })}
+              disabled={deleting}
+              onClick={onDelete}
+            >
+              <Trash2 />
+            </Button></WithTooltip>
       )}
     </div>
   </div>;

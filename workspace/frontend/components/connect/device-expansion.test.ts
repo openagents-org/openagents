@@ -83,6 +83,11 @@ function summary(name: string) {
   return [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')]
     .find((button) => button.textContent?.includes(name))!;
 }
+/** Radix tabs switch on mousedown, not click. */
+function selectTab(text: string) {
+  button(text).dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 }));
+}
+
 function button(text: string) {
   return [...container.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent === text)!;
 }
@@ -151,10 +156,10 @@ it('keeps both connection tabs and the same guided local setup on first run and 
   expect(button('connect.tabNode')).toBeDefined();
   expect(button('connect.tabCloud')).toBeDefined();
   expect(container.textContent).not.toContain('connect.nodeEmptyTitle');
-  await act(async () => button('connect.tabCloud').click());
+  await act(async () => selectTab('connect.tabCloud'));
   expect(container.querySelector('[data-testid="guided-pairing"]')).toBeNull();
   expect(button('connect.tabNode')).toBeDefined();
-  await act(async () => button('connect.tabNode').click());
+  await act(async () => selectTab('connect.tabNode'));
   expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
   expect(api.createPairingCode).toHaveBeenCalledTimes(1);
   // Reopening from Threads mounts the ordinary Connect Agent view, without autoPair.
@@ -224,14 +229,14 @@ it('places the banner above both connection tabs without the redundant title bar
   fixture.needsFirstDevice = true;
   await render([]);
   const heading = container.querySelector('h1')!;
-  const tabs = container.querySelector('[role="group"][aria-label="connect.title"]')!;
+  const tabs = container.querySelector('[role="tablist"][aria-label="connect.title"]')!;
   expect(heading.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   expect(container.querySelector('header')).toBeNull();
-  await act(async () => button('connect.tabCloud').click());
+  await act(async () => selectTab('connect.tabCloud'));
   expect(container.querySelector('h1')).not.toBeNull();
   expect(button('connect.tabNode')).toBeDefined();
   await act(async () => button('Banner setup').click());
-  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  expect(button('connect.tabNode').getAttribute('aria-selected')).toBe('true');
   expect(container.querySelector('[data-testid="guided-pairing"]')).not.toBeNull();
 });
 
@@ -260,13 +265,13 @@ it('applies a new Yumi location choice without replaying the old choice when a c
   const renderCached = (visible: boolean) => root.render(React.createElement(React.Activity, { mode: visible ? 'visible' : 'hidden', children: React.createElement(ConnectAgentView) }));
   await act(async () => renderCached(true));
   expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('desktop');
-  await act(async () => button('connect.tabCloud').click());
+  await act(async () => selectTab('connect.tabCloud'));
   await act(async () => renderCached(false));
   await act(async () => renderCached(true));
-  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  expect(button('connect.tabCloud').getAttribute('aria-selected')).toBe('true');
   fixture.connectSetupRequest = { method: 'terminal' };
   await act(async () => renderCached(true));
-  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
+  expect(button('connect.tabNode').getAttribute('aria-selected')).toBe('true');
   expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('terminal');
 });
 
@@ -277,9 +282,9 @@ it('lets desktop users reach Cloud Agents and its hosted agents', async () => {
   };
   api.getCloudProviders.mockResolvedValue([{ name: 'perplexity', label: 'Perplexity', models: [], requiresBaseUrl: false }]);
   await render([device('existing')]);
-  expect(button('connect.tabNode').getAttribute('aria-pressed')).toBe('true');
-  await act(async () => button('connect.tabCloud').click());
-  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  expect(button('connect.tabNode').getAttribute('aria-selected')).toBe('true');
+  await act(async () => selectTab('connect.tabCloud'));
+  expect(button('connect.tabCloud').getAttribute('aria-selected')).toBe('true');
   expect(container.textContent).toContain('connect.cloudMarketplaceTitle');
   expect(api.getHostedProviders).toHaveBeenCalled();
 });
@@ -287,6 +292,6 @@ it('lets desktop users reach Cloud Agents and its hosted agents', async () => {
 it('opens on Cloud Agents when asked to', async () => {
   fixture.cloudAgentsPending = true;
   await render([device('existing')]);
-  expect(button('connect.tabCloud').getAttribute('aria-pressed')).toBe('true');
+  expect(button('connect.tabCloud').getAttribute('aria-selected')).toBe('true');
   expect(fixture.consumeCloudAgents).toHaveBeenCalled();
 });

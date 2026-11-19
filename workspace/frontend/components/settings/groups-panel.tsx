@@ -7,14 +7,17 @@
 // are admin-only; everyone else sees the lists.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, UsersRound } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { useConfirm, usePrompt } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/input';
+import { ItemGroup } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
 import { invalidateGranteeCandidates } from '@/components/sharing/grantee-picker';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListError, ListLoading } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import { displayNameFromEmail } from '@/lib/collab';
 import { useT } from '@/lib/i18n';
@@ -123,41 +126,39 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
     }
   };
 
+  const derived = !!selected && (selected.kind !== 'custom' || selected.builtin);
+
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-0.5">
-        <p className="text-sm">{t('groups.title')}</p>
-        <p className="text-xs text-muted-foreground">{t('groups.description')}</p>
-        {!editable && <p className="text-xs text-muted-foreground">{t('groups.adminOnly')}</p>}
-      </div>
-
-      {editable && (
-        <div className="flex items-center gap-2">
-          <Input
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            placeholder={t('groups.createPlaceholder')}
-            onKeyDown={(e) => { if (e.key === 'Enter') create(); }}
-            maxLength={80}
-            className="flex-1"
-          />
-          <Button onClick={create} disabled={creating || !newName.trim()}>
-            {creating ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
-            {t('groups.create')}
-          </Button>
-        </div>
-      )}
-
-      {groups === null ? (
-        <div className="flex items-center justify-center py-8">
-          <Spinner className="size-5 text-muted-foreground" />
-        </div>
-      ) : loadFailed ? (
-        <p className="py-3 text-sm text-destructive">{t('groups.loadFailed')}</p>
-      ) : (
-        <div className="grid gap-4 md:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
-          {/* ── Group list ── */}
-          <Card className="gap-0 divide-y py-0">
+    <div className="grid gap-6 md:grid-cols-5">
+      {/* ── Group list ── */}
+      <SettingsCard
+        className="md:col-span-2"
+        title={t('groups.title')}
+        description={editable ? t('groups.description') : <>{t('groups.description')} {t('groups.adminOnly')}</>}
+      >
+        {editable && (
+          <div className="flex items-center gap-2">
+            <Input
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder={t('groups.createPlaceholder')}
+              aria-label={t('groups.createPlaceholder')}
+              onKeyDown={(e) => { if (e.key === 'Enter') create(); }}
+              maxLength={80}
+              className="flex-1"
+            />
+            <Button onClick={create} disabled={creating || !newName.trim()}>
+              {creating ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
+              {t('groups.create')}
+            </Button>
+          </div>
+        )}
+        {groups === null ? (
+          <ListLoading />
+        ) : loadFailed ? (
+          <ListError>{t('groups.loadFailed')}</ListError>
+        ) : (
+          <ItemGroup className="gap-1 has-data-[size=sm]:gap-1">
             {groups.map((g) => (
               <GroupListItem
                 key={g.id}
@@ -172,27 +173,34 @@ export function GroupsPanel({ editable, members }: { editable: boolean; members:
               />
             ))}
             {groups.every((g) => g.kind !== 'custom') && (
-              <p className="px-3 py-2.5 text-xs text-muted-foreground">{t('groups.noGroups')}</p>
+              <p className="px-3 py-2 text-xs text-muted-foreground">{t('groups.noGroups')}</p>
             )}
-          </Card>
+          </ItemGroup>
+        )}
+      </SettingsCard>
 
-          {/* ── Members of the selected group ── */}
-          <Card size="sm"><CardContent>
-            {!selected ? (
-              <p className="py-6 text-center text-sm text-muted-foreground">{t('groups.selectGroupHint')}</p>
-            ) : (
-              <GroupMembers
-                key={selected.id}
-                group={selected}
-                title={t('groups.membersTitle', { name: groupName(selected) })}
-                editable={editable && selected.kind === 'custom' && !selected.builtin}
-                derived={selected.kind !== 'custom' || selected.builtin}
-                memberName={memberName}
-                onChanged={load}
-              />
-            )}
-          </CardContent></Card>
-        </div>
+      {/* ── Members of the selected group ── */}
+      {selected ? (
+        <SettingsCard
+          className="md:col-span-3"
+          title={t('groups.membersTitle', { name: groupName(selected) })}
+          description={derived && t('groups.derivedMembership')}
+        >
+          <GroupMembers
+            key={selected.id}
+            group={selected}
+            editable={editable && !derived}
+            derived={derived}
+            memberName={memberName}
+            onChanged={load}
+          />
+        </SettingsCard>
+      ) : (
+        <Card className="md:col-span-3">
+          <CardContent>
+            <ListEmpty icon={<UsersRound />}>{t('groups.selectGroupHint')}</ListEmpty>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

@@ -8,6 +8,10 @@ import { useT } from "@/lib/i18n"
 import { DmAvatars } from "@/components/chat/dm-avatars"
 import { ThreadParticipantCount } from "@/components/chat/thread-participant-count"
 import { ForkTag } from "@/components/chat/fork-thread"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { WithTooltip } from "@/components/ui/with-tooltip"
 
 /** Editable thread title — click to rename, Enter/blur to commit. */
 export function ThreadTitle() {
@@ -40,9 +44,9 @@ export function ThreadTitle() {
         <DmAvatars addresses={counterpart ? [counterpart] : pair} />
         {title}
         {!hasHuman && (
-          <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+          <Badge variant="secondary" className="shrink-0">
             {t("header.readOnly")}
-          </span>
+          </Badge>
         )}
       </h3>
     )
@@ -64,7 +68,7 @@ export function ThreadTitle() {
 
   if (editing) {
     return (
-      <input
+      <Input
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -73,7 +77,8 @@ export function ThreadTitle() {
           if (e.key === "Enter") commit()
           if (e.key === "Escape") setEditing(false)
         }}
-        className="w-0 min-w-0 flex-1 border-b border-primary bg-transparent text-sm font-semibold outline-none"
+        aria-label={t("threads.renameTitle")}
+        className="h-8 w-0 min-w-0 flex-1 font-semibold"
         autoFocus
       />
     )
@@ -82,12 +87,12 @@ export function ThreadTitle() {
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
       {session?.isChannel && <Hash className="size-3.5 shrink-0 text-muted-foreground" aria-label={t("threads.channel")} />}
-      <h3
-        onClick={startEditing}
-        title={t("header.clickToRename")}
-        className="min-w-0 cursor-pointer truncate text-base font-medium text-foreground transition-colors hover:text-muted-foreground"
-      >
-        {session?.title || t("header.untitledThread")}
+      <h3 className="flex min-w-0">
+        <WithTooltip label={t("header.clickToRename")}>
+          <Button variant="ghost" size="sm" onClick={startEditing} className="-mx-1 min-w-0 shrink px-1 text-base font-medium">
+            <span className="truncate">{session?.title || t("header.untitledThread")}</span>
+          </Button>
+        </WithTooltip>
       </h3>
       {session?.forkedFrom && <ForkTag forkedFrom={session.forkedFrom} />}
       {currentSessionId && <ThreadParticipantCount channelName={currentSessionId} />}

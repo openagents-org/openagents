@@ -12,6 +12,7 @@ import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceSkillVersion } from '@/lib/types';
 import { useSkillActionLock } from './skill-action-lock';
+import { SkillFileField } from './skill-file-field';
 import { extractErrorMessage } from './skill-utils';
 import { SkillVersionTimeline } from './skill-version-timeline';
 
@@ -82,21 +83,14 @@ export function PrivateSkillVersions({
 
       <Card size="sm">
         <CardHeader>
-          <CardTitle className="text-xs tracking-wider text-muted-foreground uppercase">{t('skills.newVersionTitle')}</CardTitle>
-          <CardDescription className="text-xs">{t('skills.newVersionHint')}</CardDescription>
+          <CardTitle>{t('skills.newVersionTitle')}</CardTitle>
+          <CardDescription>{t('skills.newVersionHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           <FieldGroup className="gap-3">
             <Field>
               <FieldLabel htmlFor="skill-new-version-file" className="sr-only">{t('skills.newVersionTitle')}</FieldLabel>
-              <Input
-                key={fileInputKey}
-                id="skill-new-version-file"
-                type="file"
-                accept=".md,.zip"
-                onChange={event => setFile(event.target.files?.[0] || null)}
-                className="text-xs"
-              />
+              <SkillFileField key={fileInputKey} id="skill-new-version-file" file={file} onChange={setFile} />
             </Field>
             <Field>
               <FieldLabel htmlFor="skill-new-version-changelog" className="sr-only">{t('skills.publishChangelogLabel')}</FieldLabel>

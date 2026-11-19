@@ -15,6 +15,8 @@ import { MessageAttachments, type MessageAttachment } from './message-attachment
 import { MessageAudience } from './message-audience';
 import { MessageReactions } from './message-reactions';
 import { ReplyCitation, type ReplyCitationData } from './reply-citation';
+import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -66,11 +68,12 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
       <MessageContent className="gap-0.5">
         <MessageHeader className="flex-wrap items-baseline gap-x-2 gap-y-1">
           {onMentionPerson && mentionEmail ? (
-            <button type="button" onClick={() => onMentionPerson(mentionEmail.toLowerCase())}
-              className="cursor-pointer text-sm font-semibold text-foreground hover:underline focus-visible:underline"
-              title={t('peopleMessaging.mentionName', { name: displayName })}>
-              {displayName}
-            </button>
+            <WithTooltip label={t('peopleMessaging.mentionName', { name: displayName })}>
+              <Button variant="link" onClick={() => onMentionPerson(mentionEmail.toLowerCase())}
+                className="h-auto p-0 text-sm font-semibold text-foreground">
+                {displayName}
+              </Button>
+            </WithTooltip>
           ) : <span className="text-sm font-semibold text-foreground">{displayName}</span>}
           {timestamp && <span className="font-normal">{timestamp}</span>}
           {/* v1.1 M5 — information vs execution in directed threads */}

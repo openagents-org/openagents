@@ -41,6 +41,17 @@
         "en": "A refreshed workspace sidebar and title bar",
         "zh": "工作区侧栏与标题栏焕新"
       }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "A consistent look across workspace pages",
+        "zh": "工作区各页面风格统一"
+      },
+      "description": {
+        "en": "Settings, files, knowledge, issues and other pages now share the same cards, lists and controls. Unread counts are shown in red throughout, and the sidebar footer shows your account with search above it.",
+        "zh": "设置、文件、知识库、议题等页面统一采用相同的卡片、列表与控件；未读数统一以红色标示，侧栏底部显示当前账户，搜索位于其上方。"
+      }
     }
   ]
 }

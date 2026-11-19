@@ -1,8 +1,9 @@
 'use client';
 
-import { Waypoints } from 'lucide-react';
+import { RotateCcw, Waypoints } from 'lucide-react';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Item, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import type { TemplateStarter } from './workflow-templates';
 
@@ -33,7 +34,7 @@ export function WorkflowsEmpty({
                 <ItemContent className="gap-1">
                   <ItemTitle className="text-xs">
                     {tpl.name}
-                    {loop && <span className="text-warning" title={t('workflows.gateEnable')}>↺</span>}
+                    {loop && <WithTooltip label={t('workflows.gateEnable')}><span role="img" aria-label={t('workflows.gateEnable')} className="inline-flex text-warning"><RotateCcw className="size-3" /></span></WithTooltip>}
                   </ItemTitle>
                   <ItemDescription className="text-xs">{tpl.description}</ItemDescription>
                   <p className="text-left text-xs text-muted-foreground/70">{tpl.steps.map((s) => s.name).join(' → ')}</p>

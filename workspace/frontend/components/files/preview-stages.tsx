@@ -100,7 +100,7 @@ export function MarkdownEditStage({
         className="h-full min-w-0 flex-1 resize-none bg-transparent p-5 font-mono text-sm leading-6 text-foreground outline-none"
       />
       <div className="hidden h-full min-w-0 flex-1 overflow-auto border-l lg:block">
-        <p className="px-5 pt-4 text-xs font-medium tracking-wide text-muted-foreground uppercase">{t('files.editPreview')}</p>
+        <p className="px-5 pt-4 text-xs font-medium text-muted-foreground">{t('files.editPreview')}</p>
         <div className="p-5 pt-2 text-sm">
           <MarkdownContent content={draft} agentNames={[]} />
         </div>

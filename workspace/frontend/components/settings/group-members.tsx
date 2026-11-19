@@ -5,10 +5,13 @@ import { Plus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { GranteePicker, invalidateGranteeCandidates } from '@/components/sharing/grantee-picker';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
+import { IconAction } from '@/components/settings/icon-action';
+import { ListEmpty, ListError, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { GROUP_MEMBER_KINDS, granteeChipLabel, granteeFromMember, granteeKey } from '@/lib/access-ui';
 import { workspaceApi } from '@/lib/api';
 import { displayNameFromEmail } from '@/lib/collab';
@@ -18,15 +21,14 @@ import type { Grantee, GroupMember, SecurityGroup } from '@/lib/types';
 /** Who is in one security group, with add/remove for custom groups. */
 export function GroupMembers({
   group,
-  title,
   editable,
   derived,
   memberName,
   onChanged,
 }: {
   group: SecurityGroup;
-  title: string;
   editable: boolean;
+  /** Membership follows from roles (builtin groups), so an empty list says nothing. */
   derived: boolean;
   memberName: (email: string) => string;
   onChanged: () => Promise<void> | void;
@@ -92,54 +94,51 @@ export function GroupMembers({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex flex-col gap-0.5">
-        <p className="text-sm font-medium">{title}</p>
-        {derived && <p className="text-xs text-muted-foreground">{t('groups.derivedMembership')}</p>}
-      </div>
-
       {list === null ? (
-        <div className="flex items-center justify-center py-6">
-          <Spinner className="text-muted-foreground" />
-        </div>
+        <ListLoading />
       ) : failed ? (
-        <p className="text-sm text-destructive">{t('groups.membersLoadFailed')}</p>
+        <ListError>{t('groups.membersLoadFailed')}</ListError>
       ) : list.length === 0 ? (
-        !derived && <p className="text-sm text-muted-foreground">{t('groups.noMembers')}</p>
+        !derived && <ListEmpty>{t('groups.noMembers')}</ListEmpty>
       ) : (
-        <Card className="gap-0 divide-y py-0" role="list">
+        <SettingsList>
           {list.map((m) => {
             const isAgent = m.principal_kind === 'agent';
             const name = m.display_name || (isAgent ? m.principal_id : memberName(m.principal_id));
             return (
-              <div role="listitem" key={`${m.principal_kind}:${m.principal_id}`} className="flex items-center gap-2 px-3 py-1.5">
-                {isAgent ? (
-                  <AgentAvatar name={m.principal_id} size={24} />
-                ) : (
-                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-                    {name[0]?.toUpperCase()}
-                  </span>
-                )}
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 truncate text-sm">
+              <Item key={`${m.principal_kind}:${m.principal_id}`} size="xs">
+                <ItemMedia>
+                  {isAgent ? (
+                    <AgentAvatar name={m.principal_id} size={24} />
+                  ) : (
+                    <Avatar size="sm">
+                      <AvatarFallback className="font-semibold">{name[0]?.toUpperCase()}</AvatarFallback>
+                    </Avatar>
+                  )}
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="font-normal">
                     <span className="truncate">{name}</span>
-                    <Badge variant="outline" className="shrink-0">
+                    <Badge variant="outline">
                       {isAgent ? t('collab.kindAgent') : t('collab.kindPerson')}
                     </Badge>
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
+                  </ItemTitle>
+                  <ItemDescription className="line-clamp-1">
                     {m.principal_id}
                     {m.added_by && ` · ${t('groups.addedBy', { name: displayNameFromEmail(m.added_by) })}`}
-                  </p>
-                </div>
+                  </ItemDescription>
+                </ItemContent>
                 {editable && (
-                  <Button variant="ghost" size="icon-sm" className="text-muted-foreground" onClick={() => remove(m)} title={t('common.remove')} aria-label={t('common.remove')}>
-                    <X />
-                  </Button>
+                  <ItemActions>
+                    <IconAction label={t('common.remove')} destructive onClick={() => remove(m)}>
+                      <X />
+                    </IconAction>
+                  </ItemActions>
                 )}
-              </div>
+              </Item>
             );
           })}
-        </Card>
+        </SettingsList>
       )}
 
       {editable && (

@@ -1,13 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Globe } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldDescription } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useAdminSettings } from '@/components/settings/admin-context';
+import { SaveButton } from '@/components/settings/save-button';
+import { SettingsCard } from '@/components/settings/settings-card';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
@@ -35,38 +34,22 @@ export function BrowserFabricKeyCard({ editable }: { editable: boolean }) {
   };
 
   return (
-    <Card size="sm">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Globe className="size-4 text-muted-foreground" />
-          {t('settings.browserFabricKey')}
-        </CardTitle>
-        {current && (
-          <CardDescription className="font-mono text-xs">
-            {t('settings.browserFabricCurrent', { key: current })}
-          </CardDescription>
-        )}
-      </CardHeader>
-      <CardContent>
-        <Field>
-          <Input
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            placeholder={current ? t('settings.browserFabricReplace') : t('settings.browserFabricPlaceholder')}
-            aria-label={t('settings.browserFabricKey')}
-            className="font-mono text-xs"
-            disabled={!editable}
-          />
-          <FieldDescription>{t('settings.browserFabricHint')}</FieldDescription>
-        </Field>
-      </CardContent>
-      {editable && (
-        <CardFooter className="justify-end">
-          <Button size="sm" onClick={save} disabled={saving || !apiKey.trim()}>
-            {saving ? t('common.saving') : t('common.save')}
-          </Button>
-        </CardFooter>
-      )}
-    </Card>
+    <SettingsCard
+      title={t('settings.browserFabricKey')}
+      description={current && <span className="font-mono text-xs">{t('settings.browserFabricCurrent', { key: current })}</span>}
+      footer={editable && <SaveButton dirty={!!apiKey.trim()} saving={saving} onClick={save} />}
+    >
+      <Field>
+        <Input
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={current ? t('settings.browserFabricReplace') : t('settings.browserFabricPlaceholder')}
+          aria-label={t('settings.browserFabricKey')}
+          className="font-mono text-xs"
+          disabled={!editable}
+        />
+        <FieldDescription>{t('settings.browserFabricHint')}</FieldDescription>
+      </Field>
+    </SettingsCard>
   );
 }

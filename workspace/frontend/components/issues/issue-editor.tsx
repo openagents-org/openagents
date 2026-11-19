@@ -6,6 +6,7 @@ import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceIssue } from '@/lib/types';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { AttachmentPicker } from '@/components/tasks/new-task-dialog';
 import { IssueAssigneePicker } from './issue-assignee-picker';
@@ -37,6 +38,7 @@ export function IssueEditor({
 }) {
   const t = useT();
   const descriptionId = useId();
+  const assigneeId = useId();
   const { currentUser } = useWorkspace();
   const mentions = useIssueMentions(issue);
   const [title, setTitle] = useState(issue?.title ?? '');
@@ -130,14 +132,12 @@ export function IssueEditor({
               />
             </div>
             {!issue && (
-              <div className="flex flex-col gap-3 border-t border-border/60 pt-4">
-                <div className="flex flex-col gap-2">
-                  <p className="text-xs font-medium text-muted-foreground">{t('issues.assignee')}</p>
-                  <IssueAssigneePicker value={assignee} onChange={setAssignee} disabled={busy} choices={[
-                    ...mentions.filter(m => m.kind === 'human').map(m => ({ id: m.source, name: m.name })),
-                  ]} />
-                </div>
-              </div>
+              <Field className="border-t border-border/60 pt-4">
+                <FieldLabel htmlFor={assigneeId}>{t('issues.assignee')}</FieldLabel>
+                <IssueAssigneePicker id={assigneeId} value={assignee} onChange={setAssignee} disabled={busy} choices={[
+                  ...mentions.filter(m => m.kind === 'human').map(m => ({ id: m.source, name: m.name })),
+                ]} />
+              </Field>
             )}
             <AttachmentPicker value={fileIds} onChange={setFileIds} disabled={busy} onUploadingChange={setUploading} />
             <p className="text-xs text-muted-foreground">{t('issues.attachmentAudience')}</p>

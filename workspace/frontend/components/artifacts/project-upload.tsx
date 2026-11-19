@@ -1,10 +1,12 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { FolderUp, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { encodeProjectFiles, projectFiles } from '@/lib/web-projects';
@@ -15,6 +17,7 @@ export function ProjectUpload({ projectId, revision, onPublished }: {projectId?:
   const t = useT();
   const {currentSessionId, refreshFiles} = useWorkspace();
   const input = useRef<HTMLInputElement>(null);
+  const id = useId();
   const [files,setFiles] = useState<ReturnType<typeof projectFiles>>([]);
   const [title,setTitle] = useState(''); const [entry,setEntry] = useState('index.html');
   const [busy,setBusy] = useState(false);
@@ -38,8 +41,13 @@ export function ProjectUpload({ projectId, revision, onPublished }: {projectId?:
     }} />
     {!files.length ? <Button size="sm" variant="outline" onClick={()=>input.current?.click()}><FolderUp className="size-4" />{t(projectId?'webProject.update':'webProject.upload')}</Button> : <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3">
       <div className="flex items-center justify-between"><strong className="text-sm">{t(projectId?'webProject.update':'webProject.upload')}</strong><Button size="icon-sm" variant="ghost" disabled={busy} aria-label={t('artifactPanel.close')} onClick={()=>setFiles([])}><X className="size-4" /></Button></div>
-      <label className="flex flex-col gap-1 text-xs">{t('webProject.name')}<Input value={title} maxLength={120} disabled={busy} onChange={e=>setTitle(e.target.value)} /></label>
-      <label className="flex flex-col gap-1 text-xs">{t('webProject.entry')}<select className="h-9 w-full rounded-md border bg-background px-2 text-sm" value={entry} disabled={busy} onChange={e=>setEntry(e.target.value)}>{files.filter(f=>/\.html?$/i.test(f.path)).map(f=><option key={f.path}>{f.path}</option>)}</select></label>
+      <Field className="gap-1"><FieldLabel htmlFor={`${id}-name`} className="text-xs">{t('webProject.name')}</FieldLabel><Input id={`${id}-name`} value={title} maxLength={120} disabled={busy} onChange={e=>setTitle(e.target.value)} /></Field>
+      <Field className="gap-1"><FieldLabel htmlFor={`${id}-entry`} className="text-xs">{t('webProject.entry')}</FieldLabel>
+        <Select value={entry || undefined} disabled={busy} onValueChange={setEntry}>
+          <SelectTrigger id={`${id}-entry`} className="w-full"><SelectValue /></SelectTrigger>
+          <SelectContent>{files.filter(f=>/\.html?$/i.test(f.path)).map(f=><SelectItem key={f.path} value={f.path}>{f.path}</SelectItem>)}</SelectContent>
+        </Select>
+      </Field>
       <p className="text-xs leading-5 text-muted-foreground">{files.length} {t('webProject.files')} · {t(projectId?'webProject.keepsSharing':currentSessionId&&!currentSessionId.startsWith('dm:')?'webProject.threadSharing':'webProject.private')}</p>
       <p className="text-xs leading-5 text-muted-foreground">{t('webProject.help')}</p>
       {!entry && <p role="alert" className="text-xs text-destructive">{t('webProject.noHtml')}</p>}

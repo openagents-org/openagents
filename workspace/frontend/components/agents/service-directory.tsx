@@ -13,6 +13,7 @@ import { AgentAvatar } from './agent-avatar';
 import { AgentAccessSection } from '@/components/sharing/agent-access-section';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import { Input } from '@/components/ui/input';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
@@ -69,14 +70,19 @@ export function ServiceDirectory() {
     <div className="overflow-y-auto p-5">
       {error && <Button variant="outline" onClick={() => void load()}>{t('common.retry')}</Button>}
       {!loading && !error && services.length === 0 && <Empty><EmptyHeader><EmptyDescription>{t('services.empty')}</EmptyDescription></EmptyHeader></Empty>}
-      <div className="grid gap-4 xl:grid-cols-2">{services.filter(service => [service.name, service.description].some(value => value.toLowerCase().includes(search.toLowerCase()))).map(service => <article key={service.id} className="flex flex-col gap-4 rounded-lg border p-4">
-        <div className="flex items-center gap-3"><AgentAvatar name={service.agent_name} size={36} /><div><h3 className="font-semibold">{service.name}</h3><p className="text-xs text-muted-foreground">{t('services.owner')}: {nameFor(service.owner_email)}</p></div></div>
-        <p className="whitespace-pre-wrap text-sm">{service.description}</p>
-        <div className="flex flex-wrap gap-2">{service.example_requests.map((example, i) => <Button key={i} variant="outline" size="xs" className="h-auto max-w-full rounded-full py-1 text-left whitespace-normal" onClick={() => { setRequest(service); setContent(example); }}>{example}</Button>)}</div>
-        {service.required_inputs && <p className="text-xs text-muted-foreground">{service.required_inputs}</p>}
-        {service.request_approver_email && <p className="text-xs text-muted-foreground">{t('services.approver')}: {nameFor(service.request_approver_email)}</p>}
-        <div className="mt-auto flex gap-2"><Button className="flex-1" size="sm" onClick={() => { setRequest(service); setContent(''); }}>{t('services.request')}</Button>{service.can_manage && <Button size="sm" variant="outline" onClick={() => setEdit(service)}>{t('services.edit')}</Button>}</div>
-      </article>)}</div>
+      <div className="grid gap-4 xl:grid-cols-2">{services.filter(service => [service.name, service.description].some(value => value.toLowerCase().includes(search.toLowerCase()))).map(service => <Card key={service.id}>
+        <CardHeader className="flex items-center gap-3">
+          <AgentAvatar name={service.agent_name} size={36} />
+          <div className="flex min-w-0 flex-col gap-1"><CardTitle>{service.name}</CardTitle><CardDescription className="text-xs">{t('services.owner')}: {nameFor(service.owner_email)}</CardDescription></div>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="whitespace-pre-wrap">{service.description}</p>
+          {service.example_requests.length > 0 && <div className="flex flex-wrap gap-2">{service.example_requests.map((example, i) => <Button key={i} variant="outline" size="xs" className="h-auto max-w-full py-1 text-left whitespace-normal" onClick={() => { setRequest(service); setContent(example); }}>{example}</Button>)}</div>}
+          {service.required_inputs && <p className="text-xs text-muted-foreground">{service.required_inputs}</p>}
+          {service.request_approver_email && <p className="text-xs text-muted-foreground">{t('services.approver')}: {nameFor(service.request_approver_email)}</p>}
+        </CardContent>
+        <CardFooter className="mt-auto gap-2"><Button className="flex-1" size="sm" onClick={() => { setRequest(service); setContent(''); }}>{t('services.request')}</Button>{service.can_manage && <Button size="sm" variant="outline" onClick={() => setEdit(service)}>{t('services.edit')}</Button>}</CardFooter>
+      </Card>)}</div>
     </div>
     {edit && <ServiceEditor key={edit === 'new' ? 'new' : edit.id} service={edit === 'new' ? null : edit} agents={owned.map(agent => ({ name: agent.agentName, label: agent.displayName || agent.agentName }))} team={team} onClose={() => setEdit(null)} onSaved={service => { setEdit(service); void load(); }} />}
     <Dialog open={!!request} onOpenChange={value => { if (!busy && !value) setRequest(null); }}>

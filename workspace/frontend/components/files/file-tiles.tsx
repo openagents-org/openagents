@@ -60,13 +60,13 @@ export function FileTypeTile({
   );
 }
 
-/** Amber, the same colour the folder panel uses for its rows. */
-const FOLDER_COLOR = '#f59e0b';
+/** The warning token, the same colour the folder panel uses for its rows. */
+const FOLDER_COLOR = 'var(--warning)';
 
 /**
  * A folder in the grid. It takes the same 76px slot as a file tile so the two
  * sit in one grid without knocking the rows out of line, and wears the panel's
- * amber so the thing you clicked on the left is recognisably the same thing.
+ * colour so the thing you clicked on the left is recognisably the same thing.
  */
 export function FolderTile({ className }: { className?: string }) {
   return (

@@ -38,13 +38,14 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 
 const render = () => act(async () => root.render(createElement(ConnectedAppsPage)));
-const tab = (label: string) => [...host.querySelectorAll('[role="tab"]')].find((b) => b.textContent === label) as HTMLButtonElement;
+// The app picker is a single-choice toggle group, so each app is a radio.
+const tab = (label: string) => [...host.querySelectorAll('[role="radio"]')].find((b) => b.textContent === label) as HTMLButtonElement;
 const button = (label: string) => [...host.querySelectorAll('button')].find((b) => b.textContent?.includes(label)) as HTMLButtonElement;
 
 it('offers each supported app and shows the connector URL for ChatGPT first', async () => {
   await render();
-  expect([...host.querySelectorAll('[role="tab"]')].map((b) => b.textContent)).toEqual(['ChatGPT', 'Claude', 'Muse', 'Claude Code · Codex', 'Slack', 'Lark']);
-  expect(host.querySelector('[role="tabpanel"]')!.textContent).toContain('https://mcp.openagents.org/mcp');
+  expect([...host.querySelectorAll('[role="radio"]')].map((b) => b.textContent)).toEqual(['ChatGPT', 'Claude', 'Muse', 'Claude Code · Codex', 'Slack', 'Lark']);
+  expect(host.querySelector('[role="region"]')!.textContent).toContain('https://mcp.openagents.org/mcp');
 });
 
 it('creates the key in one click for Muse and puts it in the instructions', async () => {
@@ -52,7 +53,7 @@ it('creates the key in one click for Muse and puts it in the instructions', asyn
   await act(async () => tab('Muse').click());
   await act(async () => button('Create API key').click());
   expect(mocks.create).toHaveBeenCalledWith('id', { replace: false });
-  const panel = host.querySelector('[role="tabpanel"]')!.textContent!;
+  const panel = host.querySelector('[role="region"]')!.textContent!;
   expect(panel).toContain('oa_pk_secret');
   expect(panel).toContain('Read https://mcp.openagents.org/v1/hub/docs');
 });
@@ -69,7 +70,7 @@ it('regenerates an existing key after confirmation', async () => {
 it('sends Slack and Lark to the workspace integrations', async () => {
   await render();
   await act(async () => tab('Slack').click());
-  expect(host.querySelector('[role="tabpanel"] a')!.getAttribute('href')).toBe('/oa-ws/settings/integrations');
+  expect(host.querySelector('[role="region"] a')!.getAttribute('href')).toBe('/oa-ws/settings/integrations');
   await act(async () => tab('Lark').click());
-  expect(host.querySelector('[role="tabpanel"]')!.textContent).toContain('App ID');
+  expect(host.querySelector('[role="region"]')!.textContent).toContain('App ID');
 });

@@ -25,6 +25,8 @@ import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useT } from '@/lib/i18n';
 import type { ChannelParticipants, WorkspaceSession } from '@/lib/types';
 import { useThreadAccess } from '@/hooks/use-thread-access';
+import { WithTooltip } from '@/components/ui/with-tooltip';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 
 const THREAD_ICONS = ['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'];
 
@@ -145,9 +147,11 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
 
   return (
     <>
-      <Button variant="ghost" size="icon-sm" title={t('threadSettings.title')} aria-label={t('threadSettings.title')} onClick={() => setOpen(true)}>
-        <Settings />
-      </Button>
+      <WithTooltip label={t('threadSettings.title')}>
+        <Button variant="ghost" size="icon-sm" aria-label={t('threadSettings.title')} onClick={() => setOpen(true)}>
+          <Settings />
+        </Button>
+      </WithTooltip>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
@@ -216,7 +220,7 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
                     {participants.humans.map(human => <Item key={human.email} size="xs" className="px-0">
                       <ItemMedia><HumanAvatar email={human.email} /></ItemMedia>
                       <ItemContent><ItemTitle className="truncate" title={human.email}>{human.display_name || human.email}</ItemTitle></ItemContent>
-                      {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <ItemActions><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X /></Button></ItemActions>}
+                      {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <ItemActions><Button variant="ghost" size="icon-sm" className={destructiveIconClass} disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X /></Button></ItemActions>}
                     </Item>)}
                   </ParticipantList>
                   <ParticipantList title={t('threadSettings.agents')} action={access?.can_add_agents ? addButton('agent') : null}>
@@ -226,7 +230,7 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
                         <ItemTitle className="truncate">{agent.display_name || agent.agent_name}</ItemTitle>
                         {agent.owner_email && <ItemDescription className="truncate">{agent.owner_email}</ItemDescription>}
                       </ItemContent>
-                      {manage && <ItemActions><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t('threadSettings.remove', { name: agent.display_name || agent.agent_name })} onClick={() => void remove('agent', agent.agent_name)}><X /></Button></ItemActions>}
+                      {manage && <ItemActions><Button variant="ghost" size="icon-sm" className={destructiveIconClass} disabled={busy} aria-label={t('threadSettings.remove', { name: agent.display_name || agent.agent_name })} onClick={() => void remove('agent', agent.agent_name)}><X /></Button></ItemActions>}
                     </Item>)}
                   </ParticipantList>
                 </>}
