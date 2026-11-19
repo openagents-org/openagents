@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bell, BellRing, CheckCheck, RefreshCw } from 'lucide-react';
+import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { NotificationCard } from '@/components/inbox/inbox-view';
@@ -10,7 +10,6 @@ import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { NotificationItem } from '@/lib/types';
 import { useT } from '@/lib/i18n';
-import { DesktopNotificationPrompt, useDesktopNotificationPrompt } from '@/components/threads/desktop-notification-prompt';
 import { useLayout } from './layout-context';
 
 const PRIORITY_ORDER = { high: 0, normal: 1, low: 2 } as const;
@@ -32,7 +31,6 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
   const { openView } = useLayout();
   const t = useT();
   const [open, setOpen] = useState(false);
-  const permissionPrompt = useDesktopNotificationPrompt();
 
   // Unread first (by priority, then recency), then the most recent read ones.
   const items = useMemo(() => {
@@ -65,12 +63,11 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
       <PopoverTrigger asChild>
         <button
           type="button"
-          title={t(permissionPrompt.show ? 'slackSignals.promptText' : 'notifications.title')}
+          title={t('notifications.title')}
           aria-label={t('notifications.title')}
           className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
-          {permissionPrompt.show ? <BellRing className="size-4 text-primary" /> : <Bell className="size-4" />}
-          {permissionPrompt.show && !(unreadNotificationCount > 0) && <span className="absolute end-0.5 top-0.5 size-1.5 rounded-full bg-primary" />}
+          <Bell className="size-4" />
           {unreadNotificationCount > 0 && (
             <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-destructive-foreground tabular-nums">
               {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
@@ -108,8 +105,6 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
             </button>
           </div>
         </div>
-
-        <DesktopNotificationPrompt prompt={permissionPrompt} />
 
         {items.length === 0 ? (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.allCaughtUp')}</div>

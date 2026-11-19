@@ -104,7 +104,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     setPage,
     pageSize,
     setPageSize,
-  } = useAgentsView(agents, search, filter, "recent")
+  } = useAgentsView(agents, search, filter, "added")
 
   useEffect(() => {
     mounted.current = true
@@ -140,6 +140,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     renameAgent,
     disconnectAgent,
     openWorkspace,
+    openWorkspaceInBrowser,
     openAgentChat,
   } = useAgentActions(refresh, showToast, () => setRemoveTarget(null))
 
@@ -158,6 +159,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     onRename: (a) => setRenameTarget(a),
     onDisconnect: (a) => disconnectAgent(a.name),
     onOpenWorkspace: (a) => openWorkspace(a),
+    onOpenInBrowser: (a) => void openWorkspaceInBrowser(a),
     onRemove: (a) => setRemoveTarget(a.name),
   }
 

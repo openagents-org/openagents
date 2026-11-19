@@ -11,6 +11,8 @@ export interface AgentActionHandlers {
   onConnect: (a: Agent) => void
   onDisconnect: (a: Agent) => void
   onOpenWorkspace: (a: Agent) => void
+  /** The same workspace in the system browser. */
+  onOpenInBrowser: (a: Agent) => void
   onRemove: (a: Agent) => void
 }
 

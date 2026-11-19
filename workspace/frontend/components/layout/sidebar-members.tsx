@@ -2,7 +2,7 @@
 import { DmUnreadBadge } from './dm-unread-badge';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, ChevronDown, ChevronRight, Settings, UserPlus } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Settings } from 'lucide-react';
 import { currentRouteSearch } from '@/lib/route-search';
 import { useTeamRoster } from '@/hooks/use-team-roster';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -61,7 +61,8 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
             <ChevronDown className={cn('ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200', !membersOpen && '-rotate-90')} />
           </button>
         </SidebarGroupLabel>}
-        {/* "+" adds people to the workspace; a DM with a teammate starts from
+        {/* "+" is the one invite entry (the members page and the invite
+            endpoint enforce permissions); a DM with a teammate starts from
             their row, or from "N more" for everyone else. */}
         {workspace?.slug && <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={t('userMenu.inviteMembers')} title={t('userMenu.inviteMembers')} onClick={openInvite}><Plus /></Button>}
       </div>
@@ -88,11 +89,6 @@ export function SidebarMembers({ showLabels, onNavigate }: { showLabels: boolean
       </SidebarMenu>
         {team.length > 0 && <Button variant="ghost" size="sm" onClick={() => { setQuery(''); setOpen(true); }} className={cn('mt-1 w-full text-muted-foreground', showLabels ? 'justify-between' : 'justify-center')} title={t('nav.viewAllMembers')} aria-label={t('nav.viewAllMembers')}>
           {showLabels && <span className="truncate">{moreCount > 0 ? t('nav.moreMembers', { count: moreCount }) : t('nav.viewAllMembers')}</span>}<ChevronRight />
-        </Button>}
-        {/* Inviting, also spelled out at the end of the list. Permissions are
-            enforced by the members page and the invite endpoint. */}
-        {workspace?.slug && <Button variant="outline" size="sm" onClick={openInvite} className="mt-1 w-full" title={t('userMenu.inviteMembers')} aria-label={t('userMenu.inviteMembers')}>
-          <UserPlus data-icon={showLabels ? 'inline-start' : undefined} />{showLabels && t('userMenu.inviteMembers')}
         </Button>}
       </SidebarGroupContent>
     </SidebarGroup>

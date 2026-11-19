@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, MessageSquare, Globe, Folder, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
+import { X, MessageSquare, Globe, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -20,6 +20,7 @@ import { ModelCard, ReadOnlyModelCard } from './agent-profile-model-card';
 import { InstalledSkillsCard } from './agent-profile-skills';
 import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem } from './agent-profile-sections';
 import { useAgentModelOptions } from './use-agent-model-options';
+import { WorkdirCard } from './agent-profile-workdir-card';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
@@ -120,7 +121,6 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     : [
         { icon: <Monitor className="size-3.5" />, label: t('agents.fieldType'), value: displayType },
         { icon: <Globe className="size-3.5" />, label: t('agents.fieldServer'), value: agent.serverHost || '—' },
-        { icon: <Folder className="size-3.5" />, label: t('agents.fieldFolder'), value: agent.workingDir || '—' },
         agentId,
       ];
 
@@ -162,12 +162,16 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
             <div className="mt-4 flex empty:hidden [&>button]:flex-1"><AgentSharingButton agentName={agent.agentName} /></div>
           </div>
-          <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 
-          {/* The built-in assistant shows its server-set model read-only. */}
+          {/* The settings people come here to change, first: the name is
+              edited in the header above, then the model and the folder. The
+              built-in assistant shows its server-set model read-only. */}
           {modelReadOnly
             ? <ReadOnlyModelCard model={models.currentModel} managed={isManaged} />
             : <ModelCard m={models} />}
+          {!isCloud && <WorkdirCard agent={agent} canManage={canManage} />}
+
+          <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}

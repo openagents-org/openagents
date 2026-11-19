@@ -48,7 +48,7 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents } = useLayout();
+  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents, addAgentPending, editAgentPending } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
@@ -68,6 +68,11 @@ export function ConnectAgentView({
     setSelectedTab('cloud');
     consumeCloudAgents?.();
   }, [cloudAgentsPending, consumeCloudAgents]);
+  // Adding or editing a device agent happens on the devices tab, whichever
+  // tab the view was last left on.
+  useEffect(() => {
+    if (addAgentPending || editAgentPending) setSelectedTab('node');
+  }, [addAgentPending, editAgentPending]);
 
   // Onboarding checkpoint: the user reached the agent-setup surface. One event
   // per tab so the funnel can split node vs cloud vs local paths.
@@ -319,8 +324,10 @@ export function ConnectAgentView({
     loadNodes(true);
   };
 
+  // An edit request still goes to the devices tab, which reports why it cannot
+  // open the agent there; otherwise it would wait unseen until a later visit.
   const showFirstDeviceSetup = !isDesktop && nodesLoaded && !nodesError && nodes.length === 0 &&
-    (autoPair || workspace?.needsFirstDevice === true);
+    (autoPair || workspace?.needsFirstDevice === true) && !editAgentPending;
   const close = onDismiss ?? (() => openView('threads'));
 
   return (

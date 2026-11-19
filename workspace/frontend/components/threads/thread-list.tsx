@@ -74,7 +74,12 @@ export function ThreadList() {
     if (!name) return;
     const id = projectModel.create(name);
     if (threadId) projectModel.move(threadId, id);
-    else { projectModel.select(id); setFilter('all'); }
+    else {
+      projectModel.select(id);
+      projectModel.setGrouped(true);
+      setFilter('all');
+      setSearchQuery('');
+    }
   };
   const renameProject = async (project: ThreadProject) => {
     const name = (await prompt({ title: t('threadProjects.rename'), defaultValue: project.name, confirmText: t('common.rename') }))?.trim();

@@ -24,6 +24,7 @@
     "configure": "配置",
     "disconnect": "退出工作区",
     "openWorkspace": "打开工作区",
+    "openInBrowser": "在浏览器中打开",
     "enterWorkspace": "进入工作区",
     "connect": "加入工作区",
     "remove": "移除",
