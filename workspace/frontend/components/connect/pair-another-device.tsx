@@ -27,7 +27,7 @@ export function PairAnotherDevice({
 }) {
   const t = useT();
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 p-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
       <Button variant="ghost" size="sm" disabled={pairingLoading} onClick={onBack} className="self-start text-muted-foreground">
         <ChevronLeft data-icon="inline-start" />{t('connect.nodeBack')}
       </Button>

@@ -25,7 +25,7 @@ import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
 import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorkspaceSnapshot, type WorkspaceSnapshot } from './workspace-snapshot';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
-import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceIdentity, WorkspaceSession } from './types';
+import type { ApprovalRequest, BrowserPersistentContext, BrowserTab, BrowserTabLimits, DMConversation, KanbanTask, Workflow, WorkflowStep, KnowledgeEntry, NotificationItem, OnlineUser, RoutineDraft, RoutineItem, TodoItem, TrashEntry, Workspace, WorkspaceAgent, WorkspaceFile, WorkspaceFileStorage, WorkspaceIdentity, WorkspaceSession } from './types';
 
 /** Background polls refetch lists that rarely change. A new-but-equal array
  *  re-renders every consumer of this (unmemoized) context, hidden views
@@ -164,6 +164,7 @@ interface WorkspaceContextValue {
   onlineUsers: OnlineUser[];
   sessions: WorkspaceSession[];
   files: WorkspaceFile[];
+  fileStorage: WorkspaceFileStorage | null;
   selectedFileId: string | null;
   selectedKnowledgeId: string | null;
   currentFilePath: string;
@@ -516,6 +517,7 @@ export function WorkspaceProvider({
   const [completedSessionIds, setCompletedSessionIds] = useState<Set<string>>(new Set());
   const [agentModes, setAgentModes] = useState<Record<string, string>>({});
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
+  const [fileStorage, setFileStorage] = useState<WorkspaceFileStorage | null>(null);
   const [trashEntries, setTrashEntries] = useState<TrashEntry[]>([]);
   const [pendingFolderOps, setPendingFolderOps] = useState<PendingFolderOp[]>([]);
   const folderOpIdRef = useRef(0);
@@ -525,9 +527,10 @@ export function WorkspaceProvider({
    * it's dropped instead of being allowed to flash the old folders back.
    */
   const filesEpochRef = useRef(0);
-  const commitFiles = useCallback((next: WorkspaceFile[], epoch: number) => {
+  const commitFiles = useCallback((next: WorkspaceFile[], epoch: number, storage?: WorkspaceFileStorage) => {
     if (epoch !== filesEpochRef.current) return;
     setFiles(prev => keepIfSame(prev, next));
+    setFileStorage(prev => keepIfSame(prev, storage ?? null));
   }, []);
   /** When the discovery poll last re-listed every file (see refreshDiscovery). */
   const filesPolledAtRef = useRef(0);
@@ -1130,7 +1133,7 @@ export function WorkspaceProvider({
       if (Date.now() - filesPolledAtRef.current >= FILES_POLL_INTERVAL_MS) {
         filesPolledAtRef.current = Date.now();
         const filesEpoch = filesEpochRef.current;
-        workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch)).catch(() => {});
+        workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch, r.storage)).catch(() => {});
       }
       workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(prev => keepIfSame(prev, r.tabs)); if (r.limits) setBrowserTabLimits(prev => keepIfSame(prev, r.limits!)); }).catch(() => {});
       workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(prev => keepIfSame(prev, r.contexts))).catch(() => {});
@@ -1162,7 +1165,7 @@ export function WorkspaceProvider({
     const epoch = filesEpochRef.current;
     try {
       const result = await workspaceApi.listFiles();
-      commitFiles(result.files, epoch);
+      commitFiles(result.files, epoch, result.storage);
     } catch {
       // Non-critical
     }
@@ -1485,18 +1488,18 @@ export function WorkspaceProvider({
     try {
       await workspaceApi.purgeTrash({ trashIds });
     } finally {
-      await refreshTrash();
+      await Promise.all([refreshTrash(), refreshFiles()]);
     }
-  }, [refreshTrash]);
+  }, [refreshTrash, refreshFiles]);
 
   const emptyTrash = useCallback(async () => {
     setTrashEntries([]);
     try {
       await workspaceApi.purgeTrash({ all: true });
     } finally {
-      await refreshTrash();
+      await Promise.all([refreshTrash(), refreshFiles()]);
     }
-  }, [refreshTrash]);
+  }, [refreshTrash, refreshFiles]);
 
   /** Files as the user sees them: server truth with the in-flight folder ops
    *  already applied. Unchanged identity while nothing is pending. */
@@ -1618,6 +1621,7 @@ export function WorkspaceProvider({
       // Don't display the previous workspace's optional data while these load.
       filesEpochRef.current += 1;
       setFiles([]);
+      setFileStorage(null);
       setTrashEntries([]);
       setBrowserTabs([]);
       setSelectedBrowserTabId(null);
@@ -1679,7 +1683,7 @@ export function WorkspaceProvider({
         let requestedThread = linkedThread
           ? resolveThreadLink(threadLocation, channelSessions.map((s) => s.sessionId), myAddress(currentUserRef.current))
           : requestedDesktopThread(window.location.hash, channelSessions.map((s) => s.sessionId));
-        if (linkedThread && isOpaqueThreadId(linkedThread)) {
+        if (linkedThread && !requestedThread && isOpaqueThreadId(linkedThread)) {
           try { requestedThread = (await workspaceApi.resolveThreadLink(linkedThread)).session_id; }
           catch { /* Legacy channel IDs still use access-filtered discovery above. */ }
           if (cancelled) return;
@@ -1721,7 +1725,7 @@ export function WorkspaceProvider({
         // A slow browser or file store must not hold the full-page spinner.
         const filesEpoch = filesEpochRef.current;
         filesPolledAtRef.current = Date.now();
-        loadOptional(workspaceApi.listFiles(), (r) => commitFiles(r.files, filesEpoch));
+        loadOptional(workspaceApi.listFiles(), (r) => commitFiles(r.files, filesEpoch, r.storage));
         loadOptional(workspaceApi.listTrash(), (r) => setTrashEntries(r.entries));
         loadOptional(workspaceApi.listBrowserTabs(), (r) => { setBrowserTabs(r.tabs); if (r.limits) setBrowserTabLimits(r.limits); });
         loadOptional(workspaceApi.listBrowserContexts(), (r) => setBrowserContexts(r.contexts));
@@ -2226,6 +2230,7 @@ export function WorkspaceProvider({
         onlineUsers,
         sessions,
         files: visibleFiles,
+        fileStorage,
         selectedFileId,
         selectedKnowledgeId,
         currentSessionId,

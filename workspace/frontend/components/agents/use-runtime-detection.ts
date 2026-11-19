@@ -22,7 +22,9 @@ export function useRuntimeDetection(node: WorkspaceNode, api: AgentSetupApi, onC
   }, [node.runtimes]);
 
   // Clear "detecting" as soon as the runtime snapshot arrives or changes.
-  const runtimesSig = (node.runtimes || []).map((r) => `${r.type}:${r.installed}:${r.ready}:${r.signInCheckedAt ?? ''}:${r.probe?.at ?? ''}`).join('|');
+  const runtimesSig = (node.runtimes || []).map((r) =>
+    `${r.type}:${r.installed}:${r.ready}:${r.signedIn}:${r.signInCheckedAt ?? ''}:${r.auth?.mode}:${r.probe?.at ?? ''}`
+  ).join('|');
   const prevSigRef = useRef(runtimesSig);
   useEffect(() => {
     if (runtimesSig !== prevSigRef.current) {

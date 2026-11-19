@@ -25,7 +25,9 @@ const summaries = () => Array.from(host.querySelectorAll('[data-slot="trace-coll
 
 it('folds a finished run into one summary line', () => {
   render([msg('status', '**Running:** `ls`'), msg('status', '**Editing:** `a.ts`')], false);
-  expect(summaries()).toEqual(['chat.stepsDone 2']);
+  expect(summaries()).toHaveLength(1);
+  expect(summaries()[0]).toContain('chat.activity');
+  expect(summaries()[0]).toContain('chat.activitySteps 2');
   expect(host.querySelector('[data-slot="trace-collapsible-trigger"]')!.getAttribute('aria-expanded')).toBe('false');
   expect(host.querySelector('[data-testid="bubble"]')).toBeNull();
 });
@@ -35,7 +37,8 @@ it('marks only the agent still working as running, and hands its live step to th
     msg('status', '**Running:** `ls`', 'kimi'), msg('status', '**Running:** `pwd`', 'kimi'),
     msg('status', '**Running:** `make`', 'codex'), msg('status', '**Editing:** `b.ts`', 'codex'),
   ], true);
-  expect(summaries()).toEqual(['chat.stepsDone 2', 'chat.stepsRunning']);
+  expect(summaries()).toHaveLength(1);
+  expect(summaries()[0]).toContain('chat.stepsRunning');
   expect(host.querySelector('[data-testid="bubble"]')!.textContent).toBe('Edit › b.ts');
 });
 
@@ -45,6 +48,30 @@ it('shows only the latest to-do snapshot, split into what is left and what is do
     todos([{ content: 'Old plan', status: 'pending' }]),
     todos([{ content: 'Write code', status: 'in_progress' }, { content: 'Plan', status: 'completed' }]),
   ], false);
+  expect(summaries()).toHaveLength(1);
+  expect(summaries()[0]).toContain('chat.activityTasks 2');
+  act(() => (host.querySelector('[data-slot="trace-collapsible-trigger"]') as HTMLButtonElement).click());
   expect(host.textContent).not.toContain('Old plan');
-  expect(summaries()).toEqual(['chat.todoLeft 1', 'chat.todoDone 1']);
+  expect(summaries().slice(1)).toEqual(['chat.todoLeft 1', 'chat.todoDone 1']);
+  expect(host.textContent).toContain('Write code');
+});
+
+it('puts reasoning and tools behind one closed disclosure', () => {
+  render([msg('thinking', 'Private working notes'), msg('status', '**Running:** `ls`'), msg('thinking', 'More notes')], false);
+  expect(summaries()).toHaveLength(1);
+  expect(host.textContent).not.toContain('Private working notes');
+  act(() => (host.querySelector('[data-slot="trace-collapsible-trigger"]') as HTMLButtonElement).click());
+  expect(summaries()).toHaveLength(3); // activity plus two reasoning disclosures
+  expect(host.textContent).toContain('Bash');
+});
+
+it('keeps only the newest task snapshot for each author across interleaving agents', () => {
+  render([
+    msg('todos', 'todos', 'kimi', { todos: [{ content: 'Old plan', status: 'pending' }] }),
+    msg('status', '**Running:** `make`', 'codex'),
+    msg('todos', 'todos', 'kimi', { todos: [{ content: 'Current plan', status: 'pending' }] }),
+  ], false);
+  act(() => (host.querySelector('[data-slot="trace-collapsible-trigger"]') as HTMLButtonElement).click());
+  expect(host.textContent).not.toContain('Old plan');
+  expect(host.textContent).toContain('Current plan');
 });

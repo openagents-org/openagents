@@ -12,9 +12,11 @@ export function workspaceUrl(ws: Workspace): string {
  * Workspace URL without the access token — for opening in a browser, where a
  * token in the address bar would leak into history and screen shares. The
  * browser session is expected to already have (or prompt for) access.
+ * `fallbackEndpoint` (the configured deployment) stands in when the record
+ * names none, so a self-hosted one does not open on openagents.org.
  */
-export function workspacePageUrl(ws: Workspace): string {
-  return `${workspaceWebBaseUrl(ws.endpoint)}/${ws.slug || ws.id}`
+export function workspacePageUrl(ws: Workspace, fallbackEndpoint?: string): string {
+  return `${workspaceWebBaseUrl(ws.endpoint || fallbackEndpoint)}/${ws.slug || ws.id}`
 }
 
 export function workspaceWebBaseUrl(endpoint?: string): string {

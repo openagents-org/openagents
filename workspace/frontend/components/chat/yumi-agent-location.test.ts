@@ -7,6 +7,7 @@ import { I18nProvider } from '@/lib/i18n';
 import { YumiAgentLocation } from './yumi-agent-location';
 
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
+vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({ workspace: { workspaceId: 'test' }, currentUser: { id: 'viewer' }, currentSessionId: null }) }));
 vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 

@@ -64,7 +64,7 @@ export function AgentMessageAccessProvider({ children }: { children: ReactNode }
   return <Context.Provider value={{ data, supported: !!data?.thread_access_requests_supported, people: data?.humans.length || 0, agents: data?.agents || [], humanNames, request, busy }}>{children}</Context.Provider>;
 }
 
-export function AgentOwnershipBadge({ agent, compact = false }: { agent: WorkspaceAgent; compact?: boolean }) {
+export function AgentOwnershipBadge({ agent, compact = false, model }: { agent: WorkspaceAgent; compact?: boolean; model?: string | null }) {
   const context = useContext(Context);
   const { currentUser } = useWorkspace();
   const t = useT();
@@ -78,8 +78,9 @@ export function AgentOwnershipBadge({ agent, compact = false }: { agent: Workspa
     (mine && currentUser.name !== owner ? currentUser.name : null) || owner;
   const label = `${ownerName}${mine ? ` (${t('threads.you')})` : ''}`;
   return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
-    {!compact && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
+    {!compact && !mine && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
     {status && <Badge variant="secondary">{status}</Badge>}
+    {mine && model && <span className="max-w-64 truncate rounded bg-muted/40 px-1.5 py-0.5 text-[10px] font-normal leading-none text-muted-foreground/70" title={model}>{model}</span>}
   </span>;
 }
 

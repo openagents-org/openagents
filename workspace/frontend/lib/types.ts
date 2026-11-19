@@ -127,6 +127,8 @@ export interface NodeRuntime {
    * codex`). Absent from launchers too old to have `agn login`, and for types
    * with no sign-in of their own. */
   loginCommand?: string | null;
+  /** The device can relay its native CLI's browser sign-in. Missing on older connectors. */
+  browserLogin?: boolean;
   probe?: NodeProbe | null;
 }
 
@@ -154,6 +156,9 @@ export interface NodeCommand {
   status: 'pending' | 'running' | 'done' | 'error';
   result: { ok: boolean; message: string | null; data?: unknown } | null;
   agentName: string | null;
+  agentType?: string | null;
+  /** create_agent only: what it was submitted with, minus keys and endpoints. */
+  draft?: { name: string; type: string; workingDir?: string; model?: string; codexWireApi?: 'responses' | 'chat' };
   createdAt: string | null;
   finishedAt: string | null;
 }
@@ -373,6 +378,14 @@ export interface WorkspaceCollaborator {
   role: 'editor' | 'viewer';
   addedBy: string | null;
   addedAt: string | null;
+}
+
+export interface WorkspaceFileStorage {
+  usedBytes: number;
+  activeBytes: number;
+  trashBytes: number;
+  /** Null when the server has no workspace storage quota. */
+  limitBytes: number | null;
 }
 
 export interface WorkspaceFile {

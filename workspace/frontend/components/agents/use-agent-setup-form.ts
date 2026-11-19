@@ -14,6 +14,7 @@ import { useAgentCredentials } from './use-agent-credentials';
 export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, initialType, draft, draftFailure, onChanged }: AgentSetupProps) {
   const t = useT();
   const isEdit = !!editAgent;
+  const guided = !!extensions?.guided && !isEdit && !extensions?.compact && !extensions?.configuration;
   const takenNames = useMemo(
     () => new Set([...node.agents.map((agent) => agent.name), ...(extensions?.takenNames ?? [])]),
     [node.agents, extensions?.takenNames],
@@ -83,17 +84,21 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
   // Registry detail for the selected type: fixed model list (claude/gemini/…)
   // and whether the agent is bring-your-own-provider (generic LLM_* mapping).
   const [detail, setDetail] = useState<AgentCatalogDetail | null>(null);
+  const [detailState, setDetailState] = useState<'loading' | 'ready' | 'error'>('loading');
+  const [detailRetry, setDetailRetry] = useState(0);
+  const [setupAuth, setSetupAuth] = useState<'subscription' | 'key' | 'later' | null>(draft?.apiKey || draft?.config ? 'key' : null);
   useEffect(() => {
     if (!selected) { setDetail(null); return; }
     setDetail(null);
+    setDetailState('loading');
     let cancelled = false;
     api.getAgentCatalogDetail(selected)
       .then((d) => {
-        if (!cancelled) setDetail(d);
+        if (!cancelled) { setDetail(d); setDetailState('ready'); }
       })
-      .catch(() => { if (!cancelled) setDetail(null); });
+      .catch(() => { if (!cancelled) { setDetail(null); setDetailState('error'); } });
     return () => { cancelled = true; };
-  }, [selected, api]);
+  }, [selected, api, detailRetry]);
 
   // Fixed model dropdown (agents tied to one provider). Exclude image/audio.
   const modelOptions = useMemo(() => {
@@ -135,7 +140,7 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
     setNativeValues({});
   }, [selected]);
   const byokProtocol = detail?.protocol || 'openai';
-  const byokState = useByokModels({ api, byok, protocol: byokProtocol, draft, model, setModel });
+  const byokState = useByokModels({ api, byok: byok && !guided, protocol: byokProtocol, draft: guided ? undefined : draft, model, setModel });
   const creds = useAgentCredentials({
     node, editAgent, editOnKey, detail, selected, runtimeByType, byok,
     accessId: byokState.accessId, apiKey, model, baseUrl, modelOptions,
@@ -161,6 +166,7 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
 
   const pick = (typeName: string) => {
     setSelected(typeName);
+    setSetupAuth(null);
     if (nameTouchedFor.current !== typeName) {
       nameTouchedFor.current = null;
       setName(uniqueAgentName(defaultAgentNameBase(typeName), takenNames));
@@ -192,7 +198,7 @@ export function useAgentSetupForm({ node, catalog, api, extensions, editAgent, i
     apiKey, setApiKey, baseUrl, setBaseUrl, model, setModel, customModel, setCustomModel,
     codexWireApi, setCodexWireApi, showCreds, setShowCreds,
     busy, setBusy, error, setError, marketQuery, setMarketQuery, marketCat, setMarketCat,
-    ...detection, detail, modelOptions, byok, nativeCreds, nativeValues, setNativeValues, byokProtocol,
+    ...detection, detail, detailState, retryDetail: () => setDetailRetry((v) => v + 1), setupAuth, setSetupAuth, modelOptions, byok, nativeCreds, nativeValues, setNativeValues, byokProtocol,
     byokState, creds, modelError, modelFieldRef, failModel, pick, backToSelection,
   };
 }

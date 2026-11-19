@@ -12,7 +12,9 @@ import time
 def main():
     sha = os.environ['RELEASE_SHA']
     if not re.fullmatch('[0-9a-f]{40}', sha): raise ValueError('Invalid release')
-    hosts = [os.environ['DO_PRIMARY_HOST'], os.environ['DO_SECONDARY_HOST']]
+    # The coordinator (primary) must come first; every node needs the image staged.
+    extra = [h.strip() for h in os.environ.get('DO_EXTRA_HOSTS', '').split(',') if h.strip()]
+    hosts = [os.environ['DO_PRIMARY_HOST'], os.environ['DO_SECONDARY_HOST']] + extra
     if any(not re.fullmatch('[0-9.]+', host) for host in hosts):
         raise ValueError('Invalid deployment host')
     current = subprocess.check_output(['gh', 'api',

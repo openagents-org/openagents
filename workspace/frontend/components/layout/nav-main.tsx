@@ -39,7 +39,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
   const onboarding = useOnboardingSurface();
   const dismissOnboarding = useDismissOnboarding();
-  const { agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
+  const { workspace, agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
   const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
 
@@ -98,7 +98,7 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
       <SidebarGroupLabel>{t('nav.collaboration')}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.25">
-          {items.map((item) => (
+          {items.filter((item) => item.mode !== 'agents' || workspace?.settings?.services_enabled === true).map((item) => (
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton
                 tooltip={item.label}

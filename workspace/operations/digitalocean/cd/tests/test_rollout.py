@@ -89,4 +89,33 @@ class RolloutTests(unittest.TestCase):
         self.assertEqual(self.migrations, 0)
 
 
+
+class ThreeNodeRolloutTests(unittest.TestCase):
+    def setUp(self):
+        self.calls, self.records = [], []
+        self.nodes = [Node('secondary', self.calls), Node('prod3', self.calls), Node('primary', self.calls)]
+        self.lb = Balancer(self.nodes, self.calls)
+    def run_rollout(self):
+        return rollout(self.nodes, self.lb, 'new', lambda: None, lambda: None, self.records.append, lambda phase: None)
+    def test_peers_in_order_then_primary_one_at_a_time(self):
+        self.run_rollout()
+        self.assertEqual([x[0] for x in self.calls if len(x) > 1 and x[1] == 'activate'], ['secondary', 'prod3', 'primary'])
+        self.assertEqual(self.lb.members, {'secondary', 'prod3', 'primary'})
+        self.assertEqual(self.records[-1]['status'], 'deployed')
+    def test_two_node_pool_blocks_three_node_deployment(self):
+        self.lb.members.discard('prod3')
+        with self.assertRaises(RolloutError): self.run_rollout()
+        self.assertFalse(any('remove' in x for x in self.calls))
+    def test_any_unready_node_blocks_before_changes(self):
+        self.nodes[1].ok = False
+        with self.assertRaises(RolloutError): self.run_rollout()
+        self.assertFalse(any('remove' in x for x in self.calls))
+    def test_failed_third_node_rolls_back_earlier_nodes_and_spares_primary(self):
+        self.nodes[1].fail_activate = True
+        with self.assertRaises(RolloutError): self.run_rollout()
+        self.assertEqual([n.image for n in self.nodes], ['old', 'old', 'old'])
+        self.assertNotIn(('primary', 'activate', 'new'), self.calls)
+        self.assertEqual(self.records[-1]['status'], 'rolled_back')
+
+
 if __name__ == '__main__': unittest.main()

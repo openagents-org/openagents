@@ -11,6 +11,7 @@ import { useT } from '@/lib/i18n';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
 import type { NodeAgent, WorkspaceNode } from '@/lib/types';
 import { NodeAgentItem } from './node-agent-item';
+import { NodeOfflineHelp } from './node-offline-help';
 import { NodePendingAgent } from './node-pending-agent';
 import { NodeSummary } from './node-summary';
 import { useAgentToggles } from './use-agent-toggles';
@@ -154,13 +155,13 @@ export function NodeCard({
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium text-muted-foreground">{t('connect.nodeAgents')}</span>
             {hasAny && (
-              <Button size="sm" variant="outline" onClick={onAddAgent}>
+              <Button size="lg" className="px-4 shadow-sm has-data-[icon=inline-start]:pl-3" onClick={onAddAgent}>
                 <Plus data-icon="inline-start" />{t('connect.nodeAddAgent')}
               </Button>
             )}
           </div>
 
-          {!online && <p className="text-xs text-warning">{t('connect.nodeOfflineActionHint')}</p>}
+          {!online && <NodeOfflineHelp />}
 
           {!hasAny ? (
             <Empty className="p-4">
@@ -179,7 +180,9 @@ export function NodeCard({
                 <NodePendingAgent
                   key={`pending-${p.name}`}
                   pending={p}
+                  deviceOnline={online}
                   onRetry={() => onRetryPending(p)}
+                  onRecheck={onChanged}
                   onDismiss={() => onDismissPending(p.name)}
                 />
               ))}

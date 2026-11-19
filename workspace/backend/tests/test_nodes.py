@@ -238,6 +238,52 @@ class TestNodeCommands:
         hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["device_token"])).json()["data"]
         assert hist[0]["status"] == "done"
         assert "args" not in hist[0]
+        # A page opened later can show and refill the add, without the key.
+        assert hist[0]["agentType"] == "claude"
+        assert hist[0]["draft"] == {"name": "coder", "type": "claude"}
+
+    def test_create_history_keeps_only_safe_draft_fields(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        args = {"name": "coder", "type": "codex", "workingDir": "/work", "model": "gpt-5", "codexWireApi": "chat",
+                "apiKey": "sk-secret", "baseUrl": "https://relay.example/v1", "config": {"SK": "secret"}}
+        client.post(f"/v1/nodes/{node_id}/commands", json={"action": "create_agent", "args": args}, headers=_tok(ws["device_token"]))
+        hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_tok(ws["device_token"])).json()["data"]
+        assert hist[0]["draft"] == {"name": "coder", "type": "codex", "workingDir": "/work", "model": "gpt-5", "codexWireApi": "chat"}
+        assert "secret" not in str(hist[0])
+
+    def test_device_credential_key_command_is_owner_only(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        url = f"/v1/nodes/{node_id}/commands"
+        body = {"action": "credential_key", "args": {}}
+        assert client.post(url, json=body).status_code in (401, 403)
+        assert client.post(url, json=body, headers=_tok(ws["device_token"])).status_code == 200
+
+    def test_browser_sign_in_is_owner_only_and_requires_encrypted_codes(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        url = f"/v1/nodes/{node_id}/commands"
+        for action, args in (("login_start", {"type": "claude"}), ("login_status", {"sessionId": "session"}), ("login_cancel", {"sessionId": "session"})):
+            body = {"action": action, "args": args}
+            assert client.post(url, json=body).status_code in (401, 403)
+            assert client.post(url, json=body, headers=_tok(ws["device_token"])).status_code == 200
+        assert client.post(url, json={"action": "login_start", "args": {"type": "shell"}}, headers=_tok(ws["device_token"])).status_code == 400
+        assert client.post(url, json={"action": "login_input", "args": {"sessionId": "session", "config": {"code": "plaintext"}}}, headers=_tok(ws["device_token"])).status_code == 400
+        encrypted = {"sessionId": "session", "encryptedCredentials": {"algorithm": "RSA-OAEP-256+A256GCM", "ciphertext": "opaque"}}
+        assert client.post(url, json={"action": "login_input", "args": encrypted}, headers=_tok(ws["device_token"])).status_code == 200
+
+    def test_encrypted_setup_is_relayed_without_resolving_a_server_key(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        envelope = {"algorithm": "RSA-OAEP-256+A256GCM", "ciphertext": "opaque-browser-ciphertext"}
+        args = {"name": "sealed", "type": "claude", "encryptedCredentials": envelope}
+        url = f"/v1/nodes/{node_id}/commands"
+        assert client.post(url, json={"action": "create_agent", "args": args}, headers=_tok(ws["device_token"])).status_code == 200
+        hb = client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["device_token"])).json()["data"]
+        assert hb["commands"][0]["args"] == args
+        for field, value in (("apiKey", "secret"), ("config", {}), ("modelAccessId", "saved-key")):
+            assert client.post(url, json={"action": "create_agent", "args": {**args, field: value}}, headers=_tok(ws["device_token"])).status_code == 400
 
     def test_result_wrong_token_rejected(self, client):
         ws = _make_workspace(client)
@@ -323,10 +369,10 @@ class TestDeletedWorkspaceRefusesNodes:
 
     def test_heartbeat_refused_after_delete(self, client, db):
         ws = _make_workspace(client)
-        code = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_tok(ws["token"])).json()["data"]["code"]
+        code = client.post(f"/v1/workspaces/{ws['workspaceId']}/pairing-codes", headers=_owner()).json()["data"]["code"]
         redeemed = client.post("/v1/nodes/redeem", json={"code": code, "node_key": "d1"}).json()["data"]
         node_id = redeemed["nodeId"]
-        assert client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(ws["token"])).status_code == 200
+        assert client.post("/v1/nodes/heartbeat", json={"node_id": node_id}, headers=_tok(redeemed["token"])).status_code == 200
 
         _soft_delete(db, ws["workspaceId"])
 
@@ -342,7 +388,7 @@ class TestDeletedWorkspaceRefusesNodes:
         cmd_id = client.post(
             f"/v1/nodes/{node_id}/commands",
             json={"action": "stop_agent", "args": {"name": "coder"}},
-            headers=_tok(ws["token"]),
+            headers=_owner(),
         ).json()["data"]["commandId"]
 
         _soft_delete(db, ws["workspaceId"])

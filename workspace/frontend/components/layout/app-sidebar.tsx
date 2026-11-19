@@ -3,57 +3,32 @@ import { useOnboardingSurface } from './onboarding-surface';
 
 import { Sidebar, useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { EdgeToggle } from './edge-toggle';
 import { useLayout } from './layout-context';
 import { useListToggleLabel } from './list-collapse-button';
 import { NavRail } from './nav-rail';
 import { ListPanel } from './list-panel';
 
 /**
- * The floating list handle: two small bars that splay apart on hover, with a
- * label that fades in. Sits on the seam between the sidebar and the detail
- * pane and collapses the list panel.
- *
- * Every list view gets one, threads included: with a preview open, the list
- * is what stands between the user and a wide working area.
+ * The list panel's collapse handle. Sits on the seam between the sidebar and
+ * the detail pane. Every list view gets one, threads included: with a preview
+ * open, the list is what stands between the user and a wide working area.
  */
 function SidebarRailToggle() {
   const { state, toggleSidebar } = useSidebar();
   const label = useListToggleLabel();
-  const isExpanded = state === 'expanded';
-
   return (
-    <button
-      type="button"
-      aria-label={label}
+    <EdgeToggle
+      label={label}
+      expanded={state === 'expanded'}
       onClick={toggleSidebar}
       // The shell already shrinks to the rail when the list closes, so the
       // handle always rides its trailing edge. Positioned against the shell
       // (not the viewport) so it stays on that edge when a narrow window
       // scrolls the shell sideways.
       style={{ left: 'var(--sidebar-width)' }}
-      className="group/rail absolute top-1/2 z-30 flex h-12 w-7 -translate-y-1/2 cursor-pointer items-center pl-2 outline-none transition-[left] duration-200 ease-linear focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <span className="flex flex-col items-center">
-        <span
-          aria-hidden="true"
-          className={cn(
-            'block h-2 w-0.5 origin-bottom rounded-t-full bg-foreground/40 transition-all duration-100 ease-linear group-hover/rail:bg-foreground/60',
-            isExpanded ? 'group-hover/rail:rotate-40' : 'group-hover/rail:-rotate-40',
-          )}
-        />
-        <span
-          aria-hidden="true"
-          className={cn(
-            'block h-2 w-0.5 origin-top rounded-b-full bg-foreground/40 transition-all duration-100 ease-linear group-hover/rail:bg-foreground/60',
-            isExpanded ? 'group-hover/rail:-rotate-40' : 'group-hover/rail:rotate-40',
-          )}
-        />
-      </span>
-
-      <span className="pointer-events-none absolute left-full -ml-2 -translate-x-0.5 rounded-md border border-border bg-foreground px-2 py-0.5 text-xs font-medium whitespace-nowrap text-background opacity-0 shadow-xs shadow-black/5 transition-all duration-200 ease-out group-hover/rail:translate-x-0 group-hover/rail:opacity-100">
-        {label}
-      </span>
-    </button>
+      className="absolute top-1/2"
+    />
   );
 }
 
@@ -79,7 +54,7 @@ export function AppSidebar() {
         collapsible="none"
         className={cn(
           // Fills the shell, which is already the viewport minus any banner.
-          'h-full shrink-0 overflow-hidden transition-[width] duration-200 ease-linear',
+          'h-full shrink-0 overflow-hidden',
         )}
       >
         {/* The list stays mounted while collapsed — the shell simply squeezes

@@ -4,17 +4,23 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AgentProfilePanel } from './agent-profile-panel';
 
+const navigation = vi.hoisted(() => ({ setCurrentSessionId: vi.fn(), createSession: vi.fn() }));
+
 const api = vi.hoisted(() => ({
   getAgentCatalogDetail: vi.fn(),
   listNodes: vi.fn(),
   getAgentDirectory: vi.fn(),
 }));
 
+const layout = vi.hoisted(() => ({ openEditAgent: vi.fn() }));
+const owner = vi.hoisted(() => ({ email: 'owner@example.com' }));
+
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/components/layout/layout-context', () => ({
   useLayout: () => ({
     selectedAgentName: 'codex-demo-key',
     setSelectedAgentName: vi.fn(),
+    openEditAgent: layout.openEditAgent,
     isMobile: false,
     setViewMode: vi.fn(),
     openMobileDetail: false,
@@ -28,6 +34,8 @@ vi.mock('@/lib/workspace-context', () => ({
       role: 'member',
       agentType: 'codex',
       serverHost: 'DESKTOP-TEST',
+      nodeId: 'n1',
+      ownerEmail: owner.email,
       workingDir: 'C:\\Users\\tester',
       description: null,
       enabledSkills: null,
@@ -37,7 +45,8 @@ vi.mock('@/lib/workspace-context', () => ({
       joinedAt: null,
     }],
     refreshWorkspace: vi.fn(),
-    createSession: vi.fn(),
+    ...navigation,
+    currentUser: { id: 'owner@example.com', isAuthenticated: true },
   }),
 }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
@@ -72,9 +81,12 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  vi.clearAllMocks();
   api.getAgentCatalogDetail.mockReset();
   api.listNodes.mockReset().mockResolvedValue([]);
   api.getAgentDirectory.mockReset().mockResolvedValue([]);
+  owner.email = 'owner@example.com';
+  layout.openEditAgent.mockReset();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -93,6 +105,19 @@ describe('agent model settings', () => {
     });
     await act(async () => { await Promise.resolve(); });
   }
+
+  it('opens the agent direct message instead of creating a thread', async () => {
+    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [] });
+    await renderPanel();
+    const button = Array.from(container.querySelectorAll('button'))
+      .find((item) => item.textContent === 'agents.directMessage');
+    expect(button).toBeDefined();
+    await act(async () => button?.click());
+    expect(navigation.setCurrentSessionId).toHaveBeenCalledWith(
+      'dm:human:owner@example.com,openagents:codex-demo-key',
+    );
+    expect(navigation.createSession).not.toHaveBeenCalled();
+  });
 
   it('keeps the model card visible and explains a catalog failure', async () => {
     api.getAgentCatalogDetail.mockRejectedValue(new Error('catalog unavailable'));
@@ -174,5 +199,34 @@ describe('agent model settings', () => {
 
     expect(options()).toEqual(['__default__', 'gpt-catalog']);
     expect(container.textContent).not.toContain('agents.modelAccountHint');
+  });
+});
+
+describe('agent working folder', () => {
+  it('shows the folder and its device, and sends a change to the full settings', async () => {
+    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [], workspace_model: true });
+    await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(container.textContent).toContain('C:\\Users\\tester');
+    expect(container.textContent).toContain('agents.workdirDevice');
+    const edit = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'agents.workdirEdit');
+    expect(edit).toBeDefined();
+    await act(async () => { edit?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+
+    expect(layout.openEditAgent).toHaveBeenCalledWith({ agentName: 'codex-demo-key', nodeId: 'n1' });
+  });
+
+  it('offers no change for an agent someone else owns', async () => {
+    owner.email = 'someone-else@example.com';
+    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [], workspace_model: true });
+    await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(container.textContent).toContain('C:\\Users\\tester');
+    const edit = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'agents.workdirEdit');
+    expect(edit).toBeUndefined();
   });
 });
