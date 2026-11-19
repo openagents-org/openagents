@@ -1537,7 +1537,7 @@ export const messages: Messages = {
     projectsView: '项目',
     viewOptions: "视图选项",
     layout: "布局",
-    allConversations: "全部会话",
+    allConversations: "全部",
     filter: "筛选会话",
     show: "显示会话",
 

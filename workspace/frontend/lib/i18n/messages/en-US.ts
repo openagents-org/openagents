@@ -1562,7 +1562,7 @@ export const messages = {
     projectsView: 'Projects',
     viewOptions: "View options",
     layout: "Layout",
-    allConversations: "All conversations",
+    allConversations: "All",
     filter: "Filter conversations",
     show: "Show conversations",
 
