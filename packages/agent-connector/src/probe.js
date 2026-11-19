@@ -165,10 +165,14 @@ function classifyOutputText(text) {
   // Missing bearer … authentication", or for a ChatGPT workspace "workspace
   // routing discovery unauthorized (401)". Nothing to re-enter, a sign-in.
   if (/missing bearer|workspace routing discovery unauthorized/.test(text)) return CODE.NOT_LOGGED_IN;
-  if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
+  // "Invalid credential" (singular) and "This API key has expired" (or
+  // api_key_expired) are how OpenCode's providers say it; both read as
+  // "undetermined".
+  if (/invalid.{0,12}(api.?key|x-api-key|token)|incorrect api key|authentication[_ ]?error|invalid credentials?\b|api[ _-]?key.{0,20}expired|\b401\b|unauthorized|forbidden|\b403\b/.test(text)) return CODE.INVALID_API_KEY;
   // A sign-in that exists but has run out — Claude Code: "Failed to
-  // authenticate: OAuth session expired and could not be refreshed".
-  if (/session expired|could not be refreshed|(token|sign-?in|login) (has )?expired|run \/logout and \/login/.test(text)) return CODE.SESSION_EXPIRED;
+  // authenticate: OAuth session expired and could not be refreshed", or "this
+  // login reached its time limit and cannot be renewed".
+  if (/session expired|could not be refreshed|login reached its time limit|login .{0,30}cannot be renewed|(token|sign-?in|login) (has )?expired|run \/logout and \/login/.test(text)) return CODE.SESSION_EXPIRED;
   if (/not logged in|not authenticated|login required|authentication required|please (log ?in|sign ?in|authenticate)|(run|use) .{0,40}login|no credentials/.test(text)) return CODE.NOT_LOGGED_IN;
   // "Model 'x' is not available. This gateway only allows: …" is how the
   // OpenAgents gateway refuses a model; read as a CLI error it sent people to

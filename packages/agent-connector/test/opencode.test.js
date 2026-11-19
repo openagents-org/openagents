@@ -275,6 +275,9 @@ describe('OpenCode — failure classification (8.3)', () => {
     const err = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
     assert.equal(OpenCodeAdapter._classifyFailure(err('Insufficient balance')).category, 'quota_exhausted');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid or revoked API key.')).category, 'auth_failed');
+    // Daily errors dashboard, 2026-11-19: both read "an undetermined reason".
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid credential')).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('This API key has expired. Create a new API key in OpenCode Console and replace it.')).category, 'auth_failed');
     // A plan's allowance, quoted with no status code in the run's error.
     assert.equal(OpenCodeAdapter._classifyFailure(err('Your Pass allowance for this period is used up, and your account is set not to overdraw.')).category, 'quota_exhausted');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Bad Request: Failed to buffer the request body: length limit exceeded')).category, 'request_too_large');
