@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Check, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Item } from '@/components/ui/item';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { HumanAvatar } from '@/components/chat/human-avatar';
@@ -62,18 +63,20 @@ export function ParticipantPicker({ options, value, onChange, disabled, onToggle
       {results.map((option) => {
         const key = granteeKey(option);
         const checked = selected.has(key);
-        return <button key={key} type="button" disabled={disabled} role="checkbox" aria-checked={checked}
-          className={cn('flex w-full items-center gap-3 rounded-md px-3 py-2 text-left transition-colors hover:bg-muted/60 disabled:opacity-50', checked && 'bg-muted/40')}
-          onClick={() => onChange(checked ? value.filter((p) => granteeKey(p) !== key) : [...value, { kind: option.kind, id: option.id, label: option.label }])}>
-          {option.kind === 'human' ? <HumanAvatar email={option.id} /> : <AgentAvatar name={option.id} size={28} />}
-          <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-medium">{option.label}</span>
-            {option.detail && <span className="block truncate text-xs text-muted-foreground">{option.detail}</span>}
-          </span>
-          <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-sm border', checked ? 'bg-primary border-primary text-primary-foreground' : 'border-input')}>
-            {checked && <Check className="size-3" strokeWidth={3} />}
-          </span>
-        </button>;
+        return <Item key={key} asChild size="xs" className={cn('flex-nowrap gap-3 px-3 text-left hover:bg-muted/60 disabled:opacity-50', checked && 'bg-muted/40')}>
+          <button type="button" disabled={disabled} role="checkbox" aria-checked={checked}
+            onClick={() => onChange(checked ? value.filter((p) => granteeKey(p) !== key) : [...value, { kind: option.kind, id: option.id, label: option.label }])}>
+            {option.kind === 'human' ? <HumanAvatar email={option.id} /> : <AgentAvatar name={option.id} size={28} />}
+            {/* Item parts render block elements; spans keep the button's content valid. */}
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{option.label}</span>
+              {option.detail && <span className="block truncate text-xs text-muted-foreground">{option.detail}</span>}
+            </span>
+            <span aria-hidden="true" className={cn('flex size-4 shrink-0 items-center justify-center rounded-sm border', checked ? 'border-primary bg-primary text-primary-foreground' : 'border-input')}>
+              {checked && <Check className="size-3" strokeWidth={3} />}
+            </span>
+          </button>
+        </Item>;
       })}
       {!results.length && <p className="px-3 py-12 text-center text-sm text-muted-foreground">
         {filter === 'selected' && !value.length ? t('newThread.noneSelected') : t('newThread.noResults')}

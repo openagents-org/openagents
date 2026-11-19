@@ -1,10 +1,12 @@
 'use client';
 
-import { ArrowRight, BookOpen, Copy, Pencil, Play, Trash2, User } from 'lucide-react';
+import { ArrowRight, BookOpen, Copy, MoreHorizontal, Pencil, Play, RotateCcw, Trash2, User } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { Workflow } from '@/lib/types';
 
@@ -21,7 +23,7 @@ function StepPill({ step }: { step: Workflow['steps'][number] }) {
       )}
       <span className="max-w-28 truncate">{step.name}</span>
       {step.knowledge_id && <BookOpen className="text-muted-foreground" />}
-      {step.gate && <span className="text-warning" title={step.gate.condition}>↺</span>}
+      {step.gate && <WithTooltip label={step.gate.condition}><span role="img" aria-label={step.gate.condition} className="inline-flex text-warning"><RotateCcw className="size-3" /></span></WithTooltip>}
     </Badge>
   );
 }
@@ -45,27 +47,28 @@ export function WorkflowCard({
   const t = useT();
   const { timeAgo } = useFormatters();
   return (
-    <Card size="sm" className="group">
+    <Card size="sm">
       <CardHeader>
         <CardTitle className="min-w-0 break-words">{wf.name}</CardTitle>
         {wf.description && <CardDescription className="line-clamp-2">{wf.description}</CardDescription>}
-        <CardAction className="flex items-center gap-0.5 text-muted-foreground transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
-          <Button variant="ghost" size="icon-xs" onClick={onDuplicate} title={t('workflows.duplicate')} aria-label={t('workflows.duplicate')}>
-            <Copy />
-          </Button>
-          <Button variant="ghost" size="icon-xs" onClick={onEdit} title={t('common.edit')} aria-label={t('common.edit')}>
-            <Pencil />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={onDelete}
-            title={t('workflows.deleteWorkflow')}
-            aria-label={t('workflows.deleteWorkflow')}
-            className="hover:bg-destructive/10 hover:text-destructive"
-          >
-            <Trash2 />
-          </Button>
+        <CardAction>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-xs" aria-label={t('workflows.workflowActions', { name: wf.name })} className="text-muted-foreground">
+                <MoreHorizontal />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuGroup>
+                <DropdownMenuItem onClick={onDuplicate}><Copy /><span>{t('workflows.duplicate')}</span></DropdownMenuItem>
+                <DropdownMenuItem onClick={onEdit}><Pencil /><span>{t('common.edit')}</span></DropdownMenuItem>
+              </DropdownMenuGroup>
+              <DropdownMenuSeparator />
+              <DropdownMenuGroup>
+                <DropdownMenuItem variant="destructive" onClick={onDelete}><Trash2 /><span>{t('workflows.deleteWorkflow')}</span></DropdownMenuItem>
+              </DropdownMenuGroup>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </CardAction>
       </CardHeader>
 

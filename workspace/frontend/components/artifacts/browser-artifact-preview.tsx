@@ -5,6 +5,8 @@ import { Globe, RotateCcw, ExternalLink } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { BrowserView } from '@/components/browser/browser-view';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Item, ItemContent, ItemDescription, ItemTitle } from '@/components/ui/item';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -80,20 +82,26 @@ function SavedBrowserPreview({ tabId }: { tabId: string }) {
 
   if (loading) return <div className="flex h-full items-center justify-center"><Spinner className="size-5 text-muted-foreground" /></div>;
   if (saved?.status === 'closed') return (
-    <div className="flex h-full flex-col items-center justify-center px-8 py-12 text-center">
-      <div className="mb-4 rounded-full bg-muted p-3"><Globe className="size-6 text-muted-foreground" /></div>
-      <h3 className="text-sm font-semibold">{t('artifactPanel.browserClosed')}</h3>
-      <p className="mt-2 max-w-sm text-sm leading-relaxed text-muted-foreground">{t('artifactPanel.browserClosedHint')}</p>
-      <div className="mt-5 w-full max-w-sm rounded-lg border bg-muted/30 px-3 py-2.5 text-left">
-        <p className="truncate text-sm font-medium">{saved.title || saved.url}</p>
-        <p className="mt-1 truncate text-xs text-muted-foreground" title={saved.url}>{saved.url}</p>
-      </div>
-      {error && <p role="alert" className="mt-3 text-sm text-destructive">{t('artifactPanel.reopenFailed')}</p>}
-      <Button className="mt-5 gap-2" size="sm" disabled={reopening} onClick={() => void reopen()}>
-        {reopening ? <Spinner className="size-3.5" /> : <RotateCcw className="size-3.5" />}
-        {t('artifactPanel.reopenBrowser')}
-      </Button>
-    </div>
+    <Empty className="h-full px-8 py-12">
+      <EmptyHeader>
+        <EmptyMedia variant="icon"><Globe /></EmptyMedia>
+        <EmptyTitle>{t('artifactPanel.browserClosed')}</EmptyTitle>
+        <EmptyDescription>{t('artifactPanel.browserClosedHint')}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Item variant="outline" size="sm" className="w-full text-left">
+          <ItemContent className="min-w-0">
+            <ItemTitle className="w-full truncate">{saved.title || saved.url}</ItemTitle>
+            <ItemDescription className="truncate text-xs" title={saved.url}>{saved.url}</ItemDescription>
+          </ItemContent>
+        </Item>
+        {error && <p role="alert" className="text-sm text-destructive">{t('artifactPanel.reopenFailed')}</p>}
+        <Button size="sm" disabled={reopening} onClick={() => void reopen()}>
+          {reopening ? <Spinner data-icon="inline-start" /> : <RotateCcw data-icon="inline-start" />}
+          {t('artifactPanel.reopenBrowser')}
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
   if (saved?.status === 'active' && isListed) return <BrowserView artifactTabId={tabId} />;
   return <p className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;

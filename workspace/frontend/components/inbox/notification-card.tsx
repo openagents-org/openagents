@@ -4,6 +4,8 @@ import { ArrowRight, ChevronDown, ChevronUp, ExternalLink, User, X } from 'lucid
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Item, ItemActions, ItemContent, ItemMedia } from '@/components/ui/item';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { agentLabel } from '@/lib/helpers';
 import { humanColor } from '@/lib/human-color';
@@ -13,17 +15,15 @@ import type { NotificationItem } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
 
-/** Unread marker: red for high priority, the primary ink otherwise. Once read it is
- *  hidden but keeps its slot, so the avatar column does not shift. */
-function UnreadDot({ unread, priority }: { unread: boolean; priority: NotificationItem['priority'] }) {
+/** Unread marker in the app-wide unread red (high priority is flagged by its
+ *  own badge). Once read it is hidden but keeps its slot, so the avatar column
+ *  does not shift. */
+function UnreadDot({ unread }: { unread: boolean }) {
   return (
     <span
       aria-hidden
       data-testid="inbox-unread-dot"
-      className={cn(
-        'mt-1.5 size-2 shrink-0 rounded-full',
-        !unread ? 'invisible' : priority === 'high' ? 'bg-destructive' : 'bg-primary',
-      )}
+      className={cn('mt-1.5 size-2 shrink-0 rounded-full bg-destructive', !unread && 'invisible')}
     />
   );
 }
@@ -95,25 +95,37 @@ export function NotificationCard({
   };
 
   return (
-    <div
+    <Item
       className={cn(
-        'flex cursor-pointer items-start gap-2.5 px-3 py-2.5 transition-colors',
+        'relative flex-nowrap items-start rounded-none',
         !notification.isRead ? 'bg-accent/50 hover:bg-accent' : 'hover:bg-muted/50',
       )}
-      onClick={handleClick}
       data-testid="inbox-row"
       data-action-kind={actionKind ?? undefined}
     >
-      <UnreadDot unread={!notification.isRead} priority={notification.priority} />
-      <SenderMark fromPerson={fromPerson} name={agentName} />
-      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+      <UnreadDot unread={!notification.isRead} />
+      <ItemMedia>
+        <SenderMark fromPerson={fromPerson} name={agentName} />
+      </ItemMedia>
+      <ItemContent className="min-w-0 gap-0.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          <span className={cn('text-sm leading-snug font-medium', !notification.isRead && 'font-semibold')}>
+          {/* The row's one click target: its ::after covers the whole row, and
+              the links and buttons below sit above it (relative z-10), so no
+              interactive element is nested inside another. */}
+          <button
+            type="button"
+            onClick={handleClick}
+            aria-expanded={actionable ? expanded : undefined}
+            className={cn(
+              'cursor-pointer text-left text-sm leading-snug font-medium outline-none after:absolute after:inset-0 focus-visible:after:ring-2 focus-visible:after:ring-ring focus-visible:after:ring-inset',
+              !notification.isRead && 'font-semibold',
+            )}
+          >
             {notification.title}
-          </span>
+          </button>
           {actionKind && <KindChip resolved={resolved} />}
           {notification.priority === 'high' && !actionKind && (
-            <Badge variant="destructive" className="shrink-0">High</Badge>
+            <Badge variant="destructive" className="shrink-0">{t('inbox.priorityHigh')}</Badge>
           )}
         </div>
         <p className="line-clamp-2 text-xs text-muted-foreground">
@@ -132,8 +144,8 @@ export function NotificationCard({
               type="button"
               variant="link"
               size="xs"
-              className="h-auto gap-0.5 px-0 text-foreground/70 hover:text-foreground"
-              onClick={(e) => { e.stopPropagation(); onNavigate(notification); }}
+              className="relative z-10 h-auto gap-0.5 px-0 text-foreground/70 hover:text-foreground"
+              onClick={() => onNavigate(notification)}
             >
               <ArrowRight data-icon="inline-start" />
               {t('inbox.goToThread')}
@@ -145,37 +157,38 @@ export function NotificationCard({
             </span>
           ))}
           {notification.linkUrl && (
-            <a
-              href={notification.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-0.5 text-foreground/70 hover:text-foreground"
-              onClick={(e) => e.stopPropagation()}
+            <Button
+              variant="link"
+              size="xs"
+              asChild
+              className="relative z-10 h-auto gap-0.5 px-0 text-foreground/70 hover:text-foreground"
             >
-              <ExternalLink className="size-3" />
-              Link
-            </a>
+              <a href={notification.linkUrl} target="_blank" rel="noopener noreferrer">
+                <ExternalLink data-icon="inline-start" />
+                {t('inbox.link')}
+              </a>
+            </Button>
           )}
         </div>
-      </div>
-      {actionable && (
-        <span className="shrink-0 p-1 text-muted-foreground" title={expanded ? t('inbox.collapse') : t('inbox.expand')}>
-          {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-        </span>
-      )}
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        onClick={(e) => {
-          e.stopPropagation();
-          onDismiss(notification.id);
-        }}
-        className="shrink-0 text-muted-foreground opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-        title={t('inbox.dismiss')}
-        aria-label={t('inbox.dismiss')}
-      >
-        <X />
-      </Button>
-    </div>
+      </ItemContent>
+      <ItemActions className="gap-1">
+        {actionable && (
+          <span aria-hidden className="shrink-0 p-1 text-muted-foreground">
+            {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+          </span>
+        )}
+        <WithTooltip label={t('inbox.dismiss')}>
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={() => onDismiss(notification.id)}
+            className="relative z-10 shrink-0 text-muted-foreground opacity-0 group-hover/item:opacity-100 group-focus-within/item:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100"
+            aria-label={t('inbox.dismiss')}
+          >
+            <X />
+          </Button>
+        </WithTooltip>
+      </ItemActions>
+    </Item>
   );
 }

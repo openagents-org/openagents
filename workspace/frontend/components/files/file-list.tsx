@@ -11,6 +11,7 @@ import { ListToggleButton } from "@/components/layout/list-collapse-button"
 import { Button } from "@/components/ui/button"
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty"
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { useT } from "@/lib/i18n"
 import { dirname, isKeepFile } from "./file-utils"
@@ -22,7 +23,7 @@ import { FileStorageUsage } from "./file-storage-usage"
 function PanelSection({ label, className }: { label: string; className?: string }) {
   return (
     <div className={cn("px-2 pb-1", className)}>
-      <span className="text-xs font-medium tracking-wider text-muted-foreground uppercase">{label}</span>
+      <span className="text-xs font-medium text-muted-foreground">{label}</span>
     </div>
   )
 }
@@ -166,11 +167,16 @@ export function FileList() {
         <PanelSection label={t("files.personalFolders")} className="pt-3" />
         {team.filter(person => !search || `${person.displayName || ''} ${person.email}`.toLowerCase().includes(search.toLowerCase())).map(person => {
           const path = personalFolder(person.email)
-          return <button key={person.email} type="button" onClick={() => openFolder(path)} title={person.email}
-            className={cn('flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted', currentFilePath === path && filesSection === 'folders' && 'bg-muted')}>
-            <HumanAvatar email={person.email} className="size-5" />
-            <span className="truncate">{person.displayName || person.email}</span>
-          </button>
+          return <Tooltip key={person.email}>
+            <TooltipTrigger asChild>
+              <button type="button" onClick={() => openFolder(path)}
+                className={cn('flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-muted', currentFilePath === path && filesSection === 'folders' && 'bg-muted')}>
+                <HumanAvatar email={person.email} className="size-5" />
+                <span className="truncate">{person.displayName || person.email}</span>
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">{person.email}</TooltipContent>
+          </Tooltip>
         })}
 
         {/* The rule separates this section from the rows above; with the

@@ -1,7 +1,9 @@
 'use client';
 
 import { HardDrive } from 'lucide-react';
+import { Progress } from '@/components/ui/progress';
 import { useWorkspace } from '@/lib/workspace-context';
+import { cn } from '@/lib/utils';
 import { useFormatters, useT } from '@/lib/i18n';
 
 /** Server totals include private files and recoverable trash, not just this view. */
@@ -35,17 +37,15 @@ export function FileStorageUsage() {
       {fileStorage || isPreview ? (
         <>
           {percent !== null && (
-            <div
-              role="progressbar"
+            <Progress
+              // A sliver for any usage at all, so a nearly-empty workspace still
+              // shows a bar; assistive tech gets the real figure.
+              value={usedBytes > 0 ? Math.max(1, Math.min(100, percent)) : 0}
               aria-label={t('files.storageTitle')}
-              aria-valuemin={0}
-              aria-valuemax={100}
               aria-valuenow={Math.min(100, percent)}
               aria-valuetext={t('files.storageOf', { used: formatFileSize(usedBytes), limit: formatFileSize(limitBytes!) })}
-              className="h-1.5 overflow-hidden rounded-full bg-muted"
-            >
-              <div className={`h-full rounded-full ${percent >= 90 ? 'bg-amber-500' : 'bg-primary'}`} style={{ width: `${Math.min(100, percent)}%`, minWidth: usedBytes > 0 ? 2 : 0 }} />
-            </div>
+              className={cn('h-1.5', percent >= 90 && '*:data-[slot=progress-indicator]:bg-warning')}
+            />
           )}
           <p className="text-muted-foreground">
             {limitBytes

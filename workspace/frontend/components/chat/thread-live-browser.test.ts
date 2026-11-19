@@ -45,7 +45,7 @@ it('keeps the stream mounted when minimized and expands over the conversation', 
   h.ws.browserTabs = [tab()]; await render();
   await act(async () => (host.querySelector('[aria-label="threadLiveBrowser.minimize"]') as HTMLButtonElement).click());
   expect(host.querySelector('iframe')?.parentElement?.classList.contains('hidden')).toBe(true);
-  await act(async () => (host.querySelector('[title="threadLiveBrowser.restore"]') as HTMLButtonElement).click());
+  await act(async () => (host.querySelector('button[aria-expanded="false"]') as HTMLButtonElement).click());
   await act(async () => (host.querySelector('[aria-label="threadLiveBrowser.expand"]') as HTMLButtonElement).click());
   expect(host.querySelector('[data-browser-overlay="fullscreen"][role="dialog"]')).not.toBeNull();
   expect(host.querySelector('[data-preview="tab"]')).not.toBeNull();
@@ -165,7 +165,7 @@ it('does not open stale tabs or historical links in an idle thread', async () =>
 it('labels the selected tab, not another tab with current activity', async () => {
   h.ws.browserTabs = [tab(), {...tab('chosen'), title:'Research paper', url:'https://example.org/paper'}];
   h.layout.selectedBrowser = {kind:'browser',id:'chosen'}; await render();
-  expect(host.querySelector('[title="threadLiveBrowser.minimize"]')?.textContent).toBe('Research paper');
+  expect(host.querySelector('button[aria-expanded="true"]')?.textContent).toBe('Research paper');
   // A selected tab opens interactive, with the browser's own address bar:
   // the address is not repeated above it.
   expect(host.querySelector('p[title="https://example.org/paper"]')).toBeNull();

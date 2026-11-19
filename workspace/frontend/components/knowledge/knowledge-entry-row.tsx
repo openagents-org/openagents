@@ -1,11 +1,14 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { BookOpen, Pencil, Share2, Trash2 } from 'lucide-react';
 import { ArtifactVisibilityBadge } from '@/components/sharing/artifact-access-badge';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { KnowledgeEntry } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 
 /**
  * One entry in the knowledge list. The row itself selects; share, edit and
@@ -49,7 +52,7 @@ export function KnowledgeEntryRow({
         selected ? 'border-border bg-accent shadow-xs' : 'border-transparent hover:bg-muted/50',
       )}
     >
-      <BookOpen className={cn('mt-0.5 size-4 shrink-0', selected ? 'text-indigo-600 dark:text-indigo-400' : 'text-muted-foreground/60')} />
+      <BookOpen className={cn('mt-0.5 size-4 shrink-0', selected ? 'text-foreground' : 'text-muted-foreground/60')} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <p className="min-w-0 flex-1 line-clamp-2 text-sm leading-snug font-medium text-foreground" title={title}>
@@ -66,33 +69,25 @@ export function KnowledgeEntryRow({
       </div>
 
       <div className="pointer-events-none absolute right-2 bottom-2 flex items-center gap-0.5 rounded-md border border-border/60 bg-background p-0.5 text-muted-foreground opacity-0 shadow-sm transition-opacity group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100 [@media(hover:none)]:pointer-events-auto [@media(hover:none)]:opacity-100">
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('artifactAccess.share')}
-          title={t('artifactAccess.share')}
-          onClick={(e) => { e.stopPropagation(); onShare(); }}
-        >
-          <Share2 />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('knowledge.editEntry')}
-          onClick={(e) => { e.stopPropagation(); onEdit(); }}
-        >
-          <Pencil />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          aria-label={t('knowledge.deleteEntry')}
-          onClick={(e) => { e.stopPropagation(); onDelete(); }}
-          className="hover:text-destructive"
-        >
-          <Trash2 />
-        </Button>
+        <RowAction label={t('artifactAccess.share')} onClick={onShare}><Share2 /></RowAction>
+        <RowAction label={t('knowledge.editEntry')} onClick={onEdit}><Pencil /></RowAction>
+        <RowAction label={t('knowledge.deleteEntry')} onClick={onDelete} destructive><Trash2 /></RowAction>
       </div>
     </div>
+  );
+}
+
+/** An icon button in the row's action strip; stops the click so the row does not also select. */
+function RowAction({ label, onClick, destructive = false, children }: { label: string; onClick: () => void; destructive?: boolean; children: ReactNode }) {
+  return (
+    <WithTooltip label={label}><Button
+          variant="ghost"
+          size="icon-xs"
+          className={cn(destructive && destructiveIconClass)}
+          aria-label={label}
+          onClick={(e) => { e.stopPropagation(); onClick(); }}
+        >
+          {children}
+        </Button></WithTooltip>
   );
 }

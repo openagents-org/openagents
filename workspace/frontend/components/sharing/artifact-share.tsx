@@ -16,7 +16,10 @@ import { Bot, Globe, Lock, MessagesSquare, Share2, User, Users, X } from 'lucide
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/responsive-dialog';
+import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { GranteePicker } from '@/components/sharing/grantee-picker';
 import { workspaceApi } from '@/lib/api';
@@ -24,10 +27,10 @@ import type { Grantee, GranteeKind, GrantPreviewItem, ResourceGrant } from '@/li
 import { useFormatters, useT } from '@/lib/i18n';
 import type { ArtifactVisibility } from '@/lib/types';
 import { visibilityBadgeFor, type ArtifactKind } from '@/lib/artifact-access';
-import { cn } from '@/lib/utils';
 import { ArtifactVisibilityBadge } from './artifact-access-badge';
 import { PublicLinkSection } from './public-link-section';
 import { WEB_PROJECT_TYPE } from '@/lib/web-projects';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 
 /** Pages that render on the separate share domain rather than as a preview. */
 export function isWebPage(contentType: string | undefined, name: string): boolean {
@@ -149,21 +152,11 @@ export function ArtifactShareContent({
     }
   };
 
-  const visOption = (value: ArtifactVisibility | null, badge: 'private' | 'public' | 'inherit', label: string, Icon: typeof Lock) => (
-    <button
-      key={badge}
-      type="button"
-      disabled={switching}
-      onClick={() => setVisibility(value)}
-      aria-pressed={current === badge}
-      className={cn(
-        'flex flex-1 items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-xs transition-colors',
-        current === badge ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:bg-muted',
-      )}
-    >
-      <Icon className="size-3.5" />
+  const visOption = (badge: 'private' | 'public' | 'inherit', label: string, Icon: typeof Lock) => (
+    <ToggleGroupItem key={badge} value={badge} className="flex-1 text-xs">
+      <Icon data-icon="inline-start" />
       {label}
-    </button>
+    </ToggleGroupItem>
   );
 
   return (
@@ -173,22 +166,23 @@ export function ArtifactShareContent({
       {/* Visibility */}
       <section className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-2">
-          <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.visibility')}</h4>
+          <h4 className="text-sm font-medium">{t('artifactAccess.visibility')}</h4>
           <ArtifactVisibilityBadge kind={kind} visibility={visibility} effectiveVisibility={effectiveVisibility} />
         </div>
         {canManage && onVisibilityChange && (
-          <div className="flex gap-1.5">
-            {visOption('private', 'private', t('artifactAccess.makePrivate'), Lock)}
-            {visOption('public', 'public', t('artifactAccess.makePublic'), Globe)}
-            {canInherit && visOption(null, 'inherit', t('artifactAccess.inheritFromThread'), MessagesSquare)}
-          </div>
+          <ToggleGroup type="single" variant="outline" size="sm" className="w-full" disabled={switching} aria-label={t('artifactAccess.visibility')}
+            value={current} onValueChange={(next) => { if (next) void setVisibility(next === 'inherit' ? null : next as ArtifactVisibility); }}>
+            {visOption('private', t('artifactAccess.makePrivate'), Lock)}
+            {visOption('public', t('artifactAccess.makePublic'), Globe)}
+            {canInherit && visOption('inherit', t('artifactAccess.inheritFromThread'), MessagesSquare)}
+          </ToggleGroup>
         )}
       </section>
 
       {!canManage && <p className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">{t('artifactAccess.ownerMustShare')}</p>}
       {/* Share with… */}
       {canManage && <section className="flex flex-col gap-2">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.shareWith')}</h4>
+        <h4 className="text-sm font-medium">{t('artifactAccess.shareWith')}</h4>
         <GranteePicker value={picked} onChange={setPicked} exclude={exclude} />
         {picked.length > 0 && (
           <div className="rounded-md border bg-muted/30 px-2.5 py-2 text-xs text-muted-foreground">
@@ -222,37 +216,34 @@ export function ArtifactShareContent({
 
       {/* Who has access */}
       {canManage && <section className="flex flex-col gap-1.5">
-        <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.grantsTitle')}</h4>
+        <h4 className="text-sm font-medium">{t('artifactAccess.grantsTitle')}</h4>
         {grants === null ? (
           <p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p>
         ) : grants.length === 0 ? (
           <p className="text-xs text-muted-foreground">{t('artifactAccess.grantsEmpty')}</p>
         ) : (
-          <ul className="max-h-48 flex flex-col gap-0.5 overflow-y-auto">
+          <ItemGroup className="no-scrollbar max-h-48 gap-0.5 overflow-y-auto">
             {grants.map((g) => (
-              <li key={g.id} className="flex items-center gap-2 rounded-md px-1.5 py-1 hover:bg-muted/50">
-                <GranteeIcon kind={g.grantee_kind} />
-                <span className="min-w-0 flex-1 truncate text-xs">{g.grantee_label || g.grantee_id}</span>
+              <Item key={g.id} role="listitem" size="xs" className="flex-nowrap px-1.5 py-1 hover:bg-muted/50">
+                <ItemMedia><GranteeIcon kind={g.grantee_kind} /></ItemMedia>
+                <ItemContent className="min-w-0"><ItemTitle className="w-full truncate text-xs font-normal">{g.grantee_label || g.grantee_id}</ItemTitle></ItemContent>
                 {g.expires_at && (
                   <span className="shrink-0 text-xs text-muted-foreground">
                     {t('agentAccess.expiresOn', { date: formatDate(g.expires_at) })}
                   </span>
                 )}
                 {canManage && (
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => revoke(g)}
-                    aria-label={t('artifactAccess.revoke')}
-                    title={t('artifactAccess.revoke')}
-                    className="size-6 text-muted-foreground hover:text-destructive"
-                  >
-                    <X className="size-3" />
-                  </Button>
+                  <ItemActions>
+                    <WithTooltip label={t('artifactAccess.revoke')}>
+                      <Button variant="ghost" size="icon-xs" className={destructiveIconClass} onClick={() => revoke(g)} aria-label={t('artifactAccess.revoke')}>
+                        <X />
+                      </Button>
+                    </WithTooltip>
+                  </ItemActions>
                 )}
-              </li>
+              </Item>
             ))}
-          </ul>
+          </ItemGroup>
         )}
       </section>}
       <span className="sr-only">{t('artifactAccess.shareTitle', { name })}</span>
@@ -265,14 +256,16 @@ export function ArtifactSharePopover({ trigger, align = 'end', ...props }: Artif
   const t = useT();
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        {trigger ?? (
-          <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" aria-label={t('artifactAccess.share')} title={t('artifactAccess.share')}>
-            <Share2 className="size-4" />
-            <span className="hidden sm:inline">{t('artifactAccess.share')}</span>
-          </Button>
-        )}
-      </PopoverTrigger>
+      {trigger ? <PopoverTrigger asChild>{trigger}</PopoverTrigger> : (
+        <WithTooltip label={t('artifactAccess.share')}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" aria-label={t('artifactAccess.share')}>
+              <Share2 data-icon="inline-start" />
+              <span className="hidden sm:inline">{t('artifactAccess.share')}</span>
+            </Button>
+          </PopoverTrigger>
+        </WithTooltip>
+      )}
       <PopoverContent align={align} className="w-80 p-3" onClick={(e) => e.stopPropagation()}>
         <ArtifactShareContent {...props} />
       </PopoverContent>

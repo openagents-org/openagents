@@ -6,9 +6,11 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import type { NodeAgent } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 import { ExpandableError } from './expandable-error';
 import type { AgentToggle } from './use-agent-toggles';
 
@@ -47,9 +49,9 @@ export function NodeAgentItem({
       </ItemMedia>
       <ItemContent className="min-w-0 gap-0.5">
         <ItemTitle className="max-w-full">
-          <button disabled={busy} onClick={onEdit} className="truncate text-left hover:underline">
-            {a.displayName || `@${a.name}`}
-          </button>
+          <Button variant="link" disabled={busy} onClick={onEdit} className="h-auto max-w-full justify-start p-0 text-foreground">
+            <span className="truncate">{a.displayName || `@${a.name}`}</span>
+          </Button>
         </ItemTitle>
         <ItemDescription className="truncate text-xs">
           {a.displayName ? `@${a.name} · ${a.type}` : a.type}
@@ -107,17 +109,16 @@ export function NodeAgentItem({
             <Pencil data-icon="inline-start" />{t('connect.nodeEdit')}
           </Button>
           <AgentSharingButton agentName={a.name} />
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            onClick={onRemove}
-            disabled={busy}
-            className="ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            title={t('connect.remove')}
-            aria-label={t('connect.remove')}
-          >
-            <Trash2 />
-          </Button>
+          <WithTooltip label={t('connect.remove')}><Button
+                size="icon-sm"
+                variant="ghost"
+                onClick={onRemove}
+                disabled={busy}
+                className={cn('ms-auto', destructiveIconClass)}
+                aria-label={t('connect.remove')}
+              >
+                <Trash2 />
+              </Button></WithTooltip>
         </div>
       </ItemFooter>
     </Item>

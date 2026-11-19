@@ -1,27 +1,27 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { ArrowUpRight, Plus, Trash2, Wallet } from 'lucide-react';
+import { ArrowUpRight, Plus } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
+import { Card, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { ItemGroup } from '@/components/ui/item';
+import { WithTooltip } from '@/components/ui/with-tooltip';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogBody, DialogFooter } from '@/components/ui/responsive-dialog';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AcentaAccount, AcentaAgent, AcentaAgentUsage, AcentaUsage, HostedAgent, HostedAgentProvider } from '@/lib/types';
+import { FinishSetupLink, formatUsd, HostedAgentRow, HostedPresence, HostedUsageBar, RemoveHostedButton } from './hosted-agent-parts';
 
-const STARTUP_WINDOW_MS = 30 * 60 * 1000;
+export { formatUsd };
 
 /** Acenta's own low-balance line (it emails the owner below this). */
 const LOW_BALANCE_CENTS = 200;
-
-export function formatUsd(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
 
 /**
  * Acenta cloud agents. A signed-in member sees their own Acenta agents — any
@@ -152,64 +152,54 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
     }
   };
 
-  const presence = (agent: HostedAgent) => {
-    const online = agent.presence === 'online';
-    if (agent.status === 'setup' && agent.setupUrl) {
-      return (
-        <a href={agent.setupUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">
-          {t('connect.acentaFinishSetup')}
-          <ArrowUpRight className="size-3" />
-        </a>
-      );
-    }
-    // Offline soon after launch means the box is still being prepared.
-    const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
+  const removeButton = (agent: HostedAgent, elsewhere?: boolean) => (
+    <RemoveHostedButton onRemove={() => handleRemove(agent, elsewhere ?? !!agent.linked)} />
+  );
+
+  const addButton = (agent: AcentaAgent, full: boolean) => {
+    const button = (
+      <Button size="sm" variant="outline" disabled={full || adding !== null} onClick={() => handleAdd(agent)}>
+        {adding === agent.id ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}
+        {t('connect.acentaAddHere')}
+      </Button>
+    );
+    if (!full) return button;
+    // A disabled button fires no pointer events, so the reason hangs off a wrapper.
     return (
-      <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-success' : 'text-muted-foreground')}>
-        {starting && <Spinner className="size-3" />}
-        {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : t('connect.acentaOffline')}
-      </span>
+      <WithTooltip label={t('connect.acentaWorkspaceFull')}><span tabIndex={0}>{button}</span></WithTooltip>
     );
   };
 
-  const removeButton = (agent: HostedAgent, elsewhere?: boolean) => (
-    <button
-      onClick={() => handleRemove(agent, elsewhere ?? !!agent.linked)}
-      className="size-6 flex items-center justify-center rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-      title={t('connect.remove')}
-    >
-      <Trash2 className="size-3" />
-    </button>
-  );
+  const statusLine = account && !account.hasAccount ? t('connect.acentaNoAccount')
+    : account?.hasAccount && mine.length === 0 ? t('connect.acentaNoAgents')
+    : atLimit ? t('connect.acentaAgentLimit', { limit: account!.agentLimit })
+    : t('connect.acentaMarketplaceSetup');
+  const listed = account ? others : hosted;
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="flex flex-col gap-5 p-5 sm:p-6">
-          <div className="flex items-start gap-4">
-            <img src="/providers/acenta.svg" alt="" className="size-12 shrink-0 rounded-xl" />
-            <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2.5">
-              <h3 className="text-lg font-semibold tracking-tight">Acenta</h3>
-              <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground">{t('connect.acentaHostedBadge')}</span>
-            </div>
-            <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{t('connect.acentaMarketplaceDescription')}</p>
-            <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-              {account && !account.hasAccount ? t('connect.acentaNoAccount')
-                : account?.hasAccount && mine.length === 0 ? t('connect.acentaNoAgents')
-                : atLimit ? t('connect.acentaAgentLimit', { limit: account!.agentLimit })
-                : t('connect.acentaMarketplaceSetup')}
-            </p>
-            </div>
+      <Card>
+        <CardHeader className="flex items-start gap-4">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/providers/acenta.svg" alt="" className="size-12 shrink-0 rounded-xl" />
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <CardTitle className="flex flex-wrap items-center gap-2.5 text-lg">
+              Acenta
+              <Badge variant="outline">{t('connect.acentaHostedBadge')}</Badge>
+            </CardTitle>
+            <CardDescription className="leading-relaxed">{t('connect.acentaMarketplaceDescription')}</CardDescription>
+            <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{statusLine}</p>
           </div>
-          <div className="border-t border-border pt-4">
-            <Button onClick={() => setSetupOpen(true)} disabled={!provider.available || atLimit} className="w-full">
-              {account?.hasAccount ? <><Plus className="size-3.5 mr-1.5" />{t('connect.acentaNewAgent')}</> : <>{t('connect.acentaGetStarted')} <ArrowUpRight className="size-3.5 ml-1.5" /></>}
-            </Button>
-            {!provider.available && <p className="mt-2 text-center text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
-          </div>
-        </div>
-      </div>
+        </CardHeader>
+        <CardFooter className="flex-col gap-2">
+          <Button onClick={() => setSetupOpen(true)} disabled={!provider.available || atLimit} className="w-full">
+            {account?.hasAccount
+              ? <><Plus data-icon="inline-start" />{t('connect.acentaNewAgent')}</>
+              : <>{t('connect.acentaGetStarted')}<ArrowUpRight data-icon="inline-end" /></>}
+          </Button>
+          {!provider.available && <p className="text-center text-xs text-muted-foreground">{t('connect.acentaUnavailable')}</p>}
+        </CardFooter>
+      </Card>
       <Dialog open={setupOpen} onOpenChange={(open) => { if (!launching) setSetupOpen(open); }}>
         <DialogContent>
           <DialogHeader>
@@ -217,10 +207,12 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
             <DialogDescription>{t('connect.acentaSetupHint')}</DialogDescription>
           </DialogHeader>
           <DialogBody>
-            <Label htmlFor="acenta-agent-name">{t('connect.agentName')}</Label>
-            <Input id="acenta-agent-name" value={name} onChange={(e) => setName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLaunch(); } }}
-              placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching} className="mt-2" />
+            <Field>
+              <FieldLabel htmlFor="acenta-agent-name">{t('connect.agentName')}</FieldLabel>
+              <Input id="acenta-agent-name" value={name} onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLaunch(); } }}
+                placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching} />
+            </Field>
           </DialogBody>
           <DialogFooter>
             <Button onClick={handleLaunch} disabled={launching || !name.trim()}>
@@ -231,69 +223,51 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
         </DialogContent>
       </Dialog>
 
-      {showUsage && (
-        <div className={cn('flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border px-3 py-2.5 text-xs',
-          lowBalance ? 'border-warning/30 bg-warning/10' : 'bg-background')}>
-          <Wallet className="size-3.5 shrink-0 text-muted-foreground" />
-          {usage!.balanceEnabled && (
-            <span>{t('connect.acentaBalance')} <span className="font-semibold tabular-nums">{formatUsd(usage!.balanceCents)}</span></span>
-          )}
-          <span>{t('connect.acentaSpentThisMonth')} <span className="font-semibold tabular-nums">{formatUsd(usage!.spentThisMonthCents)}</span></span>
-          {usage!.autoTopup && <span className="text-muted-foreground">{t('connect.acentaAutoTopupOn')}</span>}
-          {lowBalance && <span className="font-medium text-warning">{t('connect.acentaLowBalance')}</span>}
-          {usage!.manageUrl && (
-            <a href={usage!.manageUrl} target="_blank" rel="noreferrer" className="ml-auto flex items-center gap-1 font-medium text-primary hover:underline">
-              {usage!.balanceEnabled ? t('connect.acentaTopUp') : t('connect.acentaBilling')}
-              <ArrowUpRight className="size-3" />
-            </a>
-          )}
-        </div>
+      {showUsage && <HostedUsageBar usage={usage!} lowBalance={lowBalance} />}
+
+      {mine.length > 0 && (
+        <section className="flex flex-col gap-2 pt-2">
+          <h4 className="text-sm font-medium">{t('connect.acentaYourAgents')}</h4>
+          <ItemGroup className="gap-2">
+            {mine.map((agent) => {
+              const here = hosted.find((h) => h.agentName === agent.agentName);
+              const full = agent.workspaces >= agent.workspaceLimit;
+              const plan = showUsage && usageById.has(agent.id) ? planLabel(usageById.get(agent.id)!) : null;
+              return (
+                <HostedAgentRow
+                  key={agent.id}
+                  title={agent.name}
+                  description={<>
+                    {agent.inThisWorkspace ? t('connect.acentaInThisWorkspace') : t('connect.acentaWorkspaceCount', { count: agent.workspaces, limit: agent.workspaceLimit })}
+                    {plan && <>{' · '}{plan}</>}
+                    {' · '}<a href={agent.url} target="_blank" rel="noreferrer" className="hover:underline">{t('connect.acentaManage')}</a>
+                  </>}
+                  actions={agent.inThisWorkspace ? (
+                    <>{here ? <HostedPresence agent={here} /> : agent.launchUrl ? <FinishSetupLink href={agent.launchUrl} /> : null}{here && removeButton(here, agent.workspaces > 1)}</>
+                  ) : agent.launchUrl ? <FinishSetupLink href={agent.launchUrl} /> : addButton(agent, full)}
+                />
+              );
+            })}
+          </ItemGroup>
+        </section>
       )}
 
-      {mine.length > 0 && <div className="pt-2 text-xs font-medium text-muted-foreground">{t('connect.acentaYourAgents')}</div>}
-      {mine.map((agent) => {
-        const here = hosted.find((h) => h.agentName === agent.agentName);
-        const full = agent.workspaces >= agent.workspaceLimit;
-        return (
-          <div key={agent.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background">
-            <img src="/providers/acenta.svg" alt="Acenta" className="size-7 shrink-0 rounded-md object-contain" />
-            <div className="flex-1 min-w-0">
-              <div className="text-xs font-medium truncate">{agent.name}</div>
-              <div className="text-xs text-muted-foreground truncate">
-                {agent.inThisWorkspace ? t('connect.acentaInThisWorkspace') : t('connect.acentaWorkspaceCount', { count: agent.workspaces, limit: agent.workspaceLimit })}
-                {(() => {
-                  const plan = showUsage && usageById.has(agent.id) ? planLabel(usageById.get(agent.id)!) : null;
-                  return plan && <>{' · '}{plan}</>;
-                })()}
-                {' · '}<a href={agent.url} target="_blank" rel="noreferrer" className="hover:underline">{t('connect.acentaManage')}</a>
-              </div>
-            </div>
-            {agent.inThisWorkspace ? (
-              <>{here ? presence(here) : agent.launchUrl ? <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a> : null}{here && removeButton(here, agent.workspaces > 1)}</>
-            ) : agent.launchUrl ? (
-              <a href={agent.launchUrl} className="flex items-center gap-1 text-xs font-medium text-primary hover:underline">{t('connect.acentaFinishSetup')}<ArrowUpRight className="size-3" /></a>
-            ) : (
-              <Button size="sm" variant="outline" disabled={full || adding !== null} title={full ? t('connect.acentaWorkspaceFull') : undefined} onClick={() => handleAdd(agent)}>
-                {adding === agent.id ? <Spinner data-icon="inline-start" /> : <Plus className="size-3.5 mr-1.5" />}
-                {t('connect.acentaAddHere')}
-              </Button>
-            )}
-          </div>
-        );
-      })}
-
-      {account && others.length > 0 && <div className="pt-2 text-xs font-medium text-muted-foreground">{t('connect.acentaOthersAgents')}</div>}
-      {(account ? others : hosted).map((agent) => (
-        <div key={agent.agentName} className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg border bg-background">
-          <img src="/providers/acenta.svg" alt="Acenta" className="size-7 shrink-0 rounded-md object-contain" />
-          <div className="flex-1 min-w-0">
-            <div className="text-xs font-medium truncate">{agent.displayName}</div>
-            <div className="text-xs text-muted-foreground font-mono truncate">@{agent.agentName}</div>
-          </div>
-          {presence(agent)}
-          {removeButton(agent)}
-        </div>
-      ))}
+      {listed.length > 0 && (
+        <section className="flex flex-col gap-2 pt-2">
+          {account && <h4 className="text-sm font-medium">{t('connect.acentaOthersAgents')}</h4>}
+          <ItemGroup className="gap-2">
+            {listed.map((agent) => (
+              <HostedAgentRow
+                key={agent.agentName}
+                title={agent.displayName}
+                description={`@${agent.agentName}`}
+                mono
+                actions={<><HostedPresence agent={agent} />{removeButton(agent)}</>}
+              />
+            ))}
+          </ItemGroup>
+        </section>
+      )}
     </div>
   );
 }

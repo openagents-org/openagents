@@ -4,6 +4,10 @@ import { useMemo, useState } from 'react';
 import { Bell, CheckCheck, RefreshCw } from 'lucide-react';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { UnreadBadge } from '@/components/ui/unread-badge';
+import { Empty, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
+import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { NotificationCard } from '@/components/inbox/inbox-view';
 import { useOpenNotification } from '@/components/inbox/use-open-notification';
 import { cn } from '@/lib/utils';
@@ -60,26 +64,24 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         if (v) refreshNotifications();
       }}
     >
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          title={t('notifications.title')}
-          aria-label={t('notifications.title')}
-          className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-        >
-          <Bell className="size-4" />
-          {unreadNotificationCount > 0 && (
-            <span className="absolute -end-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-destructive-foreground tabular-nums">
-              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-            </span>
-          )}
-        </button>
-      </PopoverTrigger>
+      <WithTooltip label={t('notifications.title')}><PopoverTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={t('notifications.title')}
+              className="relative text-muted-foreground"
+            >
+              <Bell />
+              {unreadNotificationCount > 0 && (
+                <UnreadBadge count={unreadNotificationCount} size="corner" className="absolute -end-1 -top-1" />
+              )}
+            </Button>
+          </PopoverTrigger></WithTooltip>
 
       <PopoverContent side={side} align={align} sideOffset={8} className="w-95 p-0">
         <div className="flex shrink-0 items-center justify-between border-b border-border px-3 py-2">
           <div className="flex items-center gap-2">
-            <span className="text-sm font-semibold">{t('notifications.title')}</span>
+            <span className="text-sm font-medium">{t('notifications.title')}</span>
             {unreadNotificationCount > 0 && (
               <span className="text-xs text-muted-foreground">
                 {t('notifications.unreadCount', { count: unreadNotificationCount })}
@@ -88,26 +90,34 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
           </div>
           <div className="flex items-center gap-0.5">
             {unreadNotificationCount > 0 && (
-              <button
-                onClick={markAllNotificationsRead}
-                className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted"
-                title={t('notifications.markAllRead')}
-              >
-                <CheckCheck className="size-3.5" />
-              </button>
+              <WithTooltip label={t('notifications.markAllRead')}><Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground"
+                    onClick={markAllNotificationsRead}
+                    aria-label={t('notifications.markAllRead')}
+                  >
+                    <CheckCheck />
+                  </Button></WithTooltip>
             )}
-            <button
-              onClick={refreshNotifications}
-              className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted"
-              title={t('common.refresh')}
-            >
-              <RefreshCw className="size-3.5" />
-            </button>
+            <WithTooltip label={t('common.refresh')}><Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground"
+                  onClick={refreshNotifications}
+                  aria-label={t('common.refresh')}
+                >
+                  <RefreshCw />
+                </Button></WithTooltip>
           </div>
         </div>
 
         {items.length === 0 ? (
-          <div className="px-3 py-8 text-center text-sm text-muted-foreground">{t('notifications.allCaughtUp')}</div>
+          <Empty className="py-8">
+            <EmptyHeader>
+              <EmptyDescription>{t('notifications.allCaughtUp')}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         ) : (
           <ScrollArea className="max-h-105">
             <div className="divide-y divide-border">
@@ -125,15 +135,19 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
           </ScrollArea>
         )}
 
-        <button
-          onClick={() => {
-            openView('inbox');
-            setOpen(false);
-          }}
-          className="w-full shrink-0 border-t border-border px-3 py-2 text-center text-xs font-medium text-primary transition-colors hover:bg-muted"
-        >
-          {t('notifications.viewAllInInbox')}
-        </button>
+        <div className="shrink-0 border-t border-border p-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="w-full"
+            onClick={() => {
+              openView('inbox');
+              setOpen(false);
+            }}
+          >
+            {t('notifications.viewAllInInbox')}
+          </Button>
+        </div>
       </PopoverContent>
     </Popover>
   );

@@ -3,9 +3,11 @@ import { ChevronRight, HardDrive, Laptop, Monitor, Server, Trash2 } from 'lucide
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { NodeAgent, WorkspaceNode } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 
 function DeviceIcon({ deviceType }: { deviceType: string }) {
   switch (deviceType) {
@@ -127,17 +129,16 @@ export function NodeSummary({
         </div>
       </button>
       {/* Remove the device — always on offer, offline devices included. */}
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onRemove}
-        disabled={busy}
-        title={t('connect.nodeRemove')}
-        aria-label={t('connect.nodeRemove')}
-        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-      >
-        <Trash2 />
-      </Button>
+      <WithTooltip label={t('connect.nodeRemove')}><Button
+            variant="ghost"
+            size="icon-sm"
+            className={destructiveIconClass}
+            onClick={onRemove}
+            disabled={busy}
+            aria-label={t('connect.nodeRemove')}
+          >
+            <Trash2 />
+          </Button></WithTooltip>
       <Button
         variant="ghost"
         size="icon-sm"

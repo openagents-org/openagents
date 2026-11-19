@@ -3,6 +3,7 @@ import { MoreAgents } from './more-agents';
 import { Button } from '@/components/ui/button';
 import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 import { Fragment, useMemo, useState } from 'react';
 import { ChevronDown, Plus, Users } from 'lucide-react';
@@ -70,7 +71,6 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               onClick={() => setOpen((prev) => !prev)}
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
-              title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
             >
               {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
               <ChevronDown
@@ -82,16 +82,17 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             </button>
           </SidebarGroupLabel>
           {/* Same "+" as the Members header: straight to the add-agent gallery. */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden"
-            aria-label={t('nav.addAgent')}
-            title={t('nav.addAgent')}
-            onClick={() => { openAddAgent(); onNavigate?.(); }}
-          >
-            <Plus />
-          </Button>
+          <WithTooltip label={t('nav.addAgent')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden"
+              aria-label={t('nav.addAgent')}
+              onClick={() => { openAddAgent(); onNavigate?.(); }}
+            >
+              <Plus />
+            </Button>
+          </WithTooltip>
           </div>
 
           {/* The rail keeps avatars visible even when the group is collapsed on desktop */}

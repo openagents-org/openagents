@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import type { ChannelParticipants } from '@/lib/types';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 const TRIGGER = 'px-1.5 font-normal tabular-nums text-muted-foreground';
 
@@ -31,7 +32,7 @@ function RosterList({ title, empty, items, add }: {
     <>
       <h4 className="px-1 text-sm font-medium">{title}</h4>
       {items.length ? (
-        <ItemGroup className="max-h-72 gap-0 overflow-y-auto">
+        <ItemGroup className="no-scrollbar max-h-72 gap-0 overflow-y-auto">
           {items.map((item) => (
             <Item key={item.key} size="xs" className="px-1">
               <ItemMedia>{item.media}</ItemMedia>
@@ -105,12 +106,14 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
   return (
     <span className="inline-flex shrink-0 items-center gap-0.5">
       <Popover open={openList === 'people'} onOpenChange={(open) => setOpenList(open ? 'people' : null)}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className={TRIGGER} title={t('header.viewPeople', { count: humans.length })} aria-label={t('header.viewPeople', { count: humans.length })}>
-            <Users aria-hidden="true" />
-            <span>{humans.length}</span>
-          </Button>
-        </PopoverTrigger>
+        <WithTooltip label={t('header.viewPeople', { count: humans.length })}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className={TRIGGER} aria-label={t('header.viewPeople', { count: humans.length })}>
+              <Users aria-hidden="true" />
+              <span>{humans.length}</span>
+            </Button>
+          </PopoverTrigger>
+        </WithTooltip>
         <PopoverContent align="start" aria-label={t('header.threadPeople')}>
           <RosterList
             title={t('header.threadPeople')}
@@ -124,12 +127,14 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
         </PopoverContent>
       </Popover>
       <Popover open={openList === 'agents'} onOpenChange={(open) => setOpenList(open ? 'agents' : null)}>
-        <PopoverTrigger asChild>
-          <Button variant="ghost" size="sm" className={TRIGGER} title={t('header.viewAgents', { count: agents.length })} aria-label={t('header.viewAgents', { count: agents.length })}>
-            <Bot aria-hidden="true" />
-            <span>{agents.length}</span>
-          </Button>
-        </PopoverTrigger>
+        <WithTooltip label={t('header.viewAgents', { count: agents.length })}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className={TRIGGER} aria-label={t('header.viewAgents', { count: agents.length })}>
+              <Bot aria-hidden="true" />
+              <span>{agents.length}</span>
+            </Button>
+          </PopoverTrigger>
+        </WithTooltip>
         <PopoverContent align="start" aria-label={t('header.threadAgents')}>
           <RosterList
             title={t('header.threadAgents')}

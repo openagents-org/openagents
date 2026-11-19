@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -35,13 +35,16 @@ export function SkillPublishForm({
   useEffect(() => { ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, []);
 
   return (
-    <Card ref={ref} size="sm" className="bg-primary/5 ring-primary/30">
+    <Card ref={ref} size="sm">
+      <CardHeader>
+        <CardTitle>{t('skills.publishPublic')}</CardTitle>
+      </CardHeader>
       <CardContent>
         <FieldGroup className="gap-3">
           <Field>
             <FieldLabel htmlFor="skill-publish-license">{t('skills.publishLicenseLabel')}</FieldLabel>
             <Select value={value.license || undefined} onValueChange={(license) => onChange({ license })}>
-              <SelectTrigger id="skill-publish-license" className="w-full bg-background">
+              <SelectTrigger id="skill-publish-license" className="w-full">
                 <SelectValue placeholder={t('skills.publishLicensePlaceholder')} />
               </SelectTrigger>
               <SelectContent>
@@ -63,7 +66,6 @@ export function SkillPublishForm({
                 maxLength={64}
                 onChange={event => onChange({ version: event.target.value })}
                 placeholder={t('skills.publishVersionPlaceholder')}
-                className="bg-background"
               />
             </Field>
             <Field>
@@ -74,7 +76,6 @@ export function SkillPublishForm({
                 maxLength={4000}
                 onChange={event => onChange({ changelog: event.target.value })}
                 placeholder={t('skills.publishChangelogPlaceholder')}
-                className="bg-background"
               />
             </Field>
           </div>

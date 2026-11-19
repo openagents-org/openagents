@@ -5,6 +5,7 @@ import { MessageSquarePlus, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { cn } from '@/lib/utils';
 import { sessionActivityTime } from '@/lib/conversation-list';
 import { useT } from '@/lib/i18n';
@@ -156,28 +157,31 @@ export function MonitorGrid() {
         {/* FABs — bottom right: new thread, then search */}
         {!searchOpen && (
           <>
-            <Button size="icon-lg" onClick={openNewThread} className={cn(fab, 'right-15')} title={t('threads.newThread')} aria-label={t('threads.newThread')}>
-              <MessageSquarePlus />
-            </Button>
-            <Button size="icon-lg" onClick={() => { setSearchOpen(true); setSearchQuery(''); }} className={cn(fab, 'right-3')} title={t('monitor.searchThreads')} aria-label={t('monitor.searchThreads')}>
-              <Search />
-            </Button>
+            <WithTooltip label={t('threads.newThread')}>
+              <Button size="icon-lg" onClick={openNewThread} className={cn(fab, 'right-15')} aria-label={t('threads.newThread')}>
+                <MessageSquarePlus />
+              </Button>
+            </WithTooltip>
+            <WithTooltip label={t('monitor.searchThreads')}>
+              <Button size="icon-lg" onClick={() => { setSearchOpen(true); setSearchQuery(''); }} className={cn(fab, 'right-3')} aria-label={t('monitor.searchThreads')}>
+                <Search />
+              </Button>
+            </WithTooltip>
           </>
         )}
 
-        {searchOpen && (
-          <MonitorSearchPanel
-            inputRef={searchInputRef}
-            query={searchQuery}
-            onQuery={setSearchQuery}
-            sessions={filteredSessions}
-            gridIds={gridIds}
-            lastMessageBySession={lastMessageBySession}
-            agents={agents}
-            onSelect={handleSearchSelect}
-            onClose={closeSearch}
-          />
-        )}
+        <MonitorSearchPanel
+          open={searchOpen}
+          inputRef={searchInputRef}
+          query={searchQuery}
+          onQuery={setSearchQuery}
+          sessions={filteredSessions}
+          gridIds={gridIds}
+          lastMessageBySession={lastMessageBySession}
+          agents={agents}
+          onSelect={handleSearchSelect}
+          onClose={closeSearch}
+        />
       </div>
 
       {overlaySessionId && overlaySession && (

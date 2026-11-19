@@ -3,7 +3,7 @@
 import { useRef, type ReactNode } from 'react';
 import { Volume2, VolumeX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -184,9 +184,7 @@ export function TransportButton({
 }) {
   const overMedia = tone === 'over-media';
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
+    <WithTooltip label={label}><Button
           variant="ghost"
           size="icon-sm"
           onClick={onClick}
@@ -199,9 +197,6 @@ export function TransportButton({
           )}
         >
           {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+        </Button></WithTooltip>
   );
 }

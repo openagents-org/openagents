@@ -68,7 +68,7 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
   return <>
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-1.5" aria-label={t('artifactPanel.share')} title={t('artifactPanel.share')} data-testid="artifact-share-button">
+        <Button variant="outline" size="sm" aria-label={t('artifactPanel.share')} data-testid="artifact-share-button">
           <Share2 className="size-3.5" />
           <span className="hidden sm:inline">{t('artifactPanel.share')}</span>
         </Button>
@@ -76,7 +76,7 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
       <PopoverContent align="end" className="w-80 flex flex-col gap-4 p-3 text-sm">
         {!options.length ? <p className="text-xs text-muted-foreground">{t('artifactPanel.nothingToShare')}</p> : <>
           <section className="flex flex-col gap-1.5">
-            <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactPanel.shareWhat')}</h4>
+            <h4 className="text-sm font-medium">{t('artifactPanel.shareWhat')}</h4>
             <Select value={pick ?? undefined} onValueChange={setPick}>
               <SelectTrigger aria-label={t('artifactPanel.shareWhat')} className="h-9 min-w-0"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -86,7 +86,7 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
           </section>
           {current && <>
             <section className="flex flex-col gap-2">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactPanel.workspaceLink')}</h4>
+              <h4 className="text-sm font-medium">{t('artifactPanel.workspaceLink')}</h4>
               <p className="text-xs text-muted-foreground">{t('artifactPanel.workspaceLinkHint')}</p>
               <Button size="sm" variant="outline" className="w-full" onClick={() => void copyWorkspaceLink()}>
                 <Link className="size-3.5" />{t('artifactPanel.copyWorkspaceLink')}

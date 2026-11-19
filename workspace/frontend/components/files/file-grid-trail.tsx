@@ -3,6 +3,7 @@
 import { ArrowLeft, ChevronRight, PanelLeft } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -42,7 +43,6 @@ export function FileGridTrail({
               size="icon-sm"
               onClick={onBrowseFolders}
               className="me-1 shrink-0 text-muted-foreground"
-              title={t('files.browseFolders')}
               aria-label={t('files.browseFolders')}
             >
               <PanelLeft />
@@ -54,16 +54,15 @@ export function FileGridTrail({
         <>
           {/* At a nested level this goes to the parent. At the first level it
               clears the selected folder and returns to the unselected state. */}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onUp}
-            className="me-1 shrink-0 text-muted-foreground"
-            title={upLabel}
-            aria-label={upLabel}
-          >
-            <ArrowLeft />
-          </Button>
+          <WithTooltip label={upLabel}><Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onUp}
+                className="me-1 shrink-0 text-muted-foreground"
+                aria-label={upLabel}
+              >
+                <ArrowLeft />
+              </Button></WithTooltip>
           {breadcrumbs.map((segment, i) => (
             <span key={i} className="flex shrink-0 items-center gap-0.5">
               {i > 0 && <ChevronRight className="size-3.5 opacity-40" />}

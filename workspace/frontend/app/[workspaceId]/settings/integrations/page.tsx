@@ -4,11 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Bot, MessageCircle, Send, Slack } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { FieldSeparator } from '@/components/ui/field';
 import { Spinner } from '@/components/ui/spinner';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { BrowserFabricKeyCard } from '@/components/settings/integrations/browser-fabric-key-card';
 import { IntegrationBindingItem } from '@/components/settings/integrations/integration-binding-item';
 import {
@@ -113,7 +115,7 @@ export default function IntegrationsSettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader
         title={t('admin.integrationsTitle')}
         description={t('admin.integrationsDescription')}
@@ -121,15 +123,7 @@ export default function IntegrationsSettingsPage() {
       {!editable && <ReadOnlyBanner />}
 
       {/* ── Chat platforms (Slack / Telegram / Lark bridges) ── */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center gap-2">
-            <MessageCircle className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{t('admin.chatPlatformsTitle')}</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('admin.chatPlatformsHint')}</p>
-        </div>
-
+      <SettingsCard title={t('admin.chatPlatformsTitle')} description={t('admin.chatPlatformsHint')}>
         {editable && (
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" size="sm" onClick={() => toggleForm('telegram')}>
@@ -166,25 +160,27 @@ export default function IntegrationsSettingsPage() {
         )}
 
         {openForm && (
-          <IntegrationConnectForm
-            key={openForm}
-            platform={openForm}
-            agents={agents}
-            onConnected={() => {
-              setOpenForm(null);
-              loadBindings();
-            }}
-          />
+          <>
+            <FieldSeparator />
+            <IntegrationConnectForm
+              key={openForm}
+              platform={openForm}
+              agents={agents}
+              onConnected={() => {
+                setOpenForm(null);
+                loadBindings();
+              }}
+            />
+            <FieldSeparator />
+          </>
         )}
 
         {loading && bindings.length === 0 ? (
-          <div className="flex items-center justify-center py-6">
-            <Spinner className="size-5 text-muted-foreground" />
-          </div>
+          <ListLoading />
         ) : bindings.length === 0 ? (
-          <p className="py-2 text-sm text-muted-foreground">{t('admin.noIntegrations')}</p>
+          <ListEmpty icon={<MessageCircle />}>{t('admin.noIntegrations')}</ListEmpty>
         ) : (
-          <Card className="gap-0 divide-y py-0">
+          <SettingsList>
             {bindings.map((b) => (
               <IntegrationBindingItem
                 key={b.id}
@@ -195,9 +191,9 @@ export default function IntegrationsSettingsPage() {
                 onRemove={() => remove(b)}
               />
             ))}
-          </Card>
+          </SettingsList>
         )}
-      </div>
+      </SettingsCard>
 
       <BrowserFabricKeyCard editable={editable} />
     </div>

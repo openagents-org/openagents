@@ -8,6 +8,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { workspaceApi } from '@/lib/api';
 import type { TimerItem } from '@/lib/types';
 import { useT } from '@/lib/i18n';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /** Countdown to a timer's next fire. Units stay in the compact `12m` shorthand. */
 function timeUntil(dateStr: string, nowLabel: string): string {
@@ -104,15 +105,16 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
                   <span>{t('threadStatus.pending', { count: pendingCount })}</span>
                 </>
               )}
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={handleCancelTodos}
-                title={t('threadStatus.cancelAllTasks')}
-                aria-label={t('threadStatus.cancelAllTasks')}
-              >
-                <X />
-              </Button>
+              <WithTooltip label={t('threadStatus.cancelAllTasks')}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleCancelTodos}
+                  aria-label={t('threadStatus.cancelAllTasks')}
+                >
+                  <X />
+                </Button>
+              </WithTooltip>
             </span>
           )}
           {activeTimers.map((timer) => (
@@ -120,15 +122,16 @@ export function ThreadStatusBar({ channelName }: { channelName: string }) {
               <Timer className="size-3 text-warning" />
               <span>{timer.message.length > 30 ? timer.message.slice(0, 30) + '…' : timer.message}</span>
               <span className="font-mono text-warning tabular-nums">{timeUntil(timer.firesAt, t('threadStatus.now'))}</span>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => handleCancelTimer(timer.id)}
-                title={t('threadStatus.cancelTimer')}
-                aria-label={t('threadStatus.cancelTimer')}
-              >
-                <X />
-              </Button>
+              <WithTooltip label={t('threadStatus.cancelTimer')}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => handleCancelTimer(timer.id)}
+                  aria-label={t('threadStatus.cancelTimer')}
+                >
+                  <X />
+                </Button>
+              </WithTooltip>
             </span>
           ))}
         </div>

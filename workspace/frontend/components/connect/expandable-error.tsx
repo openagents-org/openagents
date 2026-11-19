@@ -2,7 +2,7 @@
 
 import { useLayoutEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
@@ -39,19 +39,14 @@ export function ExpandableError({ message, className }: { message: string; class
         {message}
       </span>
       {(clamped || expanded) && (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
+        <WithTooltip label={label}><button
               onClick={() => setExpanded((v) => !v)}
               aria-label={label}
               aria-expanded={expanded}
               className="mt-0.5 flex size-5 items-center justify-center self-end rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{label}</TooltipContent>
-        </Tooltip>
+            </button></WithTooltip>
       )}
     </span>
   );

@@ -23,7 +23,7 @@ import { PrivateSkillVersions } from './private-skill-versions';
 import { RegistryVersionHistory } from './registry-version-history';
 import { SkillAgentInstalls } from './skill-agent-installs';
 import { OfficialBadge, SkillLogo } from './skill-card';
-import { SkillMetaFacts, SkillSourceFacts } from './skill-facts';
+import { SkillCliInstall, SkillDetailsCard } from './skill-facts';
 import { EMPTY_PUBLISH_DRAFT, SkillPublishForm, type PublishDraft } from './skill-publish-form';
 import { SkillActionLockProvider, useSkillActionLock } from './skill-action-lock';
 import type { Skill } from './skill-types';
@@ -153,7 +153,9 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
 
           <SkillAgentInstalls skill={skill} />
 
-          <SkillMetaFacts skill={skill} />
+          <SkillDetailsCard skill={skill} />
+
+          <SkillCliInstall skill={skill} />
 
           {isRegistry && (
             <RegistryVersionHistory skill={skill} publishedByMe={publishedByMe} onRegistryChanged={onRegistryChanged} />
@@ -166,25 +168,26 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
           {canPublish && showPublishForm && (
             <SkillPublishForm value={draft} onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))} />
           )}
-
-          <SkillSourceFacts skill={skill} />
         </DialogBody>
 
         <DialogFooter>
-          <Button variant="outline" className="min-w-24" onClick={onClose}>
+          <Button variant="outline" onClick={onClose}>
             {t('common.close')}
           </Button>
           {/* First press opens the publish fields in the body; the same pinned
               button then confirms, so it never scrolls out of reach. */}
+          {/* Why publishing is off stays on screen, so touch users see it too;
+              the button keeps its own label. */}
+          {canPublish && publishBlocked && (
+            <p className="text-xs text-muted-foreground sm:me-auto sm:self-center">{publishBlocked}</p>
+          )}
           {canPublish && (
             <Button
               onClick={showPublishForm ? handlePublish : () => setShowPublishForm(true)}
               disabled={!!publishBlocked || acting || (showPublishForm && !draft.license)}
-              title={publishBlocked}
-              className="min-w-24"
             >
               {pending === 'publish' ? <Spinner data-icon="inline-start" /> : <Globe2 data-icon="inline-start" />}
-              {publishBlocked ?? t(showPublishForm ? 'skills.publishConfirm' : 'skills.publishPublic')}
+              {t(showPublishForm ? 'skills.publishConfirm' : 'skills.publishPublic')}
             </Button>
           )}
           {/* Publication state is managed from whichever copy the author can
@@ -192,23 +195,22 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
               private skill once it has been unlisted. */}
           {((isRegistry && publishedByMe) || (isCustom && skill.registrySkillId)) && (
             <Button
-              variant="outline"
+              variant={skill.visibility === 'unlisted' ? 'outline' : 'destructive'}
               disabled={acting}
               onClick={() => handleVisibility(skill.visibility === 'unlisted' ? 'public' : 'unlisted')}
-              className="min-w-24"
             >
               {pending === 'visibility' ? <Spinner data-icon="inline-start" /> : <EyeOff data-icon="inline-start" />}
               {t(skill.visibility === 'unlisted' ? 'skills.relistPublic' : 'skills.unlistPublic')}
             </Button>
           )}
           {isRegistry && skill.sourceMode === 'mirrored' && (
-            <Button onClick={handleFork} disabled={acting} className="min-w-24">
+            <Button onClick={handleFork} disabled={acting}>
               {pending === 'fork' ? <Spinner data-icon="inline-start" /> : <GitFork data-icon="inline-start" />}
               {t('skills.forkToWorkspace')}
             </Button>
           )}
           {!isCustom && ghUrl && (
-            <Button asChild className="min-w-24">
+            <Button asChild>
               <a href={ghUrl} target="_blank" rel="noopener noreferrer">
                 {t('skills.viewOnGitHub')} <ExternalLink data-icon="inline-end" />
               </a>
@@ -219,3 +221,4 @@ function SkillDetail({ skill, onClose, onRegistryChanged, onCustomChanged, publi
     </Dialog>
   );
 }
+

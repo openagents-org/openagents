@@ -1,7 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Search, Star, Upload } from 'lucide-react';
+import type { ReactNode } from 'react';
+import { Search, Upload } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -73,7 +74,7 @@ export function SkillsView() {
       </DetailHeader>
 
       {/* Filters */}
-      <div className="flex shrink-0 flex-col gap-2 border-b px-5 py-2">
+      <div className="flex shrink-0 flex-col gap-2 border-b px-4 py-2">
         {/* Narrow screens keep the search here — the mobile header has no room */}
         <SkillSearch value={search} onChange={setSearch} className="md:hidden" />
         <SkillCategoryFilter value={activeCategory} onChange={setActiveCategory} />
@@ -96,38 +97,28 @@ export function SkillsView() {
             </EmptyContent>
           </Empty>
         ) : (
-          <div className="flex flex-col gap-5 p-4">
+          <div className="flex flex-col gap-6 p-4">
             {browsingAll && <LeaderboardPanel onSelect={setSelectedSkill} />}
 
             {/* Featured — only when showing all */}
-            {browsingAll && (
-              <section className="flex flex-col gap-2.5">
-                <div className="flex items-center gap-2">
-                  <Star className="size-3.5 fill-warning text-warning" />
-                  <h3 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('skills.featured')}</h3>
-                </div>
+            {browsingAll && featured.length > 0 && (
+              <SkillSection title={t('skills.featured')}>
                 <div className={GRID_CLASS}>
                   {featured.map(skill => (
                     <SkillCard key={skill.id} skill={skill} onSelect={setSelectedSkill} />
                   ))}
                 </div>
-              </section>
+              </SkillSection>
             )}
 
-            {/* All skills */}
-            <section className="flex flex-col gap-2.5">
-              {browsingAll && (
-                <div className="flex items-center gap-2">
-                  <h3 className="text-xs font-semibold tracking-wider text-muted-foreground uppercase">{t('skills.all')}</h3>
-                  <span className="text-xs text-muted-foreground">({allSkills.length})</span>
-                </div>
-              )}
+            {/* All skills — a filtered view needs no heading, the filter bar says what it is */}
+            <SkillSection title={browsingAll ? t('skills.all') : undefined} count={browsingAll ? allSkills.length : undefined}>
               <div className={GRID_CLASS}>
                 {filtered.map(skill => (
                   <SkillCard key={skill.id} skill={skill} onSelect={setSelectedSkill} />
                 ))}
               </div>
-            </section>
+            </SkillSection>
           </div>
         )}
       </div>
@@ -143,5 +134,21 @@ export function SkillsView() {
       )}
       <UploadSkillDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={handleUploaded} />
     </div>
+  );
+}
+
+/** Section heading in the shadcn card-title scale, so the plain sections read
+ *  as peers of the leaderboard card above them. */
+function SkillSection({ title, count, children }: { title?: string; count?: number; children: ReactNode }) {
+  return (
+    <section className="flex flex-col gap-3">
+      {title && (
+        <div className="flex items-center gap-2">
+          <h3 className="font-heading text-base font-medium">{title}</h3>
+          {count !== undefined && <Badge variant="secondary">{count}</Badge>}
+        </div>
+      )}
+      {children}
+    </section>
   );
 }

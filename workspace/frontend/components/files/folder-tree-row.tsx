@@ -75,7 +75,12 @@ export function FolderTreeRow({
             size="icon-xs"
             disabled={Boolean(pending)}
             aria-label={t("folders.actionsFor", { name })}
-            className="me-1 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 disabled:opacity-0 data-[state=open]:opacity-100"
+            // Revealed on hover or keyboard focus with a mouse; touch screens
+            // have no hover, so the trigger stays visible there.
+            className={cn(
+              "me-1 shrink-0 text-muted-foreground opacity-0 transition-opacity",
+              !pending && "group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100 pointer-coarse:opacity-100",
+            )}
             onClick={(e) => e.stopPropagation()}
           >
             <MoreVertical />

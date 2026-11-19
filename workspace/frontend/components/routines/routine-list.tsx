@@ -12,9 +12,11 @@ import { RoutineDialog } from './routine-dialog';
 import { FeatureTourBanner } from '@/components/tours/feature-tour-banner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 import { useT } from '@/lib/i18n';
 import type { RoutineItem } from '@/lib/types';
 import { useRoutineFormat } from './use-routine-format';
@@ -101,9 +103,7 @@ export function RoutineList() {
             <Plus data-icon="inline-start" />
             {t('routines.createShort')}
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
+          <WithTooltip label={t('common.refresh')}><Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label={t('routines.refresh')}
@@ -111,10 +111,7 @@ export function RoutineList() {
                 className="text-muted-foreground"
               >
                 <RefreshCw />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.refresh')}</TooltipContent>
-          </Tooltip>
+              </Button></WithTooltip>
         </div>
       </div>
 
@@ -140,78 +137,58 @@ export function RoutineList() {
             </EmptyContent>
           </Empty>
         ) : (
-          <div role="list" className="py-1">
+          <ItemGroup className="gap-0 py-1">
             {visibleRoutines.map((routine) => {
               const agentName = routine.createdBy.replace('openagents:', '');
               const isSelected = currentSessionId === routine.channelName;
               const isPaused = routine.status === 'paused';
+              const action = (label: string, icon: React.ReactNode, onClick: () => void, destructive = false) => (
+                <WithTooltip label={label}><Button variant="ghost" size="icon-xs" className={cn(destructive && destructiveIconClass)} onClick={onClick} aria-label={label}>{icon}</Button></WithTooltip>
+              );
 
               return (
-                <div
+                <Item
                   key={routine.id}
                   role="listitem"
+                  size="sm"
                   className={cn(
-                    'group flex items-start gap-1 border-b border-border/50 pe-2 transition-colors',
+                    'relative flex-nowrap items-start rounded-none border-0 border-b border-border/50 pe-2',
                     isSelected ? 'bg-muted' : 'hover:bg-muted',
                   )}
                 >
-                  <button
-                    type="button"
-                    aria-current={isSelected || undefined}
-                    className="flex min-w-0 flex-1 items-start gap-2.5 py-2.5 ps-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-                    onClick={() => handleSelect(routine.channelName)}
-                  >
-                    <AgentAvatar name={agentName} size={20} className="mt-0.5 shrink-0" />
-                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                      <div className={cn('truncate text-sm font-medium', isPaused && 'text-muted-foreground')}>
+                  <ItemMedia>
+                    <AgentAvatar name={agentName} size={20} />
+                  </ItemMedia>
+                  <ItemContent className="min-w-0 gap-0.5">
+                    {/* The title's button stretches over the row, so the
+                        whole row selects the routine; the actions sit above it. */}
+                    <ItemTitle className={cn('w-full', isPaused && 'text-muted-foreground')}>
+                      <button
+                        type="button"
+                        aria-current={isSelected || undefined}
+                        className="truncate text-left outline-none after:absolute after:inset-0 focus-visible:after:ring-3 focus-visible:after:ring-ring/50 focus-visible:after:ring-inset"
+                        onClick={() => handleSelect(routine.channelName)}
+                      >
                         {routine.name}
-                      </div>
-                      <div className="text-xs text-muted-foreground">{formatSchedule(routine)}</div>
-                      <div className="truncate text-xs text-muted-foreground">{routine.message}</div>
-                      <div className="mt-0.5 text-xs text-muted-foreground/70">
-                        {isPaused
-                          ? t('routines.paused')
-                          : t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}
-                      </div>
-                    </div>
-                  </button>
-                  <div className="flex shrink-0 items-center gap-0.5 pt-2 text-muted-foreground">
-                    {/* Edit stays visible: hidden behind hover, users never
-                        found it and deleted + recreated routines instead. */}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => openEditDialog(routine)}
-                      title={t('routines.edit')}
-                      aria-label={t('routines.edit')}
-                    >
-                      <Pencil />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => handleTogglePause(routine)}
-                      className="md:hidden md:group-focus-within:inline-flex md:group-hover:inline-flex"
-                      title={t(isPaused ? 'routines.resume' : 'routines.pause')}
-                      aria-label={t(isPaused ? 'routines.resume' : 'routines.pause')}
-                    >
-                      {isPaused ? <Play /> : <Pause />}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => handleCancel(routine.id)}
-                      className="hover:bg-destructive/10 hover:text-destructive md:hidden md:group-focus-within:inline-flex md:group-hover:inline-flex"
-                      title={t('routines.cancel')}
-                      aria-label={t('routines.cancel')}
-                    >
-                      <Trash2 />
-                    </Button>
-                  </div>
-                </div>
+                      </button>
+                    </ItemTitle>
+                    <ItemDescription className="line-clamp-1 text-xs">{formatSchedule(routine)}</ItemDescription>
+                    <ItemDescription className="line-clamp-1 text-xs">{routine.message}</ItemDescription>
+                    {isPaused
+                      ? <Badge variant="secondary" className="mt-0.5">{t('routines.paused')}</Badge>
+                      : <ItemDescription className="mt-0.5 text-xs text-muted-foreground/70">{t('routines.nextRun', { time: timeUntil(routine.nextFiresAt) })}</ItemDescription>}
+                  </ItemContent>
+                  {/* Every action stays visible: hidden behind hover, users
+                      never found them, and touch screens have no hover. */}
+                  <ItemActions className="relative z-10 gap-0.5 text-muted-foreground">
+                    {action(t('routines.edit'), <Pencil />, () => openEditDialog(routine))}
+                    {action(t(isPaused ? 'routines.resume' : 'routines.pause'), isPaused ? <Play /> : <Pause />, () => handleTogglePause(routine))}
+                    {action(t('routines.cancel'), <Trash2 />, () => handleCancel(routine.id), true)}
+                  </ItemActions>
+                </Item>
               );
             })}
-          </div>
+          </ItemGroup>
         )}
       </div>
 

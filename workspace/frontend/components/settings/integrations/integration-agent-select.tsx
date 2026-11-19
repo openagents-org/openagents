@@ -41,7 +41,7 @@ export function IntegrationAgentSelect({
       onValueChange={(v) => onChange(v === NO_AGENT ? '' : v)}
       disabled={disabled}
     >
-      <SelectTrigger id={id} className="w-56">
+      <SelectTrigger id={id} aria-label={id ? undefined : t('admin.integrationDefaultAgent')} className="w-56">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>

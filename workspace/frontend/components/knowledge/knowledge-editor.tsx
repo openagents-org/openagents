@@ -6,6 +6,7 @@ import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogBody,
@@ -96,7 +97,7 @@ export function KnowledgeEditor({ open, entry, onClose, onSaved, defaultFolder =
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>{isEditing ? t('knowledge.editorTitleEdit') : t('knowledge.editorTitleNew')}</DialogTitle>
-          {!isEditing && <p className="text-sm leading-6 text-muted-foreground">{t('knowledge.library.editorHint')}</p>}
+          {!isEditing && <DialogDescription>{t('knowledge.library.editorHint')}</DialogDescription>}
         </DialogHeader>
 
         <DialogBody>

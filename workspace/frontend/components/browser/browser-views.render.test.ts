@@ -109,7 +109,8 @@ describe('BrowserView', () => {
     expect(out).toContain('2/5 awake');
     expect(html).toContain('aria-label="3 tabs"');
     // address bar + status bar
-    expect(out).toContain('https://www.example.com/');
+    // The address bar is an input; its URL is the value, not text.
+    expect(html).toContain('value="https://www.example.com/"');
     expect(out).toContain('Cloud browser');
     expect(out).toContain('Live');
     // agent presence + control layer

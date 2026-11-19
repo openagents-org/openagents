@@ -11,6 +11,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ConversationBadge, RoutedAgentBadge } from './routing-badge';
 
 interface RoutingChoice {
@@ -96,13 +97,15 @@ export function RoutingChoiceCard({ message, agents, conversation = false }: { m
           </Button>
         </PopoverTrigger>
         <PopoverContent align="start" className="w-64 max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0" aria-label={t('routing.chooseAgent')}>
-          <div className="flex items-center gap-2 border-b px-3">
-            <Search aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-            <input type="search" value={search} onChange={e => setSearch(e.target.value)} aria-label={t('routing.searchAgents')}
-              placeholder={t('routing.searchAgents')} className="h-10 min-w-0 flex-1 bg-transparent text-xs outline-none"
-              onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); listRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); } }} />
+          <div className="border-b p-1.5">
+            <InputGroup>
+              <InputGroupAddon><Search aria-hidden="true" /></InputGroupAddon>
+              <InputGroupInput type="search" value={search} onChange={e => setSearch(e.target.value)} aria-label={t('routing.searchAgents')}
+                placeholder={t('routing.searchAgents')} className="text-xs md:text-xs"
+                onKeyDown={e => { if (e.key === 'ArrowDown') { e.preventDefault(); listRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus(); } }} />
+            </InputGroup>
           </div>
-          <div ref={listRef} role="group" aria-label={t('routing.chooseAgent')} className="max-h-56 overflow-y-auto p-1"
+          <div ref={listRef} role="group" aria-label={t('routing.chooseAgent')} className="no-scrollbar max-h-56 overflow-y-auto p-1"
             onKeyDown={e => {
               if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
               const buttons = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));

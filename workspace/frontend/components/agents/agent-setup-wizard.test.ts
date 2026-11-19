@@ -19,6 +19,8 @@ vi.mock('@/components/ui/select', () => ({
   SelectItem: ({ value, children }: { value: string; children: React.ReactNode }) => React.createElement('option', { value }, children),
 }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom has no ResizeObserver; the Radix radio and checkbox measure with it.
+(globalThis as { ResizeObserver?: unknown }).ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
 let root: Root;
 let host: HTMLDivElement;
 beforeEach(() => { seal.mockReset(); seal.mockImplementation(async (_api, _node, _action, args) => { const { apiKey, config, ...rest } = args; return { ...rest, encryptedCredentials: { ciphertext: 'sealed' } }; }); });
@@ -63,10 +65,10 @@ it('starts with naming and keeps account options for the next step', async () =>
   expect(api.listModelAccess).not.toHaveBeenCalled();
   expect(host.querySelector('[data-testid="agent-setup-details-step"]')).toBeTruthy();
   expect(host.querySelector('[data-testid="agent-setup-auth-step"]')?.closest('[hidden]')).toBeTruthy();
-  expect(host.querySelector('details')?.open).toBe(false);
+  expect(host.querySelector('[data-testid="agent-setup-optional-settings"]')?.getAttribute('data-state')).toBe('closed');
   const name = host.querySelector<HTMLInputElement>('[data-testid="agent-setup-name"]')!;
   expect(name.required).toBe(true);
-  expect(name.closest('details')).toBeNull();
+  expect(name.closest('[data-testid="agent-setup-optional-settings"]')).toBeNull();
   expect(host.querySelector('[data-testid="agent-setup-submit"]')).toBeNull();
   expect(host.querySelector('[aria-current="step"]')?.textContent).toContain(messages.agentSetup.nameStep);
   await next();

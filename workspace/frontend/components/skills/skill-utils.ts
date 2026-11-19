@@ -1,3 +1,7 @@
+import {
+  Brain, Database, FileText, FlaskConical, LayoutGrid, Package, Palette, Plug, Rocket, Server, ShieldCheck,
+  Sparkles, type LucideIcon,
+} from 'lucide-react';
 import type { MessageKey, TranslateFn } from '@/lib/i18n';
 import type { RegistrySkill, WorkspaceCustomSkill } from '@/lib/types';
 import { findBuiltinSkill } from './skill-catalog';
@@ -83,20 +87,20 @@ export function extractErrorMessage(e: unknown): string {
   return msg;
 }
 
-export const CATEGORIES = [
-  { id: 'all', icon: '🔥' },
-  { id: 'ai-ml', icon: '🧠' },
-  { id: 'frontend', icon: '🎨' },
-  { id: 'backend', icon: '⚙️' },
-  { id: 'database', icon: '🗄️' },
-  { id: 'devops', icon: '🚀' },
-  { id: 'testing', icon: '🧪' },
-  { id: 'security', icon: '🔒' },
-  { id: 'integrations', icon: '🔗' },
-  { id: 'documents', icon: '📄' },
-  { id: 'sensenova', icon: '🌟' },
-  { id: 'custom', icon: '📦' },
-] as const;
+export const CATEGORIES: ReadonlyArray<{ id: string; icon: LucideIcon }> = [
+  { id: 'all', icon: LayoutGrid },
+  { id: 'ai-ml', icon: Brain },
+  { id: 'frontend', icon: Palette },
+  { id: 'backend', icon: Server },
+  { id: 'database', icon: Database },
+  { id: 'devops', icon: Rocket },
+  { id: 'testing', icon: FlaskConical },
+  { id: 'security', icon: ShieldCheck },
+  { id: 'integrations', icon: Plug },
+  { id: 'documents', icon: FileText },
+  { id: 'sensenova', icon: Sparkles },
+  { id: 'custom', icon: Package },
+];
 
 /** Label for a category id, e.g. `ai-ml` → "AI & ML" / "AI 与机器学习". */
 export function categoryLabel(t: TranslateFn, id: string): string {
@@ -114,7 +118,9 @@ export function skillDescription(t: TranslateFn, skill: Skill): string {
   if (skill.sourceType === 'registry') {
     // Curated upstream pointers retain the translated built-in description;
     // user-published registry skills use their authored summary verbatim.
-    if (skill.sourceMode === 'upstream_pointer' && skill.slug) {
+    // A pointer added to the registry after this build has no catalog entry
+    // (and so no translation); it falls through to the registry summary.
+    if (skill.sourceMode === 'upstream_pointer' && skill.slug && findBuiltinSkill(skill.slug)) {
       return t(`skills.catalog.${skill.slug}` as MessageKey);
     }
     return skill.description ?? '';
