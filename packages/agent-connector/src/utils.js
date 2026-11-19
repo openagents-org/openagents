@@ -94,6 +94,55 @@ async function servedModels(apiBase, headers) {
  */
 const OUTPUT_LIMIT_REACHED = /max_tokens or model output limit was reached/i;
 
+/**
+ * A relay that streams whatever it is asked: the test sends no `stream` flag
+ * and some relays still answer in server-sent events ("data: {…chunk…}").
+ * The key and the model were accepted and the model replied, which is all the
+ * test checks; reading that as "Invalid response" failed an agent that works
+ * (daily errors dashboard, 2026-11-19). Null when `data` is not an event stream.
+ */
+function streamedCompletion(data, { isAnthropic, model }) {
+  // The first line that is not blank is a field (data, event, id, retry) or a
+  // comment (": keep-alive", ": OPENROUTER PROCESSING").
+  const first = data.split(/\r?\n/).find((l) => l.trim());
+  if (!first || !/^\s*(?::|(?:data|event|id|retry):)/.test(first)) return null;
+  let text = '';
+  let usedModel = '';
+  let chunks = 0;
+  let event = '';
+  let unread = '';
+  for (const line of data.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t) { event = ''; continue; }
+    const ev = /^event:\s*(.*)$/.exec(t);
+    if (ev) { event = ev[1]; continue; }
+    const m = /^data:\s*(.*)$/.exec(t);
+    if (!m || !m[1] || m[1] === '[DONE]') continue;
+    let chunk;
+    try { chunk = JSON.parse(m[1]); } catch { continue; }
+    if (!chunk || typeof chunk !== 'object') continue;
+    if (chunk.error || chunk.type === 'error' || event === 'error') {
+      const e = chunk.error || chunk;
+      return { success: false, error: `Stream error: ${String(e.message || e.msg || JSON.stringify(e)).slice(0, 200)}` };
+    }
+    // Only a completion chunk counts as an answer: a relay's own
+    // {"code":401,"msg":"token invalid"} in a stream is not one.
+    const isChunk = isAnthropic ? typeof chunk.type === 'string' : Array.isArray(chunk.choices);
+    if (!isChunk) { unread = unread || m[1]; continue; }
+    chunks++;
+    usedModel = usedModel || chunk.model || (chunk.message && chunk.message.model) || '';
+    if (isAnthropic) text += (chunk.delta && chunk.delta.text) || '';
+    else text += (chunk.choices[0] || {}).delta?.content || '';
+  }
+  if (!chunks) return unread ? { success: false, error: `Invalid response: ${unread.slice(0, 200)}` } : null;
+  return { success: true, model: usedModel || model || '?', response: text.slice(0, 80) };
+}
+
+/** Whether a base URL has a path beyond the host ("https://h/api" yes, "https://h" no). */
+function hasPath(base) {
+  try { return new URL(base).pathname.replace(/\/+$/, '') !== ''; } catch { return /\/\/[^/]+\/./.test(base); }
+}
+
 /** Read one completion response into the result shape. */
 function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
@@ -101,6 +150,10 @@ function completionResult(res, { isAnthropic, model }) {
   const data = String(res.data == null ? '' : res.data);
   if (status >= 400 && OUTPUT_LIMIT_REACHED.test(data || '')) {
     return { success: true, model: model || '?', response: '' };
+  }
+  if (status < 400) {
+    const streamed = streamedCompletion(data, { isAnthropic, model });
+    if (streamed) return streamed;
   }
   try {
     const parsed = JSON.parse(data);
@@ -238,7 +291,7 @@ async function testLLMConnection(env, opts = {}) {
     || env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY || '';
   if (!apiKey) return { success: false, error: 'No API key provided' };
 
-  let baseUrl = (opts.baseUrl || env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/$/, '');
+  let baseUrl = (opts.baseUrl || env.KIMI_BASE_URL || env.LLM_BASE_URL || env.OPENAI_BASE_URL || (hasKimiConfig ? 'https://api.moonshot.ai/v1' : 'https://api.openai.com/v1')).replace(/\/+$/, '');
   const model = String(opts.model || env.KIMI_MODEL || env.LLM_MODEL || env.OPENCLAW_MODEL || '').trim();
   // An agent configured the Anthropic way is Anthropic-shaped wherever it
   // points. Reading only the URL missed every relay whose host says nothing
@@ -255,8 +308,12 @@ async function testLLMConnection(env, opts = {}) {
   // The Codex CLI calls <base_url>/responses on the URL as configured
   // (adapters/codex.js): an endpoint at /codex answered /codex/responses and
   // 404'd the /codex/v1/responses this used to test.
+  // A bare host means the /v1 API; a base with a path is the API root as
+  // configured, the way the CLIs and model-list.js use it. Appending /v1 to
+  // any path but /v1 sent Zhipu's /api/paas/v4 to /v4/v1/chat/completions,
+  // and the test 404'd for an agent that works.
   if (isResponses) baseUrl = baseUrl.replace(/\/+$/, '');
-  else if (!isAnthropic && !baseUrl.endsWith('/v1')) {
+  else if (!isAnthropic && !hasPath(baseUrl)) {
     baseUrl += '/v1';
   }
 

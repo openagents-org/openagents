@@ -5,6 +5,8 @@ import { CirclePlus } from 'lucide-react';
 import { SidebarMenuButton } from '@/components/ui/sidebar';
 import { useWorkspace } from '@/lib/workspace-context';
 import { cn } from '@/lib/utils';
+import { hasAddedWorkspaceAgent } from '@/lib/first-run-entry';
+import styles from './connect-agent-button.module.css';
 
 type ConnectAgentButtonProps = {
   label: string;
@@ -16,7 +18,7 @@ type ConnectAgentButtonProps = {
 /** Shared connection entry point for the desktop rail and mobile drawer. */
 export function ConnectAgentButton({ label, active, showLabels = true, onClick }: ConnectAgentButtonProps) {
   const { agents, loading, workspaceLoadError } = useWorkspace();
-  const needsAgent = !loading && !workspaceLoadError && !agents.some((agent) => !agent.builtin && agent.status === 'online');
+  const needsAgent = !loading && !workspaceLoadError && !hasAddedWorkspaceAgent(agents);
   // Expanded, the tooltip only earns its place when the label is cut off
   // (long translations): checked on hover, before the tooltip's open delay.
   const [truncated, setTruncated] = useState(false);
@@ -39,8 +41,7 @@ export function ConnectAgentButton({ label, active, showLabels = true, onClick }
         'data-active:bg-primary data-active:text-primary-foreground data-active:hover:bg-primary/90',
         'focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-sidebar',
         !showLabels && 'justify-center! px-0',
-        // Inset, so the hint never grows the button past the inbox beside it.
-        needsAgent && !active && 'ring-2 ring-inset ring-primary-foreground/30',
+        needsAgent && !active && styles.attention,
       )}
     >
       <CirclePlus aria-hidden="true" />

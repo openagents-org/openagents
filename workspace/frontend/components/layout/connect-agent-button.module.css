@@ -1,0 +1,13 @@
+.attention {
+  box-shadow: 0 0 0 1px #a78bfa70, 0 0 12px 2px #8b5cf62b;
+  animation: connectGlow 3.2s ease-in-out infinite;
+}
+
+@keyframes connectGlow {
+  0%, 100% { box-shadow: 0 0 0 1px #a78bfa55, 0 0 5px 1px #8b5cf61a; }
+  50% { box-shadow: 0 0 0 2px #a78bfa99, 0 0 15px 3px #8b5cf645; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .attention { animation: none; }
+}

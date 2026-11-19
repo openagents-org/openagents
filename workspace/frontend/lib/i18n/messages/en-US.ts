@@ -340,6 +340,7 @@ export const messages = {
   },
 
   nav: {
+    welcome: 'Welcome',
     myAgents: 'My agents',
     moreAgentsOnline: '+{count} more online',
     viewAllAgents: 'View all agents',
