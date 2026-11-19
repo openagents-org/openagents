@@ -21,6 +21,13 @@ const LEADERBOARD_WINDOWS = [7, 30] as const;
 type Board = (typeof LEADERBOARD_BOARDS)[number];
 type Window = (typeof LEADERBOARD_WINDOWS)[number];
 
+// Session-lived cache. The registry is public and slow-moving, so coming back
+// to Skill Hub shows the last result at once and refreshes it quietly, instead
+// of probing from scratch and popping the card in again on every visit.
+let probeCache: { available: boolean; board: Board } | null = null;
+const entriesCache = new Map<string, RegistryLeaderboardEntry[]>();
+const cacheKey = (board: Board, window: Window) => `${board}:${window}`;
+
 /** Rolling install+fork ranking. Community and official are separate boards:
  *  the curated catalog ships with an audience that new authors cannot match,
  *  so mixing them would leave the community board permanently empty at the top.
@@ -28,11 +35,13 @@ type Window = (typeof LEADERBOARD_WINDOWS)[number];
  *  says what is being ranked, the switches in CardAction, a table below. */
 export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => void }) {
   const t = useT();
-  const [board, setBoard] = useState<Board>('community');
+  const [board, setBoard] = useState<Board>(probeCache?.board ?? 'community');
   const [window_, setWindow] = useState<Window>(7);
-  const [entries, setEntries] = useState<RegistryLeaderboardEntry[] | null>(null);
+  const [entries, setEntries] = useState<RegistryLeaderboardEntry[] | null>(
+    () => entriesCache.get(cacheKey(probeCache?.board ?? 'community', 7)) ?? null,
+  );
   const [loading, setLoading] = useState(true);
-  const [available, setAvailable] = useState<boolean | null>(null);
+  const [available, setAvailable] = useState<boolean | null>(probeCache?.available ?? null);
 
   // Probe both boards once. Deciding visibility from the selected board alone
   // would hide the board switcher along with the panel, leaving no way to
@@ -46,28 +55,41 @@ export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => voi
       // A null everywhere means the endpoint is missing — an older backend, or
       // migration 031 not applied yet. Stay out of the way in that case.
       if (counts.every(count => count === null)) { setAvailable(false); return; }
-      setAvailable(counts.some(count => (count || 0) > 0));
       const firstWithData = LEADERBOARD_BOARDS[counts.findIndex(count => (count || 0) > 0)];
-      if (firstWithData) setBoard(firstWithData);
+      const hasData = counts.some(count => (count || 0) > 0);
+      // A revisit keeps the board the card already opened on; only the first
+      // probe picks the board that has data.
+      if (firstWithData && !probeCache) setBoard(firstWithData);
+      probeCache = { available: hasData, board: probeCache?.board ?? firstWithData ?? 'community' };
+      setAvailable(hasData);
     });
     return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    // The previous rows stay up, dimmed, until the new ones land: swapping in
+    // A cached result shows at once and is refreshed underneath. Without one,
+    // the previous rows stay up, dimmed, until the new ones land: swapping in
     // skeletons on every switch would collapse the table and jump the page.
-    setLoading(true);
+    const key = cacheKey(board, window_);
+    const cached = entriesCache.get(key);
+    if (cached) setEntries(cached);
+    setLoading(!cached);
     workspaceApi.getRegistryLeaderboard(board, window_)
-      .then(list => { if (!cancelled) setEntries(list); })
+      .then(list => {
+        entriesCache.set(key, list);
+        if (!cancelled) setEntries(list);
+      })
       .catch(() => { if (!cancelled) setEntries([]); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [board, window_]);
 
   // Nothing anywhere yet: an empty podium reads as a broken feature rather
-  // than a young marketplace.
-  if (available !== true) return null;
+  // than a young marketplace. While the first probe runs, the card is already
+  // drawn with skeleton rows so it does not pop in and shove the page down.
+  if (available === false) return null;
+  const probing = available === null;
 
   return (
     <Card className="@container/card pb-0">
@@ -84,6 +106,7 @@ export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => voi
             variant="outline"
             size="sm"
             spacing={0}
+            disabled={probing}
             value={board}
             onValueChange={(v) => v && setBoard(v as Board)}
             aria-label={t('skills.leaderboard')}
@@ -94,7 +117,7 @@ export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => voi
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
-          <Select value={String(window_)} onValueChange={(v) => setWindow(Number(v) as Window)}>
+          <Select disabled={probing} value={String(window_)} onValueChange={(v) => setWindow(Number(v) as Window)}>
             <SelectTrigger size="sm" aria-label={t('skills.leaderboardWindow')}>
               <SelectValue />
             </SelectTrigger>
@@ -109,10 +132,8 @@ export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => voi
         </CardAction>
       </CardHeader>
 
-      {entries === null ? (
-        <CardContent className="flex flex-col gap-2 pb-4">
-          {[0, 1, 2].map(i => <Skeleton key={i} className="h-10 w-full" />)}
-        </CardContent>
+      {probing || entries === null ? (
+        <LeaderboardSkeleton />
       ) : entries.length === 0 ? (
         <CardContent aria-busy={loading} className={cn('pb-4 transition-opacity', loading && 'opacity-60')}>
           <Empty className="border border-dashed py-8">
@@ -122,12 +143,33 @@ export function LeaderboardPanel({ onSelect }: { onSelect: (skill: Skill) => voi
       ) : (
         <CardContent
           aria-busy={loading}
-          className={cn('border-t px-0 transition-opacity', loading && 'opacity-60')}
+          className={cn('border-t px-0 transition-opacity animate-in fade-in-0 duration-200', loading && 'opacity-60')}
         >
           <LeaderboardTable entries={entries} onSelect={onSelect} />
         </CardContent>
       )}
     </Card>
+  );
+}
+
+/** Placeholder shaped like the table (header strip, logo + two-line rows), so
+ *  the real rows replace it without the card changing much in height. */
+function LeaderboardSkeleton() {
+  return (
+    <CardContent aria-busy className="flex flex-col border-t px-0">
+      <div className="h-10 bg-muted/50" />
+      {[0, 1, 2].map(i => (
+        <div key={i} className="flex items-center gap-3 border-b px-4 py-2 last:border-0">
+          <Skeleton className="h-4 w-5" />
+          <Skeleton className="size-8 rounded-md" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-1/3" />
+            <Skeleton className="h-3 w-2/3" />
+          </div>
+          <Skeleton className="h-4 w-8" />
+        </div>
+      ))}
+    </CardContent>
   );
 }
 
