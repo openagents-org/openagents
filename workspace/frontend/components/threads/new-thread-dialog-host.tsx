@@ -1,5 +1,6 @@
 'use client';
 
+import { THREAD_PROJECT_CREATED } from './use-thread-projects';
 import { NewThreadDialog } from './new-thread-dialog';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -39,6 +40,9 @@ export function NewThreadDialogHost() {
           humanParticipants,
           directorEmail: visibility === 'private' && me?.email ? me.email : undefined,
         });
+        window.dispatchEvent(new CustomEvent(THREAD_PROJECT_CREATED, { detail: {
+          workspace: workspace?.workspaceId || '', viewer: currentUser.id, thread: session.sessionId,
+        } }));
         // The create event carries no channel flag, so label it right after.
         // The thread exists either way; a failed label only leaves it a thread.
         if (asChannel) {
