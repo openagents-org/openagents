@@ -326,3 +326,103 @@ describe('testLLMConnection — the Responses API, asked the way Codex asks it',
     assert.match(res.error, /^error: \{"param":"client_metadata","code":"unsupported_parameter"/);
   });
 });
+
+// Daily errors dashboard, 2026-11-19: a Hermes agent on a base ending in /v4
+// failed its test with a 404 on /v4/v1/chat/completions, and an OpenCode
+// agent's relay answered in server-sent events though no stream was asked for.
+describe('testLLMConnection — versioned bases and streamed answers', () => {
+  let server;
+  let origin;
+  const paths = [];
+  let reply = 'json';
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      paths.push(req.url);
+      req.resume();
+      req.on('end', () => {
+        if (!req.url.endsWith('/chat/completions')) { res.statusCode = 404; res.end('{}'); return; }
+        if (reply === 'sse') {
+          res.setHeader('content-type', 'text/event-stream');
+          res.end([
+            'data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"delta":{"role":"assistant","content":"Hello"}}]}',
+            'data: {"id":"c1","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"delta":{"content":" there"}}]}',
+            'data: [DONE]', '',
+          ].join('\n\n'));
+          return;
+        }
+        if (reply === 'sse-comment') {
+          res.setHeader('content-type', 'text/event-stream');
+          res.end(': OPENROUTER PROCESSING\n\ndata: {"model":"m","choices":[{"delta":{"content":"Hi"}}]}\n\ndata: [DONE]\n\n');
+          return;
+        }
+        if (reply === 'sse-relay-refusal') {
+          res.setHeader('content-type', 'text/event-stream');
+          res.end('data: {"code":401,"msg":"token invalid"}\n\n');
+          return;
+        }
+        if (reply === 'sse-error') {
+          res.setHeader('content-type', 'text/event-stream');
+          res.end('data: {"error":{"message":"Insufficient balance"}}\n\n');
+          return;
+        }
+        res.setHeader('content-type', 'application/json');
+        res.end(JSON.stringify({ model: 'glm-x', choices: [{ message: { content: 'Hi' } }] }));
+      });
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    origin = `http://127.0.0.1:${server.address().port}`;
+  });
+  after(() => new Promise((r) => server.close(r)));
+
+  const test = (base) => testLLMConnection({ LLM_API_KEY: 'sk-test-123456', LLM_BASE_URL: base }, { model: 'glm-x' });
+
+  it('calls a base that already names its API version as configured', async () => {
+    reply = 'json';
+    for (const [base, path] of [
+      ['/api/paas/v4', '/api/paas/v4/chat/completions'],
+      ['/api/v3/', '/api/v3/chat/completions'],
+      ['/api/paas/v4//', '/api/paas/v4/chat/completions'],
+      ['/v1beta/openai', '/v1beta/openai/chat/completions'],
+    ]) {
+      const res = await test(origin + base);
+      assert.equal(res.success, true, JSON.stringify(res));
+      assert.equal(paths.at(-1), path);
+    }
+  });
+
+  it('still adds /v1 to a bare host', async () => {
+    reply = 'json';
+    assert.equal((await test(origin)).success, true);
+    assert.equal(paths.at(-1), '/v1/chat/completions');
+  });
+
+  it('passes a model that answered in an event stream', async () => {
+    reply = 'sse';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.equal(res.model, 'deepseek-v4.1-flash');
+    assert.equal(res.response, 'Hello there');
+  });
+
+  it('reads a stream that opens with a comment', async () => {
+    reply = 'sse-comment';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.equal(res.response, 'Hi');
+  });
+
+  it('does not pass a stream that carries only a relay\'s own refusal', async () => {
+    reply = 'sse-relay-refusal';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, false);
+    assert.match(res.error, /token invalid/);
+  });
+
+  it('reports an error the stream carries', async () => {
+    reply = 'sse-error';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, false);
+    assert.match(res.error, /Insufficient balance/);
+  });
+});
