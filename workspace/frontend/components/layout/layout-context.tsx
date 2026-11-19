@@ -11,6 +11,8 @@ import {
   useState,
   useTransition
 } from 'react';
+import { useWorkspace } from '@/lib/workspace-context';
+import { useThreadViewState, type BrowserView } from './use-thread-view-state';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
 import { requestedResource } from '@/lib/resource-link';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -127,6 +129,14 @@ export interface EditAgentRequest {
 }
 
 interface LayoutState {
+  selectedBrowser: ArtifactReference | null;
+  browserView: BrowserView | null;
+  browserWatchOnly: boolean;
+  setBrowserView: (view: BrowserView, browser?: ArtifactReference, watchOnly?: boolean) => void;
+  hasSavedThreadView: boolean;
+  applyThreadArtifactDefault: (artifact: ArtifactReference | null, unavailable?: boolean) => void;
+  conversationWidth: number;
+  setConversationWidth: (width: number) => void;
   selectedArtifact: ArtifactReference | null;
   setSelectedArtifact: (artifact: ArtifactReference | null) => void;
   openArtifact: (artifact: ArtifactReference) => void;
@@ -220,6 +230,13 @@ const LayoutContext = createContext<LayoutState | undefined>(undefined);
 
 export function LayoutProvider({ children }: { children: ReactNode }) {
   const isMobile = useIsMobile();
+  const { workspace, currentUser, currentSessionId } = useWorkspace();
+  const threadView = useThreadViewState(workspace?.workspaceId || '', currentUser.id, currentSessionId || '');
+  const { selectedArtifact, selectedBrowser, browserView, browserWatchOnly, previewOpen: showBrowserPreview, conversationWidth } = threadView.state;
+  const setSelectedArtifact = useCallback((artifact: ArtifactReference | null) => threadView.update({ selectedArtifact: artifact }), [threadView.update]);
+  const setShowBrowserPreview = useCallback((open: boolean) => threadView.update({ previewOpen: open }), [threadView.update]);
+  const setBrowserView = useCallback((view: BrowserView, browser?: ArtifactReference, watchOnly = false) => threadView.update({ browserView: view, browserWatchOnly: watchOnly, ...(view === 'closed' ? { selectedBrowser: null } : browser ? { selectedBrowser: browser } : {}) }), [threadView.update]);
+  const setConversationWidth = useCallback((width: number) => threadView.update({ conversationWidth: width }), [threadView.update]);
   const [threadFilter, setThreadFilter] = useState<'all' | 'channels' | 'starred' | 'archived' | 'dms'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('threads');
   useEffect(() => {
@@ -238,25 +255,14 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (requestedResource(window.location.href)?.id || /\/threads\//.test(window.location.pathname) || new URLSearchParams(window.location.search).has('thread')) setMobilePane('detail');
   }, []);
-  const [splitBrowser, setSplitBrowser] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('x-split-browser') === '1';
-  });
-
-  const handleSetSplitBrowser = (v: boolean) => {
-    setSplitBrowser(v);
-    localStorage.setItem('x-split-browser', v ? '1' : '0');
-  };
-
+  const splitBrowser = true;
+  const handleSetSplitBrowser = (v: boolean) => { if (!v) setShowBrowserPreview(false); };
   const [isRailExpanded, setIsRailExpanded] = useState(false);
-  const [showBrowserPreview, setShowBrowserPreview] = useState(false);
-  const [selectedArtifact, setSelectedArtifact] = useState<ArtifactReference | null>(null);
   const openArtifact = useCallback((artifact: ArtifactReference) => {
-    setSelectedArtifact(artifact);
-    if (artifact.kind !== 'browser') setSplitBrowser(true);
-    setShowBrowserPreview(artifact.kind !== 'browser');
+    if (artifact.kind === 'browser') threadView.update({ selectedBrowser: artifact, browserView: 'compact', browserWatchOnly: false });
+    else threadView.update({ selectedArtifact: artifact, previewOpen: true });
     setMobilePane('detail');
-  }, []);
+  }, [threadView.update]);
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadAsChannel, setNewThreadAsChannel] = useState(false);
   // Separate openers rather than a flag argument: `openNewThread` is wired
@@ -290,10 +296,11 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const hasListPanel = VIEWS_WITH_LIST.has(viewMode);
   // Default to open the first time a view is used; after that the user's own
   // choice for that view wins.
-  const isSidebarOpen = hasListPanel ? listPrefs[viewMode] ?? true : false;
+  const isSidebarOpen = hasListPanel ? (viewMode === 'threads' ? threadView.state.sidebarOpen : null) ?? listPrefs[viewMode] ?? true : false;
 
   const setSidebarOpen = (open: boolean) => {
     if (!hasListPanel) return; // nothing to remember for full-width views
+    if (viewMode === 'threads') threadView.update({ sidebarOpen: open });
     const next = { ...listPrefs, [viewMode]: open };
     setListPrefs(next);
     writeListPrefs(next);
@@ -421,6 +428,10 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       splitBrowser,
       setSplitBrowser: handleSetSplitBrowser,
       selectedArtifact, setSelectedArtifact, openArtifact,
+      selectedBrowser, browserView, browserWatchOnly, setBrowserView,
+      hasSavedThreadView: threadView.hasSavedView,
+      applyThreadArtifactDefault: threadView.applyDefault,
+      conversationWidth, setConversationWidth,
       showBrowserPreview,
       setShowBrowserPreview,
       newThreadOpen,

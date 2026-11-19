@@ -6,24 +6,24 @@ import { browserPreviewPreferenceKey, browserPreviewDismissed } from '@/lib/brow
 import { workspaceApi } from '@/lib/api';
 import { ARTIFACT_OPEN_EVENT, artifactFromLink, type ArtifactReference } from '@/lib/thread-artifacts';
 
-/** Opening a thread restores its owner's default, not the previous thread's preview. */
+/** Personal choices win; the owner's pin is only the first-visit default. */
 export function useThreadArtifactPreview() {
   const { workspace, currentSessionId, currentUser, loading, files, browserTabs } = useWorkspace();
-  const { viewMode, openArtifact, setSelectedArtifact, setShowBrowserPreview, setSplitBrowser } = useLayout();
+  const { viewMode, openArtifact, hasSavedThreadView, applyThreadArtifactDefault } = useLayout();
   const manual = useRef(0);
   useEffect(() => {
     if (loading || viewMode !== 'threads') return;
     let active = true;
     const revision = ++manual.current;
-    setSelectedArtifact(null); setShowBrowserPreview(false);
+    if (hasSavedThreadView) return;
     if (currentSessionId && !currentSessionId.startsWith('dm:')) {
       void workspaceApi.getThreadArtifact(currentSessionId).then(setting => {
         if (!active || manual.current !== revision) return;
         if (setting.artifact) {
           if (setting.artifact.kind === 'browser' && browserPreviewDismissed(browserPreviewPreferenceKey(workspace?.workspaceId || '', currentUser.id, currentSessionId))) return;
-          openArtifact(setting.artifact);
+          applyThreadArtifactDefault(setting.artifact);
         }
-        else if (setting.unavailable) { setSplitBrowser(true); setShowBrowserPreview(true); }
+        else if (setting.unavailable) applyThreadArtifactDefault(null, true);
       }).catch(() => {});
     }
     return () => { active = false; };

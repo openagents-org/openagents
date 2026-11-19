@@ -64,6 +64,7 @@ export function NotificationsMenu({ side, align = 'end' }: NotificationsMenuProp
         <button
           type="button"
           title={t('notifications.title')}
+          aria-label={t('notifications.title')}
           className="relative flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <Bell className="size-4" />

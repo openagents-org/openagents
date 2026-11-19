@@ -246,7 +246,7 @@ export function NodesTab({
   const listReady = !(loading && nodes.length === 0) && !(loadFailed && nodes.length === 0);
   if (canConnectHere && listReady && !pairing && (nodes.length === 0 || choosing)) {
     return (
-      <div className="p-6 flex flex-col gap-5 max-w-2xl mx-auto w-full">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
         {nodes.length > 0 && (
           <button
             onClick={() => setChoosing(false)}

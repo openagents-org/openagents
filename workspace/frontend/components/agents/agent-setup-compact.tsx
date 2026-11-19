@@ -1,4 +1,5 @@
 'use client';
+import { agentDisplayName } from './agent-display-name';
 
 import React from 'react';
 import { ArrowRight, ChevronLeft, Search } from 'lucide-react';
@@ -146,7 +147,7 @@ export function CompactTypePicker({
                 )}
               >
                 <MarketLogo name={entry.name} size={32} className="rounded-lg" />
-                <div className="w-28 shrink-0 truncate text-sm font-semibold" title={entry.label}>{entry.label}</div>
+                <div className="w-28 shrink-0 truncate text-sm font-semibold" title={agentDisplayName(entry)}>{agentDisplayName(entry)}</div>
                 <p className="line-clamp-2 min-w-0 flex-1 text-xs leading-relaxed text-muted-foreground">{entry.description}</p>
                 <MarketStatusBadge className="w-16 shrink-0 text-xs" status={statusOf(entry.name)} checking={checkingOf(entry.name)} />
                 <Button variant="outline" size="sm" className="shrink-0" onClick={() => onPick(entry.name)}>

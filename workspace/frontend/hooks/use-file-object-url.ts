@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { workspaceApi } from '@/lib/api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
+import { createFileThumbnail } from './file-thumbnail';
 
 /**
  * Object URLs for workspace files, shared across every component that shows
@@ -17,7 +18,7 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
  */
 
 const MAX_CACHED = 200;
-/** Thumbnails are full-size originals (there is no resizing endpoint). */
+/** Count retained blob bytes; thumbnails store their small raster, not originals. */
 const MAX_CACHED_BYTES = 150 * 1024 * 1024;
 const MAX_CONCURRENT = 6;
 /** A download that never answers must not hold one of the few slots forever. */
@@ -64,7 +65,7 @@ function evict() {
   }
 }
 
-function load(key: string, fileId: string, entry: Entry) {
+function load(key: string, fileId: string, entry: Entry, thumbnail: boolean) {
   entry.promise = (async () => {
     let timer: ReturnType<typeof setTimeout> | undefined;
     await acquireSlot();
@@ -74,7 +75,8 @@ function load(key: string, fileId: string, entry: Entry) {
       const abort = new AbortController();
       timer = setTimeout(() => abort.abort(), FETCH_TIMEOUT_MS);
       const response = await workspaceApi.fetchFile(fileId, abort.signal);
-      const blob = await response.blob();
+      const original = await response.blob();
+      const blob = thumbnail ? await createFileThumbnail(original) : original;
       entry.url = URL.createObjectURL(blob);
       entry.bytes = blob.size || 0;
       cachedBytes += entry.bytes;
@@ -111,13 +113,13 @@ function snapshot(key: string) {
  * `enabled: false` defers the download (a tile not yet scrolled into view)
  * but still returns a URL that's already cached.
  */
-export function useFileObjectUrl(fileId?: string, { enabled = true }: { enabled?: boolean } = {}) {
+export function useFileObjectUrl(fileId?: string, { enabled = true, thumbnail = false }: { enabled?: boolean; thumbnail?: boolean } = {}) {
   const { user, idToken } = useOpenAgentsAuth();
   // Keyed by who is looking, not by their sign-in token: that token is
   // refreshed every hour, and keying on it emptied the cache (every
   // thumbnail flickered and downloaded again) each time.
   const viewerKey = user?.email || idToken || 'anonymous';
-  const key = `${fileId}:${viewerKey}`;
+  const key = `${fileId}:${thumbnail ? 'thumbnail' : 'original'}:${viewerKey}`;
   const [state, setState] = useState<{ key: string; url?: string; failed?: boolean }>(() => snapshot(key));
   useEffect(() => {
     if (!fileId) return;
@@ -134,7 +136,7 @@ export function useFileObjectUrl(fileId?: string, { enabled = true }: { enabled?
     const update = () => setState(snapshot(key));
     current.listeners.add(update);
     if (current.url || current.failed) update();
-    else if (!current.promise && enabled) load(key, fileId, current);
+    else if (!current.promise && enabled) load(key, fileId, current, thumbnail);
     return () => {
       current.refs -= 1;
       current.used = Date.now();
@@ -143,7 +145,7 @@ export function useFileObjectUrl(fileId?: string, { enabled = true }: { enabled?
       if (current.refs === 0 && current.failed) forget(key, current);
       evict();
     };
-  }, [fileId, key, enabled, viewerKey]);
+  }, [fileId, key, enabled, viewerKey, thumbnail]);
   return state.key === key ? state : snapshot(key);
 }
 

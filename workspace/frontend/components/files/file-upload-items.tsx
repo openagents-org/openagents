@@ -128,15 +128,15 @@ export function UploadTile({
   const failed = upload.status === 'error';
 
   return (
-    <div className="group relative flex flex-col items-center gap-1.5 rounded-xl p-3 text-center">
-      <div className="relative flex h-19 items-center justify-center">
+    <div className="group relative flex flex-col gap-2 rounded-xl border p-3">
+      <div className="relative flex aspect-16/10 w-full items-center justify-center rounded-lg bg-muted/40">
         {upload.previewUrl ? (
-          <span className="block size-19 overflow-hidden rounded-xl border border-border/70 shadow-xs">
+          <span className="block size-full overflow-hidden rounded-lg">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={upload.previewUrl}
               alt=""
-              className={cn('size-full object-cover', !failed && 'opacity-75')}
+              className={cn('size-full object-contain', !failed && 'opacity-75')}
             />
           </span>
         ) : (
@@ -154,7 +154,7 @@ export function UploadTile({
         </div>
       </div>
 
-      <span className="w-full truncate text-xs leading-tight font-medium" title={upload.name}>
+      <span className="line-clamp-2 min-h-10 w-full text-sm leading-5 font-medium wrap-anywhere" title={upload.name}>
         {upload.name}
       </span>
       <span

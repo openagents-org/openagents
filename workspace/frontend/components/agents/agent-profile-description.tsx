@@ -59,9 +59,9 @@ export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { a
   }, [agent]);
 
   return (
-    <Card size="sm" className="gap-0 py-0">
-      <CardHeader className="flex items-center justify-between gap-2 border-b py-2.5">
-        <span className="text-xs font-medium">{t('agents.description')}</span>
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
+      <CardHeader className="flex items-center justify-between gap-2 px-0 pb-3 pt-0">
+        <span className="text-sm font-medium">{t('agents.description')}</span>
         {canManage && (
           <Button
             variant="ghost"
@@ -78,9 +78,9 @@ export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { a
           </Button>
         )}
       </CardHeader>
-      <CardContent className="flex flex-col gap-1.5 py-3">
+      <CardContent className="flex flex-col gap-2 px-0 py-0">
         <Textarea
-          className="min-h-16 resize-none text-sm leading-relaxed"
+          className="min-h-24 resize-y bg-muted/20 text-sm leading-relaxed"
           placeholder={t('agents.descriptionPlaceholder', { agent: agent.agentName })}
           value={description}
           onChange={(e) => {
@@ -91,7 +91,7 @@ export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { a
           readOnly={!canManage}
           rows={3}
         />
-        <p className="text-xs text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
+        <p className="text-xs leading-relaxed text-muted-foreground">{t(canManage ? 'agents.descriptionScope' : 'agents.ownerOnlyHint')}</p>
         {descDirty && (
           <div className="flex justify-end">
             <Button size="xs" onClick={handleSaveDescription} disabled={saving}>

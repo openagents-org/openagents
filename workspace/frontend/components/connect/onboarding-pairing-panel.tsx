@@ -73,7 +73,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
         <p className="mb-2 text-xs font-medium text-muted-foreground">{stepLabel ?? t('onboarding.deviceStepLabel')}</p>
         <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-3" role="group" aria-label={t('onboarding.setupMethod')}>
+        <div className="mt-5 grid gap-2" role="group" aria-label={t('onboarding.setupMethod')}>
           {([
             { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
             { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }] },
@@ -82,20 +82,24 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
             const active = method === id;
             return (
               <button type="button" key={id} aria-pressed={active} onClick={() => setMethod(id)}
-                className={cn('relative flex items-start gap-3 rounded-xl border px-3 py-3 text-left transition-colors sm:px-4', active ? 'border-foreground/40 bg-muted/50' : 'border-border hover:border-foreground/20 hover:bg-muted/30')}>
-                <Icon className={cn('mt-0.5 hidden size-5 shrink-0 sm:block', active ? 'text-foreground' : 'text-muted-foreground')} />
-                <span className="min-w-0 flex-1">
-                  <span className="block whitespace-nowrap text-sm font-semibold">{t(label)}</span>
-                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
-                  <span className="mt-1.5 flex items-center gap-2.5">
+                className={cn('flex min-h-16 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors', active ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/15' : 'border-border hover:border-foreground/25 hover:bg-muted/30')}>
+                <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
+                  <Icon className="size-4.5" />
+                </span>
+                <span className="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between sm:gap-3">
+                  <span className="block min-w-0">
+                    <span className="block text-sm font-semibold">{t(label)}</span>
+                    <span className="block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
+                  </span>
+                  <span className="mt-1.5 flex shrink-0 items-center gap-2.5 sm:mt-0" aria-hidden="true">
                     {platforms.map((platform) => (
                       <img key={platform.icon} src={platform.icon.startsWith('agents/') ? `/icons/${platform.icon}.svg` : `/icons/platforms/${platform.icon}.svg`}
-                        alt={platform.label} title={platform.label} width={14} height={14}
+                        alt="" title={platform.label} width={14} height={14}
                         className="size-3.5 object-contain opacity-60 dark:invert" />
                     ))}
                   </span>
                 </span>
-                <span aria-hidden="true" className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border', active ? 'border-primary bg-primary text-primary-foreground' : 'border-border')}>
+                <span aria-hidden="true" className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border', active ? 'border-primary bg-primary text-primary-foreground' : 'border-border')}>
                   {active && <Check className="size-2.5" />}
                 </span>
               </button>
@@ -183,7 +187,11 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
           {!expired && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />}
           <div>
             <p className="text-sm font-medium">{t(expired ? 'connect.nodePairingExpired' : fromAgent ? 'connect.agentJoinWaiting' : 'onboarding.waitingComputerHint')}</p>
-            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t(expired ? (onRegenerate ? 'onboarding.renewCodeHint' : 'onboarding.expiredHint') : fromAgent ? 'connect.agentJoinNext' : 'onboarding.nextAgentBody')}</p>
+            {(expired || fromAgent) && (
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {t(expired ? (onRegenerate ? 'onboarding.renewCodeHint' : 'onboarding.expiredHint') : 'connect.agentJoinNext')}
+              </p>
+            )}
           </div>
         </div>
         <div className="ml-auto flex shrink-0 items-center gap-3">

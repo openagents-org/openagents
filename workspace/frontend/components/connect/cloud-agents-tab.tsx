@@ -100,7 +100,7 @@ export function CloudAgentsTab({
   // When a provider is selected, show config view instead of grid
   if (selectedProviderInfo) {
     return (
-      <div className="p-4 flex flex-col gap-4">
+      <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 sm:px-6 sm:py-7">
         {/* Back button */}
         <Button variant="ghost" size="sm" onClick={() => onSelectProvider(null)} className="self-start text-muted-foreground">
           <ChevronLeft data-icon="inline-start" />
@@ -289,8 +289,8 @@ export function CloudAgentsTab({
 
   // Grid view — no provider selected
   return (
-    <div className="p-4 flex flex-col gap-3">
-      <div className="mb-5">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
+      <div>
         <h2 className="text-lg font-semibold">{t('connect.cloudMarketplaceTitle')}</h2>
         <p className="mt-1 text-sm text-muted-foreground">{t('connect.cloudMarketplaceHint')}</p>
       </div>

@@ -15,6 +15,8 @@ export interface AgentSetupApi {
 }
 
 export interface AgentSetupExtensions {
+  /** Guided web onboarding; existing-agent settings and native desktop forms stay separate. */
+  guided?: boolean;
   local?: boolean;
   disabled?: boolean;
   /** `workingDirectory` is set when `inlineWorkingDirectory` is: the folder's

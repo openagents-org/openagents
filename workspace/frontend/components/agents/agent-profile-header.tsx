@@ -56,9 +56,9 @@ export function AgentProfileHeader({ agent, canManage, refreshWorkspace }: { age
 
   const isOnline = agent.status === 'online';
   return (
-    <div className="px-1.5 pb-1">
+    <div className="min-w-0">
       <div className="flex items-center gap-3">
-        <AgentAvatar name={agent.agentName} size={40} status={agent.status} showStatus />
+        <AgentAvatar name={agent.agentName} size={44} status={agent.status} showStatus />
         <div className="min-w-0 flex-1">
           {editingName ? (
             <div className="flex items-center gap-1.5">
@@ -80,14 +80,14 @@ export function AgentProfileHeader({ agent, canManage, refreshWorkspace }: { age
               </Button>
             </div>
           ) : (
-            <div className="flex min-w-0 items-center gap-1.5">
-              <h3 className="truncate text-sm leading-tight font-semibold">{agentLabel(agent)}</h3>
+            <div className="group/name flex min-w-0 items-center gap-1.5">
+              <h3 className="truncate text-lg leading-tight font-semibold">{agentLabel(agent)}</h3>
               {canManage && (
                 <Button
                   variant="ghost"
                   size="icon-xs"
                   onClick={() => setEditingName(true)}
-                  className="text-muted-foreground"
+                  className="text-muted-foreground hover:text-foreground"
                   title={t('agents.editDisplayName')}
                   aria-label={t('agents.editDisplayName')}
                 >

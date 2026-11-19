@@ -21,9 +21,9 @@ const HINT = 'text-xs leading-relaxed text-muted-foreground';
 function ModelCardHeader({ busy }: { busy?: boolean }) {
   const t = useT();
   return (
-    <CardHeader className="flex items-center gap-1.5 border-b py-2.5">
+    <CardHeader className="flex items-center gap-1.5 px-0 pb-3 pt-0">
       <Cpu className="size-3 text-muted-foreground" />
-      <span className="text-xs font-medium">{t('agents.fieldModel')}</span>
+      <span className="text-sm font-medium">{t('agents.fieldModel')}</span>
       {busy && <Spinner className="ml-auto size-3 text-muted-foreground" />}
     </CardHeader>
   );
@@ -33,9 +33,9 @@ function ModelCardHeader({ busy }: { busy?: boolean }) {
 export function ReadOnlyModelCard({ model, managed }: { model: string; managed: boolean }) {
   const t = useT();
   return (
-    <Card size="sm" className="gap-0 py-0">
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
       <ModelCardHeader />
-      <CardContent className="flex flex-col gap-1.5 py-3">
+      <CardContent className="flex flex-col gap-2 px-0 py-0">
         <div className="font-mono text-xs">{model || '—'}</div>
         <p className={HINT}>{t(managed ? 'agents.modelManagedHint' : 'agents.ownerOnlyHint')}</p>
       </CardContent>
@@ -53,9 +53,9 @@ export function ModelCard({ m }: { m: AgentModelOptions }) {
   const t = useT();
   const { currentModel, savingModel, modelLoading, modelApplies, typeModel, pickerOptions, catalogFits, endpointHost, liveLoading, liveError, modelLoadError } = m;
   return (
-    <Card size="sm" className="gap-0 py-0">
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
       <ModelCardHeader busy={savingModel || modelLoading} />
-      <CardContent className="flex flex-col gap-1.5 py-3">
+      <CardContent className="flex flex-col gap-2 px-0 py-0">
         {modelLoading ? (
           <p className={HINT}>{t('agents.modelLoading')}</p>
         ) : !modelApplies ? (

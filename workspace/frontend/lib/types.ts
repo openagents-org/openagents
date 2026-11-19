@@ -125,6 +125,8 @@ export interface NodeRuntime {
    * codex`). Absent from launchers too old to have `agn login`, and for types
    * with no sign-in of their own. */
   loginCommand?: string | null;
+  /** The device can relay its native CLI's browser sign-in. Missing on older connectors. */
+  browserLogin?: boolean;
   probe?: NodeProbe | null;
 }
 
@@ -374,6 +376,14 @@ export interface WorkspaceCollaborator {
   role: 'editor' | 'viewer';
   addedBy: string | null;
   addedAt: string | null;
+}
+
+export interface WorkspaceFileStorage {
+  usedBytes: number;
+  activeBytes: number;
+  trashBytes: number;
+  /** Null when the server has no workspace storage quota. */
+  limitBytes: number | null;
 }
 
 export interface WorkspaceFile {

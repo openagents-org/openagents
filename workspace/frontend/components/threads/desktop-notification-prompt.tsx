@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BellRing, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -12,13 +12,8 @@ function currentPermission(): string | null {
   return Notification.permission;
 }
 
-/**
- * One-line ask for desktop-notification permission, shown at the top of the
- * thread list the first time the user has a DM / mention signal or opens a DM.
- * Permission is only ever requested from the Enable click — never on load.
- */
-export function DesktopNotificationPrompt() {
-  const t = useT();
+/** Permission is requested only after the user clicks Enable in the sidebar callout. */
+export function useDesktopNotificationPrompt() {
   const { signals, currentSessionId } = useWorkspace();
   const [permission, setPermission] = useState<string | null>(null);
   const [dismissed, setDismissed] = useState(true);
@@ -44,7 +39,6 @@ export function DesktopNotificationPrompt() {
     dismissed,
     triggered,
   });
-  if (!show) return null;
 
   const dismiss = () => {
     setDismissed(true);
@@ -60,21 +54,31 @@ export function DesktopNotificationPrompt() {
     }
   };
 
+  return { show, dismiss, enable };
+}
+
+/** Inline sidebar footer card; never overlays the conversation or thread list. */
+export function DesktopNotificationPrompt({ hidden = false }: { hidden?: boolean }) {
+  const t = useT();
+  const prompt = useDesktopNotificationPrompt();
+  if (hidden || !prompt.show) return null;
+
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-border/60 bg-muted/40 px-3 py-2 text-xs">
-      <BellRing className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="min-w-0 flex-1 text-foreground/80">{t('slackSignals.promptText')}</span>
-      <Button size="xs" variant="outline" className="shrink-0" onClick={enable}>
+    <div className="mb-2 w-full min-w-0 rounded-lg border border-sidebar-border bg-sidebar-accent/50 p-3">
+      <div className="flex items-start gap-1">
+        <p className="min-w-0 flex-1 text-xs leading-5 text-sidebar-foreground">{t('slackSignals.promptText')}</p>
+        <Button
+          variant="ghost"
+          size="icon-xs"
+          className="-mt-1 -mr-1 shrink-0 text-muted-foreground"
+          aria-label={t('slackSignals.promptDismiss')}
+          onClick={prompt.dismiss}
+        >
+          <X />
+        </Button>
+      </div>
+      <Button size="xs" className="mt-2" onClick={prompt.enable}>
         {t('slackSignals.promptEnable')}
-      </Button>
-      <Button
-        variant="ghost"
-        size="icon-xs"
-        className="shrink-0 text-muted-foreground"
-        aria-label={t('slackSignals.promptDismiss')}
-        onClick={dismiss}
-      >
-        <X />
       </Button>
     </div>
   );

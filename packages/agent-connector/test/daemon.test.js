@@ -840,6 +840,7 @@ describe('Daemon', () => {
 
   it('_heartbeatRuntimes puts each type sign-in list on its runtime entry', () => {
     const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._browserLoginSupported = true;
     daemon._runtimes = [
       { type: 'codex', installed: true, ready: true },
       { type: 'claude', installed: true, ready: false },
@@ -851,9 +852,9 @@ describe('Daemon', () => {
     const piModels = [{ id: 'openai/gpt-6.1-sol', label: 'gpt-6.1-sol (openai)' }];
     daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('pi'))] = { models: piModels, askedAt: Date.now() };
     assert.deepEqual(daemon._heartbeatRuntimes(), [
-      { type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', cliModels: ACCOUNT_MODELS },
+      { type: 'codex', installed: true, ready: true, loginCommand: 'agn login codex', ...(['linux', 'darwin'].includes(process.platform) ? { browserLogin: true } : {}), cliModels: ACCOUNT_MODELS },
       // Not answered yet: the form keeps the catalog list.
-      { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', cliModels: null },
+      { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', ...(['linux', 'darwin'].includes(process.platform) ? { browserLogin: true } : {}), cliModels: null },
       { type: 'pi', installed: true, ready: true, loginCommand: 'agn login pi', cliModels: piModels },
       { type: 'gemini', installed: true, ready: true, loginCommand: 'agn login gemini' },
       { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor' },
@@ -865,6 +866,7 @@ describe('Daemon', () => {
   it('_nodeHeartbeat sends the runtimes with their sign-in lists', async () => {
     await withPairings([P1], async () => {
       const daemon = heartbeatDaemon();
+      daemon._browserLoginSupported = false;
       daemon._runtimes = [{ type: 'codex', installed: true, ready: true }];
       daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
       let sent = null;
@@ -1036,6 +1038,43 @@ describe('Daemon', () => {
       assert.deepEqual(rosters.w1, [{ name: 'agent-for-ws1' }]);
       assert.deepEqual(rosters.w2, [{ name: 'agent-for-ws2' }]);
     });
+  });
+
+  it('_runNodeCommand publishes only a public key, decrypts locally, and never echoes secrets', async () => {
+    const crypto = require('node:crypto');
+    const { credentialContext, ALGORITHM } = require('../src/credential-envelope');
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    const node = { node_id: 'n1', workspace_id: 'w1', workspace_slug: 'ws-slug', token: 'tok' };
+    const reports = [];
+    daemon._nodeClients.set('n1', { nodeCommandResult: async (_id, _tok, res) => reports.push(res) });
+    daemon._probeAgent = async () => null;
+    daemon._askCliModels = () => {};
+    daemon._nodeHeartbeat = async () => {};
+    daemon._runAgn = async (args) => {
+      if (args[0] === 'create') config.addAgent({ name: args[1], type: 'claude' });
+      return { code: 0, stdout: '', stderr: '' };
+    };
+    await daemon._runNodeCommand(node, { commandId: 'key', action: 'credential_key', args: {} });
+    const key = reports[0].data;
+    assert.equal(reports[0].ok, true);
+    assert.equal(key.algorithm, ALGORITHM);
+    assert.deepEqual(Object.keys(key).sort(), ['algorithm', 'keyId', 'publicKey']);
+    const args = { name: 'sealed-coder', type: 'claude', workingDir: path.join(tmpDir, 'wd') };
+    const aes = crypto.randomBytes(32), iv = crypto.randomBytes(12), expiresAt = Date.now() + 60000;
+    const cipher = crypto.createCipheriv('aes-256-gcm', aes, iv);
+    cipher.setAAD(Buffer.from(`${credentialContext('n1', 'create_agent', args)}\n${expiresAt}`));
+    const ciphertext = Buffer.concat([cipher.update(JSON.stringify({ apiKey: 'sk-local-secret' })), cipher.final(), cipher.getAuthTag()]);
+    const wrappedKey = crypto.publicEncrypt({ key: crypto.createPublicKey({ key: Buffer.from(key.publicKey, 'base64'), type: 'spki', format: 'der' }), oaepHash: 'sha256' }, aes);
+    const encryptedCredentials = { algorithm: ALGORITHM, keyId: key.keyId, expiresAt, iv: iv.toString('base64'), ciphertext: ciphertext.toString('base64'), wrappedKey: wrappedKey.toString('base64') };
+    await daemon._runNodeCommand(node, { commandId: 'create', action: 'create_agent', args: { ...args, encryptedCredentials } });
+    assert.equal(reports[1].ok, true);
+    assert.equal(config.getAgent(args.name).env.LLM_API_KEY, 'sk-local-secret');
+    assert.equal(JSON.stringify(reports).includes('sk-local-secret'), false);
+    await daemon._runNodeCommand(node, { commandId: 'tampered', action: 'create_agent', args: { ...args, name: 'other', encryptedCredentials } });
+    assert.equal(reports[2].ok, false);
+    assert.ok(!config.getAgent('other'));
+    assert.equal(JSON.stringify(reports).includes('sk-local-secret'), false);
   });
 
   it('_runNodeCommand create_agent runs create+connect and reports ok', async () => {
@@ -1769,6 +1808,32 @@ describe('Daemon', () => {
     }
   });
 
+  it('finishes a stale create reload before restarting the connected agent', async () => {
+    const config = new Config(tmpDir);
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    let agent = { name: 'codex-2', type: 'codex' };
+    config.load = () => {};
+    config.getAgents = () => [{ ...agent }];
+    config.getAgent = () => ({ ...agent });
+    const launches = [];
+    daemon._launchAgent = (cfg) => { launches.push(cfg.network || '(local)'); };
+    daemon.stopAgent = async () => {};
+    let release;
+    const waiting = new Promise(resolve => { release = resolve; });
+    let entered;
+    const enteredReload = new Promise(resolve => { entered = resolve; });
+    daemon._ensureAdapterCleared = async () => { entered(); await waiting; };
+    const reload = daemon._reload();
+    await enteredReload;
+    agent = { ...agent, network: 'workspace' };
+    const restart = daemon.restartAgent('codex-2');
+    await Promise.resolve();
+    release();
+    await Promise.all([reload, restart]);
+    assert.deepEqual(launches, ['(local)', 'workspace']);
+    assert.equal(daemon._reloadInFlight, null);
+  });
+
   it('_ensureAdapterCleared force-releases stuck adapter', async () => {
     const config = new Config(tmpDir);
     const env = new EnvManager(tmpDir);
@@ -2031,5 +2096,46 @@ describe('Daemon — probe sweep for agents whose setup is unfinished', () => {
     ]));
     await new Promise((r) => setImmediate(r));
     assert.deepEqual(probed, ['claude-nologin']);
+  });
+});
+
+
+describe('browser sign-in preparation', () => {
+  it('advertises browser sign-in before a supported CLI is installed', () => {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._browserLoginSupported = true;
+    daemon._runtimes = [{ type: 'codex', installed: false, ready: false }];
+    assert.equal(daemon._heartbeatRuntimes()[0].browserLogin, ['linux', 'darwin'].includes(process.platform) ? true : undefined);
+  });
+
+  it('installs a missing CLI once before opening native browser sign-in', { skip: !['linux', 'darwin'].includes(process.platform) }, async () => {
+    const { Installer } = require('../src/installer');
+    const original = Installer.prototype.which;
+    let installed = false;
+    Installer.prototype.which = () => installed ? '/managed/codex' : null;
+    try {
+      const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+      const calls = [];
+      daemon._runAgn = async (args) => { calls.push(args); await Promise.resolve(); installed = true; return { code: 0 }; };
+      daemon._refreshRuntimes = async () => {};
+      daemon._nodeHeartbeat = async () => {};
+      const binaries = await Promise.all([daemon._prepareBrowserLogin('codex'), daemon._prepareBrowserLogin('codex')]);
+      assert.deepEqual(binaries, ['/managed/codex', '/managed/codex']);
+      assert.deepEqual(calls, [['install', 'codex']]);
+      assert.equal(await daemon._prepareBrowserLogin('codex'), '/managed/codex');
+      assert.equal(calls.length, 1);
+    } finally { Installer.prototype.which = original; }
+  });
+
+  it('does not open sign-in after installation fails', { skip: !['linux', 'darwin'].includes(process.platform) }, async () => {
+    const { Installer } = require('../src/installer');
+    const original = Installer.prototype.which;
+    Installer.prototype.which = () => null;
+    try {
+      const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+      daemon._runAgn = async () => ({ code: 1, stderr: 'private installation output' });
+      await assert.rejects(daemon._prepareBrowserLogin('codex'), /Could not install/);
+      assert.equal(daemon._loginInstalls.size, 0);
+    } finally { Installer.prototype.which = original; }
   });
 });

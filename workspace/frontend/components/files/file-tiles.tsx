@@ -105,10 +105,9 @@ export function FolderRowIcon({ className }: { className?: string }) {
  * shows its own pixels wherever the layout has room, and every other kind keeps
  * the glyph.
  *
- * There is no resizing endpoint — the thumbnail is the whole file, fetched off
- * the same download route the preview uses. That's what the guards below are
- * for: a format the browser can decode, a size worth spending, and lazy
- * loading so only the tiles you scroll past cost anything.
+ * There is no resizing endpoint: download the original, then cache a small
+ * raster for grid/list display. The byte guard and lazy loading limit network
+ * work; serialized decoding and bounded dimensions limit browser pixel memory.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 /** Formats every browser we target can decode. HEIC and TIFF are images by
@@ -176,6 +175,7 @@ function FileThumbnail({
   className,
   fallback,
   placeholder,
+  fit = 'cover',
 }: {
   file: ThumbnailSource;
   className?: string;
@@ -183,6 +183,7 @@ function FileThumbnail({
   fallback: ReactNode;
   /** Shown inside the box until it does. */
   placeholder: ReactNode;
+  fit?: 'cover' | 'contain';
 }) {
   const [broken, setBroken] = useState(() => brokenThumbnails.has(file.id));
   const [loaded, setLoaded] = useState(false);
@@ -206,6 +207,8 @@ function FileThumbnail({
       <AuthenticatedImage
         fileId={file.id}
         deferUntilVisible
+        thumbnail
+        onUnavailable={() => setBroken(true)}
         // Decorative: the filename sits right beside it in every caller.
         alt=""
         loading="lazy"
@@ -216,7 +219,8 @@ function FileThumbnail({
           setBroken(true);
         }}
         className={cn(
-          'size-full object-cover transition-opacity duration-200',
+          'size-full transition-opacity duration-200',
+          fit === 'contain' ? 'object-contain' : 'object-cover',
           loaded ? 'opacity-100' : 'opacity-0',
         )}
       />
@@ -232,15 +236,8 @@ function FileThumbnail({
   );
 }
 
-/**
- * The grid's file visual: an image's thumbnail, or its type tile.
- *
- * Both fill the same square slot, so mixed types keep the grid's rhythm and a
- * thumbnail arriving late doesn't reflow anything. Images are centre-cropped
- * rather than fitted — at this size you're recognising a picture, not reading
- * it, and one letterboxed tile beside a full one reads as a layout bug.
- */
-export function FileTile({ file, className }: { file: WorkspaceFile; className?: string }) {
+/** File visual. Gallery previews fit the whole image; compact tiles crop it. */
+export function FileTile({ file, className, preview = false }: { file: WorkspaceFile; className?: string; preview?: boolean }) {
   // The caller's className carries the hover lift, which belongs to whichever
   // element is the tile: the type tile when it stands alone, the frame when it
   // holds one. Handing it to both would lift twice.
@@ -262,8 +259,9 @@ export function FileTile({ file, className }: { file: WorkspaceFile; className?:
       file={file}
       fallback={tile(className)}
       placeholder={tile()}
+      fit={preview ? 'contain' : 'cover'}
       className={cn(
-        'size-19 rounded-xl border border-border/70 shadow-xs transition-transform',
+        preview ? 'h-full w-full rounded-lg' : 'size-19 rounded-xl border border-border/70 shadow-xs transition-transform',
         className,
       )}
     />

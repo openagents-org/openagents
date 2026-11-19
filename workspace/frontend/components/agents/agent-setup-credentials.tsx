@@ -9,7 +9,7 @@ import type { AgentSetupProps } from './agent-setup-types';
 import type { AgentSetupForm } from './use-agent-setup-form';
 
 /** The agent's own credential fields (CodeArts AK/SK), sent as `config`. */
-export function NativeCredentialFields({ form }: { form: AgentSetupForm }) {
+export function NativeCredentialFields({ form, includeModel = true }: { form: AgentSetupForm; includeModel?: boolean }) {
   const t = useT();
   const { isEdit, selectedStatus, nativeCreds, nativeValues, setNativeValues, creds, model, setModel } = form;
   return (
@@ -31,7 +31,7 @@ export function NativeCredentialFields({ form }: { form: AgentSetupForm }) {
         </Field>
       ))}
       <FieldDescription>{t('connect.nodeNativeCredsHint')}</FieldDescription>
-      {!creds.pickerModels && (
+      {includeModel && !creds.pickerModels && (
         <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder={t('connect.nodeAgentModelOptional')} className="h-10 text-sm" />
       )}
     </FieldGroup>

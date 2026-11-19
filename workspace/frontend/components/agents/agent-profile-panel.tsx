@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { X, Plus, Globe, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
+import { X, MessageSquare, Globe, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -10,6 +10,7 @@ import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { workspaceApi } from '@/lib/api';
 import { cn } from '@/lib/utils';
 import { isOwnedAgent } from '@/lib/sidebar-agents';
+import { dmSessionId, myAddress } from '@/lib/dm';
 import { toast } from 'sonner';
 import type { CloudAgentConfig } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -25,7 +26,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const {
     selectedAgentName, setSelectedAgentName, isMobile, setViewMode, openMobileDetail,
   } = useLayout();
-  const { agents, refreshWorkspace, createSession, currentUser } = useWorkspace();
+  const { agents, refreshWorkspace, setCurrentSessionId, currentUser } = useWorkspace();
   const confirm = useConfirm();
   const t = useT();
 
@@ -90,16 +91,15 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
     }
   }, [agent, confirm, t, setSelectedAgentName, refreshWorkspace]);
 
-  const handleStartThread = useCallback(async () => {
+  const handleDirectMessage = useCallback(() => {
     if (!agent) return;
-    await createSession({ master: agent.agentName, participants: [agent.agentName] });
+    setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agent.agentName}`));
     setSelectedAgentName(null);
     setViewMode('threads');
     // On mobile the panel can be opened from either pane, so send the user to
-    // the detail pane explicitly — otherwise the new thread is created behind
-    // the thread list and the tap looks like it did nothing.
+    // the detail pane explicitly so the direct message is visible.
     if (isMobile) openMobileDetail();
-  }, [agent, createSession, setSelectedAgentName, setViewMode, isMobile, openMobileDetail]);
+  }, [agent, currentUser, setCurrentSessionId, setSelectedAgentName, setViewMode, isMobile, openMobileDetail]);
 
   if (!agent) return null;
 
@@ -140,11 +140,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
       <div className={cn(
         'flex flex-col border-l bg-background animate-in slide-in-from-right duration-200',
         docked
-          ? 'relative h-full w-80 shrink-0'
-          : cn('absolute top-0 right-0 bottom-0 z-20 shadow-xl', isMobile ? 'left-0 w-full' : 'w-80'),
+          ? 'relative h-full w-90 shrink-0 xl:w-96'
+          : cn('absolute top-0 right-0 bottom-0 z-20 shadow-xl', isMobile ? 'left-0 w-full' : 'w-90 max-w-full xl:w-96'),
       )}>
         {/* Close button */}
-        <div className="flex items-center justify-end px-3 pt-3">
+        <div className="flex shrink-0 items-center justify-between border-b px-5 py-3">
+          <h2 className="text-sm font-semibold">{t('agents.panelTitle')}</h2>
           <Button
             onClick={() => setSelectedAgentName(null)}
             variant="ghost" size="icon-sm" className="text-muted-foreground"
@@ -155,12 +156,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
           </Button>
         </div>
 
-        {/* Only the close row and the footer stay put; everything between
-            scrolls here. Cards keep their height (shrink-0): a Card clips its
-            overflow, so a squeezed one cut off the end of a long description.
-            overscroll-contain keeps the thread behind from scrolling along. */}
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-3.5 pb-3 *:shrink-0">
-          <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+        {/* Scrollable content */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pb-6 [&>[data-slot=card]]:shrink-0">
+          <div className="border-b py-5">
+            <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+            <div className="mt-4 flex empty:hidden [&>button]:flex-1"><AgentSharingButton agentName={agent.agentName} /></div>
+          </div>
 
           {/* The settings people come here to change, first: the name is
               edited in the header above, then the model and the folder. The
@@ -170,9 +171,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
             : <ModelCard m={models} />}
           {!isCloud && <WorkdirCard agent={agent} canManage={canManage} />}
 
-          <AgentSharingButton agentName={agent.agentName} />
           <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
-          <ConnectionDetailsCard items={infoItems} />
 
           {/* Cloud config management — hidden for the built-in: nothing is
               user-configurable there (key and prompt are server-owned). */}
@@ -182,15 +181,17 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
 
           <InstalledSkillsCard agent={agent} />
 
+          <ConnectionDetailsCard items={infoItems} />
+
           {!isCloud && canManage && <DangerZoneCard onRemove={handleRemoveAgent} />}
         </div>
 
         {/* Footer actions */}
-        <div className="border-t px-3.5 py-3">
+        <div className="shrink-0 border-t bg-background px-5 py-4">
           <div className="flex gap-2">
-            <Button variant="outline" className="flex-1" onClick={handleStartThread}>
-              <Plus data-icon="inline-start" />
-              {t('agents.startThread')}
+            <Button className="h-9 flex-1" onClick={handleDirectMessage}>
+              <MessageSquare data-icon="inline-start" />
+              {t('agents.directMessage')}
             </Button>
             {isCloud && canManage && (
               <Button variant="destructive" onClick={handleRemoveCloudAgent} title={t('agents.removeCloud')}>

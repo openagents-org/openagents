@@ -16,6 +16,7 @@ import { useT } from "@/lib/i18n"
 import { dirname, isKeepFile } from "./file-utils"
 import { FolderTreeRow } from "./folder-tree-row"
 import { useFolderActions } from "./use-folder-actions"
+import { FileStorageUsage } from "./file-storage-usage"
 
 /** A section label in the panel: personal folders, folders, trash. */
 function PanelSection({ label, className }: { label: string; className?: string }) {
@@ -95,7 +96,7 @@ export function FileList() {
   const trashCount = trashEntries.length
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
       {/* ── Header ── */}
       {/* Same shape as the Threads/Knowledge panels: a --header-height title row
           that lines up with the rail and the detail header, then the search on
@@ -245,6 +246,7 @@ export function FileList() {
           </>
         )}
       </div>
+      <FileStorageUsage />
     </div>
   )
 }

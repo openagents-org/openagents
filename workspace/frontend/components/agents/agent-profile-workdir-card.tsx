@@ -22,12 +22,12 @@ export function WorkdirCard({ agent, canManage }: { agent: WorkspaceAgent; canMa
   const { openEditAgent } = useLayout();
   const nodeId = canManage && agent.ownerEmail ? agent.nodeId : null;
   return (
-    <Card size="sm" className="gap-0 py-0">
-      <CardHeader className="flex items-center gap-1.5 border-b py-2.5">
+    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
+      <CardHeader className="flex items-center gap-1.5 px-0 pb-3 pt-0">
         <Folder className="size-3 text-muted-foreground" />
-        <span className="text-xs font-medium">{t('agents.fieldFolder')}</span>
+        <span className="text-sm font-medium">{t('agents.fieldFolder')}</span>
       </CardHeader>
-      <CardContent className="flex flex-col gap-1.5 py-3">
+      <CardContent className="flex flex-col gap-1.5 px-0 py-0">
         <div className="font-mono text-xs break-all">{agent.workingDir || '—'}</div>
         {agent.serverHost && <p className={HINT}>{t('agents.workdirDevice', { device: agent.serverHost })}</p>}
         {nodeId ? (

@@ -109,7 +109,7 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
     (async () => {
       try {
         const { listAccountWorkspaces } = await import('@/lib/account-api');
-        const wss = await listAccountWorkspaces(idToken);
+        const wss = await listAccountWorkspaces(idToken, AbortSignal.timeout(15_000));
         if (cancelled) return;
         const match = wss.find((w) => w.slug === workspaceId || w.workspaceId === workspaceId);
         if (match) {
@@ -129,7 +129,7 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
         // workspace. Probe existence so a typo'd link and a membership gap
         // get distinct, explicit error screens instead.
         const apiUrl = getApiBaseUrl();
-        const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store' });
+        const res = await fetch(`${apiUrl}/v1/workspaces/${encodeURIComponent(workspaceId)}`, { cache: 'no-store', signal: AbortSignal.timeout(8_000) });
         if (cancelled) return;
         setState(res.status === 404 ? { kind: 'not_found' } : { kind: 'no_access' });
       } catch {

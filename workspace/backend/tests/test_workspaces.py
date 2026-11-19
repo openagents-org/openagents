@@ -135,6 +135,17 @@ class TestUpdateWorkspace:
         assert resp.status_code == 200
         assert resp.json()["data"]["settings"]["theme"] == "dark"
 
+    def test_services_setting_defaults_off_and_round_trips(self, client, workspace):
+        url = f"/v1/workspaces/{workspace['id']}"
+        headers = {"X-Workspace-Token": workspace["token"]}
+        assert client.get(url, headers=headers).json()["data"]["settings"].get("services_enabled", False) is False
+        for enabled in (True, False):
+            response = client.patch(url, json={"settings": {"services_enabled": enabled}}, headers=headers)
+            assert response.status_code == 200
+            assert client.get(url, headers=headers).json()["data"]["settings"]["services_enabled"] is enabled
+        response = client.patch(url, json={"settings": {"services_enabled": "false"}}, headers=headers)
+        assert response.status_code == 400
+
     def test_browser_enabled_defaults_false(self, client, workspace):
         """A fresh workspace has browserEnabled = false."""
         resp = client.get(f"/v1/workspaces/{workspace['id']}",
