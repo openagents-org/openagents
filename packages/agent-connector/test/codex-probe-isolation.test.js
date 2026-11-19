@@ -87,3 +87,36 @@ describe('codexProbeArgs leaves other shapes alone', () => {
     assert.equal(codexProbeArgs(args, { CODEX_HOME: codexHome(null) }), args);
   });
 });
+
+describe('withPortableNodeFirst', () => {
+  const { withPortableNodeFirst } = require('../src/probe');
+  const win = process.platform === 'win32';
+
+  function homeWithNode() {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-home-'));
+    const dir = win ? path.join(home, '.openagents', 'nodejs') : path.join(home, '.openagents', 'nodejs', 'bin');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, win ? 'node.exe' : 'node'), '');
+    return { home, dir };
+  }
+
+  it('puts the portable Node directory first on PATH', () => {
+    const { home, dir } = homeWithNode();
+    const env = withPortableNodeFirst({ PATH: ['/other', dir, '/last'].join(path.delimiter), KEEP: '1' }, home);
+    assert.deepEqual(env.PATH.split(path.delimiter), [dir, '/other', '/last']);
+    assert.equal(env.KEEP, '1');
+  });
+
+  it('keeps the existing spelling of the PATH variable', () => {
+    const { home, dir } = homeWithNode();
+    const env = withPortableNodeFirst({ Path: '/other' }, home);
+    assert.equal(env.Path.split(path.delimiter)[0], dir);
+    assert.equal(env.PATH, undefined);
+  });
+
+  it('leaves the environment alone when no portable Node is installed', () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'probe-home-'));
+    const env = { PATH: '/other' };
+    assert.equal(withPortableNodeFirst(env, home), env);
+  });
+});
