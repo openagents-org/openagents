@@ -15,6 +15,7 @@ import type { KnowledgeEntry, WorkspaceAgent, WorkspaceSession } from '@/lib/typ
 import type { MentionPerson } from '@/lib/people-mentions';
 import { HumanAvatar } from './human-avatar';
 import type { MentionItem } from './use-composer-mentions';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 interface ComposerMentionMenuProps {
   offerAll: boolean;
@@ -36,12 +37,14 @@ function MentionRow({ active, title, onPick, className, children }: {
   children: React.ReactNode;
 }) {
   return (
-    <Item asChild size="xs" data-active={active} className={cn('cursor-pointer text-left hover:bg-muted data-[active=true]:bg-muted', className)}>
-      {/* mousedown (not click) so the textarea keeps focus and the caret. */}
-      <button type="button" title={title} onMouseDown={(e) => { e.preventDefault(); onPick(); }}>
-        {children}
-      </button>
-    </Item>
+    <WithTooltip label={title} side="right">
+      <Item asChild size="xs" data-active={active} className={cn('cursor-pointer text-left hover:bg-muted data-[active=true]:bg-muted', className)}>
+        {/* mousedown (not click) so the textarea keeps focus and the caret. */}
+        <button type="button" onMouseDown={(e) => { e.preventDefault(); onPick(); }}>
+          {children}
+        </button>
+      </Item>
+    </WithTooltip>
   );
 }
 

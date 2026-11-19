@@ -20,6 +20,9 @@ SidebarMenuButton,
 SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { UnreadBadge } from '@/components/ui/unread-badge';
+import { WithTooltip } from '@/components/ui/with-tooltip';
  // v1.1 M1
 import { cn } from '@/lib/utils';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -191,26 +194,24 @@ export function NavRail() {
                 onClick={() => openConnect ? openConnect() : openView('connect')}
               />
               {showLabels && (
-                <Button
-                  variant="outline"
-                  size="icon"
-                  className="relative size-8 shrink-0"
-                  aria-label={t('views.inbox')}
-                  aria-current={inboxActive ? 'page' : undefined}
-                  title={t('views.inbox')}
-                  onClick={() => openView('inbox')}
-                >
-                  <Mail />
-                  <span className="sr-only">{t('views.inbox')}</span>
-                  {unreadNotificationCount > 0 && (
-                    <span
-                      className="absolute -top-1 -right-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-xs font-medium text-white tabular-nums"
-                      aria-label={t('nav.unreadCount', { count: unreadNotificationCount })}
+                <WithTooltip label={t('views.inbox')}><Button
+                      variant="outline"
+                      size="icon"
+                      className="relative shrink-0"
+                      aria-label={t('views.inbox')}
+                      aria-current={inboxActive ? 'page' : undefined}
+                      onClick={() => openView('inbox')}
                     >
-                      {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
-                    </span>
-                  )}
-                </Button>
+                      <Mail />
+                      {unreadNotificationCount > 0 && (
+                        <UnreadBadge
+                          count={unreadNotificationCount}
+                          size="corner"
+                          className="absolute -top-1 -right-1"
+                          aria-label={t('nav.unreadCount', { count: unreadNotificationCount })}
+                        />
+                      )}
+                    </Button></WithTooltip>
               )}
             </SidebarMenuItem>
           </SidebarMenu>
@@ -246,7 +247,22 @@ export function NavRail() {
                     {/* Collapsed, the badge sits inside the button's corner: the button
                         (and the scrolling rail) clip overflow, so a negative
                         offset cut it in half. */}
-                    {!!item.count && <span className={cn('flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full px-1 text-xs font-medium tabular-nums', showLabels ? 'ml-auto' : 'absolute right-0 top-0', (item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? 'bg-destructive text-white' : 'bg-muted text-foreground')} aria-label={t('nav.unreadCount', { count: item.count })}>{item.count > 99 ? '99+' : item.count}</span>}
+                    {!!item.count && ((item.urgent || item.mode === 'inbox' || item.mode === 'threads') ? (
+                      <UnreadBadge
+                        count={item.count}
+                        size={showLabels ? 'default' : 'corner'}
+                        className={showLabels ? 'ml-auto' : 'absolute right-0 top-0'}
+                        aria-label={t('nav.unreadCount', { count: item.count })}
+                      />
+                    ) : (
+                      <Badge
+                        variant="secondary"
+                        className={cn('justify-center tabular-nums', showLabels ? 'ml-auto h-4 min-w-4 px-1' : 'absolute right-0 top-0 h-3.5 min-w-3.5 px-0.5 leading-none')}
+                        aria-label={t('nav.unreadCount', { count: item.count })}
+                      >
+                        {item.count > 99 ? '99+' : item.count}
+                      </Badge>
+                    ))}
 
                   </SidebarMenuButton>
                 </SidebarMenuItem>
@@ -261,22 +277,18 @@ export function NavRail() {
       </SidebarContent>
 
       {/* Notification permission stays inside the rail, above the global tools. */}
-      <SidebarFooter className="gap-1 px-1.5 pb-3">
+      <SidebarFooter className={cn('gap-1 px-1.5 pb-3', !showLabels && 'items-center')}>
         {/* Credits-campaign progress (expanded rail only; self-hides when the
             campaign is off or complete). */}
         {showLabels && <CampaignSidebarCard />}
         <DesktopNotificationPrompt hidden={!showLabels} />
-        {/* Expanded, search takes the row and the avatar keeps its own width,
-            so the footer has no empty stretch between them. */}
-        <div
-          className={cn(
-            'flex',
-            showLabels ? 'flex-row items-center gap-2' : 'flex-col items-center gap-0.5',
-          )}
-        >
+        {/* dashboard-01's footer: secondary nav (Search) above the NavUser row
+            — avatar, name and email, opening the account menu. Collapsed,
+            both shrink to their icons. */}
+        <SidebarMenu>
           <SearchMenu iconOnly={!showLabels} />
-          <UserMenu side="right" align="end" />
-        </div>
+        </SidebarMenu>
+        <UserMenu variant={showLabels ? 'row' : 'icon'} side="right" align="end" />
 
       </SidebarFooter>
 

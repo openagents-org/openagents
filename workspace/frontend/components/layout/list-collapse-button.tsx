@@ -2,7 +2,7 @@
 
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { useLayout, type ViewMode } from './layout-context';
 
@@ -33,9 +33,7 @@ export function ListToggleButton({ className }: { className?: string }) {
   if (isMobile || !hasListPanel) return null;
   const Icon = isSidebarOpen ? PanelLeftClose : PanelLeftOpen;
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
+    <WithTooltip label={label}><Button
           variant="ghost"
           size="icon-sm"
           aria-label={label}
@@ -44,9 +42,6 @@ export function ListToggleButton({ className }: { className?: string }) {
           className={className ?? 'shrink-0 text-muted-foreground'}
         >
           <Icon className="size-4" />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+        </Button></WithTooltip>
   );
 }

@@ -1,11 +1,12 @@
 'use client';
 
 import { ExternalLink, Sparkles } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceAgent } from '@/lib/types';
+import { ProfileSection } from './agent-profile-section';
 
 const SI = 'https://cdn.jsdelivr.net/npm/simple-icons@latest/icons';
 const SENSENOVA = 'https://avatars.githubusercontent.com/u/215225587';
@@ -62,35 +63,28 @@ export function InstalledSkillsCard({ agent }: { agent: WorkspaceAgent }) {
   const installed: string[] = (agent.enabledSkills as Record<string, unknown>)?.installed as string[] || [];
   if (installed.length === 0) return null;
   return (
-    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
-      <CardHeader className="flex items-center gap-1.5 px-0 pb-3 pt-0">
-        <Sparkles className="size-3 text-warning" />
-        <span className="text-sm font-medium">{t('agents.installedSkills')}</span>
-        <span className="ml-auto text-xs text-muted-foreground">{installed.length}</span>
-      </CardHeader>
-      <CardContent className="px-1.5 py-1.5">
-        <ItemGroup className="gap-0">
-          {installed.map((skillId) => {
-            const info = SKILL_LOGOS[skillId];
-            return (
-              <Item key={skillId} size="xs">
-                <ItemMedia className="size-6 rounded bg-muted/60">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  {info ? <img src={info.logo} alt="" className="size-3.5 object-contain dark:invert" /> : <Sparkles className="size-3 text-muted-foreground" />}
-                </ItemMedia>
-                <ItemContent><ItemTitle className="truncate">{info?.name || skillId}</ItemTitle></ItemContent>
-                <ItemActions>
-                  <Button variant="ghost" size="icon-xs" className="text-muted-foreground" asChild>
-                    <a href={skillSource(skillId)} target="_blank" rel="noopener noreferrer" aria-label={info?.name || skillId}>
-                      <ExternalLink />
-                    </a>
-                  </Button>
-                </ItemActions>
-              </Item>
-            );
-          })}
-        </ItemGroup>
-      </CardContent>
-    </Card>
+    <ProfileSection title={t('agents.installedSkills')} action={<Badge variant="secondary">{installed.length}</Badge>}>
+      <ItemGroup className="gap-0">
+        {installed.map((skillId) => {
+          const info = SKILL_LOGOS[skillId];
+          return (
+            <Item key={skillId} size="xs" className="px-0">
+              <ItemMedia className="size-6 rounded bg-muted/60">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                {info ? <img src={info.logo} alt="" className="size-3.5 object-contain dark:invert" /> : <Sparkles className="size-3 text-muted-foreground" />}
+              </ItemMedia>
+              <ItemContent><ItemTitle className="truncate">{info?.name || skillId}</ItemTitle></ItemContent>
+              <ItemActions>
+                <Button variant="ghost" size="icon-xs" className="text-muted-foreground" asChild>
+                  <a href={skillSource(skillId)} target="_blank" rel="noopener noreferrer" aria-label={info?.name || skillId}>
+                    <ExternalLink />
+                  </a>
+                </Button>
+              </ItemActions>
+            </Item>
+          );
+        })}
+      </ItemGroup>
+    </ProfileSection>
   );
 }

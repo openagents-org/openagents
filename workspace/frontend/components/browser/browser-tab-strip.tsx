@@ -3,6 +3,7 @@
 import type { ReactNode, RefObject } from 'react';
 import { ChevronDown, Globe, Moon, Plus, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel,
   DropdownMenuSeparator, DropdownMenuTrigger,
@@ -21,38 +22,38 @@ function TabChip({
   icon: ReactNode; onSelect: () => void; onClose?: () => void; closeTitle?: string; busy?: boolean;
 }) {
   return (
-    <div
-      data-tab-key={tabKey}
-      role="tab"
-      aria-selected={active}
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
-      title={sub ? `${label} — ${sub}` : label}
-      className={cn(
-        'group relative flex h-8 max-w-52 min-w-30 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors select-none',
-        active
-          ? 'z-10 border-border bg-background text-foreground'
-          : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
-        !awake && 'italic',
-        busy && 'animate-pulse',
-      )}
-    >
-      <span className="shrink-0 text-muted-foreground [&_svg]:size-3.5">{icon}</span>
-      <span className="min-w-0 flex-1 truncate">{label}</span>
-      {onClose && (
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={(e) => { e.stopPropagation(); onClose(); }}
-          className={cn('size-5 text-muted-foreground/70', active ? 'opacity-100' : 'opacity-60 group-hover:opacity-100')}
-          title={closeTitle}
-          aria-label={closeTitle}
-        >
-          <X />
-        </Button>
-      )}
-    </div>
+    <WithTooltip label={sub ? `${label} — ${sub}` : label} side="bottom">
+      <div
+        data-tab-key={tabKey}
+        role="tab"
+        aria-selected={active}
+        tabIndex={0}
+        onClick={onSelect}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
+        className={cn(
+          'group relative flex h-8 max-w-52 min-w-30 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors select-none',
+          active
+            ? 'z-10 border-border bg-background text-foreground'
+            : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
+          !awake && 'italic',
+          busy && 'animate-pulse',
+        )}
+      >
+        <span className="shrink-0 text-muted-foreground [&_svg]:size-3.5">{icon}</span>
+        <span className="min-w-0 flex-1 truncate">{label}</span>
+        {onClose && (
+          <Button
+            variant="ghost"
+            size="icon-xs"
+            onClick={(e) => { e.stopPropagation(); onClose(); }}
+            className={cn('size-5 text-muted-foreground/70', active ? 'opacity-100' : 'opacity-60 group-hover:opacity-100')}
+            aria-label={closeTitle}
+          >
+            <X />
+          </Button>
+        )}
+      </div>
+    </WithTooltip>
   );
 }
 
@@ -63,18 +64,19 @@ function AllTabsMenu({ permanent, temporary, onSelect }: Entries & { onSelect: (
   if (tabCount === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="ghost"
-          size="xs"
-          className="mb-1 shrink-0 text-muted-foreground tabular-nums"
-          title={t('browser.allTabs')}
-          aria-label={t('browser.allTabsCount', { count: tabCount })}
-        >
-          {tabCount}
-          <ChevronDown data-icon="inline-end" />
-        </Button>
-      </DropdownMenuTrigger>
+      <WithTooltip label={t('browser.allTabs')}>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="mb-1 shrink-0 text-muted-foreground tabular-nums"
+            aria-label={t('browser.allTabsCount', { count: tabCount })}
+          >
+            {tabCount}
+            <ChevronDown data-icon="inline-end" />
+          </Button>
+        </DropdownMenuTrigger>
+      </WithTooltip>
       <DropdownMenuContent align="end" className="max-h-96 w-72 overflow-y-auto">
         <DropdownMenuLabel>{t('browser.allTabsCount', { count: tabCount })}</DropdownMenuLabel>
         {permanent.length > 0 && <DropdownMenuSeparator />}
@@ -163,16 +165,17 @@ export function BrowserTabStrip({ stripRef, permanent, temporary, tab, selectedT
             closeTitle={t('browser.closeTab')}
           />
         ))}
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={onNewTab}
-          className="mb-1 ml-0.5 text-muted-foreground"
-          title={t('browser.openNewTab')}
-          aria-label={t('browser.openNewTab')}
-        >
-          <Plus />
-        </Button>
+        <WithTooltip label={t('browser.openNewTab')}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onNewTab}
+            className="mb-1 ml-0.5 text-muted-foreground"
+            aria-label={t('browser.openNewTab')}
+          >
+            <Plus />
+          </Button>
+        </WithTooltip>
       </div>
       {limits && (
         <span

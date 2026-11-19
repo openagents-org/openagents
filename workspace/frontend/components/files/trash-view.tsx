@@ -5,13 +5,16 @@ import { ArrowLeft, RotateCcw, Trash2 } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Button } from '@/components/ui/button';
+import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { toast } from 'sonner';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { TrashEntry } from '@/lib/types';
 import { useFormatters, useT, type TranslateFn } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 import { FileRowIcon, FolderRowIcon, dirname, getFileIcon } from './file-utils';
 
 export function TrashView() {
@@ -128,7 +131,6 @@ export function TrashView() {
                 size="icon-sm"
                 onClick={openMobileList}
                 aria-label={t('files.browseFolders')}
-                title={t('files.browseFolders')}
                 className="-ms-1 shrink-0 text-muted-foreground"
               >
                 <ArrowLeft />
@@ -143,21 +145,16 @@ export function TrashView() {
           </div>
         }
       >
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+        <WithTooltip label={t('trash.emptyTrash')}><Button
               variant="ghost"
               size="icon-sm"
               onClick={handleEmpty}
               disabled={entries.length === 0 || emptying}
               aria-label={t('trash.emptyTrash')}
-              className="shrink-0 text-muted-foreground hover:text-destructive"
+              className={cn('shrink-0', destructiveIconClass)}
             >
               <Trash2 />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t('trash.emptyTrash')}</TooltipContent>
-        </Tooltip>
+            </Button></WithTooltip>
       </DetailHeader>
 
       {entries.length === 0 ? (
@@ -174,6 +171,8 @@ export function TrashView() {
         /* Same row as the file list: nothing here is a different kind of thing,
            it's the same files with a restore action and no way in. */
         <div className="flex-1 overflow-y-auto p-2">
+          {/* Rows sit flush like a file list: drop ItemGroup's has-[size] gap. */}
+          <ItemGroup className="has-data-[size=sm]:gap-0">
           {entries.map((entry) => {
             const busy = busyIds.has(entry.trashId);
             // A folder entry has no content type of its own; a file entry is
@@ -183,42 +182,42 @@ export function TrashView() {
             const file = entry.files[0];
             const parent = dirname(entry.path);
             return (
-              <div
-                key={entry.trashId}
-                className="group flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-muted"
-              >
-                {entry.kind === 'folder' ? (
-                  <FolderRowIcon />
-                ) : file ? (
-                  <FileRowIcon
-                    key={file.id}
-                    file={{
-                      id: file.id,
-                      filename: file.filename,
-                      contentType: file.contentType,
-                      size: file.size,
-                    }}
-                  />
-                ) : (
-                  // A file entry always carries its file; this is the one case
-                  // it can't — a bare `.keep`, which the listing counts as no
-                  // files at all.
-                  <span className="flex size-7 shrink-0 items-center justify-center">
-                    {getFileIcon(undefined, entry.name)}
-                  </span>
-                )}
-
-                <span
-                  className="flex-1 truncate text-sm font-medium"
-                  title={entry.path}
-                >
-                  {entry.name}
-                  {parent && (
-                    <span className="ms-1.5 text-xs font-normal text-muted-foreground">
-                      {t('trash.inFolder', { parent })}
+              <Item key={entry.trashId} size="sm" role="listitem" className="flex-nowrap py-2">
+                <ItemMedia>
+                  {entry.kind === 'folder' ? (
+                    <FolderRowIcon />
+                  ) : file ? (
+                    <FileRowIcon
+                      key={file.id}
+                      file={{
+                        id: file.id,
+                        filename: file.filename,
+                        contentType: file.contentType,
+                        size: file.size,
+                      }}
+                    />
+                  ) : (
+                    // A file entry always carries its file; this is the one case
+                    // it can't — a bare `.keep`, which the listing counts as no
+                    // files at all.
+                    <span className="flex size-7 shrink-0 items-center justify-center">
+                      {getFileIcon(undefined, entry.name)}
                     </span>
                   )}
-                </span>
+                </ItemMedia>
+
+                <ItemContent className="min-w-0">
+                  <ItemTitle className="w-full" title={entry.path}>
+                    <span className="min-w-0 truncate">
+                      {entry.name}
+                      {parent && (
+                        <span className="ms-1.5 text-xs font-normal text-muted-foreground">
+                          {t('trash.inFolder', { parent })}
+                        </span>
+                      )}
+                    </span>
+                  </ItemTitle>
+                </ItemContent>
 
                 <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
                   {describeContents(entry)}
@@ -231,10 +230,10 @@ export function TrashView() {
                     : t('trash.deletedEarlier')}
                 </span>
 
-                <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
+                {/* Always shown: restore is the reason to be here, and touch
+                    screens have no hover to reveal it with. */}
+                <ItemActions className="gap-0.5">
+                  <WithTooltip label={t('trash.restore')}><Button
                         variant="ghost"
                         size="icon-xs"
                         onClick={() => handleRestore(entry)}
@@ -243,29 +242,22 @@ export function TrashView() {
                         className="text-muted-foreground"
                       >
                         <RotateCcw />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('trash.restore')}</TooltipContent>
-                  </Tooltip>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
+                      </Button></WithTooltip>
+                  <WithTooltip label={t('trash.deletePermanently')}><Button
                         variant="ghost"
                         size="icon-xs"
+                        className={destructiveIconClass}
                         onClick={() => handleDelete(entry)}
                         disabled={busy}
                         aria-label={t('trash.deleteItemPermanently', { name: entry.name })}
-                        className="text-muted-foreground hover:text-destructive"
                       >
                         <Trash2 />
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent>{t('trash.deletePermanently')}</TooltipContent>
-                  </Tooltip>
-                </div>
-              </div>
+                      </Button></WithTooltip>
+                </ItemActions>
+              </Item>
             );
           })}
+          </ItemGroup>
         </div>
       )}
     </div>

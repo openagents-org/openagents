@@ -10,6 +10,7 @@ import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useThreadAccess } from '@/hooks/use-thread-access';
 import type { WorkspaceSession } from '@/lib/types';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 type Updates = { responseMode?: 'proactive' | 'passive'; mode?: string; workflowId?: string | null };
 
@@ -32,13 +33,15 @@ export function ResponseModeControl({ session, onChange }: { session: WorkspaceS
   if (!access?.can_manage) return <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"><Icon className="size-3.5" />{label}</span>;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="sm" disabled={saving} title={t('responseMode.label')} aria-label={`${t('responseMode.label')}: ${label}`}>
-          {saving ? <Spinner data-icon="inline-start" /> : <Icon data-icon="inline-start" />}
-          <span className="max-w-32 truncate">{label}</span>
-          <ChevronDown data-icon="inline-end" />
-        </Button>
-      </DropdownMenuTrigger>
+      <WithTooltip label={t('responseMode.label')}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" disabled={saving} aria-label={`${t('responseMode.label')}: ${label}`}>
+            {saving ? <Spinner data-icon="inline-start" /> : <Icon data-icon="inline-start" />}
+            <span className="max-w-32 truncate">{label}</span>
+            <ChevronDown data-icon="inline-end" />
+          </Button>
+        </DropdownMenuTrigger>
+      </WithTooltip>
       <DropdownMenuContent align="end" className="w-72">
         <DropdownMenuGroup>
           <DropdownMenuLabel>{t('responseMode.label')}</DropdownMenuLabel>

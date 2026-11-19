@@ -14,7 +14,7 @@ import {
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { cn } from '@/lib/utils';
 import { basename, getFileTypeMeta } from './file-utils';
 import { useT } from '@/lib/i18n';
@@ -149,9 +149,7 @@ export function ImageStage({
           }
           right={
             <>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
+              <WithTooltip label={t("media.rotate90")}><Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setRotation((r) => r + 90)}
@@ -160,13 +158,8 @@ export function ImageStage({
                     className="text-muted-foreground"
                   >
                     <RotateCw />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("media.rotate90")}</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
+                  </Button></WithTooltip>
+              <WithTooltip label={t("media.flipHorizontally")}><Button
                     variant="ghost"
                     size="icon-sm"
                     onClick={() => setFlipped((f) => !f)}
@@ -176,10 +169,7 @@ export function ImageStage({
                     className={cn('text-muted-foreground', flipped && 'text-foreground')}
                   >
                     <FlipHorizontal />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("media.flipHorizontally")}</TooltipContent>
-              </Tooltip>
+                  </Button></WithTooltip>
             </>
           }
         />

@@ -17,6 +17,7 @@ import { useMessagePolling } from '@/hooks/use-polling';
 import { workspaceApi } from '@/lib/api';
 import { Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Input } from '@/components/ui/input';
 import { Spinner } from '@/components/ui/spinner';
 import type { WorkspaceMessage, WorkspaceSession } from '@/lib/types';
@@ -214,16 +215,16 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
                 if (e.key === 'Escape') setEditingTitle(false);
               }}
               aria-label={t('header.clickToRename')}
-              className="h-7 max-w-75 min-w-0 flex-1 text-sm font-semibold"
+              className="h-8 max-w-75 min-w-0 flex-1 text-sm font-semibold"
               autoFocus
             />
           ) : (
-            <h2
-              className="text-sm font-semibold truncate flex-1 cursor-pointer hover:text-primary transition-colors"
-              onClick={startEditingTitle}
-              title={t('header.clickToRename')}
-            >
-              {session.title || t('monitor.threadFallback')}
+            <h2 className="flex min-w-0 flex-1">
+              <WithTooltip label={t('header.clickToRename')}>
+                <Button variant="ghost" size="sm" onClick={startEditingTitle} className="-mx-1 min-w-0 shrink px-1 text-sm font-semibold">
+                  <span className="truncate">{session.title || t('monitor.threadFallback')}</span>
+                </Button>
+              </WithTooltip>
             </h2>
           )}
           {/* Stop button — visible when a Claude agent is working */}

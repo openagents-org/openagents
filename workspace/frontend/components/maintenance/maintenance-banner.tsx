@@ -2,6 +2,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Wrench, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useI18n, useT } from '@/lib/i18n';
 import { MAINTENANCE_WINDOW, maintenancePhase, type MaintenancePhase } from '@/lib/maintenance';
 
@@ -119,14 +120,15 @@ export function MaintenanceBanner() {
         {text}
       </p>
       {phase === 'upcoming' && (
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          size="icon-sm"
           onClick={dismiss}
           aria-label={t('maintenance.dismiss')}
-          className="-m-1 shrink-0 rounded p-1 text-warning/70 hover:bg-warning/10 hover:text-warning"
+          className="-my-1 shrink-0 text-warning/70 hover:bg-warning/10 hover:text-warning"
         >
-          <X className="size-4" />
-        </button>
+          <X />
+        </Button>
       )}
     </div>
   );

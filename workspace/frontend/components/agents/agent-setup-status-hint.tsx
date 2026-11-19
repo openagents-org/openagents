@@ -1,9 +1,11 @@
 'use client';
 import React from 'react';
-import { CheckCircle2, Info, TriangleAlert } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Info, TriangleAlert } from 'lucide-react';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemTitle } from '@/components/ui/item';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -78,10 +80,15 @@ export function ProviderLockedHow({ form }: { form: AgentSetupForm }) {
       <AlertTitle>{t('connect.nodeProviderLockedHow', { label })}</AlertTitle>
       <AlertDescription className="flex flex-col gap-2 [&_p:not(:last-child)]:mb-0">
         {detail?.check_ready?.login_command && (
-          <p>
-            {t('connect.nodeProviderLockedLogin')}{' '}
-            <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-foreground">{detail.check_ready.login_command}</code>
-          </p>
+          <>
+            <p>{t('connect.nodeProviderLockedLogin')}</p>
+            <CodeBlock size="sm">
+              <CodeBlockActions>
+                <CodeBlockCopyButton type="button" value={detail.check_ready.login_command} copyLabel={t('common.copy')} copiedLabel={t('common.copied')} />
+              </CodeBlockActions>
+              <CodeBlockContent className="pe-10">{detail.check_ready.login_command}</CodeBlockContent>
+            </CodeBlock>
+          </>
         )}
         <p>
           {t('connect.nodeProviderLockedKey', { label })}
@@ -104,26 +111,28 @@ export function SameTypeAgents({ form, agents, onManageAgent }: { form: AgentSet
   const t = useT();
   const { showAllSameType, setShowAllSameType, busy } = form;
   return (
-    <div className="flex flex-col gap-2 rounded-xl border bg-muted/30 p-4">
-      <p className="text-xs font-medium">{t('connect.agentAlreadyHere')}</p>
-      <ItemGroup className="gap-1">
-        {(showAllSameType ? agents : agents.slice(0, SAME_TYPE_SHOWN)).map((agent) => (
-          <Item key={agent.name} size="xs" className="px-0">
-            <ItemContent><ItemTitle className="truncate">{agent.name}</ItemTitle></ItemContent>
-            <ItemActions>
-              <Button variant="link" size="xs" className="h-auto px-0" disabled={busy} onClick={() => onManageAgent(agent)}>
-                {t('connect.agentOpenExisting')} →
-              </Button>
-            </ItemActions>
-          </Item>
-        ))}
-      </ItemGroup>
-      {/* A long list pushed the form, and its Add button, out of sight. */}
-      {agents.length > SAME_TYPE_SHOWN && (
-        <Button variant="link" size="xs" className="h-auto self-start px-0 text-muted-foreground hover:text-foreground" onClick={() => setShowAllSameType((v) => !v)}>
-          {showAllSameType ? t('connect.agentShowFewer') : t('connect.agentShowAll', { count: agents.length })}
-        </Button>
-      )}
-    </div>
+    <Card size="sm">
+      <CardHeader><CardTitle>{t('connect.agentAlreadyHere')}</CardTitle></CardHeader>
+      <CardContent className="flex flex-col gap-2">
+        <ItemGroup className="gap-1">
+          {(showAllSameType ? agents : agents.slice(0, SAME_TYPE_SHOWN)).map((agent) => (
+            <Item key={agent.name} size="xs" className="px-0">
+              <ItemContent><ItemTitle className="truncate">{agent.name}</ItemTitle></ItemContent>
+              <ItemActions>
+                <Button variant="link" size="xs" className="h-auto px-0" disabled={busy} onClick={() => onManageAgent(agent)}>
+                  {t('connect.agentOpenExisting')}<ArrowRight data-icon="inline-end" />
+                </Button>
+              </ItemActions>
+            </Item>
+          ))}
+        </ItemGroup>
+        {/* A long list pushed the form, and its Add button, out of sight. */}
+        {agents.length > SAME_TYPE_SHOWN && (
+          <Button variant="link" size="xs" className="h-auto self-start px-0 text-muted-foreground hover:text-foreground" onClick={() => setShowAllSameType((v) => !v)}>
+            {showAllSameType ? t('connect.agentShowFewer') : t('connect.agentShowAll', { count: agents.length })}
+          </Button>
+        )}
+      </CardContent>
+    </Card>
   );
 }

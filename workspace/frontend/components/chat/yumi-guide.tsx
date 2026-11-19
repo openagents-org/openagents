@@ -3,7 +3,9 @@
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { useT } from '@/lib/i18n';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
 // Remembered per browser (not per workspace): once minimized, the guide stays
 // a slim strip everywhere until the user expands it again.
@@ -30,68 +32,51 @@ export function YumiGuide() {
     setMounted(true);
   }, []);
 
-  const toggle = () => {
-    setCollapsed((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
-      } catch {}
-      return next;
-    });
+  const setOpen = (open: boolean) => {
+    setCollapsed(!open);
+    try {
+      window.localStorage.setItem(STORAGE_KEY, open ? '0' : '1');
+    } catch {}
   };
 
   if (!mounted) return null;
 
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        onClick={toggle}
-        aria-expanded={false}
-        className="flex w-full items-center gap-2 border-b border-border/50 bg-primary/5 px-4 py-1.5 text-xs text-muted-foreground transition-colors outline-none hover:bg-primary/10 hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 lg:px-8"
-      >
-        <img src="/yumi-avatar.png" alt="" className="size-4 rounded-full object-cover" draggable={false} />
-        <span className="truncate">{t('yumiGuide.collapsedHint')}</span>
-        <ChevronDown className="ml-auto size-3.5 shrink-0" />
-      </button>
-    );
-  }
-
   return (
-    <div className="border-b border-border/50 bg-primary/5">
-      <div className="mx-auto w-full max-w-3xl xl:max-w-4xl 2xl:max-w-6xl px-4 lg:px-8 py-3">
-        <div className="flex items-start gap-3">
-          <img
-            src="/yumi-avatar.png"
-            alt="Yumi"
-            className="size-8 shrink-0 rounded-full object-cover mt-0.5"
-            draggable={false}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-semibold leading-tight">{t('yumiGuide.title')}</div>
-            <ul className="mt-1.5 flex flex-col gap-0.5 text-xs text-muted-foreground list-disc pl-4">
-              <li>{t('yumiGuide.itemConnect')}</li>
-              <li>{t('yumiGuide.itemAgents')}</li>
-              <li>{t('yumiGuide.itemManage')}</li>
-              <li>{t('yumiGuide.itemDebug')}</li>
-            </ul>
-            <div className="mt-1.5 text-xs text-muted-foreground italic">
-              {t('yumiGuide.hint')}
-            </div>
-          </div>
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={toggle}
-            aria-expanded
-            className="text-muted-foreground"
-            title={t('yumiGuide.minimize')}
-          >
-            {t('yumiGuide.minimize')}
-            <ChevronUp data-icon="inline-end" />
+    <Collapsible open={!collapsed} onOpenChange={setOpen} className="border-b">
+      {collapsed && (
+        <CollapsibleTrigger asChild>
+          <Button variant="ghost" size="sm" className="w-full justify-start rounded-none px-4 text-xs font-normal text-muted-foreground lg:px-8">
+            <img src="/yumi-avatar.png" alt="" className="size-4 rounded-full object-cover" draggable={false} />
+            <span className="truncate">{t('yumiGuide.collapsedHint')}</span>
+            <ChevronDown className="ml-auto" />
           </Button>
+        </CollapsibleTrigger>
+      )}
+      <CollapsibleContent>
+        <div className="mx-auto w-full max-w-3xl px-4 py-3 lg:px-8 xl:max-w-4xl 2xl:max-w-6xl">
+          <Alert role="note" className="flex items-start gap-3">
+            <img src="/yumi-avatar.png" alt="Yumi" className="mt-0.5 size-8 shrink-0 rounded-full object-cover" draggable={false} />
+            <div className="flex min-w-0 flex-1 flex-col gap-1">
+              <AlertTitle>{t('yumiGuide.title')}</AlertTitle>
+              <AlertDescription className="text-xs">
+                <ul className="flex list-disc flex-col gap-0.5 pl-4">
+                  <li>{t('yumiGuide.itemConnect')}</li>
+                  <li>{t('yumiGuide.itemAgents')}</li>
+                  <li>{t('yumiGuide.itemManage')}</li>
+                  <li>{t('yumiGuide.itemDebug')}</li>
+                </ul>
+                <p className="mt-1.5 italic">{t('yumiGuide.hint')}</p>
+              </AlertDescription>
+            </div>
+            <CollapsibleTrigger asChild>
+              <Button variant="ghost" size="xs" className="shrink-0 text-muted-foreground">
+                {t('yumiGuide.minimize')}
+                <ChevronUp data-icon="inline-end" />
+              </Button>
+            </CollapsibleTrigger>
+          </Alert>
         </div>
-      </div>
-    </div>
+      </CollapsibleContent>
+    </Collapsible>
   );
 }

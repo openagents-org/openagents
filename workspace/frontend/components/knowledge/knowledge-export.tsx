@@ -43,7 +43,7 @@ export function KnowledgeExport({ entry }: { entry: KnowledgeEntry }) {
     } catch { toast.error(t('knowledge.exportFailed')); }
     finally { setBusy(false); }
   };
-  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" disabled={busy} aria-label={t('knowledge.export')} title={t('knowledge.export')}>
+  return <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="sm" disabled={busy} aria-label={t('knowledge.export')}>
     {busy ? <Spinner data-icon="inline-start" /> : <Download data-icon="inline-start" />}<span className="hidden sm:inline">{t('knowledge.export')}</span>
   </Button></DropdownMenuTrigger><DropdownMenuContent align="end">
     <DropdownMenuGroup><DropdownMenuItem onSelect={() => void run('md')}>Markdown (.md)</DropdownMenuItem>

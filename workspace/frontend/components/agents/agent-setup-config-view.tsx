@@ -138,7 +138,7 @@ export function AgentSetupConfigView({ form, props, entry, onSubmit }: { form: A
                     bare arrow there reads as "sign in here". */}
                 {signInLink || entry.homepage && (
                   <Button variant="link" size="xs" asChild className="h-auto px-0 text-muted-foreground hover:text-primary">
-                    <a href={entry.homepage} target="_blank" rel="noopener noreferrer" title={entry.homepage}>
+                    <a href={entry.homepage} target="_blank" rel="noopener noreferrer">
                       {t('connect.agentDocs')}<ExternalLink data-icon="inline-end" />
                     </a>
                   </Button>

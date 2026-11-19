@@ -4,6 +4,7 @@ import { Send, X } from 'lucide-react';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { AttachmentPicker } from '@/components/tasks/attachment-picker';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { IssueMentionInput } from './issue-mention-input';
@@ -106,17 +107,16 @@ export function IssueCommentForm({ id, busy, busyRef, mutate, identity, userName
             disabled={busy} onUploadingChange={setUploading} />
         </div>
         <div className="flex items-center justify-end gap-3 px-3 pb-3">
-          <Button
-            size="sm"
-            type="submit"
-            className="shrink-0"
-            title={t('issues.commentShortcut')}
-            aria-keyshortcuts="Meta+Enter Control+Enter"
-            disabled={busy || !canPost}
-          >
-            {t(uploading ? 'tasks.attachUploading' : 'issues.postComment')}
-            <Send data-icon="inline-end" />
-          </Button>
+          <WithTooltip label={t('issues.commentShortcut')}><Button
+                size="sm"
+                type="submit"
+                className="shrink-0"
+                aria-keyshortcuts="Meta+Enter Control+Enter"
+                disabled={busy || !canPost}
+              >
+                {t(uploading ? 'tasks.attachUploading' : 'issues.postComment')}
+                <Send data-icon="inline-end" />
+              </Button></WithTooltip>
         </div>
       </div>
     </form>

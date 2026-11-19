@@ -2,10 +2,12 @@
 
 import { AlertCircle, Check, Plus } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Item, ItemActions, ItemContent, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { agentLabel } from '@/lib/helpers';
 import { useT } from '@/lib/i18n';
 import type { Skill } from './skill-types';
@@ -23,17 +25,18 @@ function InstallAction({
   const t = useT();
   switch (state) {
     case 'installed':
-      // Clicking an installed skill removes it; the hover tint says so.
+      // The state and the way to undo it are separate controls, so a label
+      // never changes meaning under the pointer.
       return (
-        <Button
-          size="xs"
-          variant="ghost"
-          onClick={onUninstall}
-          className="bg-success/10 text-success hover:bg-destructive/10 hover:text-destructive"
-        >
-          <Check data-icon="inline-start" />
-          {t('skills.installed')}
-        </Button>
+        <>
+          <Badge variant="secondary">
+            <Check data-icon="inline-start" />
+            {t('skills.installed')}
+          </Badge>
+          <Button size="xs" variant="destructive" onClick={onUninstall}>
+            {t('common.remove')}
+          </Button>
+        </>
       );
     case 'installing':
       return (
@@ -44,10 +47,10 @@ function InstallAction({
       );
     case 'failed':
       return (
-        <Button size="xs" variant="destructive" onClick={onInstall} title={t('skills.failedRetryHint')}>
-          <AlertCircle data-icon="inline-start" />
-          {t('skills.failedRetry')}
-        </Button>
+        <WithTooltip label={t('skills.failedRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
+              <AlertCircle data-icon="inline-start" />
+              {t('skills.failedRetry')}
+            </Button></WithTooltip>
       );
     default:
       return (
@@ -65,13 +68,13 @@ export function SkillAgentInstalls({ skill }: { skill: Skill }) {
   const { onlineAgents, stateFor, install, uninstall } = useSkillInstall(skill);
 
   return (
-    <Card size="sm" className="bg-primary/5 ring-primary/20">
+    <Card size="sm">
       <CardHeader>
-        <CardTitle className="text-xs tracking-wider text-primary uppercase">{t('skills.addToAgent')}</CardTitle>
+        <CardTitle>{t('skills.addToAgent')}</CardTitle>
       </CardHeader>
       <CardContent>
         {onlineAgents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('skills.noOnlineAgents')}</p>
+          <p className="text-muted-foreground">{t('skills.noOnlineAgents')}</p>
         ) : (
           <ItemGroup className="gap-1.5">
             {onlineAgents.map(agent => {
@@ -81,7 +84,7 @@ export function SkillAgentInstalls({ skill }: { skill: Skill }) {
                   key={agent.agentName}
                   variant="outline"
                   size="xs"
-                  className={state === 'failed' ? 'border-destructive/30 bg-background' : 'bg-background'}
+                  className={state === 'failed' ? 'border-destructive/30' : undefined}
                 >
                   <ItemMedia>
                     <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />

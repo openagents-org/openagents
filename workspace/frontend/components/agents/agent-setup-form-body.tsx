@@ -26,8 +26,10 @@ export function AgentSetupFormBody({ form, props }: { form: AgentSetupForm; prop
         <SameTypeAgents form={form} agents={sameType} onManageAgent={onManageAgent} />
       )}
 
-      {/* Config card */}
-      <fieldset disabled={busy} className={extensions?.compact ? 'flex min-w-0 flex-col gap-5' : 'flex min-w-0 flex-col gap-4 rounded-2xl border bg-background p-5'}>
+      {/* Config card — drawn with the Card surface (bg-card, hairline ring,
+          rounded-xl) so it matches every other card; a real <fieldset> is
+          kept so `disabled` covers all fields while busy. */}
+      <fieldset disabled={busy} className={extensions?.compact ? 'flex min-w-0 flex-col gap-5' : 'flex min-w-0 flex-col gap-4 rounded-xl bg-card p-4 text-card-foreground ring-1 ring-foreground/10'}>
         {!configured && <AgentStatusHint form={form} node={node} />}
 
         {detail?.provider_locked && selectedStatus !== 'ready' && <ProviderLockedHow form={form} />}

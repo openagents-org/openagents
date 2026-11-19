@@ -1,17 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Card, CardContent } from '@/components/ui/card';
-import { Check, Copy, Eye, EyeOff, Shield, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { FieldContent, FieldDescription, FieldSeparator, FieldTitle, Field } from '@/components/ui/field';
 import { Switch } from '@/components/ui/switch';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import { CopyInput, InputGroupAction } from '@/components/settings/copy-input';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 
@@ -24,7 +21,6 @@ export default function SecuritySettingsPage() {
 
   const [requireLogin, setRequireLogin] = useState(workspace.requireLogin);
   const [showToken, setShowToken] = useState(false);
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
 
   const toggleRequireLogin = async (next: boolean) => {
     setRequireLogin(next); // optimistic
@@ -39,56 +35,56 @@ export default function SecuritySettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('admin.securityTitle')} description={t('admin.securityDescription')} />
       {!editable && <ReadOnlyBanner />}
 
-      {/* Enforced login */}
-      <Card size="sm"><CardContent className="flex items-start justify-between gap-4">
-        <div className="flex flex-col gap-0.5">
-          <div className="flex items-center gap-1.5">
-            <ShieldCheck className="size-4 text-muted-foreground" />
-            <span className="text-sm font-medium">{t('admin.requireLogin')}</span>
-          </div>
-          <p className="text-xs text-muted-foreground">{t('admin.requireLoginHint')}</p>
-        </div>
-        <Switch checked={requireLogin} onCheckedChange={toggleRequireLogin} disabled={!editable} />
-      </CardContent></Card>
+      <SettingsCard title={t('admin.securityCardTitle')}>
+        <SettingsRow label={t('admin.requireLogin')} description={t('admin.requireLoginHint')} htmlFor="security-require-login">
+          <Switch
+            id="security-require-login"
+            checked={requireLogin}
+            onCheckedChange={toggleRequireLogin}
+            disabled={!editable}
+          />
+        </SettingsRow>
 
-      {/* Workspace token (only shown when the visitor holds it) */}
-      {token && (
-        <Card size="sm"><CardContent><Field>
-          <FieldLabel>{t('admin.workspaceToken')}</FieldLabel>
-          <div className="flex items-center gap-2">
-            <Input
-              value={showToken ? token : '•'.repeat(24)}
-              readOnly
-              className="font-mono text-xs"
-            />
-            <Button variant="outline" size="icon" onClick={() => setShowToken((v) => !v)}>
-              {showToken ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-            </Button>
-            <Button variant="outline" size="icon" onClick={() => copyToClipboard(token)}>
-              {isCopied ? <Check className="size-4" /> : <Copy className="size-4" />}
-            </Button>
-          </div>
-          <FieldDescription>{t('admin.workspaceTokenHint')}</FieldDescription>
-        </Field></CardContent></Card>
-      )}
+        {/* Workspace token (only shown when the visitor holds it) */}
+        {token && (
+          <>
+            <FieldSeparator />
+            <SettingsRow label={t('admin.workspaceToken')} description={t('admin.workspaceTokenHint')} htmlFor="security-workspace-token">
+              <CopyInput
+                id="security-workspace-token"
+                value={token}
+                display={showToken ? token : '•'.repeat(24)}
+                actions={(
+                  <InputGroupAction
+                    label={showToken ? t('admin.hideToken') : t('admin.showToken')}
+                    onClick={() => setShowToken((v) => !v)}
+                  >
+                    {showToken ? <EyeOff /> : <Eye />}
+                  </InputGroupAction>
+                )}
+              />
+            </SettingsRow>
+          </>
+        )}
 
-      {/* Ownership — display only; login is enforced, so workspaces get an
-          owner at creation. The Members section handles owner transfer. */}
-      <Card size="sm"><CardContent className="flex flex-col gap-2">
-        <div className="flex items-center gap-1.5">
-          <Shield className="size-4 text-muted-foreground" />
-          <Label>{t('admin.claimTitle')}</Label>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          {workspace.creatorEmail
-            ? t('admin.claimedBy', { email: workspace.creatorEmail })
-            : t('admin.unclaimed')}
-        </p>
-      </CardContent></Card>
+        {/* Ownership — display only; login is enforced, so workspaces get an
+            owner at creation. The Members section handles owner transfer. */}
+        <FieldSeparator />
+        <Field>
+          <FieldContent>
+            <FieldTitle>{t('admin.claimTitle')}</FieldTitle>
+            <FieldDescription>
+              {workspace.creatorEmail
+                ? t('admin.claimedBy', { email: workspace.creatorEmail })
+                : t('admin.unclaimed')}
+            </FieldDescription>
+          </FieldContent>
+        </Field>
+      </SettingsCard>
     </div>
   );
 }

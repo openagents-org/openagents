@@ -39,10 +39,12 @@ export function ByokSection({ form, node, editAgent, extensions }: { form: Agent
     b.pickAccess([NO_ACCESS, SIGN_IN, DEVICE_KEY].includes(v) ? '' : v);
   };
   return (
-    <div className="flex flex-col gap-3 rounded-xl border bg-muted/30 p-4">
+    // A neutral bordered group inside the config card, titled like a field
+    // legend — no tinted fill, no tiny bold caption.
+    <div className="flex flex-col gap-3 rounded-lg border p-4">
       <div className="flex items-center justify-between">
-        <span className="inline-flex items-center gap-1.5 text-xs font-semibold">
-          <Key className="size-3.5 text-muted-foreground" />{t('connect.byokTitle')}
+        <span className="inline-flex items-center gap-1.5 text-sm font-medium">
+          <Key className="size-4 text-muted-foreground" />{t('connect.byokTitle')}
           {c.keyOnly && <span data-testid="agent-setup-title-required" className="text-destructive">*</span>}
         </span>
         {b.test.state === 'ok' && (

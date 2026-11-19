@@ -20,10 +20,13 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useModKey } from '@/hooks/use-mod-key';
 import { Kbd } from '@/components/ui/kbd';
+import { SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useLayout } from './layout-context';
 
-/** ⌘K palette over threads, files and agents. Its trigger is an icon on the
- * collapsed rail and a full-width search field once the rail has labels. */
+/** ⌘K palette over threads, files and agents. Its trigger is an ordinary
+ * sidebar nav item (icon, "Search", ⌘K hint), not an input look-alike: it opens
+ * the palette rather than taking typing in place. Icon-only on the collapsed
+ * rail, where the tooltip carries the label. */
 export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { sessions, files, agents, setCurrentSessionId, setSelectedFileId } = useWorkspace();
@@ -53,25 +56,22 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title={t('search.trigger', { shortcut })}
-        aria-label={t('search.trigger', { shortcut })}
-        className={
-          iconOnly
-            ? 'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-            : 'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-sidebar-border bg-background px-2 text-sm text-muted-foreground shadow-xs transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-        }
-      >
-        <Search className="size-4 shrink-0" />
-        {!iconOnly && (
-          <>
-            <span className="truncate">{t('search.label')}</span>
-            <Kbd className="ml-auto">{shortcut}</Kbd>
-          </>
-        )}
-      </button>
+      <SidebarMenuItem>
+        <SidebarMenuButton
+          onClick={() => setOpen(true)}
+          aria-label={t('search.trigger', { shortcut })}
+          tooltip={{ children: t('search.trigger', { shortcut }), hidden: !iconOnly }}
+          className={iconOnly ? 'justify-center!' : undefined}
+        >
+          <Search />
+          {!iconOnly && (
+            <>
+              <span className="truncate">{t('search.label')}</span>
+              <Kbd className="ml-auto">{shortcut}</Kbd>
+            </>
+          )}
+        </SidebarMenuButton>
+      </SidebarMenuItem>
 
       <CommandDialog
         open={open}

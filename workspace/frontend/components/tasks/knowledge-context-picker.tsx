@@ -1,6 +1,7 @@
 'use client';
 
 import { BookOpen } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Field, FieldContent, FieldDescription, FieldLabel, FieldLegend, FieldSet, FieldTitle } from '@/components/ui/field';
 import { useT } from '@/lib/i18n';
@@ -29,13 +30,11 @@ export function KnowledgeContextPicker({
 
   return (
     <FieldSet className="gap-1.5">
-      <FieldLegend variant="label" className="mb-0 flex items-center gap-1.5 text-xs text-muted-foreground">
-        <BookOpen className="size-3.5" />
+      <FieldLegend variant="label" className="mb-0 flex items-center gap-1.5">
+        <BookOpen className="size-3.5 text-muted-foreground" />
         {t('tasks.fieldContext')}
         {value.length > 0 && (
-          <span className="font-normal text-muted-foreground/70">
-            · {t('tasks.contextCount', { count: value.length })}
-          </span>
+          <Badge variant="secondary">{t('tasks.contextCount', { count: value.length })}</Badge>
         )}
       </FieldLegend>
       <div className="flex max-h-40 flex-col divide-y overflow-y-auto rounded-md border">

@@ -117,7 +117,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
     }
   };
 
-  const heading = <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t('artifactAccess.linkTitle')}</h4>;
+  const heading = <h4 className="text-sm font-medium">{t('artifactAccess.linkTitle')}</h4>;
 
   if (state === null) {
     return <section className="flex flex-col gap-2">{heading}<p className="text-xs text-muted-foreground">{t('artifactAccess.grantsLoading')}</p></section>;
@@ -175,7 +175,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
               <Copy className="size-3.5" />
               {t('artifactAccess.linkCopy')}
             </Button>
-            <Button size="sm" variant="outline" onClick={() => void revoke()} disabled={busy}>
+            <Button size="sm" variant="destructive" onClick={() => void revoke()} disabled={busy}>
               {busy ? <Spinner className="size-3.5" /> : <Link2Off className="size-3.5" />}
               {t('artifactAccess.linkRevoke')}
             </Button>

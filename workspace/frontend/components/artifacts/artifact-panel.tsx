@@ -1,22 +1,23 @@
 'use client';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, FileCode2, FileText, Folder, Globe, PanelRight, Pin, PinOff, RefreshCw, Search, X } from 'lucide-react';
+import { ArrowLeft, PanelRight, Pin, PinOff, RefreshCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
-import { ARTIFACT_PIN_EVENT, openArtifactPreview, isDocumentFile, sameArtifact, type ArtifactReference, type ThreadArtifactSetting } from '@/lib/thread-artifacts';
+import { ARTIFACT_PIN_EVENT, isDocumentFile, sameArtifact, type ArtifactReference, type ThreadArtifactSetting } from '@/lib/thread-artifacts';
 import { WEB_PROJECT_TYPE, projectDisplayName } from '@/lib/web-projects';
 import { ProjectUpload } from './project-upload';
 import { ArtifactContent } from './artifact-content';
 import { ArtifactFileActions } from './artifact-file-actions';
 import { ArtifactShareButton, type ShareableArtifact } from './artifact-share-button';
 import { basename } from '@/components/files/file-utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
+import { ArtifactBrowseList, type ArtifactEntry } from './artifact-browse-list';
 
-type Entry = { ref: ArtifactReference; title: string; kind: 'document' | 'html' | 'browser' | 'project'; here: boolean; detail?: string };
+type Entry = ArtifactEntry;
 export function ArtifactPanel() {
   const t = useT();
   const { files, knowledge, browserTabs, currentSessionId, refreshFiles, refreshKnowledge, refreshBrowserTabs } = useWorkspace();
@@ -59,7 +60,7 @@ export function ArtifactPanel() {
     <header className="flex h-(--header-height) shrink-0 items-center gap-2 border-b px-3">
       {selectedArtifact ? <Button variant="ghost" size="icon-sm" aria-label={t('artifactPanel.browse')} onClick={()=>setSelectedArtifact(null)}><ArrowLeft className="size-4" /></Button> : <PanelRight className="size-4 text-muted-foreground" />}
       <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={selected?.title}>{selected?.title || t('artifactPanel.title')}</span>
-      {setting?.can_pin && (selectedArtifact || setting.unavailable) && <Button variant={pinned?'outline':'ghost'} size="icon-sm" disabled={busy} title={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button>}
+      {setting?.can_pin && (selectedArtifact || setting.unavailable) && <WithTooltip label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')}><Button variant={pinned?'outline':'ghost'} size="icon-sm" disabled={busy} aria-label={t(pinned || (!selectedArtifact && setting.unavailable) ? 'artifactPanel.unpin' : 'artifactPanel.pin')} onClick={()=>void pin(pinned || !selectedArtifact ? null : selectedArtifact)}>{pinned?<PinOff className="size-4" />:<Pin className="size-4" />}</Button></WithTooltip>}
       {selectedArtifact && <ArtifactFileActions artifact={selectedArtifact} />}
       <Button variant="ghost" size="icon-sm" aria-label={t('artifactPanel.refresh')} onClick={()=>void refresh()}><RefreshCw className="size-3.5" /></Button>
       <ArtifactShareButton choices={shareable} selected={selectedArtifact} />
@@ -70,14 +71,7 @@ export function ArtifactPanel() {
       {setting?.unavailable && <p className="mb-4 rounded-md border p-3 text-xs text-muted-foreground">{t('artifactPanel.unavailable')}</p>}
       <p className="mb-4 text-sm text-muted-foreground">{t('artifactPanel.intro')}</p>
       <div className="mb-4"><ProjectUpload /></div>
-      <div className="relative mb-3"><Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" /><Input value={query} onChange={event=>setQuery(event.target.value)} placeholder={t('artifactPanel.search')} aria-label={t('artifactPanel.search')} className="pl-9" /></div>
-      <div className="mb-4 flex gap-1">{[false,true].map(value=><Button key={String(value)} variant={all===value?'secondary':'ghost'} size="sm" onClick={()=>setAll(value)}>{t(value?'artifactPanel.workspace':'artifactPanel.thread')}</Button>)}</div>
-      {(['project','document','html','browser'] as const).map(kind=>{
-        const rows=filtered.filter(entry=>entry.kind===kind); if (!rows.length) return null;
-        const Icon=kind==='document'?FileText:kind==='project'?Folder:kind==='html'?FileCode2:Globe;
-        return <section key={kind} className="mb-5"><h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t(`artifactPanel.${kind}`)}</h3>{rows.map(entry=><button key={`${entry.ref.kind}:${entry.ref.id}`} type="button" className="mb-1 flex w-full items-start gap-3 rounded-lg border border-transparent p-3 text-left hover:border-border hover:bg-muted/50" onClick={()=>openArtifactPreview(entry.ref)}><Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" /><span className="min-w-0 flex-1"><span className="block truncate text-sm font-medium">{entry.title}</span>{entry.detail&&<span className="mt-1 block truncate text-xs text-muted-foreground">{entry.detail}</span>}</span>{sameArtifact(entry.ref,setting?.artifact||null)&&<Pin className="mt-1 size-3.5 shrink-0 text-primary" />}</button>)}</section>;
-      })}
-      {!filtered.length && <div className="rounded-lg border border-dashed p-6 text-center text-sm text-muted-foreground">{t('artifactPanel.empty')}</div>}
+      <ArtifactBrowseList entries={filtered} pinned={setting?.artifact || null} query={query} onQueryChange={setQuery} all={all} onAllChange={setAll} />
       {setting?.can_pin && <p className="mt-6 text-xs leading-5 text-muted-foreground">{t('artifactPanel.ownerHint')}</p>}
     </div>}
   </aside>;

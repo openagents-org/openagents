@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/attachment';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { PendingFile } from './use-composer-files';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /**
  * Files queued in the composer. They upload when the message is sent, so each
@@ -39,9 +40,11 @@ export function ComposerAttachments({ files, onRemove }: { files: PendingFile[];
             <AttachmentDescription>{formatFileSize(pf.file.size)}</AttachmentDescription>
           </AttachmentContent>
           <AttachmentActions>
-            <AttachmentAction aria-label={`${t('common.remove')} ${pf.file.name}`} title={t('common.remove')} onClick={() => onRemove(i)}>
-              <X />
-            </AttachmentAction>
+            <WithTooltip label={t('common.remove')}>
+              <AttachmentAction aria-label={`${t('common.remove')} ${pf.file.name}`} onClick={() => onRemove(i)}>
+                <X />
+              </AttachmentAction>
+            </WithTooltip>
           </AttachmentActions>
         </Attachment>
       ))}

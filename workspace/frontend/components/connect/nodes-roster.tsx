@@ -2,6 +2,7 @@
 import type { ReactNode } from 'react';
 import { Plus, RefreshCw, Server } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
@@ -47,15 +48,14 @@ export function NodesRoster({
               <Plus data-icon="inline-start" />{t('connect.nodeConnectAnother')}
             </Button>
           )}
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={onRefresh}
-            title={t('connect.nodeRefresh')}
-            aria-label={t('connect.nodeRefresh')}
-          >
-            <RefreshCw className={cn(loading && 'animate-spin')} />
-          </Button>
+          <WithTooltip label={t('connect.nodeRefresh')}><Button
+                variant="outline"
+                size="icon"
+                onClick={onRefresh}
+                aria-label={t('connect.nodeRefresh')}
+              >
+                <RefreshCw className={cn(loading && 'animate-spin')} />
+              </Button></WithTooltip>
         </div>
       </div>
 

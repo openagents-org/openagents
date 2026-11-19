@@ -3,6 +3,7 @@
 import { ArrowRight, BookOpen, CornerDownRight, Plus, RotateCcw, User } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useT } from '@/lib/i18n';
 import type { WorkflowStep } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -59,10 +60,15 @@ export function WorkflowStepCanvas({
                   </span>
                 </div>
                 {step.gate && gateTargetIdx > -1 && (
-                  <Badge variant={isLoop ? 'warning' : 'info'} title={step.gate.condition}>
-                    {isLoop ? <RotateCcw /> : <CornerDownRight />}
-                    {t('workflows.gateTarget')} #{gateTargetIdx + 1}
-                  </Badge>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Badge variant={isLoop ? 'warning' : 'info'}>
+                        {isLoop ? <RotateCcw /> : <CornerDownRight />}
+                        {t('workflows.gateTarget')} #{gateTargetIdx + 1}
+                      </Badge>
+                    </TooltipTrigger>
+                    {step.gate.condition && <TooltipContent>{step.gate.condition}</TooltipContent>}
+                  </Tooltip>
                 )}
               </button>
               {i < steps.length - 1 && <ArrowRight className="size-4 shrink-0 text-muted-foreground/40" />}

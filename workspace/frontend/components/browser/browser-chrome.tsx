@@ -4,6 +4,8 @@ import type { RefObject } from 'react';
 import { Globe, Hand, Moon, Play, Plus, RefreshCw, Users, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { BrowserTab } from '@/lib/types';
@@ -11,7 +13,7 @@ import { whoLabel, type PermanentEntry } from './tab-model';
 
 export type LiveState = 'live' | 'connecting' | 'unavailable' | 'asleep' | 'none';
 
-/** Reconnect, the address (click to edit), who it is shared with, take over and close. */
+/** Reconnect, the editable address, who it is shared with, take over and close. */
 export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDraft, onStartEditing, onStopEditing, onNavigate, reconnecting, navigating, onReconnect, controlling, controlDisabled, onToggleControl, onClose }: {
   tab: BrowserTab;
   urlInputRef: RefObject<HTMLInputElement | null>;
@@ -32,49 +34,37 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
   const t = useT();
   return (
     <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onReconnect}
-        disabled={reconnecting}
-        className="text-muted-foreground"
-        title={t('browser.reconnectHint')}
-        aria-label={t('browser.reactivate')}
-      >
-        <RefreshCw className={cn((reconnecting || navigating) && 'animate-spin')} />
-      </Button>
+      <WithTooltip label={t('browser.reconnectHint')}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onReconnect}
+          disabled={reconnecting}
+          className="text-muted-foreground"
+          aria-label={t('browser.reactivate')}
+        >
+          <RefreshCw className={cn((reconnecting || navigating) && 'animate-spin')} />
+        </Button>
+      </WithTooltip>
 
-      <div
-        className={cn(
-          'flex h-7 min-w-0 flex-1 items-center gap-2 rounded-full border border-border bg-muted px-3',
-          editingUrl && 'border-foreground/40 bg-background',
-        )}
-      >
-        <Globe className="size-3 shrink-0 text-muted-foreground/60" />
-        {editingUrl ? (
-          <input
-            ref={urlInputRef}
-            value={urlDraft}
-            onChange={(e) => onUrlDraft(e.target.value)}
-            onBlur={onStopEditing}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') onNavigate();
-              if (e.key === 'Escape') onStopEditing();
-            }}
-            className="w-full bg-transparent font-mono text-xs outline-none"
-            autoFocus
-            spellCheck={false}
-          />
-        ) : (
-          <p
-            className="min-w-0 flex-1 cursor-text truncate font-mono text-xs text-muted-foreground transition-colors hover:text-foreground"
-            onClick={onStartEditing}
-            title={t('browser.editUrl')}
-          >
-            {tab.url}
-          </p>
-        )}
-      </div>
+      {/* Always an input: focusing it starts an edit, Enter navigates, Escape or blur cancels. */}
+      <InputGroup className="h-7 min-w-0 flex-1">
+        <InputGroupAddon><Globe className="size-3.5" /></InputGroupAddon>
+        <InputGroupInput
+          ref={urlInputRef}
+          value={editingUrl ? urlDraft : tab.url}
+          onFocus={() => { if (!editingUrl) onStartEditing(); }}
+          onChange={(e) => onUrlDraft(e.target.value)}
+          onBlur={onStopEditing}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') { onNavigate(); e.currentTarget.blur(); }
+            if (e.key === 'Escape') e.currentTarget.blur();
+          }}
+          aria-label={t('browser.addressLabel')}
+          className={cn('font-mono text-xs md:text-xs', !editingUrl && 'text-muted-foreground')}
+          spellCheck={false}
+        />
+      </InputGroup>
 
       {tab.sharedWith.length > 0 && (
         <div className="hidden shrink-0 items-center gap-1 lg:flex" title={tab.sharedWith.join(', ')}>
@@ -89,22 +79,22 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
         onClick={onToggleControl}
         disabled={controlDisabled}
         className="rounded-full"
-        title={controlling ? t('browser.handBack') : t('browser.takeOver')}
       >
         <Hand data-icon="inline-start" />
         {controlling ? t('browser.handBack') : t('browser.takeOver')}
       </Button>
 
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        onClick={onClose}
-        className="text-muted-foreground hover:text-destructive"
-        title={t('browser.closeTab')}
-        aria-label={t('browser.closeTab')}
-      >
-        <X />
-      </Button>
+      <WithTooltip label={t('browser.closeTab')}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onClose}
+          className="text-muted-foreground"
+          aria-label={t('browser.closeTab')}
+        >
+          <X />
+        </Button>
+      </WithTooltip>
     </div>
   );
 }
@@ -170,7 +160,7 @@ export function BrowserPlaceholder({ asleepEntry, hasTabs, wakingId, onWake, onF
               <Play data-icon="inline-start" className={cn(wakingId && 'animate-pulse')} />
               {wakingId ? t('browser.waking') : t('browser.wake')}
             </Button>
-            <Button size="sm" variant="ghost" onClick={() => onForget(asleepEntry)} className="text-muted-foreground hover:text-destructive">
+            <Button size="sm" variant="destructive" onClick={() => onForget(asleepEntry)}>
               {t('browser.deleteSavedSession')}
             </Button>
           </EmptyContent>

@@ -90,7 +90,7 @@ function DrawerBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="drawer-body"
-      className={cn("no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4", className)}
+      className={cn("no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1", className)}
       {...props}
     />
   )

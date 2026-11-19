@@ -3,7 +3,7 @@
 import { ChevronDown, Filter, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { ListToggleButton } from '@/components/layout/list-collapse-button';
-import { Badge } from '@/components/ui/badge';
+import { UnreadBadge } from '@/components/ui/unread-badge';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Spinner } from '@/components/ui/spinner';
@@ -11,6 +11,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { TABS, type FilterTab, type SortOrder } from './thread-list-utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 interface ThreadListHeaderProps {
   unreadCount: number;
@@ -27,12 +28,10 @@ export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort, 
       <div className="flex min-w-0 items-center gap-1.5">
         <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
         <span className="truncate text-sm leading-relaxed font-semibold">{t('threads.title')}</span>
-        {/* Unread threads, in the app-shell-4 outlined-count style. Hidden at
-            zero — a "0" beside the title is noise, not information. */}
+        {/* Unread threads, in the shared red unread count. Hidden at zero — a
+            "0" beside the title is noise, not information. */}
         {unreadCount > 0 && (
-          <Badge variant="outline" aria-label={t('threads.unreadCount', { count: unreadCount })}>
-            {unreadCount}
-          </Badge>
+          <UnreadBadge count={unreadCount} aria-label={t('threads.unreadCount', { count: unreadCount })} />
         )}
       </div>
 
@@ -42,9 +41,11 @@ export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort, 
           {t('threads.newThread')}
         </Button>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t('threadProjects.viewOptions')} title={t('threadProjects.viewOptions')} className="text-muted-foreground"><SlidersHorizontal /></Button>
-          </DropdownMenuTrigger>
+          <WithTooltip label={t('threadProjects.viewOptions')}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" aria-label={t('threadProjects.viewOptions')} className="text-muted-foreground"><SlidersHorizontal /></Button>
+            </DropdownMenuTrigger>
+          </WithTooltip>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>{t('threads.sortBy')}</DropdownMenuLabel>
             <DropdownMenuRadioGroup value={sortOrder} onValueChange={value => onSort(value as SortOrder)}>
@@ -108,7 +109,7 @@ export function ThreadConversationFilter({ value, counts, onChange, disabled = f
     <DropdownMenuTrigger asChild>
       <Button variant="ghost" size="sm" className="max-w-[52%] gap-1.5 px-2 text-xs text-muted-foreground" disabled={disabled} aria-label={t('threadProjects.filter')}>
         <Filter className="size-3.5 shrink-0" /><span className="truncate">{value === 'all' ? t('threadProjects.allConversations') : t(tab.labelKey)}</span>
-        {!!count && <span className="text-[10px] tabular-nums">{count}</span>}<ChevronDown className="size-3 shrink-0" />
+        {!!count && <span className="text-xs tabular-nums">{count}</span>}<ChevronDown className="size-3 shrink-0" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="w-56">

@@ -6,13 +6,12 @@
 // their device connection owner; sharing is managed through Services.
 
 import { useCallback, useEffect, useState } from 'react';
-import { Card } from '@/components/ui/card';
 import { Cloud, Monitor, UserRoundPlus } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Item, ItemActions, ItemContent, ItemMedia, ItemTitle } from '@/components/ui/item';
 import {
   SelectGroup, Select,
   SelectContent,
@@ -21,7 +20,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
-import { cn } from '@/lib/utils';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import { networkAgentToWorkspaceAgent } from '@/lib/types';
 import type { AgentVisibility, TeamMember, WorkspaceAgent, WorkspaceMe } from '@/lib/types';
@@ -29,15 +29,24 @@ import { agentLabel } from '@/lib/helpers';
 import {
   agentAvailability,
   apiErrorStatus,
-  availabilityDotClass,
   availabilityLabel,
   canClaimAgent,
   canManageAgent,
   displayNameFromEmail,
+  type AgentAvailability,
 } from '@/lib/collab';
 import { useT } from '@/lib/i18n';
 
 const NO_OWNER = '__none__';
+
+/** Availability as a status badge: ready, working, needs a person, unreachable. */
+const AVAILABILITY_BADGE: Record<AgentAvailability, 'success' | 'info' | 'warning' | 'destructive' | 'secondary'> = {
+  online: 'success',
+  busy: 'info',
+  waiting: 'warning',
+  device_offline: 'destructive',
+  offline: 'secondary',
+};
 
 export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMember[] }) {
   const t = useT();
@@ -92,20 +101,13 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
   };
 
   return (
-    <div className="flex flex-col gap-2">
-      <div>
-        <Label className="font-normal">{t('collab.agentsSection')}</Label>
-        <p className="mt-0.5 text-xs text-muted-foreground">{t('collab.agentsSectionDescription')}</p>
-      </div>
-
+    <SettingsCard title={t('collab.agentsSection')} description={t('collab.agentsSectionDescription')}>
       {agents === null ? (
-        <div className="flex items-center justify-center py-8">
-          <Spinner className="size-5 text-muted-foreground" />
-        </div>
+        <ListLoading />
       ) : agents.length === 0 ? (
-        <p className="py-3 text-sm text-muted-foreground">{t('collab.noAgentsYet')}</p>
+        <ListEmpty>{t('collab.noAgentsYet')}</ListEmpty>
       ) : (
-        <Card className="gap-0 divide-y py-0">
+        <SettingsList>
           {agents.map((agent) => {
             const manage = canManageAgent(me, agent.ownerEmail);
             const claim = !manage && canClaimAgent(me, agent.ownerEmail);
@@ -118,29 +120,28 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
             ]));
 
             return (
-              <div key={agent.agentName} className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center">
-                <div className="flex min-w-0 flex-1 items-center gap-3">
+              <Item key={agent.agentName} size="sm">
+                <ItemMedia>
                   <AgentAvatar name={agent.agentName} size={32} />
-                  <div className="min-w-0 flex-1">
-                    <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-                      <span className="truncate">{agentLabel(agent)}</span>
-                      <Badge variant="outline" className="shrink-0">{t('collab.kindAgent')}</Badge>
-                    </p>
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-                      {agent.agentType && <span className="capitalize">{agent.agentType.replace('cloud:', '')}</span>}
-                      <span className="inline-flex items-center gap-1">
-                        <span className={cn('size-1.5 rounded-full', availabilityDotClass(availability))} />
-                        {availabilityLabel(t, availability, agent.queueDepth ?? 0)}
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        {isCloud ? <Cloud className="size-3" /> : <Monitor className="size-3" />}
-                        {isCloud ? t('collab.cloud') : (agent.runtimeName || agent.nodeId || t('collab.device'))}
-                      </span>
-                    </p>
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                  <ItemTitle>
+                    <span className="truncate">{agentLabel(agent)}</span>
+                    <Badge variant="outline">{t('collab.kindAgent')}</Badge>
+                  </ItemTitle>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                    {agent.agentType && <span className="capitalize">{agent.agentType.replace('cloud:', '')}</span>}
+                    <Badge variant={AVAILABILITY_BADGE[availability]}>
+                      {availabilityLabel(t, availability, agent.queueDepth ?? 0)}
+                    </Badge>
+                    <span className="inline-flex items-center gap-1">
+                      {isCloud ? <Cloud className="size-3" /> : <Monitor className="size-3" />}
+                      {isCloud ? t('collab.cloud') : (agent.runtimeName || agent.nodeId || t('collab.device'))}
+                    </span>
                   </div>
-                </div>
+                </ItemContent>
 
-                <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                <ItemActions className="flex-wrap">
                   {/* Owner */}
                   {manage && !agent.nodeId ? (
                     <Select
@@ -148,7 +149,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                       disabled={busy}
                       onValueChange={(v) => patch(agent, { owner_email: v === NO_OWNER ? '' : v }, 'collab.ownerSaved')}
                     >
-                      <SelectTrigger className="h-8 w-44 shrink-0 text-xs" aria-label={t('collab.owner')}>
+                      <SelectTrigger size="sm" className="w-44 text-xs" aria-label={t('collab.owner')}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -165,7 +166,7 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                       disabled={busy}
                       onClick={() => me.email && patch(agent, { owner_email: me.email }, 'collab.ownerSaved')}
                     >
-                      <UserRoundPlus className="size-3.5" />
+                      <UserRoundPlus data-icon="inline-start" />
                       {t('collab.claimAgent')}
                     </Button>
                   ) : (
@@ -174,18 +175,16 @@ export function AgentRoster({ me, members }: { me: WorkspaceMe; members: TeamMem
                     </span>
                   )}
 
-                  <Badge
-                    variant={agent.visibility === 'personal' ? 'info' : 'secondary'}
-                  >
+                  <Badge variant={agent.visibility === 'personal' ? 'info' : 'secondary'}>
                     {agent.visibility === 'personal' ? t('collab.visibilityPersonal') : t('collab.visibilityTeam')}
                   </Badge>
                   {busy && <Spinner className="size-3.5 text-muted-foreground" />}
-                </div>
-              </div>
+                </ItemActions>
+              </Item>
             );
           })}
-        </Card>
+        </SettingsList>
       )}
-    </div>
+    </SettingsCard>
   );
 }

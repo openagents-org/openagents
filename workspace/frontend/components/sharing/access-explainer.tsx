@@ -12,6 +12,7 @@
 
 import { useState } from 'react';
 import { Info } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
 import { workspaceApi } from '@/lib/api';
 import type { AccessExplanation, ResourceKind as GrantResourceKind } from '@/lib/types';
@@ -77,37 +78,41 @@ export function AccessExplainer({ resourceKind, resourceId, className, compact =
     return (
       <Tooltip>
         <TooltipTrigger asChild>
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="icon-xs"
             onMouseEnter={explain}
             onFocus={explain}
             onClick={explain}
             aria-label={label}
-            className={cn('inline-flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground/80 transition-colors hover:bg-muted hover:text-foreground', className)}
+            className={cn('text-muted-foreground', className)}
           >
-            {state.status === 'loading' ? <Spinner className="size-3.5" /> : <Info className="size-3.5" />}
-          </button>
+            {state.status === 'loading' ? <Spinner /> : <Info />}
+          </Button>
         </TooltipTrigger>
         <TooltipContent className="max-w-xs">{label}</TooltipContent>
       </Tooltip>
     );
   }
 
+  // Stays enabled once answered (clicks are then no-ops) so the tooltip can
+  // still show an answer the row truncates.
   return (
-    <button
-      type="button"
-      onClick={explain}
-      disabled={state.status === 'loading' || state.status === 'done'}
-      title={state.status === 'done' ? state.explanation.text || label : t('accessExplain.why')}
-      aria-live="polite"
-      className={cn(
-        'inline-flex min-w-0 items-center gap-1 text-xs text-muted-foreground/80 transition-colors',
-        state.status === 'idle' || state.status === 'error' ? 'hover:text-foreground' : 'cursor-default',
-        className,
-      )}
-    >
-      {state.status === 'loading' ? <Spinner className="size-3 shrink-0" /> : <Info className="size-3 shrink-0" />}
-      <span className="truncate">{label}</span>
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="xs"
+          onClick={explain}
+          disabled={state.status === 'loading'}
+          aria-live="polite"
+          className={cn('min-w-0 shrink justify-start font-normal text-muted-foreground', state.status === 'done' && 'cursor-default hover:bg-transparent', className)}
+        >
+          {state.status === 'loading' ? <Spinner data-icon="inline-start" /> : <Info data-icon="inline-start" />}
+          <span className="truncate">{label}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent className="max-w-xs">{state.status === 'done' ? state.explanation.text || label : t('accessExplain.why')}</TooltipContent>
+    </Tooltip>
   );
 }

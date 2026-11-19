@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useRef } from 'react';
-import { ChevronRight } from 'lucide-react';
+import { ChevronLeft } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
@@ -251,12 +252,9 @@ export function NodesTab({
     return (
       <div className="mx-auto flex w-full max-w-2xl flex-col gap-5 px-4 py-6 sm:px-6 sm:py-7">
         {nodes.length > 0 && (
-          <button
-            onClick={() => setChoosing(false)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            <ChevronRight className="size-3.5 rotate-180" />{t('connect.nodeBack')}
-          </button>
+          <Button variant="ghost" size="sm" onClick={() => setChoosing(false)} className="-ml-2 self-start text-muted-foreground">
+            <ChevronLeft data-icon="inline-start" />{t('connect.nodeBack')}
+          </Button>
         )}
         <DesktopComputerStep
           key={workspace!.workspaceId}

@@ -10,6 +10,7 @@ import { agentLabel } from '@/lib/helpers';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceAgent } from '@/lib/types';
 import type { AgentProbeEntry } from './use-agent-probes';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 // Thread banners span the conversation's width, so they share the strip form
 // of Alert: no rounding or side borders, only the bottom rule.
@@ -85,20 +86,20 @@ export function ProbeFailureBanner({ failing, retesting, onRetest, onDismiss }: 
                 size="xs"
                 onClick={() => onRetest(name, entry.nodeId, entry.probe.at)}
                 disabled={busy}
-                title={t('chat.probeRetest')}
               >
                 {busy ? <Spinner data-icon="inline-start" /> : <RefreshCw data-icon="inline-start" />}
                 {busy ? t('chat.probeRetesting') : t('chat.probeRetest')}
               </Button>
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={() => onDismiss(dismissKey)}
-                aria-label={t('common.close')}
-                title={t('common.close')}
-              >
-                <X aria-hidden="true" />
-              </Button>
+              <WithTooltip label={t('common.close')}>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={() => onDismiss(dismissKey)}
+                  aria-label={t('common.close')}
+                >
+                  <X aria-hidden="true" />
+                </Button>
+              </WithTooltip>
             </AlertAction>
           </Alert>
         );

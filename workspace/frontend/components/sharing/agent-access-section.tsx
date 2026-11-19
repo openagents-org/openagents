@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bot, Plus, User, Users, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -165,7 +166,7 @@ export function AgentAccessSection({
 
   return (
     <section className="flex flex-col gap-3">
-      <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{t(resourceKind === 'service' ? 'services.audience' : 'agentAccess.title')}</h4>
+      <h4 className="text-sm font-medium">{t(resourceKind === 'service' ? 'services.audience' : 'agentAccess.title')}</h4>
 
       {grants === null ? (
         <Spinner className="text-muted-foreground" />
@@ -206,7 +207,7 @@ export function AgentAccessSection({
                     </p>
                   </div>
                   {canManage && (
-                    <Button variant="ghost" size="sm" onClick={() => revoke(g)} title={t('agentAccess.revoke')}>
+                    <Button variant="destructive" size="sm" onClick={() => revoke(g)} aria-label={t('agentAccess.revoke')}>
                       <X className="size-3.5" />
                       <span className="hidden sm:inline">{t('agentAccess.revoke')}</span>
                     </Button>
@@ -269,12 +270,9 @@ export function AgentUsabilityLine({ agentName, className }: { agentName: string
 
   if (!usableBy) return null;
   return (
-    <span
-      className={cn('inline-flex items-center gap-1 rounded bg-muted px-1.5 py-px text-xs font-medium text-muted-foreground', className)}
-      title={t('agentAccess.title')}
-    >
-      <Users className="size-3" />
+    <Badge variant="secondary" className={cn('text-muted-foreground', className)} title={t('agentAccess.title')}>
+      <Users />
       {t('agentAccess.usableBy')}: {usabilitySummary(t, usableBy)}
-    </span>
+    </Badge>
   );
 }

@@ -17,6 +17,7 @@ import { granteeChipLabel, isExcludedGrantee } from '@/lib/access-ui';
 import { addThreadParticipants, THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useT } from '@/lib/i18n';
 import type { ChannelParticipants, Grantee } from '@/lib/types';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export function AddThreadParticipants({ channelName, kind, open: controlledOpen, onOpenChange, hideTrigger = false }: {
   channelName: string;
@@ -101,9 +102,9 @@ export function AddThreadParticipants({ channelName, kind, open: controlledOpen,
 
   return (
     <>
-      {!hideTrigger && <Button variant="ghost" size="icon-sm" title={title} aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
+      {!hideTrigger && <WithTooltip label={title}><Button variant="ghost" size="icon-sm" aria-label={title} onClick={() => { setPicks([]); setInvites([]); setOpen(true); }}>
         <UserPlus />
-      </Button>}
+      </Button></WithTooltip>}
       <Dialog open={open} onOpenChange={(next) => { if (!saving) setOpen(next); }}>
         <DialogContent className="sm:max-w-xl">
           <DialogHeader>

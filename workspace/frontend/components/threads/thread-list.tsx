@@ -23,8 +23,7 @@ import { ThreadConversationFilter, ThreadListHeader, ThreadSearch } from './thre
 import { buildThreadPreview } from './thread-preview';
 import { ThreadRow } from './thread-row';
 import { ThreadRowMenu } from './thread-row-menu';
-import { usePrompt, useConfirm } from '@/components/ui/dialogs-provider';
-import { useThreadProjects, type ThreadProject } from './use-thread-projects';
+import { useThreadProjectActions } from './use-thread-project-actions';
 import { MoveToProjectMenu, ProjectPersonalHint, startThreadDrag, ThreadProjectBar, ThreadProjectGroup, ThreadProjectLayoutToggle } from './thread-projects';
 import { useThreadSearch, useThreadShortcuts } from './use-thread-list-input';
 import { TABS, dmDedupKey, dmDisplayTitle, dmRowId, highlightMatch, type FilterTab, type SortOrder } from './thread-list-utils';
@@ -40,8 +39,6 @@ export function ThreadList() {
   const { isMobile, openMobileDetail, openNewThread, openNewChannel, threadFilter: filter, setThreadFilter: setFilter, setSelectedAgentName } = useLayout();
   const t = useT();
   const { timeAgo } = useFormatters();
-  const prompt = usePrompt();
-  const confirm = useConfirm();
 
   const [sortOrder, setSortOrder] = useState<SortOrder>('recent');
   const { searchQuery, setSearchQuery, searching, hitsByChannel, isSearching } = useThreadSearch();
@@ -62,32 +59,14 @@ export function ThreadList() {
       });
   }, [sessions, currentSessionId, sortOrder]);
 
-  const projectModel = useThreadProjects(workspace?.workspaceId || '', currentUser.id, sortedSessions, [t('threadProjects.exampleProduct'), t('threadProjects.exampleEngineering'), t('threadProjects.exampleResearch')]);
-  const grouped = projectModel.grouped && !isSearching && filter !== 'dms';
-  const projectCounts: Record<string, number> = {};
-  sortedSessions.filter(s => s.status === 'active').forEach(s => {
-    const id = projectModel.assignments[s.sessionId] || 'unorganized';
-    projectCounts[id] = (projectCounts[id] || 0) + 1;
+  const { projectModel, projectCounts, createProject, renameProject, removeProject } = useThreadProjectActions({
+    workspaceId: workspace?.workspaceId || '',
+    userId: currentUser.id,
+    sessions: sortedSessions,
+    setFilter,
+    setSearchQuery,
   });
-  const createProject = async (threadId?: string) => {
-    const name = (await prompt({ title: t('threadProjects.create'), description: t('threadProjects.personalHint'), placeholder: t('threadProjects.namePlaceholder'), confirmText: t('common.create'), validate: value => value.trim().length > 60 ? t('threadProjects.nameTooLong') : null }))?.trim();
-    if (!name) return;
-    const id = projectModel.create(name);
-    if (threadId) projectModel.move(threadId, id);
-    else {
-      projectModel.select(id);
-      projectModel.setGrouped(true);
-      setFilter('all');
-      setSearchQuery('');
-    }
-  };
-  const renameProject = async (project: ThreadProject) => {
-    const name = (await prompt({ title: t('threadProjects.rename'), defaultValue: project.name, confirmText: t('common.rename') }))?.trim();
-    if (name) projectModel.rename(project.id, name);
-  };
-  const removeProject = async (project: ThreadProject) => {
-    if (await confirm({ title: t('threadProjects.remove'), description: t('threadProjects.removeHint'), confirmText: t('common.delete') })) projectModel.remove(project.id);
-  };
+  const grouped = projectModel.grouped && !isSearching && filter !== 'dms';
 
   const activeSessions = useMemo(() => sortedSessions.filter((s) => s.status === 'active'), [sortedSessions]);
   const channels = useMemo(() => channelSessions(sortedSessions), [sortedSessions]);
