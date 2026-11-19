@@ -405,6 +405,21 @@ describe('CLI', () => {
     }
   });
 
+  it('connect --help documents --connection and how to find the id', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
+    try {
+      const { code, stdout } = runCapture(
+        { env: envWithoutTokens(), timeout: 10000 },
+        'connect', '--help', '--config', tmpDir,
+      );
+      assert.equal(code, 0);
+      assert.ok(stdout.includes('--connection <id>'));
+      assert.ok(stdout.includes('agn device status'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
   it('connect without token in non-interactive mode errors and does not hang', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ac-cli-'));
     try {
