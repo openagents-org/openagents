@@ -3,7 +3,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, ExternalLink, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
+import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import type { AgentSetupApi } from './agent-setup-types';
 import { encryptAgentCredentials } from './encrypt-agent-credentials';
@@ -133,22 +136,30 @@ export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = fal
   return <div data-testid="browser-agent-login" className="flex flex-col gap-4">
     <p className="text-sm leading-relaxed text-muted-foreground">{t('agentSetup.browserLoginHint', { agent })}</p>
     {error && <p role="alert" className="text-sm text-destructive">{t('agentSetup.browserLoginFailed')}</p>}
-    {!active && <Button type="button" className="w-fit" onClick={() => void start()} disabled={busy}>{busy && <RefreshCw className="size-4 animate-spin" />}{t(busy && needsInstall ? 'agentSetup.installingForSignIn' : error ? 'agentSetup.retry' : needsInstall ? 'agentSetup.installAndSignIn' : 'agentSetup.openSignIn', { agent })}</Button>}
+    {!active && <Button type="button" className="w-fit" onClick={() => void start()} disabled={busy}>{busy && <RefreshCw data-icon="inline-start" className="animate-spin" />}{t(busy && needsInstall ? 'agentSetup.installingForSignIn' : error ? 'agentSetup.retry' : needsInstall ? 'agentSetup.installAndSignIn' : 'agentSetup.openSignIn', { agent })}</Button>}
     {active && !url && <p role="status" className="flex items-center gap-2 text-sm"><RefreshCw className="size-4 animate-spin" />{t('agentSetup.browserLoginStarting')}</p>}
     {active && url && <>
       <div className="flex items-center justify-between gap-3">
-        <Button asChild className="w-fit"><a href={url} target="_blank" rel="noopener noreferrer">{t('agentSetup.browserLoginOpen', { agent })}<ExternalLink className="size-4" /></a></Button>
-        <Button type="button" variant="ghost" size="icon-sm" aria-label={t('agentSetup.browserLoginCopyUrl')} title={t('agentSetup.browserLoginCopyUrl')} onClick={async () => {
-          try { await navigator.clipboard.writeText(url); setCopied(true); setCopyFailed(false); }
-          catch { setCopied(false); setCopyFailed(true); }
-        }}>{copied ? <Check className="size-4" /> : <Copy className="size-4" />}<span className="sr-only" role="status">{copied ? t('common.copied') : ''}</span></Button>
+        <Button asChild className="w-fit"><a href={url} target="_blank" rel="noopener noreferrer">{t('agentSetup.browserLoginOpen', { agent })}<ExternalLink data-icon="inline-end" /></a></Button>
+        <WithTooltip label={t('agentSetup.browserLoginCopyUrl')}><Button type="button" variant="ghost" size="icon-sm" aria-label={t('agentSetup.browserLoginCopyUrl')} onClick={async () => {
+              try { await navigator.clipboard.writeText(url); setCopied(true); setCopyFailed(false); }
+              catch { setCopied(false); setCopyFailed(true); }
+            }}>{copied ? <Check /> : <Copy />}<span className="sr-only" role="status">{copied ? t('common.copied') : ''}</span></Button></WithTooltip>
       </div>
       {copyFailed && <p role="alert" className="text-xs text-destructive">{t('agentSetup.browserLoginCopyFailed')}</p>}
-      {type === 'codex' && session?.code && <p className="text-sm">{t('agentSetup.browserLoginDeviceCode')} <code className="ml-2 select-all rounded-md bg-muted px-3 py-2 font-mono text-lg font-semibold tracking-widest">{session.code}</code></p>}
-      {type === 'claude' && !submitted && <div className="flex flex-col gap-2">
-        <label htmlFor="agent-login-code" className="text-sm font-medium">{t('agentSetup.browserLoginCode')}</label>
-        <div className="flex gap-2"><Input id="agent-login-code" type="password" autoComplete="off" spellCheck={false} value={code} onChange={event => setCode(event.target.value)} placeholder={t('agentSetup.browserLoginCodeHint')} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void sendCode(); } }} /><Button type="button" disabled={busy || !code.trim()} onClick={() => void sendCode()}>{t('agentSetup.browserLoginConnect')}</Button></div>
+      {type === 'codex' && session?.code && <div className="flex flex-col gap-2">
+        <p className="text-sm">{t('agentSetup.browserLoginDeviceCode')}</p>
+        <CodeBlock className="w-fit min-w-48">
+          <CodeBlockActions>
+            <CodeBlockCopyButton type="button" value={session.code} copyLabel={t('common.copy')} copiedLabel={t('common.copied')} />
+          </CodeBlockActions>
+          <CodeBlockContent className="pe-12 text-lg font-semibold tracking-widest">{session.code}</CodeBlockContent>
+        </CodeBlock>
       </div>}
+      {type === 'claude' && !submitted && <Field>
+        <FieldLabel htmlFor="agent-login-code">{t('agentSetup.browserLoginCode')}</FieldLabel>
+        <div className="flex gap-2"><Input id="agent-login-code" type="password" autoComplete="off" spellCheck={false} value={code} onChange={event => setCode(event.target.value)} placeholder={t('agentSetup.browserLoginCodeHint')} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void sendCode(); } }} /><Button type="button" disabled={busy || !code.trim()} onClick={() => void sendCode()}>{t('agentSetup.browserLoginConnect')}</Button></div>
+      </Field>}
       <p role="status" className="text-xs text-muted-foreground">{t(submitted ? 'agentSetup.browserLoginVerifying' : 'agentSetup.browserLoginWaiting')}</p>
     </>}
   </div>;

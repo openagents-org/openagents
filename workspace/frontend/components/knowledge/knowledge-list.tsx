@@ -6,9 +6,10 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
+import { Item, ItemContent, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useLayout } from '@/components/layout/layout-context';
 import { ListToggleButton } from '@/components/layout/list-collapse-button';
 import { knowledgeTitle } from '@/lib/knowledge-title';
@@ -105,9 +106,7 @@ export function KnowledgeList() {
             <Plus data-icon="inline-start" />
             {t('knowledge.newEntry')}
           </Button>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
+          <WithTooltip label={t('common.refresh')}><Button
                 variant="ghost"
                 size="icon-sm"
                 aria-label={t('knowledge.refresh')}
@@ -115,17 +114,18 @@ export function KnowledgeList() {
                 className="text-muted-foreground"
               >
                 <RefreshCw />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('common.refresh')}</TooltipContent>
-          </Tooltip>
+              </Button></WithTooltip>
         </div>
       </div>
 
       <div className="shrink-0 px-3 pt-3">
-        <button type="button" onClick={() => { setSelectedKnowledgeId(null); if (isMobile) openMobileDetail(); }} className="flex w-full items-center gap-2 rounded-lg bg-indigo-500/[0.06] px-3 py-2.5 text-start text-xs font-medium text-indigo-700 hover:bg-indigo-500/10 focus-visible:outline-2 focus-visible:outline-ring dark:text-indigo-300">
-          <BookOpen className="size-4 shrink-0" />{t('knowledge.library.overview')}<ChevronRight className="ms-auto size-3.5 shrink-0" />
-        </button>
+        <Item variant="muted" size="xs" asChild className="flex-nowrap hover:bg-muted">
+          <button type="button" onClick={() => { setSelectedKnowledgeId(null); if (isMobile) openMobileDetail(); }}>
+            <ItemMedia variant="icon" className="text-muted-foreground"><BookOpen /></ItemMedia>
+            <ItemContent><ItemTitle className="text-xs">{t('knowledge.library.overview')}</ItemTitle></ItemContent>
+            <ChevronRight className="size-3.5 shrink-0 text-muted-foreground" />
+          </button>
+        </Item>
         <p className="px-1 pt-2 text-xs leading-5 text-muted-foreground">{t('knowledge.library.listHint')}</p>
       </div>
       {/* Search */}

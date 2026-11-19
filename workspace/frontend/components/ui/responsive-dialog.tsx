@@ -72,7 +72,7 @@ function DialogHeader({ className, ...props }: React.HTMLAttributes<HTMLDivEleme
     return (
       <div
         data-slot="dialog-header"
-        className={cn('flex shrink-0 flex-col gap-2 p-4 text-start', className)}
+        className={cn('flex shrink-0 flex-col gap-2 p-4 pb-3 text-start', className)}
         {...props}
       />
     );
@@ -113,7 +113,7 @@ function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement
       <div
         data-slot="dialog-body"
         className={cn(
-          'no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pb-4',
+          'no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1 pb-4',
           className,
         )}
         {...props}

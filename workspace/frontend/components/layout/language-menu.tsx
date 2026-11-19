@@ -25,7 +25,7 @@ export function LanguageMenuSub() {
       <DropdownMenuSubTrigger>
         <Languages />
         {t('language.label')}
-        <span className="ms-auto pe-1 text-xs text-muted-foreground">
+        <span className="flex-1 text-end text-xs text-muted-foreground">
           {LOCALE_LABELS[locale]}
         </span>
       </DropdownMenuSubTrigger>

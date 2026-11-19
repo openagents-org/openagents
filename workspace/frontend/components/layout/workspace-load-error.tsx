@@ -1,6 +1,8 @@
 'use client';
 
 import { useState } from 'react';
+import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
 
@@ -34,19 +36,21 @@ export function WorkspaceLoadError({ status, onRetry }: {
     }
   }
 
-  return <div role="alert" className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 overflow-y-auto bg-background p-6 text-center">
-    <h1 className="text-lg font-semibold">{title}</h1>
-    <p className="max-w-md text-sm text-muted-foreground">{body}</p>
-    {accessError && user?.email && <p className="text-sm">{t('workspaceGate.currentAccount', { email: user.email })}</p>}
-    {signInFailed && <p className="text-sm text-destructive">{t('workspaceGate.googleAuthFailed')}</p>}
-    <div className="flex flex-wrap justify-center gap-2">
-      {accessError && <button type="button" onClick={chooseAccount} disabled={signingIn}
-        className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50">
-        {signingIn ? t('auth.signingIn') : user ? t('workspaceGate.chooseAccount') : t('workspaceGate.logIn')}
-      </button>}
-      {!notFound && <button type="button" onClick={onRetry} disabled={signingIn}
-        className="rounded-md border px-4 py-2 text-sm font-medium disabled:opacity-50">{t('common.retry')}</button>}
-      <a href="/" className="rounded-md border px-4 py-2 text-sm font-medium">{t('workspaceGate.goHome')}</a>
-    </div>
-  </div>;
+  return <Empty role="alert" className="fixed inset-0 z-50 overflow-y-auto rounded-none bg-background">
+    <EmptyHeader>
+      <EmptyTitle className="text-lg font-semibold">{title}</EmptyTitle>
+      <EmptyDescription>{body}</EmptyDescription>
+    </EmptyHeader>
+    <EmptyContent>
+      {accessError && user?.email && <p>{t('workspaceGate.currentAccount', { email: user.email })}</p>}
+      {signInFailed && <p className="text-destructive">{t('workspaceGate.googleAuthFailed')}</p>}
+      <div className="flex flex-wrap justify-center gap-2">
+        {accessError && <Button onClick={chooseAccount} disabled={signingIn}>
+          {signingIn ? t('auth.signingIn') : user ? t('workspaceGate.chooseAccount') : t('workspaceGate.logIn')}
+        </Button>}
+        {!notFound && <Button variant="outline" onClick={onRetry} disabled={signingIn}>{t('common.retry')}</Button>}
+        <Button variant="outline" asChild><a href="/">{t('workspaceGate.goHome')}</a></Button>
+      </div>
+    </EmptyContent>
+  </Empty>;
 }

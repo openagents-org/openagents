@@ -10,6 +10,8 @@ import { Wrapper } from '@/components/layout/wrapper';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, redirectToLogin } from '@/lib/auth-redirects';
 import { LogIn } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useT } from '@/lib/i18n';
 import { CampaignMilestoneToasts } from '@/components/campaign/campaign-feedback';
 import { recallWorkspaceToken, rememberWorkspaceToken } from '@/lib/workspace-snapshot';
@@ -167,26 +169,22 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
     : t('workspaceGate.loadFailedBody');
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 bg-background">
-      <h1 className="text-xl font-semibold">{title}</h1>
-      <p className="text-muted-foreground text-sm text-center max-w-md">{body}</p>
-      <div className="flex items-center gap-2">
+    <Empty className="min-h-screen rounded-none bg-background">
+      <EmptyHeader>
+        <EmptyTitle className="text-xl font-semibold">{title}</EmptyTitle>
+        <EmptyDescription>{body}</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent className="flex-row justify-center gap-2">
         {state.kind === 'error' && (
-          <button
-            onClick={() => setAttempt((a) => a + 1)}
-            className="px-4 py-2 rounded-lg border border-input text-sm font-medium hover:bg-accent transition-colors"
-          >
+          <Button variant="outline" onClick={() => setAttempt((a) => a + 1)}>
             {t('common.retry')}
-          </button>
+          </Button>
         )}
-        <a
-          href="/"
-          className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          {t('workspaceGate.goHome')}
-        </a>
-      </div>
-    </div>
+        <Button asChild>
+          <a href="/">{t('workspaceGate.goHome')}</a>
+        </Button>
+      </EmptyContent>
+    </Empty>
   );
 }
 
@@ -248,37 +246,36 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
 
     // Not logged in — show login prompt
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-6 p-8 bg-background">
-        <div className="flex flex-col items-center gap-2">
-          <h1 className="text-xl font-semibold">{t('workspaceGate.signInTitle')}</h1>
-          <p className="text-muted-foreground text-sm text-center max-w-md">
-            {t('workspaceGate.signInBody')}
-          </p>
-        </div>
+      <Empty className="min-h-screen rounded-none bg-background">
+        <EmptyHeader>
+          <EmptyTitle className="text-xl font-semibold">{t('workspaceGate.signInTitle')}</EmptyTitle>
+          <EmptyDescription>{t('workspaceGate.signInBody')}</EmptyDescription>
+        </EmptyHeader>
         {/* Redirects to the central login page (openagents.org/login), which
             offers all supported methods — not just Google — so the label/icon
             stay method-neutral. */}
-        <button
-          onClick={() => goToCentralLogin(signIn)}
-          className="flex items-center gap-3 px-6 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90 transition-colors"
-        >
-          <LogIn className="size-5" />
-          {t('workspaceGate.logIn')}
-        </button>
-      </div>
+        <EmptyContent>
+          <Button size="lg" onClick={() => goToCentralLogin(signIn)}>
+            <LogIn data-icon="inline-start" />
+            {t('workspaceGate.logIn')}
+          </Button>
+        </EmptyContent>
+      </Empty>
     );
   }
 
   // Not on OpenAgents domain and no token — show token instructions
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen gap-4 p-8 bg-background">
-      <h1 className="text-xl font-semibold text-destructive">{t('workspaceGate.missingToken')}</h1>
-      <p className="text-muted-foreground text-sm">
-        {t('workspaceGate.missingTokenBefore')}{' '}
-        <code className="bg-muted px-2 py-0.5 rounded">?token=your_workspace_token</code>{' '}
-        {t('workspaceGate.missingTokenAfter')}
-      </p>
-    </div>
+    <Empty className="min-h-screen rounded-none bg-background">
+      <EmptyHeader>
+        <EmptyTitle className="text-xl font-semibold text-destructive">{t('workspaceGate.missingToken')}</EmptyTitle>
+        <EmptyDescription>
+          {t('workspaceGate.missingTokenBefore')}{' '}
+          <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-xs text-foreground">?token=your_workspace_token</code>{' '}
+          {t('workspaceGate.missingTokenAfter')}
+        </EmptyDescription>
+      </EmptyHeader>
+    </Empty>
   );
 }
 

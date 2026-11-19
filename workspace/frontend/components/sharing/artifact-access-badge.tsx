@@ -10,7 +10,7 @@
 import { Globe, Lock, MessagesSquare } from 'lucide-react';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useT } from '@/lib/i18n';
 import type { ArtifactVisibility } from '@/lib/types';
@@ -45,18 +45,13 @@ export function ArtifactVisibilityBadge({ kind, visibility, effectiveVisibility,
     : badge === 'public' ? t('artifactAccess.publicHint')
     : t('artifactAccess.inheritsHint');
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Badge
+    <WithTooltip label={hint} side="bottom"><Badge
           variant={badge === 'private' ? 'warning' : badge === 'public' ? 'success' : 'secondary'}
           className={cn('shrink-0 gap-1 font-normal', className)}
         >
           <VisibilityIcon badge={badge} />
           {visibilityBadgeLabel(t, badge, badge === 'inherit' ? effectiveVisibility : undefined)}
-        </Badge>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{hint}</TooltipContent>
-    </Tooltip>
+        </Badge></WithTooltip>
   );
 }
 
@@ -85,12 +80,7 @@ export function ArtifactOwner({ owner, ownerLabel, compact = false, size = 16, c
     );
   if (compact) {
     return (
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <span className={cn('inline-flex shrink-0 items-center', className)} aria-label={title}>{avatar}</span>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">{title}</TooltipContent>
-      </Tooltip>
+      <WithTooltip label={title} side="bottom"><span className={cn('inline-flex shrink-0 items-center', className)} aria-label={title}>{avatar}</span></WithTooltip>
     );
   }
   return (

@@ -1,8 +1,8 @@
 'use client';
 
-import { ArrowRight, Package } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Card, CardContent } from '@/components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { Skill } from './skill-types';
@@ -15,33 +15,37 @@ import { skillDescription } from './skill-utils';
 export const GRID_CLASS =
   'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 2xl:gap-5 3xl:grid-cols-6';
 
+const LOGO_SIZES = {
+  sm: { box: 'size-8 rounded-md', mark: 'size-4' },
+  md: { box: 'size-11 rounded-lg', mark: 'size-5.5' },
+  lg: { box: 'size-12 rounded-xl', mark: 'size-7' },
+} as const;
+
 /** A skill's logo tile; uploaded skills, which carry no logo, get a package mark. */
-export function SkillLogo({ skill, size = 'md' }: { skill: Skill; size?: 'md' | 'lg' }) {
-  const lg = size === 'lg';
+export function SkillLogo({ skill, size = 'md' }: { skill: Skill; size?: keyof typeof LOGO_SIZES }) {
+  const { box, mark } = LOGO_SIZES[size];
   return (
-    <div
-      className={cn(
-        'flex shrink-0 items-center justify-center bg-muted/60',
-        lg ? 'size-12 rounded-xl' : 'size-11 rounded-lg',
-      )}
-    >
+    <div className={cn('flex shrink-0 items-center justify-center bg-muted/60', box)}>
       {skill.logo ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={skill.logo} alt="" className={cn('object-contain dark:invert', lg ? 'size-7' : 'size-5.5')} />
+        <img src={skill.logo} alt="" className={cn('object-contain dark:invert', mark)} />
       ) : (
-        <Package className={cn('text-muted-foreground', lg ? 'size-7' : 'size-5.5')} />
+        <Package className={cn('text-muted-foreground', mark)} />
       )}
     </div>
   );
 }
 
-/** Anthropic-authored skills are the curated "official" ones. */
+/** Anthropic-authored skills are the curated "official" ones. A label, not a
+ *  call to action, so it takes the quiet outline badge. */
 export function OfficialBadge({ skill }: { skill: Skill }) {
   const t = useT();
   if (skill.author !== 'Anthropic') return null;
-  return <Badge className="shrink-0">{t('skills.official')}</Badge>;
+  return <Badge variant="outline" className="shrink-0">{t('skills.official')}</Badge>;
 }
 
+/** The whole card opens the skill; hover only tints it, so nothing depends on
+ *  a hover that touch screens never fire. */
 export function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Skill) => void }) {
   const t = useT();
   return (
@@ -50,38 +54,28 @@ export function SkillCard({ skill, onSelect }: { skill: Skill; onSelect: (s: Ski
       onClick={() => onSelect(skill)}
       className="group rounded-xl text-left outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
     >
-      <Card className="h-full transition-shadow group-hover:shadow-md group-hover:ring-primary/30">
-        <CardContent className="flex h-full flex-col gap-3">
-          <div className="flex items-start gap-3.5">
-            <SkillLogo skill={skill} />
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <div className="flex items-center gap-1.5">
-                <h3 className="truncate text-sm leading-tight font-semibold">{skill.name}</h3>
-                <OfficialBadge skill={skill} />
-              </div>
-              <p className="line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-                {skillDescription(t, skill)}
-              </p>
-            </div>
+      <Card className="h-full gap-3 transition-colors group-hover:bg-muted/50">
+        <CardHeader className="flex items-start gap-3">
+          <SkillLogo skill={skill} />
+          <div className="flex min-w-0 flex-1 flex-col gap-1">
+            <CardTitle className="flex items-center gap-1.5 text-sm">
+              <span className="truncate">{skill.name}</span>
+              <OfficialBadge skill={skill} />
+            </CardTitle>
+            <CardDescription className="line-clamp-2 text-xs leading-relaxed">
+              {skillDescription(t, skill)}
+            </CardDescription>
           </div>
-
-          {/* Tags — aligned with the text column, past the logo */}
-          {skill.tags.length > 0 && (
-            <div className="ms-14.5 flex flex-wrap gap-1.5">
-              {skill.tags.map(tag => (
-                <Badge key={tag} variant="secondary">{tag}</Badge>
-              ))}
-            </div>
-          )}
-
-          <div className="ms-14.5 mt-auto flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">
-              {skill.sourceRepo ? skill.sourceRepo.split('/')[0] : (skill.author || t('skills.customSource'))}
-            </span>
-            <span className="flex items-center gap-0.5 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-              {t('skills.view')} <ArrowRight className="size-3" />
-            </span>
-          </div>
+        </CardHeader>
+        {skill.tags.length > 0 && (
+          <CardContent className="flex flex-wrap gap-1.5">
+            {skill.tags.map(tag => (
+              <Badge key={tag} variant="secondary">{tag}</Badge>
+            ))}
+          </CardContent>
+        )}
+        <CardContent className="mt-auto text-xs text-muted-foreground">
+          {skill.sourceRepo ? skill.sourceRepo.split('/')[0] : (skill.author || t('skills.customSource'))}
         </CardContent>
       </Card>
     </button>

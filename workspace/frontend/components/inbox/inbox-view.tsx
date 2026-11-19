@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCheck, Inbox, RefreshCw } from 'lucide-react';
 import { DetailHeader } from '@/components/layout/app-header';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { useMe } from '@/hooks/use-me';
@@ -126,26 +127,28 @@ export function InboxView() {
               <span className="me-1 text-xs">
                 {t('notifications.unreadCount', { count: unreadNotificationCount })}
               </span>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={markAllNotificationsRead}
-                title={t('inbox.markAllRead')}
-                aria-label={t('inbox.markAllRead')}
-              >
-                <CheckCheck />
-              </Button>
+              <WithTooltip label={t('inbox.markAllRead')}>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={markAllNotificationsRead}
+                  aria-label={t('inbox.markAllRead')}
+                >
+                  <CheckCheck />
+                </Button>
+              </WithTooltip>
             </>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={refreshNotifications}
-            title={t('common.refresh')}
-            aria-label={t('common.refresh')}
-          >
-            <RefreshCw />
-          </Button>
+          <WithTooltip label={t('common.refresh')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              onClick={refreshNotifications}
+              aria-label={t('common.refresh')}
+            >
+              <RefreshCw />
+            </Button>
+          </WithTooltip>
         </div>
       </DetailHeader>
 

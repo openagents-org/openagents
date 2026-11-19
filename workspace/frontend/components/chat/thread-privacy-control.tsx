@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useMe } from '@/hooks/use-me';
 import { useThreadAccess } from '@/hooks/use-thread-access';
@@ -122,29 +123,22 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
     }
   };
 
-  const trigger = (
-    <button
-      type="button"
-      disabled={busy || !manage}
-      title={isPrivate ? t('threadAccess.privateHint') : t('threadAccess.publicHint')}
-      className={cn(
-        'inline-flex shrink-0 items-center gap-1 rounded-md px-1 py-0.5 transition-colors focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-        manage && 'hover:bg-muted',
-        'disabled:opacity-100 disabled:cursor-default',
-        isPrivate && 'text-foreground/80',
-      )}
-    >
-      {isPrivate ? <Lock className="size-3" /> : <Globe className="size-3" />}
-      <span>{label}</span>
-      {manage && (busy ? <Spinner className="size-3 opacity-60" /> : <ChevronDown className="size-3 opacity-60" />)}
-    </button>
-  );
+  const hint = isPrivate ? t('threadAccess.privateHint') : t('threadAccess.publicHint');
+  const icon = isPrivate ? <Lock data-icon="inline-start" /> : <Globe data-icon="inline-start" />;
 
   return (
     <div className={cn('flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground', className)}>
       {!joinOnly && (manage ? (
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+          <WithTooltip label={hint}>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="xs" disabled={busy} className={cn('shrink-0 font-normal text-muted-foreground', isPrivate && 'text-foreground/80')}>
+                {icon}
+                {label}
+                {busy ? <Spinner data-icon="inline-end" /> : <ChevronDown data-icon="inline-end" />}
+              </Button>
+            </DropdownMenuTrigger>
+          </WithTooltip>
           <DropdownMenuContent align="start" className="w-72">
             <DropdownMenuGroup>
               <DropdownMenuItem onClick={() => change('public')} disabled={!isPrivate} className="items-start">
@@ -164,7 +158,14 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
-      ) : trigger)}
+      ) : (
+        <WithTooltip label={hint}>
+          <span className={cn('inline-flex shrink-0 items-center gap-1 px-1 [&_svg]:size-3', isPrivate && 'text-foreground/80')}>
+            {icon}
+            {label}
+          </span>
+        </WithTooltip>
+      ))}
 
       {!joinOnly && !inDialog && ownerName && (
         <span className="truncate" title={ownerEmail || undefined}>
@@ -174,16 +175,17 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
       )}
 
       {canJoin && (
-        <Button
-          variant="outline"
-          size="xs"
-          onClick={join}
-          disabled={joining}
-          title={t('threadAccess.notJoinedHint')}
-        >
-          {joining ? <Spinner data-icon="inline-start" /> : <LogIn data-icon="inline-start" />}
-          {joining ? t('threadAccess.joining') : t('threadAccess.join')}
-        </Button>
+        <WithTooltip label={t('threadAccess.notJoinedHint')}>
+          <Button
+            variant="outline"
+            size="xs"
+            onClick={join}
+            disabled={joining}
+          >
+            {joining ? <Spinner data-icon="inline-start" /> : <LogIn data-icon="inline-start" />}
+            {joining ? t('threadAccess.joining') : t('threadAccess.join')}
+          </Button>
+        </WithTooltip>
       )}
     </div>
   );

@@ -1,36 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Input } from '@/components/ui/input';
-import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Switch } from '@/components/ui/switch';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
 import { SettingsCard, SettingsRow } from '@/components/settings/settings-card';
 import { SaveButton } from '@/components/settings/save-button';
-import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
+import { CopyInput } from '@/components/settings/copy-input';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
 
 type Part = 'name' | 'monitor' | 'services';
-
-/** A read-only value with a copy button inside the field. */
-function CopyField({ id, value, label }: { id: string; value: string; label: string }) {
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
-  return (
-    <InputGroup className="@md/field-group:w-80">
-      <InputGroupInput id={id} value={value} readOnly className="font-mono text-xs" />
-      <InputGroupAddon align="inline-end">
-        <InputGroupButton size="icon-xs" aria-label={label} title={label} onClick={() => copyToClipboard(value)}>
-          {isCopied ? <Check /> : <Copy />}
-        </InputGroupButton>
-      </InputGroupAddon>
-    </InputGroup>
-  );
-}
 
 export default function GeneralSettingsPage() {
   const { workspace, me, refreshWorkspace } = useAdminSettings();
@@ -97,10 +80,10 @@ export default function GeneralSettingsPage() {
 
       <SettingsCard title={t('admin.workspaceLinksTitle')} description={t('admin.workspaceLinksHint')}>
         <SettingsRow label={t('settings.workspaceUrl')} htmlFor="general-workspace-url">
-          <CopyField id="general-workspace-url" value={workspaceUrl} label={t('common.copy')} />
+          <CopyInput id="general-workspace-url" value={workspaceUrl} />
         </SettingsRow>
         <SettingsRow label={t('settings.workspaceId')} htmlFor="general-workspace-id">
-          <CopyField id="general-workspace-id" value={workspace.slug} label={t('common.copy')} />
+          <CopyInput id="general-workspace-id" value={workspace.slug} />
         </SettingsRow>
       </SettingsCard>
 

@@ -17,8 +17,6 @@ export const statusKeys = {
   closed: 'issues.closed',
   paused: 'issues.paused',
 } as const;
-export const selectClass =
-  'h-9 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 export const authorName = (source: string) =>
   source.replace(/^(human:|openagents:)/, '');
 

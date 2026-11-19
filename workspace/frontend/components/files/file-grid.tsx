@@ -15,7 +15,8 @@ import {
   DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { Table, TableBody } from '@/components/ui/table';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { cn } from '@/lib/utils';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { LoadMoreSentinel } from '@/hooks/use-incremental-list';
@@ -124,7 +125,7 @@ export function FileGrid() {
 
   return (
     <div
-      className={cn('@container flex h-full min-h-0 min-w-0 flex-col overflow-hidden', dragOver && 'bg-primary/5 ring-2 ring-primary/40 ring-inset')}
+      className={cn('@container flex h-full min-h-0 min-w-0 flex-col overflow-hidden', dragOver && 'bg-muted/50 ring-2 ring-ring ring-inset')}
       onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
       onDragLeave={() => setDragOver(false)}
       onDrop={handleDrop}
@@ -164,9 +165,7 @@ export function FileGrid() {
             about this folder, so it belongs to the recent list too. It waits
             for a listing to exist at all. */}
         {(hasFolder || !isEmpty) && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
+          <WithTooltip label={view === 'grid' ? t('files.listView') : t('files.gridView')}><Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={() => setView(view === 'grid' ? 'list' : 'grid')}
@@ -174,16 +173,11 @@ export function FileGrid() {
                 className="shrink-0 text-muted-foreground"
               >
                 {view === 'grid' ? <List /> : <LayoutGrid />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{view === 'grid' ? t('files.listView') : t('files.gridView')}</TooltipContent>
-          </Tooltip>
+              </Button></WithTooltip>
         )}
 
         {/* Uploads go to the selected folder, or directly to the workspace. */}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
+        <WithTooltip label={hasFolder ? t('files.uploadTo', { path: currentPath }) : t('files.uploadToWorkspace')}><Button
               size="sm"
               onClick={() => fileInputRef.current?.click()}
               aria-label={t('files.uploadFiles')}
@@ -191,10 +185,7 @@ export function FileGrid() {
             >
               <Upload data-icon="inline-start" />
               {t('files.uploadFiles')}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{hasFolder ? t('files.uploadTo', { path: currentPath }) : t('files.uploadToWorkspace')}</TooltipContent>
-        </Tooltip>
+            </Button></WithTooltip>
         <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleUpload} />
       </DetailHeader>
 
@@ -222,20 +213,26 @@ export function FileGrid() {
         /* One row per item, name in full: upload names run long and look
            alike, so a dense row beats a wall of truncated tiles. Uploads lead,
            then subfolders, the way a folder listing reads everywhere else. */
-        <div className="flex-1 overflow-y-auto p-2">
-          <FileListHeading />
-          {uploadsHere.map((upload) => (
-            <UploadRow
-              key={upload.id}
-              upload={upload}
-              onRetry={() => retryUpload(upload.id)}
-              onCancel={() => cancelUpload(upload.id)}
-            />
-          ))}
-          {folderEntries.map((folder) => (
-            <FolderListRow key={folder.path} folder={folder} onOpen={() => openFolder(folder.path)} />
-          ))}
-          {shownEntries.map((entry) => <FileListRow key={entry.file.id} {...itemProps(entry)} />)}
+        /* The table's own container scrolls sideways only; letting it overflow
+           visibly keeps this pane the scroller, so the heading can stick. */
+        <div className="flex-1 overflow-y-auto px-2 pb-2 *:data-[slot=table-container]:overflow-visible">
+          <Table>
+            <FileListHeading />
+            <TableBody>
+              {uploadsHere.map((upload) => (
+                <UploadRow
+                  key={upload.id}
+                  upload={upload}
+                  onRetry={() => retryUpload(upload.id)}
+                  onCancel={() => cancelUpload(upload.id)}
+                />
+              ))}
+              {folderEntries.map((folder) => (
+                <FolderListRow key={folder.path} folder={folder} onOpen={() => openFolder(folder.path)} />
+              ))}
+              {shownEntries.map((entry) => <FileListRow key={entry.file.id} {...itemProps(entry)} />)}
+            </TableBody>
+          </Table>
           {moreEntries && <LoadMoreSentinel onVisible={showMore} count={shownEntries.length} />}
         </div>
       ) : (

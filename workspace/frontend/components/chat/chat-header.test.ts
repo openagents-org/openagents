@@ -101,7 +101,7 @@ it('edits the open routine from its conversation header', async () => {
     (state as { routines: unknown[] }).routines = [{ id: 'r1', name: 'Daily digest', channelName: 'routine:r1' }];
     await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
     expect(document.querySelector('[data-editing-routine]')).toBeNull();
-    const edit = document.querySelector<HTMLButtonElement>('#app-header-actions button[title="routines.edit"]');
+    const edit = document.querySelector<HTMLButtonElement>('#app-header-actions button[aria-label="routines.edit"]');
     expect(edit).not.toBeNull();
     await act(async () => edit!.click());
     expect(document.querySelector('[data-editing-routine]')?.getAttribute('data-editing-routine')).toBe('Daily digest');
@@ -109,7 +109,7 @@ it('edits the open routine from its conversation header', async () => {
     state.currentSessionId = 'alpha';
     state.sessions = previous.sessions;
     await act(async () => { root.render(createElement(DialogsProvider, null, createElement(ChatView))); });
-    expect(document.querySelector('#app-header-actions button[title="routines.edit"]')).toBeNull();
+    expect(document.querySelector('#app-header-actions button[aria-label="routines.edit"]')).toBeNull();
   } finally {
     state.sessions = previous.sessions;
     state.routines = previous.routines;

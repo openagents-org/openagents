@@ -28,6 +28,7 @@ import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 import { useLayout } from './layout-context';
 import { MoreAgents } from './more-agents';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /**
  * The rail's agents: avatars that stay on the rail, labelled or not, so
@@ -69,7 +70,7 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
         <div className={cn('flex items-center', !showLabels && 'justify-center')}>
           {showLabels && (
             <SidebarGroupLabel asChild className="min-w-0 flex-1 cursor-pointer px-2">
-              <CollapsibleTrigger title={t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}>
+              <CollapsibleTrigger>
                 <span className="truncate">{t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}</span>
                 <ChevronDown
                   className={cn(
@@ -80,16 +81,17 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
               </CollapsibleTrigger>
             </SidebarGroupLabel>
           )}
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="shrink-0 text-muted-foreground"
-            aria-label={t('nav.addAgent')}
-            title={t('nav.addAgent')}
-            onClick={openAddAgent}
-          >
-            <Plus />
-          </Button>
+          <WithTooltip label={t('nav.addAgent')}>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="shrink-0 text-muted-foreground"
+              aria-label={t('nav.addAgent')}
+              onClick={openAddAgent}
+            >
+              <Plus />
+            </Button>
+          </WithTooltip>
         </div>
         <CollapsibleContent>
         <SidebarGroupContent id="rail-agent-list">
@@ -134,15 +136,16 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
                 {/* Labelled rail only: collapsed, it landed on the avatar
                     and stacked its own hint on the row's. */}
                 {showLabels && (
-                  <SidebarMenuAction
-                    showOnHover
-                    className="[@media(hover:none)]:opacity-100"
-                    title={t('nav.agentSettings', { name: agentLabel(agent) })}
-                    aria-label={t('nav.agentSettings', { name: agentLabel(agent) })}
-                    onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}
-                  >
-                    <Settings />
-                  </SidebarMenuAction>
+                  <WithTooltip label={t('nav.agentSettings', { name: agentLabel(agent) })} side="right">
+                    <SidebarMenuAction
+                      showOnHover
+                      className="[@media(hover:none)]:opacity-100"
+                      aria-label={t('nav.agentSettings', { name: agentLabel(agent) })}
+                      onClick={() => { setSelectedAgentName(agent.agentName); openMobileDetail(); }}
+                    >
+                      <Settings />
+                    </SidebarMenuAction>
+                  </WithTooltip>
                 )}
               </SidebarMenuItem>
               {groups.map(group => group.shown.at(-1)?.agentName === agent.agentName && group.all.length > group.shown.length ? <MoreAgents key={String(group.owned)} agents={group.all} moreOnline={group.moreOnline} owned={group.owned} showLabels={showLabels} /> : null)}

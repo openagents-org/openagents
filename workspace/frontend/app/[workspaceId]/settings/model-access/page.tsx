@@ -10,15 +10,16 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { Card } from '@/components/ui/card';
 import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia } from '@/components/ui/empty';
-import { Spinner } from '@/components/ui/spinner';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
+import { IconAction } from '@/components/settings/icon-action';
 import { ReadOnlyBanner, SectionHeader } from '@/components/settings/section-chrome';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { ProviderIcon } from '@/components/icons/agent-icons';
 import { AddModelAccessDialog } from '@/components/settings/model-access-dialog';
 import { workspaceApi } from '@/lib/api';
@@ -70,64 +71,63 @@ export default function ModelAccessSettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('admin.modelAccessTitle')} description={t('admin.modelAccessDescription')} />
       {!editable && <ReadOnlyBanner />}
 
-      <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium">{t('admin.modelAccessListTitle')}</span>
+      <SettingsCard
+        title={t('admin.modelAccessListTitle')}
+        action={(
           <div className="flex items-center gap-1.5">
-            <Button variant="ghost" size="sm" onClick={load} disabled={loading}>
-              <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
-            </Button>
+            <IconAction label={t('common.refresh')} onClick={load} disabled={loading}>
+              <RefreshCw className={loading ? 'animate-spin' : undefined} />
+            </IconAction>
             {editable && (
               <Button size="sm" onClick={() => setAdding(true)}>
-                <Plus className="size-3.5 mr-1" />{t('admin.modelAccessAdd')}
+                <Plus data-icon="inline-start" />{t('admin.modelAccessAdd')}
               </Button>
             )}
           </div>
-        </div>
-
-        {loading && entries.length === 0 ? (
-          <div className="flex items-center justify-center py-10">
-            <Spinner className="size-5 text-muted-foreground" />
-          </div>
-        ) : entries.length === 0 ? (
-          <Empty className="border">
-            <EmptyHeader>
-              <EmptyMedia variant="icon"><KeyRound /></EmptyMedia>
-              <EmptyDescription>{t('admin.modelAccessEmpty')}</EmptyDescription>
-            </EmptyHeader>
-            {editable && (
-              <EmptyContent>
-                <Button size="sm" onClick={() => setAdding(true)}>
-                  <Plus data-icon="inline-start" />{t('admin.modelAccessAdd')}
-                </Button>
-              </EmptyContent>
-            )}
-          </Empty>
-        ) : (
-          <Card className="gap-0 divide-y py-0">
-            {entries.map((e) => (
-              <div key={e.id} className="flex items-center gap-3 px-4 py-3">
-                <ProviderIcon name={e.provider} size={32} />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium">{e.label}</p>
-                  <p className="truncate font-mono text-xs text-muted-foreground">
-                    {[e.provider, e.apiKeyMasked, e.baseUrl].filter(Boolean).join(' · ')}
-                  </p>
-                </div>
-                {editable && (
-                  <Button variant="ghost" size="icon" onClick={() => remove(e)} title={t('admin.modelAccessDelete')}>
-                    <Trash2 className="size-4 text-muted-foreground" />
-                  </Button>
-                )}
-              </div>
-            ))}
-          </Card>
         )}
-      </div>
+      >
+        {loading && entries.length === 0 ? (
+          <ListLoading />
+        ) : entries.length === 0 ? (
+          <ListEmpty
+            icon={<KeyRound />}
+            action={editable && (
+              <Button size="sm" onClick={() => setAdding(true)}>
+                <Plus data-icon="inline-start" />{t('admin.modelAccessAdd')}
+              </Button>
+            )}
+          >
+            {t('admin.modelAccessEmpty')}
+          </ListEmpty>
+        ) : (
+          <SettingsList>
+            {entries.map((e) => (
+              <Item key={e.id} size="sm">
+                <ItemMedia>
+                  <ProviderIcon name={e.provider} size={32} />
+                </ItemMedia>
+                <ItemContent className="min-w-0">
+                  <ItemTitle>{e.label}</ItemTitle>
+                  <ItemDescription className="line-clamp-1 font-mono text-xs">
+                    {[e.provider, e.apiKeyMasked, e.baseUrl].filter(Boolean).join(' · ')}
+                  </ItemDescription>
+                </ItemContent>
+                {editable && (
+                  <ItemActions>
+                    <IconAction label={t('admin.modelAccessDelete')} destructive onClick={() => remove(e)}>
+                      <Trash2 />
+                    </IconAction>
+                  </ItemActions>
+                )}
+              </Item>
+            ))}
+          </SettingsList>
+        )}
+      </SettingsCard>
 
       {adding && (
         <AddModelAccessDialog

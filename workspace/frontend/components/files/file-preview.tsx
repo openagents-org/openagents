@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useLayout } from '@/components/layout/layout-context';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
@@ -102,19 +103,18 @@ export function FilePreview() {
              one flex container, so the path sits at the same offset in both and
              opening a file doesn't nudge the title sideways. */
           <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto text-sm text-muted-foreground">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={() => {
-                if (isMobile) openMobileList();
-                else closePreview();
-              }}
-              title={t('files.backToFiles')}
-              aria-label={t('files.backToFiles')}
-              className="me-1 shrink-0 text-muted-foreground"
-            >
-              <ArrowLeft />
-            </Button>
+            <WithTooltip label={t('files.backToFiles')}><Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => {
+                    if (isMobile) openMobileList();
+                    else closePreview();
+                  }}
+                  aria-label={t('files.backToFiles')}
+                  className="me-1 shrink-0 text-muted-foreground"
+                >
+                  <ArrowLeft />
+                </Button></WithTooltip>
             {/* The path is the way out: every segment walks back to that folder,
                 so an opened file is never a dead end. It starts at the file's own
                 top folder — there's no all-files listing above it to return to. */}

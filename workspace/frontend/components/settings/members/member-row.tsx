@@ -3,8 +3,9 @@
 import { Trash2 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { IconAction } from '@/components/settings/icon-action';
 import { useT } from '@/lib/i18n';
 import { roleLabel } from '@/lib/roles';
 import type { TeamMember, WorkspaceRole } from '@/lib/types';
@@ -27,48 +28,45 @@ export function MemberRow({
 }) {
   const t = useT();
   return (
-    <div className="flex items-center gap-3 px-4 py-3">
-      <Avatar>
-        {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt="" />}
-        <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-          {(m.displayName || m.email)[0]?.toUpperCase()}
-        </AvatarFallback>
-      </Avatar>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">
-          {m.displayName || m.email}
-          {isSelf && <span className="ms-1.5 text-xs font-normal text-muted-foreground">({t('admin.you')})</span>}
-        </p>
-        {m.displayName && <p className="truncate text-xs text-muted-foreground">{m.email}</p>}
-      </div>
-      {editable ? (
-        <>
-          <Select value={m.role} onValueChange={(v) => onChangeRole(v as WorkspaceRole)}>
-            <SelectTrigger className="w-28 shrink-0">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectGroup>
-                {ROLES.map((r) => (
-                  <SelectItem key={r} value={r}>{roleLabel(t, r)}</SelectItem>
-                ))}
-              </SelectGroup>
-            </SelectContent>
-          </Select>
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onRemove}
-            title={t('admin.removeMember')}
-            aria-label={t('admin.removeMember')}
-            className="text-muted-foreground"
-          >
-            <Trash2 />
-          </Button>
-        </>
-      ) : (
-        <Badge variant="secondary">{roleLabel(t, m.role)}</Badge>
-      )}
-    </div>
+    <Item size="sm">
+      <ItemMedia>
+        <Avatar>
+          {m.avatarUrl && <AvatarImage src={m.avatarUrl} alt="" />}
+          <AvatarFallback className="text-xs font-semibold">
+            {(m.displayName || m.email)[0]?.toUpperCase()}
+          </AvatarFallback>
+        </Avatar>
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle>
+          <span className="truncate">{m.displayName || m.email}</span>
+          {isSelf && <span className="text-xs font-normal text-muted-foreground">({t('admin.you')})</span>}
+        </ItemTitle>
+        {m.displayName && <ItemDescription className="line-clamp-1 text-xs">{m.email}</ItemDescription>}
+      </ItemContent>
+      <ItemActions>
+        {editable ? (
+          <>
+            <Select value={m.role} onValueChange={(v) => onChangeRole(v as WorkspaceRole)}>
+              <SelectTrigger className="w-28">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  {ROLES.map((r) => (
+                    <SelectItem key={r} value={r}>{roleLabel(t, r)}</SelectItem>
+                  ))}
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            <IconAction label={t('admin.removeMember')} destructive onClick={onRemove}>
+              <Trash2 />
+            </IconAction>
+          </>
+        ) : (
+          <Badge variant="secondary">{roleLabel(t, m.role)}</Badge>
+        )}
+      </ItemActions>
+    </Item>
   );
 }

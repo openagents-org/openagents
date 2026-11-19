@@ -2,6 +2,7 @@
 import React from 'react';
 import { Download } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
 import { useT, type MessageKey } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
 import { desktopDownloads } from '@/lib/desktop-downloads';
@@ -58,8 +59,13 @@ export function NeedsCredentialsHint({ label, device, command, note, os }: { lab
               )}
             </li>
             <li>
-              {t('connect.nodeNeedsLoginCli')}{' '}
-              <code className={HINT_CODE}>{command}</code>
+              {t('connect.nodeNeedsLoginCli')}
+              <CodeBlock size="sm" className="mt-1.5">
+                <CodeBlockActions>
+                  <CodeBlockCopyButton type="button" value={command} copyLabel={t('common.copy')} copiedLabel={t('common.copied')} />
+                </CodeBlockActions>
+                <CodeBlockContent className="pe-10">{command}</CodeBlockContent>
+              </CodeBlock>
               {bare && (
                 <span data-testid="agent-setup-cli-not-found" className="mt-1 block">
                   {withCode(t('connect.nodeNeedsLoginCliMissing', { label, runtimes: CODE_MARK, example: CODE_MARK }), ['agn runtimes', fullPath])}

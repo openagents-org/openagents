@@ -125,7 +125,7 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
         <DialogBody>
           <FieldGroup className="gap-4">
             <Field className="gap-1.5">
-              <FieldLabel htmlFor="new-task-description" className="text-xs text-muted-foreground">
+              <FieldLabel htmlFor="new-task-description">
                 {t('tasks.fieldDescription')}
               </FieldLabel>
               <Textarea
@@ -142,9 +142,9 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
             </Field>
 
             <Field className="gap-1.5">
-              <FieldLabel htmlFor="new-task-title" className="text-xs text-muted-foreground">
+              <FieldLabel htmlFor="new-task-title">
                 {t('tasks.fieldTitle')}
-                <span className="font-normal text-muted-foreground/60">({t('common.optional')})</span>
+                <span className="font-normal text-muted-foreground">({t('common.optional')})</span>
               </FieldLabel>
               <Input
                 id="new-task-title"
@@ -158,9 +158,10 @@ export function NewTaskDialog({ open, onOpenChange, task, onSubmit, issueTitle }
             <AttachmentPicker value={fileIds} onChange={setFileIds} />
 
             <Field className="gap-1.5">
-              <FieldLabel className="text-xs text-muted-foreground">{t('tasks.runWith')}</FieldLabel>
+              <FieldLabel id="new-task-run-with">{t('tasks.runWith')}</FieldLabel>
               <ToggleGroup
                 type="single"
+                aria-labelledby="new-task-run-with"
                 variant="outline"
                 size="sm"
                 value={runWith}

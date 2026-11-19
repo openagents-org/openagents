@@ -64,11 +64,11 @@ export function RegistryVersionHistory({
         yanked: version.status === 'yanked',
         action: publishedByMe && version.status === 'published' && version.sourceMode === 'mirrored' ? (
           <Button
-            variant="ghost"
+            variant="destructive"
             size="xs"
             disabled={busy}
             onClick={() => yank(version.id, version.version)}
-            className="shrink-0 text-muted-foreground hover:text-destructive"
+            className="shrink-0"
           >
             {t('skills.yankVersion')}
           </Button>

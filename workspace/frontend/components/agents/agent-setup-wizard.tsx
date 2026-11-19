@@ -1,10 +1,13 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, Copy, KeyRound, LogIn, RefreshCw, ShieldCheck, Timer } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, KeyRound, LogIn, RefreshCw, ShieldCheck, Timer } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { AgentIcon } from '@/components/icons/agent-icons';
@@ -16,6 +19,7 @@ import { AgentNameField, WorkingDirectoryField } from './agent-setup-name-fields
 import { CodexModeField } from './agent-setup-model-fields';
 import { NativeCredentialFields } from './agent-setup-credentials';
 import { BrowserAgentLogin } from './browser-agent-login';
+import { AgentSetupAuthChoice, type AuthChoice, type AuthOption } from './agent-setup-auth-choice';
 
 /** Name first, then authenticate; optional model discovery never gates progress. */
 export function AgentSetupWizard({ form, props, entry, onSubmit }: {
@@ -26,7 +30,6 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
   useEffect(() => setStep(1), [entry.name, props.node.nodeId]);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [customEndpoint, setCustomEndpoint] = useState(!!form.baseUrl);
-  const [copied, setCopied] = useState(false);
   const [keyError, setKeyError] = useState(false);
   const [browserSignedIn, setBrowserSignedIn] = useState(false);
   useEffect(() => setBrowserSignedIn(false), [entry.name, props.node.nodeId]);
@@ -40,12 +43,12 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
   const choice = form.setupAuth ?? (signedIn && canSignIn ? 'subscription' : null);
   const loginCommand = form.creds.deviceLoginCommand;
   const installLater = runtime?.installed === false;
-  const options = [
+  const options: AuthOption[] = [
     ...(canSignIn ? [{ id: 'subscription' as const, icon: LogIn, title: t('agentSetup.subscription'), description: t('agentSetup.subscriptionHint') }] : []),
-    { id: 'key' as const, icon: KeyRound, title: t('agentSetup.key'), description: t('agentSetup.keyHint') },
-    { id: 'later' as const, icon: Timer, title: t('agentSetup.later'), description: t('agentSetup.laterHint') },
+    { id: 'key', icon: KeyRound, title: t('agentSetup.key'), description: t('agentSetup.keyHint') },
+    { id: 'later', icon: Timer, title: t('agentSetup.later'), description: t('agentSetup.laterHint') },
   ];
-  const choose = (next: 'subscription' | 'key' | 'later') => {
+  const choose = (next: AuthChoice) => {
     form.setSetupAuth(next);
     form.setApiKey('');
     form.setNativeValues({});
@@ -87,9 +90,9 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
     <form data-testid="agent-setup-wizard" className="flex h-full min-h-0 w-full flex-col bg-background" onSubmit={(event) => { event.preventDefault(); if (step === 1) continueToAccount(); else submit(); }}>
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-col gap-7 px-5 py-7 sm:px-8">
-          <button type="button" onClick={form.backToSelection} disabled={form.busy} className="inline-flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="size-4" />{t('agentSetup.changeAgent')}
-          </button>
+          <Button type="button" variant="ghost" size="sm" onClick={form.backToSelection} disabled={form.busy} className="-ml-2 self-start text-muted-foreground">
+            <ArrowLeft data-icon="inline-start" />{t('agentSetup.changeAgent')}
+          </Button>
           <ol aria-label={t('agentSetup.progress')} className="flex items-center gap-3 text-sm">
             {[{ number: 1, label: t('agentSetup.nameStep') }, { number: 2, label: t('agentSetup.accountStep') }].map(({ number, label }) => (
               <li key={number} aria-current={step === number ? 'step' : undefined} className={cn('flex items-center gap-2', step === number ? 'font-medium text-foreground' : 'text-muted-foreground')}>
@@ -129,22 +132,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                 </div>
                 <Button type="button" variant="link" size="xs" className="h-auto shrink-0 px-0" onClick={() => void form.reDetect()} disabled={form.detecting}>{t('agentSetup.checkAgain')}</Button>
               </div>
-              <div role="radiogroup" aria-label={t('agentSetup.authentication')} className="flex flex-col gap-2">
-                {options.map(({ id, icon: Icon, title, description }) => (
-                  <button key={id} type="button" role="radio" aria-checked={choice === id} data-testid={`agent-setup-auth-${id}`} disabled={form.busy} onClick={() => choose(id)} onKeyDown={(event) => {
-                    if (!['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight'].includes(event.key)) return;
-                    event.preventDefault();
-                    const index = options.findIndex((option) => option.id === id);
-                    const next = options[(index + (['ArrowDown', 'ArrowRight'].includes(event.key) ? 1 : options.length - 1)) % options.length];
-                    choose(next.id);
-                    event.currentTarget.parentElement?.querySelector<HTMLElement>(`[data-testid="agent-setup-auth-${next.id}"]`)?.focus();
-                  }} className={cn('flex items-center gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-muted/40 disabled:opacity-50', choice === id && 'border-foreground/70 bg-muted/40')}>
-                    <Icon className="size-5 shrink-0 text-muted-foreground" />
-                    <span className="min-w-0 flex-1"><span className="block text-sm font-medium">{title}</span><span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">{description}</span></span>
-                    <span className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border', choice === id && 'border-foreground bg-foreground text-background')}>{choice === id && <Check className="size-3" />}</span>
-                  </button>
-                ))}
-              </div>
+              <AgentSetupAuthChoice options={options} value={choice} disabled={form.busy} onChange={choose} />
               {!canSignIn && form.detailState === 'ready' && <p className="text-xs text-muted-foreground">{t('agentSetup.keyOnly')}</p>}
               <fieldset disabled={form.busy || step !== 2} className="flex min-w-0 flex-col gap-4">
                 {choice === 'subscription' && (signedIn ? (
@@ -153,15 +141,15 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                   <div className="flex flex-col gap-3 border-t pt-5">
                     <h2 className="text-sm font-medium">{t('agentSetup.signInTitle', { device })}</h2>
                     {!browserLogin && <p className="text-sm leading-relaxed text-muted-foreground">{t(installLater ? 'agentSetup.installHint' : 'agentSetup.signInHint', { agent, device })}</p>}
-                    {browserLogin ? <BrowserAgentLogin key={`${props.node.nodeId}:${entry.name}`} api={props.api} nodeId={props.node.nodeId} type={entry.name} agent={agent} needsInstall={installLater} onSignedIn={() => { setBrowserSignedIn(true); void form.reDetect(); }} /> : form.signIn ? <Button type="button" variant="outline" onClick={form.signIn} className="w-fit">{t('agentSetup.openSignIn', { agent })}<ArrowRight className="size-4" /></Button> : (
-                      <div className="flex items-center gap-3 rounded-lg bg-muted px-4 py-3">
-                        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap text-sm">{loginCommand}</code>
-                        <Button type="button" variant="ghost" size="icon-sm" aria-label={t('agentSetup.copy')} onClick={() => void navigator.clipboard.writeText(loginCommand).then(() => setCopied(true)).catch(() => setCopied(false))}>
-                          {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-                        </Button>
-                      </div>
+                    {browserLogin ? <BrowserAgentLogin key={`${props.node.nodeId}:${entry.name}`} api={props.api} nodeId={props.node.nodeId} type={entry.name} agent={agent} needsInstall={installLater} onSignedIn={() => { setBrowserSignedIn(true); void form.reDetect(); }} /> : form.signIn ? <Button type="button" variant="outline" onClick={form.signIn} className="w-fit">{t('agentSetup.openSignIn', { agent })}<ArrowRight data-icon="inline-end" /></Button> : (
+                      <CodeBlock>
+                        <CodeBlockActions>
+                          <CodeBlockCopyButton type="button" value={loginCommand} copyLabel={t('common.copy')} copiedLabel={t('common.copied')} />
+                        </CodeBlockActions>
+                        <CodeBlockContent className="pe-12">{loginCommand}</CodeBlockContent>
+                      </CodeBlock>
                     )}
-                    {!browserLogin && <Button type="button" variant="outline" className="w-fit" onClick={() => void form.reDetect()} disabled={form.detecting}><RefreshCw className={cn('size-4', form.detecting && 'animate-spin')} />{t('agentSetup.checkAgain')}</Button>}
+                    {!browserLogin && <Button type="button" variant="outline" className="w-fit" onClick={() => void form.reDetect()} disabled={form.detecting}><RefreshCw data-icon="inline-start" className={cn(form.detecting && 'animate-spin')} />{t('agentSetup.checkAgain')}</Button>}
                     <p className="text-xs text-muted-foreground">{t('agentSetup.accountModelHint')}</p>
                   </div>
                 ))}
@@ -180,7 +168,10 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                     {keyError && <p role="alert" className="text-sm text-destructive">{t('agentSetup.keyRequired')}</p>}
                     <div className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0" /><p>{t('agentSetup.keySecurity', { device })}</p></div>
                     {!form.detail?.provider_locked && (
-                      <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={customEndpoint} onChange={(event) => { setCustomEndpoint(event.target.checked); if (!event.target.checked) form.setBaseUrl(''); }} />{t('agentSetup.customEndpoint')}</label>
+                      <Field orientation="horizontal">
+                        <Checkbox id="setup-custom-endpoint" checked={customEndpoint} onCheckedChange={(checked) => { setCustomEndpoint(checked === true); if (checked !== true) form.setBaseUrl(''); }} />
+                        <FieldLabel htmlFor="setup-custom-endpoint" className="font-normal">{t('agentSetup.customEndpoint')}</FieldLabel>
+                      </Field>
                     )}
                     {customEndpoint && <Field><FieldLabel htmlFor="setup-endpoint">{t('agentSetup.endpoint')}</FieldLabel><Input id="setup-endpoint" type="url" value={form.baseUrl} onChange={(event) => form.setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" /></Field>}
                     {customEndpoint && <Field><FieldLabel htmlFor="setup-key-model">{t('agentSetup.model')}</FieldLabel><Input id="setup-key-model" value={form.model} onChange={(event) => form.setModel(event.target.value)} placeholder={t('connect.nodeModelAuto')} /></Field>}
@@ -190,11 +181,13 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                 {choice === 'later' && <p className="border-t pt-5 text-sm leading-relaxed text-muted-foreground">{t('agentSetup.laterNote', { device })}</p>}
               </fieldset>
             </section></div>
-            {step === 1 && <details open={settingsOpen} onToggle={(event) => setSettingsOpen(event.currentTarget.open)} className="border-t pt-5">
-              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm text-muted-foreground hover:text-foreground">
-                <span>{t('agentSetup.optionalSettings')}<span className="mt-1 block text-xs">{form.model || t('connect.nodeModelAuto')}</span></span><ChevronDown className="size-4 shrink-0" />
-              </summary>
-              <div className="pt-5">
+            {/* Kept mounted while folded, so what was typed in it survives. */}
+            {step === 1 && <Collapsible data-testid="agent-setup-optional-settings" open={settingsOpen} onOpenChange={setSettingsOpen} className="group/settings border-t pt-5">
+              <CollapsibleTrigger className="flex w-full items-center justify-between gap-3 rounded-md text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+                <span>{t('agentSetup.optionalSettings')}<span className="mt-1 block text-xs">{form.model || t('connect.nodeModelAuto')}</span></span><ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/settings:rotate-180" />
+              </CollapsibleTrigger>
+              {/* forceMount keeps the fields (and their values) mounted; hidden while closed, or the section never folds. */}
+              <CollapsibleContent forceMount className="pt-5 data-[state=closed]:hidden">
               <fieldset disabled={form.busy} className="flex min-w-0 flex-col gap-5">
                   <Field>
                     <FieldLabel htmlFor="setup-model">{t('connect.nodeAgentModelOptional')}</FieldLabel>
@@ -205,16 +198,16 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                   </Field>
                 <div><WorkingDirectoryField form={form} api={props.api} node={props.node} extensions={props.extensions} /></div>
               </fieldset>
-              </div>
-            </details>}
+              </CollapsibleContent>
+            </Collapsible>}
           {form.error && <p role="alert" className="text-sm leading-relaxed text-destructive">{form.error}</p>}
         </div>
       </div>
       <footer className="shrink-0 border-t bg-background">
         <div className="mx-auto flex w-full max-w-2xl items-center justify-between gap-3 px-5 py-4 sm:px-8">
-          <Button type="button" variant="ghost" onClick={back} disabled={form.busy}><ArrowLeft className="size-4" />{t('agentSetup.back')}</Button>
+          <Button type="button" variant="ghost" onClick={back} disabled={form.busy}><ArrowLeft data-icon="inline-start" />{t('agentSetup.back')}</Button>
             {step === 1 ? (
-              <Button type="submit" data-testid="agent-setup-continue" disabled={continueDisabled}>{t('agentSetup.continue')}<ArrowRight className="size-4" /></Button>
+              <Button type="submit" data-testid="agent-setup-continue" disabled={continueDisabled}>{t('agentSetup.continue')}<ArrowRight data-icon="inline-end" /></Button>
             ) : <Button type="submit" data-testid="agent-setup-submit" disabled={submitDisabled}>
               {form.busy ? t(choice === 'key' ? 'agentSetup.sending' : 'common.saving') : t(choice === 'later' ? 'agentSetup.finishLater' : choice === 'subscription' && installLater ? 'agentSetup.addThenSignIn' : 'agentSetup.add')}
             </Button>}

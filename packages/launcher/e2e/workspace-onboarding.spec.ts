@@ -184,7 +184,7 @@ test('shared Workspace editor sends creation to the chosen device exactly once',
 test('browser creates an agent on a remote device without desktop capabilities', async ({ page }) => {
   const state = await openOnboarding(page, { web: true, paired: true })
   await expect(page.getByRole('heading', { name: 'Add an agent', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Cloud Agents', exact: true })).toBeVisible()
+  await expect(page.getByRole('tab', { name: 'Cloud Agents', exact: true })).toBeVisible()
   await page.getByRole('button', { name: /Claude Code.*Add/ }).click()
   await expect(page.getByText(/Runs on: Remote laptop/)).toBeVisible()
   await page.getByRole('textbox', { name: 'Agent name', exact: true }).fill('browser-helper')

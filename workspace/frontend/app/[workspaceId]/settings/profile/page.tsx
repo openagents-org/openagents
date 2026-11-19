@@ -6,6 +6,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { SectionHeader } from '@/components/settings/section-chrome';
 import { SettingsCard } from '@/components/settings/settings-card';
 import { SaveButton } from '@/components/settings/save-button';
@@ -156,21 +157,21 @@ export default function ProfileSettingsPage() {
         footer={<SaveButton dirty={avatarDirty} saving={saving === 'avatar'} saved={justSaved === 'avatar'} onClick={() => save('avatar')} />}
       >
         <div className="flex items-center gap-4">
-          <button
-            type="button"
-            onClick={() => fileInput.current?.click()}
-            title={t('profile.changePhoto')}
-            className="shrink-0 rounded-full outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
-          >
-            {shownAvatar ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={shownAvatar} alt="" className="size-16 rounded-full object-cover" />
-            ) : (
-              <span className="flex size-16 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground">
-                {initial}
-              </span>
-            )}
-          </button>
+          <WithTooltip label={t('profile.changePhoto')}><Button
+                variant="ghost"
+                onClick={() => fileInput.current?.click()}
+                aria-label={t('profile.changePhoto')}
+                className="size-16 rounded-full p-0"
+              >
+                {shownAvatar ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={shownAvatar} alt="" className="size-16 rounded-full object-cover" />
+                ) : (
+                  <span className="flex size-16 items-center justify-center rounded-full bg-muted text-xl font-semibold text-muted-foreground">
+                    {initial}
+                  </span>
+                )}
+              </Button></WithTooltip>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}>
               <Camera data-icon="inline-start" />

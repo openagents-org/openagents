@@ -24,7 +24,6 @@ import { UserMenu } from './user-menu';
 import { useLayout, type ViewMode } from './layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 
 export function MobileHeader() {
   const [isSheetOpen, setIsSheetOpen] = useState(false);
@@ -69,8 +68,8 @@ export function MobileHeader() {
           <div className="flex items-center gap-2 min-w-0">
             <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
               <SheetTrigger asChild>
-                <Button variant="ghost" size="icon-sm" className="shrink-0">
-                  <Menu className="size-4" />
+                <Button variant="ghost" size="icon-sm" className="shrink-0" aria-label={t('nav.navigation')}>
+                  <Menu />
                 </Button>
               </SheetTrigger>
               <SheetContent className="p-0 gap-0 w-70 h-dvh bottom-auto pt-[calc(0.75rem+env(safe-area-inset-top))]" side="left" showCloseButton={false}>
@@ -126,20 +125,16 @@ export function MobileHeader() {
       <nav className="fixed bottom-0 start-0 end-0 z-50 bg-background/95 backdrop-blur-sm border-t safe-bottom">
         <div className="flex items-center justify-around h-12">
           {tabs.map(({ mode, icon: Icon, label }) => (
-            <button
+            <Button
               key={mode}
+              variant="ghost"
               aria-current={(onboarding ? 'connect' : viewMode) === mode ? 'page' : undefined}
               onClick={() => handleViewSwitch(mode)}
-              className={cn(
-                'flex flex-col items-center justify-center gap-0.5 flex-1 h-full transition-colors',
-                (onboarding ? 'connect' : viewMode) === mode
-                  ? 'text-primary'
-                  : 'text-muted-foreground'
-              )}
+              className="h-full flex-1 flex-col gap-0.5 rounded-none text-muted-foreground hover:bg-transparent aria-[current=page]:text-foreground"
             >
               <Icon className="size-5" />
               <span className="text-xs font-medium">{label}</span>
-            </button>
+            </Button>
           ))}
         </div>
       </nav>

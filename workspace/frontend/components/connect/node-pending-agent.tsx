@@ -3,6 +3,7 @@ import { AlertTriangle, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemFooter, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
@@ -87,16 +88,15 @@ export function NodePendingAgent({
                   <Pencil data-icon="inline-start" />{t('connect.nodeEdit')}
                 </Button>
               )}
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                onClick={onDismiss}
-                className="ms-auto text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                title={t('connect.remove')}
-                aria-label={t('connect.remove')}
-              >
-                <Trash2 />
-              </Button>
+              <WithTooltip label={t('connect.remove')}><Button
+                    size="icon-sm"
+                    variant="ghost"
+                    onClick={onDismiss}
+                    className="ms-auto text-muted-foreground"
+                    aria-label={t('connect.remove')}
+                  >
+                    <Trash2 />
+                  </Button></WithTooltip>
             </div>
           </>
         ) : (
@@ -107,16 +107,15 @@ export function NodePendingAgent({
                 <Button size="sm" variant="ghost" onClick={onRecheck}>
                   <RefreshCw data-icon="inline-start" />{t('connect.nodeAgentRecheck')}
                 </Button>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  onClick={onDismiss}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  title={t('connect.remove')}
-                  aria-label={t('connect.remove')}
-                >
-                  <Trash2 />
-                </Button>
+                <WithTooltip label={t('connect.remove')}><Button
+                      size="icon-sm"
+                      variant="ghost"
+                      onClick={onDismiss}
+                      className="text-muted-foreground"
+                      aria-label={t('connect.remove')}
+                    >
+                      <Trash2 />
+                    </Button></WithTooltip>
               </>
             ) : (
               <>
