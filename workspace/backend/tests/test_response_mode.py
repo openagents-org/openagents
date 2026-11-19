@@ -40,7 +40,9 @@ def route(db, setup, content, source='human:user'):
 
 @pytest.mark.parametrize('content,expected', [
     ('Sam, are you still there?', ['__no_response__']),
-    ('Can you ask @agent-worker?', ['__no_response__']),
+    ('Can you ask @agent-worker?', ['agent-worker']),
+    ('随便讲一句话 @agent-worker', ['agent-worker']),
+    ('看一下这个@agent-worker', ['agent-worker']),
     ('@agent-worker please check', ['agent-worker']),
     ('  \n@agent-master hi', ['agent-master']),
     ('@agent-worker@example.com hello', ['__no_response__']),
@@ -48,11 +50,21 @@ def route(db, setup, content, source='human:user'):
     ('`@agent-worker` is mentioned in the docs', ['__no_response__']),
     ('@sam@example.com can you review?', ['__no_response__']),
 ])
-def test_passive_requires_leading_agent(db, multi_agent_workspace, content, expected):
+def test_passive_requires_an_agent_mention(db, multi_agent_workspace, content, expected):
     multi_agent_workspace['channel'].response_mode = 'passive'
     with patch('app.mods.workspace_mod._route_with_llm', new_callable=AsyncMock) as router:
         assert route(db, multi_agent_workspace, content) == expected
         router.assert_not_called()
+
+
+@pytest.mark.parametrize('mode', ['proactive', 'passive'])
+def test_denied_mention_is_not_redirected(db, multi_agent_workspace, mode):
+    # "hey @a, cc @b" with @a denied must not hand a's request to b.
+    ws, ch = multi_agent_workspace['workspace'], multi_agent_workspace['channel']
+    ch.response_mode = mode
+    event = _make_event('human:user', f'channel/{ch.name}', 'hey @agent-master, cc @agent-worker')
+    event.metadata['blocked_agents'] = ['agent-master']
+    assert _run(_conversation_targets(event, ch, db, ws, ['agent-worker'])) == []
 
 
 def test_passive_agent_reply_does_not_start_a_loop(db, multi_agent_workspace):
@@ -117,6 +129,7 @@ def test_proactive_explicit_address_works_without_model(db, multi_agent_workspac
     monkeypatch.setattr(config, 'ROUTER_LLM_ENABLED', False)
     assert route(db, multi_agent_workspace, 'Hi everyone') == ['__no_response__']
     assert route(db, multi_agent_workspace, '@agent-worker hi') == ['agent-worker']
+    assert route(db, multi_agent_workspace, '随便讲一句话 @agent-worker') == ['agent-worker']
 
 
 @pytest.mark.parametrize('mode', ['proactive', 'passive'])

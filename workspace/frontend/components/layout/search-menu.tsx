@@ -19,15 +19,18 @@ import { agentLabel, isRecentAgent } from '@/lib/helpers';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { useModKey } from '@/hooks/use-mod-key';
+import { Kbd } from '@/components/ui/kbd';
 import { useLayout } from './layout-context';
 
-/** ⌘K palette over threads, files and agents. */
+/** ⌘K palette over threads, files and agents. Its trigger is an icon on the
+ * collapsed rail and a full-width search field once the rail has labels. */
 export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
   const [open, setOpen] = useState(false);
   const { sessions, files, agents, setCurrentSessionId, setSelectedFileId } = useWorkspace();
   const { openView, setSelectedAgentName, openMobileDetail } = useLayout();
   const t = useT();
   const mod = useModKey();
+  const shortcut = `${mod}${mod === '⌘' ? '' : '+'}K`;
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -53,20 +56,19 @@ export function SearchMenu({ iconOnly = false }: { iconOnly?: boolean } = {}) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title={t('search.trigger', { shortcut: `${mod}${mod === '⌘' ? '' : '+'}K` })}
+        title={t('search.trigger', { shortcut })}
+        aria-label={t('search.trigger', { shortcut })}
         className={
           iconOnly
             ? 'flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
-            : 'flex h-8 items-center gap-2 rounded-md px-2 text-muted-foreground transition-colors hover:bg-muted'
+            : 'flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md border border-sidebar-border bg-background px-2 text-sm text-muted-foreground shadow-xs transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
         }
       >
-        <Search className="size-4" />
+        <Search className="size-4 shrink-0" />
         {!iconOnly && (
           <>
-            <span className="hidden text-xs lg:inline">{t('search.label')}</span>
-            <kbd className="hidden items-center gap-0.5 rounded border border-border px-1 font-mono text-xs lg:inline-flex">
-              <span className="text-xs">{mod}</span>K
-            </kbd>
+            <span className="truncate">{t('search.label')}</span>
+            <Kbd className="ml-auto">{shortcut}</Kbd>
           </>
         )}
       </button>

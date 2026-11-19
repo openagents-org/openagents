@@ -8,7 +8,10 @@ import { useAgentActivity } from "./use-agent-activity"
 export const AGENT_FILTERS = ["all", "running", "error", "disconnected"] as const
 export type AgentFilter = (typeof AGENT_FILTERS)[number]
 
-export const AGENT_SORTS = ["recent", "name", "status"] as const
+/** `added`: the order agents were set up in, as the device config keeps it
+ * (each new one appended). Status changes, messages, reconnects, renames and
+ * restarts leave it alone, so a row stays where the user last saw it. */
+export const AGENT_SORTS = ["added", "recent", "name", "status"] as const
 export type AgentSort = (typeof AGENT_SORTS)[number]
 
 export const AGENT_VIEWS = ["list", "grid"] as const
@@ -150,6 +153,8 @@ export function useAgentsView(
       "offline",
       "notConnected",
     ]
+    // The list arrives in config order, which is what "added" shows.
+    if (sort === "added") return out
     out.sort((a, b) => {
       if (sort === "name") return a.agent.name.localeCompare(b.agent.name)
       if (sort === "status") {

@@ -416,6 +416,15 @@ describe('classifyPiError', () => {
     ['fetch failed: getaddrinfo ENOTFOUND api.anthropic.com', 'network'],
     ['EACCES: permission denied, open \'/root/x\'', 'filesystem'],
     ['something entirely novel', null],
+    // A Cloudflare 502 whose ray id carries "429" was reported as a rate limit.
+    ['502 {"type":"https://developers.cloudflare.com/support/troubleshooting/http-status-codes/cloudflare-5xx-errors/error-502/","title":"Error 502: Bad gateway","ray_id":"9e4291429a1b"}', 'server'],
+    ['503 Service Unavailable: upstream overloaded', 'server'],
+    ['429 Too Many Requests: bad gateway upstream', 'rate_limit'],
+    ['request req_4011403 failed: something entirely novel', null],
+    ['502 {"title":"Error 502: Bad gateway","ray_id":"8e429fa1"}', 'server'],
+    ['502 {"title":"Error","ray_id":"9a403c"}', 'server'],
+    ['Error 522: Connection timed out', 'server'],
+    ['Rate limit reached for gpt-4o on requests per min (RPM): Limit 500, Used 500, Requested 1', 'rate_limit'],
   ];
   for (const [raw, kind] of CASES) {
     it(`classifies "${raw.slice(0, 40)}" as ${kind}`, () => {

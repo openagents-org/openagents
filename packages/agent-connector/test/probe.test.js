@@ -104,6 +104,17 @@ describe('classifyFailure', () => {
       classifyFailure('Failed to authenticate: OAuth session expired and could not be refreshed'),
       CODE.SESSION_EXPIRED,
     );
+    // Claude Code's wording for a sign-in past its maximum age: it names
+    // `claude auth login`, but it is an expired sign-in, not a missing one.
+    assert.equal(
+      classifyFailure('Failed to authenticate: this login reached its time limit and cannot be renewed. Run `claude auth login` to sign in again'),
+      CODE.SESSION_EXPIRED,
+    );
+    assert.equal(classifyFailure('Invalid credential'), CODE.INVALID_API_KEY);
+    assert.equal(classifyFailure('This API key has expired. Create a new API key'), CODE.INVALID_API_KEY);
+    assert.equal(classifyFailure('{"code":"api_key_expired"}'), CODE.INVALID_API_KEY);
+    // A turn running out of time is not a sign-in running out.
+    assert.notEqual(classifyFailure('The request reached its time limit'), CODE.SESSION_EXPIRED);
     // A LiteLLM-style relay rejecting the model.
     assert.equal(
       classifyFailure('HTTP 400: {"error":{"message":"/chat/completions: Invalid model name passed in model=gpt-4o-mini"}}'),

@@ -3,6 +3,28 @@
   "date": "2026-11-16",
   "entries": [
     {
+      "type": "feature",
+      "title": {
+        "en": "Open a workspace in the browser from the agent list",
+        "zh": "可从智能体列表直接在浏览器中打开工作区"
+      },
+      "description": {
+        "en": "Agents also stay in the order they were added, whatever their status or activity.",
+        "zh": "列表按添加顺序固定排列，不再随状态或活动变化调整位置。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Clearer connection test for relays that only accept coding tools",
+        "zh": "仅支持编程工具的中转站，连接测试不再误报"
+      },
+      "description": {
+        "en": "Such an endpoint turns away the direct test, so the result now says it cannot be checked here instead of reporting the key as failed.",
+        "zh": "这类接口会拒绝直连测试，现在结果会说明无法在此检测，不再显示为密钥校验失败。"
+      }
+    },
+    {
       "type": "improvement",
       "title": {
         "en": "A cleaner conversation view",
@@ -18,17 +40,6 @@
       "title": {
         "en": "A refreshed workspace sidebar and title bar",
         "zh": "工作区侧栏与标题栏焕新"
-      }
-    },
-    {
-      "type": "fix",
-      "title": {
-        "en": "Clearer connection test for relays that only accept coding tools",
-        "zh": "仅支持编程工具的中转站，连接测试不再误报"
-      },
-      "description": {
-        "en": "Such an endpoint turns away the direct test, so the result now says it cannot be checked here instead of reporting the key as failed.",
-        "zh": "这类接口会拒绝直连测试，现在结果会说明无法在此检测，不再显示为密钥校验失败。"
       }
     }
   ]

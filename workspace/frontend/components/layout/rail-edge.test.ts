@@ -9,9 +9,6 @@ vi.mock('./layout-context', () => ({
   useLayout: () => ({ isRailExpanded: true, toggleRail: state.toggleRail }),
 }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
-vi.mock('@/components/ui/sidebar', () => ({
-  SidebarRail: (props: React.ComponentProps<'button'>) => React.createElement('button', props),
-}));
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 
 afterEach(() => {
@@ -31,6 +28,9 @@ it('toggles the rail when its edge is clicked', async () => {
   const { host, root } = await render();
   const edge = host.querySelector('button')!;
   expect(edge.getAttribute('aria-label')).toBe('nav.collapseSidebar');
+  expect(edge.getAttribute('aria-expanded')).toBe('true');
+  expect(edge.className).toContain('cursor-pointer');
+  expect(edge.className).not.toContain('resize');
   await act(async () => edge.click());
   expect(state.toggleRail).toHaveBeenCalledTimes(1);
   await act(async () => root.unmount());

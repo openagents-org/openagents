@@ -1836,7 +1836,10 @@ class OpenCodeAdapter extends BaseAdapter {
       // as "produced output this version could not parse", which said nothing
       // about reinstalling.
       category = 'unsupported_version';
-    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|authentication|auth(entication)? failed|forbidden|invalid token|no api key|missing api key|permission denied/)) {
+    } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|api[ _-]?key.{0,20}expired|authentication|auth(entication)? failed|forbidden|invalid token|invalid credentials?\b|no api key|missing api key|permission denied/)) {
+      // "Invalid credential" and "This API key has expired. Create a new API
+      // key in OpenCode Console" both came out as "failed for an undetermined
+      // reason" (daily errors dashboard, 2026-11-19).
       category = 'auth_failed';
     } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)
       || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
