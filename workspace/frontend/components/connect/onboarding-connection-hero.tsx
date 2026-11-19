@@ -17,20 +17,20 @@ export function OnboardingConnectionHero({ workspaceName, onBack, onSetup }: { w
     else window.requestAnimationFrame(scroll);
   };
   return (
-    <section className="oa-connection-scene relative isolate overflow-hidden border-b border-[var(--oa-scene-border)] bg-[var(--oa-scene-bg)] px-6 pb-7 pt-10 text-[var(--oa-scene-text)] sm:px-10" aria-labelledby="onboarding-connection-title">
+    <section className={`oa-connection-scene relative isolate overflow-hidden border-b border-[var(--oa-scene-border)] bg-[var(--oa-scene-bg)] px-6 py-5 text-[var(--oa-scene-text)] sm:px-10${onBack ? ' pt-10' : ''}`} aria-labelledby="onboarding-connection-title">
       <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_70%_55%,#2f6bff12,transparent_55%),radial-gradient(ellipse_at_15%_15%,#14b8a60d,transparent_50%)]" />
       {onBack && <button type="button" onClick={onBack} className="absolute left-5 top-2 flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-[var(--oa-scene-caption)] transition-colors hover:bg-[var(--oa-scene-border)] hover:text-[var(--oa-scene-text)] sm:left-8 sm:top-2"><ArrowLeft className="size-3.5" />{t('connect.nodeBack')}</button>}
 
-      <div className="relative z-10 w-full sm:w-[56%]">
-        <p className="mb-2 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
-        <h1 id="onboarding-connection-title" className="oa-scene-title max-w-lg text-2xl font-medium leading-[1.15] tracking-[-0.035em] text-balance sm:text-[28px]">{t('onboarding.connectionTitle')}</h1>
-        <p className="oa-scene-intro mt-3 max-w-md text-xs leading-5 text-slate-600 dark:text-slate-300">{t('onboarding.visualIntro')}</p>
-        <button type="button" onClick={openSetup} className="group mt-3 inline-flex items-center gap-2 text-xs font-medium text-[var(--oa-scene-accent)] transition hover:text-[var(--oa-scene-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--oa-scene-accent)]">
+      <div className="relative z-10 w-full sm:w-[62%]">
+        <p className="mb-1 inline-flex items-center gap-2 text-[10px] font-medium uppercase tracking-[0.16em] text-[var(--oa-scene-accent)]"><PlusSquare className="size-3.5" />{t('nav.connectAgent')}</p>
+        <h1 id="onboarding-connection-title" className="oa-scene-title max-w-xl text-xl font-medium leading-[1.15] tracking-[-0.035em] text-balance sm:text-2xl">{t('onboarding.connectionTitle')}</h1>
+        <p className="oa-scene-intro mt-2 max-w-lg text-xs leading-[18px] text-slate-600 dark:text-slate-300">{t('onboarding.visualIntro')}</p>
+        <button type="button" onClick={openSetup} className="group mt-2 inline-flex items-center gap-2 text-xs font-medium text-[var(--oa-scene-accent)] transition hover:text-[var(--oa-scene-accent-hover)] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[var(--oa-scene-accent)]">
           {t('onboarding.visualSetupCta')}<ArrowRight className="size-3.5 transition-transform group-hover:translate-x-0.5 motion-reduce:transform-none" />
         </button>
       </div>
 
-      <div className="pointer-events-none absolute -right-24 top-1/2 h-[240px] w-[420px] -translate-y-1/2 opacity-20 sm:right-4 sm:w-[43%] sm:opacity-100" aria-hidden="true">
+      <div className="pointer-events-none absolute -right-24 top-1/2 h-[160px] w-[300px] -translate-y-1/2 opacity-20 sm:right-4 sm:w-[34%] sm:opacity-100" aria-hidden="true">
         <svg viewBox="0 0 1000 510" fill="none" className="oa-scene-art block h-full w-full overflow-visible">
           <defs>
             <radialGradient id="oa-hub-glow"><stop stopColor="#2f6bff" stopOpacity=".25" /><stop offset="1" stopColor="#2f6bff" stopOpacity="0" /></radialGradient>

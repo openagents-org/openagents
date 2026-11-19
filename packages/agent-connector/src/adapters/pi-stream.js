@@ -663,13 +663,25 @@ class PiAssistantAccumulator {
  * @param {string} text
  * @returns {{kind: string|null, userMessage: string}}
  */
+const STATUS_TOKEN = Object.fromEntries([401, 403, 429].map((c) => [c, new RegExp(`(^|[^0-9a-z])${c}([^0-9a-z]|$)`)]));
+/**
+ * A 5xx the failure leads with ("502 {…}", "Error: 503 …", "HTTP 504",
+ * "Error 522: …", "status":500), not a number inside a rate-limit message
+ * ("Limit 500, Used 500").
+ */
+const LEADING_5XX = /^(?:error:?\s*)?(?:http\s*)?5\d\d\b|\berror 5\d\d\b|"status(?:_?code)?"\s*:\s*5\d\d\b/;
+
 function classifyPiError(text) {
   const raw = redactSecrets(String(text == null ? '' : text)).trim();
   if (!raw) return { kind: null, userMessage: 'Pi reported an error.' };
   const low = raw.toLowerCase();
   const has = (...needles) => needles.some((n) => low.includes(n));
+  // A status code is a whole token, not three digits inside a request id, a
+  // hex ray id or a timestamp: a Cloudflare 502 page read as a rate limit
+  // through the digits of its ray id (daily errors dashboard, 2026-11-19).
+  const status = (...codes) => codes.some((c) => STATUS_TOKEN[c].test(low));
 
-  if (has('401', '403', 'unauthorized', 'authentication_error', 'authentication failed',
+  if (status(401, 403) || has('unauthorized', 'authentication_error', 'authentication failed',
     'invalid api key', 'invalid x-api-key', 'invalid_api_key', 'no api key',
     'missing api key', 'no credentials', 'not authenticated')) {
     return {
@@ -682,7 +694,16 @@ function classifyPiError(text) {
         'with `pi` → `/login` so the credential lands in ~/.pi/agent/auth.json.',
     };
   }
-  if (has('429', 'rate limit', 'rate_limit', 'too many requests', 'quota', 'overloaded',
+  // Before the rate-limit words: a gateway's 5xx page can say "overloaded"
+  // or "retry", and "wait for your quota" is the wrong advice for an outage.
+  if (!status(429) && (LEADING_5XX.test(low) || has('bad gateway', 'service unavailable',
+    'gateway timeout', 'internal server error', 'cloudflare-5xx', 'web server is down'))) {
+    return {
+      kind: 'server',
+      userMessage: `Pi's provider answered with a server error: ${raw}\n\nThis is on the provider's side; retry shortly, or switch provider/model if it persists.`,
+    };
+  }
+  if (status(429) || has('rate limit', 'rate_limit', 'too many requests', 'quota', 'overloaded',
     'insufficient_quota')) {
     return {
       kind: 'rate_limit',
