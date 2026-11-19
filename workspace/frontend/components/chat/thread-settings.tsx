@@ -4,7 +4,8 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
 import { ThreadPrivacyControl } from './thread-privacy-control';
-import { Settings, X } from 'lucide-react';
+import { AddThreadParticipants } from './add-thread-participants';
+import { Plus, Settings, X } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,10 +28,13 @@ import { useThreadAccess } from '@/hooks/use-thread-access';
 
 const THREAD_ICONS = ['💬', '👥', '🤝', '🚀', '💡', '🛠️', '📊', '🎯', '🎨', '📚'];
 
-function ParticipantList({ title, children }: { title: string; children: ReactNode }) {
+function ParticipantList({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex flex-col gap-1">
-      <h4 className="text-sm font-medium">{title}</h4>
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
+        <h4 className="text-sm font-medium">{title}</h4>
+        {action}
+      </div>
       <ItemGroup className="gap-0">{children}</ItemGroup>
     </div>
   );
@@ -43,6 +47,8 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
   const [loadFailed, setLoadFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const [busy, setBusy] = useState(false);
+  // Which picker the "+ Add" beside a list heading opened, if any.
+  const [addKind, setAddKind] = useState<'human' | 'agent' | null>(null);
   const { refreshAgents, currentUser } = useWorkspace();
   const [iconDraft, setIconDraft] = useState(session.icon || '');
   useEffect(() => { setIconDraft(session.icon || ''); }, [session.icon, open]);
@@ -61,6 +67,30 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
       .catch(() => { if (active) setLoadFailed(true); });
     return () => { active = false; };
   }, [open, session.sessionId, attempt]);
+
+  // Once the picker adds someone, reread the lists in place (no spinner) so
+  // they show up under their headings.
+  useEffect(() => {
+    if (!open) return;
+    let active = true;
+    const onChanged = (event: Event) => {
+      if ((event as CustomEvent<string>).detail !== session.sessionId) return;
+      workspaceApi.getChannelParticipants(session.sessionId)
+        .then(data => { if (active) setParticipants(data); })
+        .catch(() => {});
+    };
+    window.addEventListener(THREAD_PARTICIPANTS_CHANGED, onChanged);
+    return () => { active = false; window.removeEventListener(THREAD_PARTICIPANTS_CHANGED, onChanged); };
+  }, [open, session.sessionId]);
+
+  const addButton = (kind: 'human' | 'agent') => {
+    const label = t(kind === 'human' ? 'threadAccess.addMember' : 'threadAccess.addAgent');
+    return (
+      <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => setAddKind(kind)}>
+        <Plus data-icon="inline-start" aria-hidden="true" />{label}
+      </Button>
+    );
+  };
 
   const saveIcon = async (icon: string | null) => {
     if (busy) return;
@@ -182,14 +212,14 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
               </Alert>
                 : !participants ? <Spinner /> : <>
                   <FieldSeparator />
-                  <ParticipantList title={t('threadSettings.people')}>
+                  <ParticipantList title={t('threadSettings.people')} action={access?.can_add_people ? addButton('human') : null}>
                     {participants.humans.map(human => <Item key={human.email} size="xs" className="px-0">
                       <ItemMedia><HumanAvatar email={human.email} /></ItemMedia>
                       <ItemContent><ItemTitle className="truncate" title={human.email}>{human.display_name || human.email}</ItemTitle></ItemContent>
                       {manage && human.email.toLowerCase() !== owner?.toLowerCase() && <ItemActions><Button variant="ghost" size="icon-sm" disabled={busy} aria-label={t('threadSettings.remove', { name: human.display_name || human.email })} onClick={() => void remove('human', human.email)}><X /></Button></ItemActions>}
                     </Item>)}
                   </ParticipantList>
-                  <ParticipantList title={t('threadSettings.agents')}>
+                  <ParticipantList title={t('threadSettings.agents')} action={access?.can_add_agents ? addButton('agent') : null}>
                     {participants.agents.map(agent => <Item key={agent.agent_name} size="xs" className="px-0">
                       <ItemMedia><AgentAvatar name={agent.agent_name} size={28} /></ItemMedia>
                       <ItemContent>
@@ -204,6 +234,8 @@ export function ThreadSettings({ session }: { session: WorkspaceSession }) {
           </DialogBody>
         </DialogContent>
       </Dialog>
+      {/* Opens over the settings dialog; closing it lands back here. */}
+      {addKind && <AddThreadParticipants key={`${session.sessionId}:${addKind}`} channelName={session.sessionId} kind={addKind} open hideTrigger onOpenChange={next => { if (!next) setAddKind(null); }} />}
     </>
   );
 }

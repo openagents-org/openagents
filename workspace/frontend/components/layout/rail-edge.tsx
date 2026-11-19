@@ -1,20 +1,19 @@
 'use client';
 import * as React from 'react';
-import { SidebarRail } from '@/components/ui/sidebar';
-import { cn } from '@/lib/utils';
 import { useT } from '@/lib/i18n';
+import { EdgeToggle } from './edge-toggle';
 import { useLayout } from './layout-context';
 
 const RAIL_KEYBOARD_SHORTCUT = 'b';
 
 /**
- * The rail's trailing edge, as shadcn's SidebarRail: a thin strip that shows a
- * line on hover and toggles the rail on click. Cmd/Ctrl+B toggles it too.
+ * The rail's collapse handle, on its trailing edge. It matches the list
+ * panel's handle (bars that turn into a chevron, a dark label, a pointer
+ * cursor): the old full-height strip with a resize cursor read as something
+ * to drag. Cmd/Ctrl+B toggles the rail too.
  *
- * shadcn wires both to the provider's sidebar, which here is the list panel
- * (see Wrapper), so this one is pointed at the rail instead. The strip is
- * `fixed` because the sidebar shell clips its overflow, and it straddles the
- * inset card's leading border (one pixel past the rail), as tall as the card.
+ * `fixed` because the sidebar shell clips its overflow; it sits one pixel
+ * past the rail, on the inset card's leading border.
  */
 export function RailEdge() {
   const { isRailExpanded, toggleRail } = useLayout();
@@ -38,23 +37,12 @@ export function RailEdge() {
   }, []);
 
   return (
-    <SidebarRail
+    <EdgeToggle
+      label={label}
+      expanded={isRailExpanded}
       onClick={toggleRail}
-      aria-label={label}
-      aria-expanded={isRailExpanded}
-      title={label}
-      style={{
-        left: 'calc(var(--sidebar-width-icon) + 1.5px)',
-        top: 'calc(var(--oa-banner-h, 0px) + 0.5rem)',
-        bottom: '0.5rem',
-      }}
-      className={cn(
-        'fixed transition-[left] duration-200 ease-linear',
-        // The line lands on the card's own border, so the shipped
-        // sidebar-border hover colour would not show against it.
-        'after:inset-y-4 hover:after:bg-ring',
-        isRailExpanded ? 'cursor-w-resize' : 'cursor-e-resize',
-      )}
+      style={{ left: 'calc(var(--sidebar-width-icon) + 1px)' }}
+      className="fixed top-1/2"
     />
   );
 }

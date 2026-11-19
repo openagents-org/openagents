@@ -1,6 +1,7 @@
 import React from "react"
 import { useTranslation } from "react-i18next"
 import {
+  ExternalLink,
   MoreHorizontal,
   Pencil,
   Play,
@@ -36,6 +37,7 @@ export function AgentRowMenu({
   onRename,
   onConfigure,
   onOpenTerminal,
+  onOpenInBrowser,
   onToggle,
   onDisconnect,
   onRemove,
@@ -49,6 +51,7 @@ export function AgentRowMenu({
   | "onRename"
   | "onConfigure"
   | "onOpenTerminal"
+  | "onOpenInBrowser"
   | "onToggle"
   | "onDisconnect"
   | "onRemove"
@@ -78,6 +81,13 @@ export function AgentRowMenu({
         </DropdownMenuGroup>
         {(connected || agent.network) && <DropdownMenuSeparator />}
         <DropdownMenuGroup>
+          {/* On a wide window the row has its own button for this. */}
+          {agent.network && (
+            <DropdownMenuItem className="lg:hidden" onClick={() => onOpenInBrowser(agent)}>
+              <ExternalLink />
+              {t("agents.list.openInBrowser")}
+            </DropdownMenuItem>
+          )}
           {/* Its CLI in a terminal — for a sign-in or a look at what it is doing;
             not often enough to be a button on every row. */}
           {agent.network && agent.hasCli && (

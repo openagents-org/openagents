@@ -5,8 +5,8 @@ import { useAccountStore } from "@renderer/store/account"
 import { useAgentsStore } from "@renderer/store/agents"
 import { useLocalConnectorStore } from "@renderer/store/local-connector"
 import { capture } from "@renderer/lib/analytics"
-import { inAppBlocker, opensInApp, workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
-import type { Agent } from "@renderer/types"
+import { inAppBlocker, opensInApp, workspacePageUrl, workspaceWebBaseUrl } from "@renderer/lib/workspace-urls"
+import type { Agent, Workspace } from "@renderer/types"
 import type { ToastType } from "@renderer/hooks/useToast"
 
 type ShowToast = (msg: string, type?: ToastType) => void
@@ -20,6 +20,7 @@ export interface AgentActions {
   renameAgent: (name: string, displayName: string) => Promise<void>
   disconnectAgent: (name: string) => Promise<void>
   openWorkspace: (agent: Agent) => Promise<void>
+  openWorkspaceInBrowser: (agent: Agent) => Promise<void>
   openAgentChat: (agent: Agent) => Promise<void>
 }
 
@@ -29,6 +30,15 @@ export interface AgentActions {
  * bulk of the code here (they poll the daemon until the state actually flips
  * rather than trusting the command's return).
  */
+/**
+ * An agent's workspace page for the browser, tokenless: on the deployment its
+ * record names, else the configured one (self-hosting), and by the name the
+ * agent was bound with when this device has no record of the workspace.
+ */
+function agentWorkspacePage(network: string, ws: Workspace | undefined, configured: string | undefined): string {
+  return ws ? workspacePageUrl(ws, configured) : `${workspaceWebBaseUrl(configured)}/${network}`
+}
+
 export function useAgentActions(
   refresh: () => void,
   showToast: ShowToast,
@@ -257,9 +267,35 @@ export function useAgentActions(
           "info",
         )
       }
-      // Deliberately no ?token= here: the address bar leaks into history and
-      // screen shares, and the browser session handles access on its own.
-      window.api.openExternal(`${workspaceWebBaseUrl(ws?.endpoint)}/${slug}`)
+      window.api.openExternal(agentWorkspacePage(agent.network, ws, configured))
+    } catch (err: unknown) {
+      showToast(
+        t("agents.list.toast.error", { message: (err as Error).message }),
+        "error",
+      )
+    }
+  }
+
+  // The same workspace in the system browser, whatever the app would do: on
+  // the deployment the agent is bound to, signed in by the browser's session.
+  const openWorkspaceInBrowser = async (agent: Agent): Promise<void> => {
+    if (!agent.network) {
+      showToast(
+        t("agents.list.toast.notConnectedYet", { name: agent.name }),
+        "warning",
+      )
+      return
+    }
+    try {
+      const [workspaces, endpoint] = await Promise.all([
+        window.api.listWorkspaces(),
+        window.api.getSetting("workspaceEndpoint").catch(() => undefined),
+      ])
+      const ws = workspaces.find(
+        (w) => w.slug === agent.network || w.id === agent.network,
+      )
+      const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
+      window.api.openExternal(agentWorkspacePage(agent.network, ws, configured))
     } catch (err: unknown) {
       showToast(
         t("agents.list.toast.error", { message: (err as Error).message }),
@@ -288,6 +324,7 @@ export function useAgentActions(
     renameAgent,
     disconnectAgent,
     openWorkspace,
+    openWorkspaceInBrowser,
     openAgentChat,
   }
 }
