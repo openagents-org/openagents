@@ -1,8 +1,6 @@
 'use client';
-import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
-import { FirstDeviceHint } from './first-device-hint';
+import { useOnboardingSurface, useDismissOnboarding, useWelcomeSurface, useWelcomeNavigation, useOpenConnect } from './onboarding-surface';
 import { ConnectAgentButton } from './connect-agent-button';
-import { useFirstDeviceGuide } from '@/hooks/use-first-device-guide';
 import * as React from 'react';
 import Image from 'next/image';
 import {
@@ -101,10 +99,11 @@ export function NavRail() {
   ];
 
   const onboarding = useOnboardingSurface();
+  const welcome = useWelcomeSurface();
+  const welcomeNavigation = useWelcomeNavigation();
+  const openConnect = useOpenConnect();
   const dismissOnboarding = useDismissOnboarding();
-  const isConnectActive = onboarding || viewMode === 'connect';
-  const setupStep = useFirstDeviceGuide();
-  const showFirstDeviceHint = !!setupStep && !isConnectActive;
+  const isConnectActive = !welcome && (onboarding || viewMode === 'connect');
   const connectLabel = hasConnectedAgents ? t('nav.manageAgents') : t('nav.connectAgent');
   const workspaceLabel = workspace?.name || t('nav.workspaceFallback');
 
@@ -182,14 +181,13 @@ export function NavRail() {
         {/* The primary action, as dashboard-01's Quick Create row: Manage
             Agents, with Inbox beside it while there is room. */}
         <SidebarGroup className="px-1.5 pb-0">
-          {showFirstDeviceHint && setupStep && <FirstDeviceHint step={setupStep} compact={!showLabels} />}
           <SidebarMenu>
             <SidebarMenuItem className="flex items-center gap-2">
               <ConnectAgentButton
                 label={connectLabel}
                 active={isConnectActive}
                 showLabels={showLabels}
-                onClick={() => openView('connect')}
+                onClick={() => openConnect ? openConnect() : openView('connect')}
               />
               {showLabels && (
                 <Button
@@ -224,6 +222,15 @@ export function NavRail() {
           {showLabels && <SidebarGroupLabel className="px-2">{t('nav.collaboration')}</SidebarGroupLabel>}
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
+              {welcomeNavigation.available && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton isActive={welcome} aria-current={welcome ? 'page' : undefined} aria-label={t('nav.welcome')}
+                    tooltip={{ children: t('nav.welcome'), hidden: showLabels }}
+                    className={cn(!showLabels && 'justify-center!')} onClick={() => welcomeNavigation.open ? welcomeNavigation.open() : openView('connect')}>
+                    <Sparkles />{showLabels && <span>{t('nav.welcome')}</span>}
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
               {navItems.filter((item) => item.mode !== 'agents' || workspace?.settings?.services_enabled === true).map((item) => (
                 <SidebarMenuItem key={item.mode}>
                   <SidebarMenuButton

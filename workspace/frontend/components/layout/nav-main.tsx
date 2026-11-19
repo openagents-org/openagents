@@ -1,5 +1,5 @@
 'use client';
-import { useOnboardingSurface, useDismissOnboarding } from './onboarding-surface';
+import { useOnboardingSurface, useDismissOnboarding, useWelcomeSurface, useWelcomeNavigation } from './onboarding-surface';
 
 import { isRoutineSession, isIssueWorkSession } from '@/lib/conversation-list';
 
@@ -38,20 +38,16 @@ interface NavItem {
 export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
   const { viewMode, openView, setThreadFilter } = useLayout();
   const onboarding = useOnboardingSurface();
+  const welcome = useWelcomeSurface();
+  const welcomeNavigation = useWelcomeNavigation();
   const dismissOnboarding = useDismissOnboarding();
   const { workspace, agents, sessions, files, browserTabs, workflows, routines, knowledge, unreadNotificationCount, unreadThreadsTotal, unreadSignals } = useWorkspace();
   const t = useT();
   const unreadIssues = Object.values(unreadIssueCounts(unreadSignals)).reduce((sum, n) => sum + n, 0);
 
   const hasAgents = agents.filter((a) => isRecentAgent(a) && !a.builtin).length > 0;
-  // Fresh workspace (no real agent, no threads) is in guided onboarding — the
-  // "threads" view renders the onboarding flow, so label the nav item to match.
-  const isOnboarding = !hasAgents && sessions.length === 0;
-
   const items: NavItem[] = [
-    isOnboarding
-      ? { mode: 'threads', label: t('views.onboarding'), icon: <Sparkles /> }
-      : {
+    {
           mode: 'threads',
           label: t('views.threads'),
           icon: <MessageSquare />,
@@ -98,6 +94,14 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
       <SidebarGroupLabel>{t('nav.collaboration')}</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu className="gap-0.25">
+          {welcomeNavigation.available && <SidebarMenuItem>
+            <SidebarMenuButton isActive={welcome} aria-current={welcome ? 'page' : undefined} onClick={() => {
+              if (welcomeNavigation.open) welcomeNavigation.open(); else openView('connect');
+              onNavigate?.();
+            }}>
+              <Sparkles /><span>{t('nav.welcome')}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>}
           {items.filter((item) => item.mode !== 'agents' || workspace?.settings?.services_enabled === true).map((item) => (
             <SidebarMenuItem key={item.mode}>
               <SidebarMenuButton

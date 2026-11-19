@@ -333,6 +333,7 @@ export const messages: Messages = {
   },
 
   nav: {
+    welcome: '欢迎',
     myAgents: '我的智能体',
     moreAgentsOnline: '还有 {count} 个在线',
     viewAllAgents: '查看全部智能体',
