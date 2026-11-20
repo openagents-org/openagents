@@ -26,6 +26,21 @@ DB_PGBOUNCER=1
 (Detection also still triggers on Supabase's `:6543` port.) This is a no-op
 until set, so the code can ship ahead of the infra cutover.
 
+For a **remote** pooler (for example a DigitalOcean managed connection pool on
+port 25061), also set:
+
+```
+DB_PGBOUNCER_CLIENT_POOL=1
+DB_POOL_SIZE=6        # client connections to the pooler, per worker
+DB_MAX_OVERFLOW=2
+```
+
+Each worker then keeps a small pool of client connections to the pooler
+instead of opening a new TCP+TLS connection per request, and the SQLAlchemy
+compiled-SQL cache stays on (it is client-side; psycopg2 never issues
+server-side `PREPARE`, so it is safe in transaction mode). The pooler's own
+size caps the real Postgres connections.
+
 ## Railway setup
 
 1. **Add a new service** in the `workspace-backend` project / `production`
