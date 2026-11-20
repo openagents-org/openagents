@@ -12,7 +12,7 @@ import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 import { SetupEmailButton } from './setup-email-button';
 import { ConnectionTabs } from './connection-tabs';
 import { OnboardingConnectionHero } from './onboarding-connection-hero';
-import { withAgentDisplayNames } from '@/lib/node-agent-labels';
+import { withWorkspaceAgentInfo } from '@/lib/node-agent-labels';
 import { capture } from '@/lib/analytics';
 import { toast } from 'sonner';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
@@ -227,9 +227,9 @@ export function ConnectAgentView({
 
   // --- Nodes ---------------------------------------------------------------
 
-  // The daemon's roster names agents by handle; a workspace rename only
-  // changes the display name, so merge it in for the device view.
-  const labeledNodes = useMemo(() => withAgentDisplayNames(nodes, agents), [nodes, agents]);
+  // The daemon's roster names agents by handle and reports the device's own
+  // model; the workspace's display name and model pick win, so merge them in.
+  const labeledNodes = useMemo(() => withWorkspaceAgentInfo(nodes, agents), [nodes, agents]);
 
   const loadNodes = useCallback(async (showSpinner = false) => {
     if (showSpinner) setNodesLoading(true);

@@ -17,7 +17,7 @@ import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AcentaAccount, AcentaAgent, AcentaAgentUsage, AcentaUsage, HostedAgent, HostedAgentProvider } from '@/lib/types';
-import { FinishSetupLink, formatUsd, HostedAgentRow, HostedPresence, HostedUsageBar, RemoveHostedButton } from './hosted-agent-parts';
+import { FinishSetupLink, formatUsd, HostedAgentRow, HostedOfferBar, HostedPresence, HostedUsageBar, RemoveHostedButton } from './hosted-agent-parts';
 
 export { formatUsd };
 
@@ -181,6 +181,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="flex flex-col gap-3">
+      {usage?.offer && <HostedOfferBar offer={usage.offer} />}
       <Card>
         <CardHeader className="flex items-start gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
