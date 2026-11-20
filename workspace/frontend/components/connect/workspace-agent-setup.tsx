@@ -22,6 +22,10 @@ export function WorkspaceAgentSetup({ cloudProviders, ...props }: Omit<React.Com
         await workspaceApi.updateMember(name, { display_name: displayName });
         await refreshWorkspace();
       },
+      setWorkspaceModel: async (name, model) => {
+        await workspaceApi.updateMember(name, { model });
+        await refreshWorkspace();
+      },
       modelAccessDialog: (dialog) => <AddModelAccessDialog providers={cloudProviders} {...dialog} />,
     }} />;
 }

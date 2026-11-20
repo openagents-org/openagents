@@ -62,13 +62,14 @@ export function useAgentSubmit({ node, api, extensions, editAgent, onBack, onCha
     form.setBusy(true);
     try {
       if (isEdit) {
+        const modelChanged = model !== (editAgent?.model ?? '').trim();
         await api.enqueueNodeCommand(node.nodeId, 'configure_agent', {
           name: n,
           type: selected,
           // Only a model that was changed: one this form never showed (a
           // launcher-saved CODEX_MODEL on an older device) went out blank and
           // wiped the model the agent ran on. '' still clears → Auto.
-          ...(model !== (editAgent?.model ?? '').trim() ? { model } : {}),
+          ...(modelChanged ? { model } : {}),
           currentWorkingDir: editAgent?.workingDir || '',
           ...(workingDir ? { workingDir } : {}),
           ...(apiKey ? { apiKey } : {}),
@@ -77,6 +78,9 @@ export function useAgentSubmit({ node, api, extensions, editAgent, onBack, onCha
           ...((guided ? form.setupAuth === 'subscription' || (!form.setupAuth && (form.runtimeByType[selected]?.signedIn === true || form.runtimeByType[selected]?.auth?.mode === 'subscription')) : creds.signInChosen) ? { authMode: 'cli_login' } : {}),
           ...configArg,
         });
+        // The workspace's pick outranks the device's model (see
+        // useAgentModelOptions), so it moves with the edit.
+        if (modelChanged) await extensions?.setWorkspaceModel?.(n, model);
         // After the configuration, so a label the workspace refuses (too long,
         // taken by another agent) never costs the settings saved above.
         const label = form.displayName.trim();
