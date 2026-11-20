@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { SelectGroup, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ArtifactShareDialog, isWebPage } from '@/components/sharing/artifact-share';
-import { PublicLinkSection } from '@/components/sharing/public-link-section';
+import { PublicLinkSection, prefetchPublicShare } from '@/components/sharing/public-link-section';
 import { basename } from '@/components/files/file-utils';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -39,8 +39,17 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
     ? [{ ref: opened as ShareableArtifact['ref'], title: '' }, ...choices]
     : choices;
   const [pick, setPick] = useState<string | null>(null);
-  // Opening the menu starts on whatever is open in the panel.
-  useEffect(() => { if (open) setPick(opened ? key(opened) : options[0] ? key(options[0].ref) : null); }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  const first = opened || options[0]?.ref || null;
+  // Opening the menu starts on whatever is open in the panel, set with the
+  // open itself so the first frame already shows its sections.
+  const openMenu = (next: boolean) => {
+    if (next) setPick(first ? key(first) : null);
+    setOpen(next);
+  };
+  // Its public link state is read ahead (the panel opening it, a hover on
+  // Share), so the menu opens complete instead of on "Loading…".
+  const warm = () => { if (first && first.kind !== 'browser') prefetchPublicShare(first.kind, first.id); };
+  useEffect(() => { if (opened && opened.kind !== 'browser') prefetchPublicShare(opened.kind, opened.id); }, [opened?.kind, opened?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const current = options.find(o => key(o.ref) === pick) || null;
   const file = current?.ref.kind === 'file' ? files.find(f => f.id === current.ref.id) : undefined;
@@ -66,9 +75,9 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
   };
 
   return <>
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={openMenu}>
       <PopoverTrigger asChild>
-        <Button variant="outline" size="sm" aria-label={t('artifactPanel.share')} data-testid="artifact-share-button">
+        <Button variant="outline" size="sm" aria-label={t('artifactPanel.share')} data-testid="artifact-share-button" onPointerEnter={warm} onFocus={warm}>
           <Share2 className="size-3.5" />
           <span className="hidden sm:inline">{t('artifactPanel.share')}</span>
         </Button>
@@ -78,9 +87,10 @@ export function ArtifactShareButton({ choices, selected }: { choices: ShareableA
           <section className="flex flex-col gap-1.5">
             <h4 className="text-sm font-medium">{t('artifactPanel.shareWhat')}</h4>
             <Select value={pick ?? undefined} onValueChange={setPick}>
-              <SelectTrigger aria-label={t('artifactPanel.shareWhat')} className="h-9 min-w-0"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectGroup>{options.map(o => <SelectItem key={key(o.ref)} value={key(o.ref)}>{label(o)}</SelectItem>)}</SelectGroup>
+              {/* Long file names end in "…" inside the menu's width; the full name is the tooltip. */}
+              <SelectTrigger aria-label={t('artifactPanel.shareWhat')} title={current ? label(current) : undefined} className="h-9 w-full min-w-0"><SelectValue className="min-w-0" /></SelectTrigger>
+              <SelectContent className="max-w-80">
+                <SelectGroup>{options.map(o => <SelectItem key={key(o.ref)} value={key(o.ref)} className="*:[span]:last:min-w-0"><span className="min-w-0 truncate">{label(o)}</span></SelectItem>)}</SelectGroup>
               </SelectContent>
             </Select>
           </section>

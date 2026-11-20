@@ -8,10 +8,12 @@ const state = vi.hoisted(() => ({
   t: (key: string) => key,
 }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => state }));
-vi.mock('@/lib/api', () => ({ workspaceApi: { getChannelParticipants: async () => state.roster } }));
+vi.mock('@/lib/api', () => ({ workspaceApi: { isConfigured: () => true, currentWorkspaceId: () => 'ws', getChannelParticipants: async () => state.roster } }));
+vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: 'token' }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => state.t }));
 vi.mock('./thread-privacy-control', () => ({ threadPrivacyApplies: () => true }));
 vi.mock('./add-thread-participants', () => ({ AddThreadParticipants: ({ kind, channelName, onOpenChange }: { kind: string; channelName: string; onOpenChange: (open: boolean) => void }) => React.createElement('button', { 'data-picker': kind, 'data-channel': channelName, onClick: () => onOpenChange(false) }, 'Close picker') }));
+import { resetChannelParticipants } from '@/lib/channel-participants-store';
 import { ThreadParticipantCount } from './thread-participant-count';
 let root: Root;
 beforeEach(() => {
@@ -20,6 +22,7 @@ beforeEach(() => {
   // The trigger's tooltip opens when the popover returns focus to it.
   vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   state.roster.can_add_people = true; state.roster.can_add_agents = true;
+  resetChannelParticipants();
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); document.body.innerHTML = ''; });

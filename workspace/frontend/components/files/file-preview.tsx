@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ChevronRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { DetailHeader } from '@/components/layout/app-header';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Empty, EmptyContent, EmptyHeader, EmptyTitle } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
 import { useFileObjectUrl } from '@/hooks/use-file-object-url';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
@@ -25,7 +26,7 @@ import { usePreviewContent } from './use-preview-content';
 /* ── Preview ─────────────────────────────────────────────────────────────── */
 
 export function FilePreview() {
-  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath } = useWorkspace();
+  const { files, selectedFileId, deleteFile, setSelectedFileId, setCurrentFilePath, refreshFiles } = useWorkspace();
   const { isMobile, openMobileList } = useLayout();
   const t = useT();
   const confirm = useConfirm();
@@ -34,6 +35,17 @@ export function FilePreview() {
   const [infoOpen, setInfoOpen] = useState(true);
 
   const file = files.find((f) => f.id === selectedFileId);
+  // A link opened in a new tab asks for its file before the workspace's list
+  // has arrived. Read the list once more before calling it unavailable, so
+  // the link shows the file instead of "no access".
+  const [checkedId, setCheckedId] = useState<string | null>(null);
+  const missing = !!selectedFileId && !file;
+  useEffect(() => {
+    if (!missing || !selectedFileId) return;
+    let current = true;
+    refreshFiles().catch(() => {}).finally(() => { if (current) setCheckedId(selectedFileId); });
+    return () => { current = false; };
+  }, [missing, selectedFileId, refreshFiles]);
   const contentType = file?.contentType || '';
   const filename = file?.filename || '';
   const kind = file ? getFileKind(contentType, filename) : 'unknown';
@@ -48,6 +60,9 @@ export function FilePreview() {
   const { content, blobUrl, draft, setDraft, saving, dirty, handleSave, cancelEdit } = preview;
 
   if (!file) {
+    if (selectedFileId && checkedId !== selectedFileId) {
+      return <div className="flex h-full items-center justify-center"><Spinner className="text-muted-foreground" /></div>;
+    }
     return selectedFileId ? (
       <Empty className="h-full">
         <EmptyHeader>

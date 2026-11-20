@@ -15,6 +15,8 @@ import { AudioStage, VideoStage } from './media-stage';
 import { isHtml, type LoadStrategy } from './preview-load';
 import { MarkdownEditStage, TextStage, UnsupportedStage } from './preview-stages';
 import { SheetStage, delimiterFor } from './sheet-stage';
+import { isXlsx } from './xlsx';
+import { XlsxStage } from './xlsx-stage';
 import type { usePreviewContent } from './use-preview-content';
 
 /** The stage for an open file — whichever renderer its kind calls for. */
@@ -181,11 +183,14 @@ export function FilePreviewBody({
       if (delimiter && content !== null) {
         return <SheetStage content={content} delimiter={delimiter} />;
       }
+      if (isXlsx(contentType, filename)) {
+        return <XlsxStage key={file.id} fileId={file.id} size={file.size} onDownload={handleDownload} />;
+      }
       return (
         <UnsupportedStage
           filename={filename}
           contentType={contentType}
-          reason="Excel workbooks can't be rendered in the browser — download it to open in a spreadsheet app."
+          reason="This spreadsheet format can't be rendered in the browser — download it to open in a spreadsheet app."
           onDownload={handleDownload}
         />
       );

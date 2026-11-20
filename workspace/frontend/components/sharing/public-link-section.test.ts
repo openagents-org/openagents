@@ -13,10 +13,10 @@ vi.mock('@/lib/i18n', () => ({
   useT: () => (key: string, vars?: Record<string, string>) => (vars ? `${key} ${JSON.stringify(vars)}` : key),
   useFormatters: () => ({ formatDate: (d: string) => `date(${d.slice(0, 10)})`, formatDateTime: (d: string) => `time(${d})` }),
 }));
-vi.mock('@/lib/api', () => ({ workspaceApi: { getPublicShare: mocks.get, createPublicShare: mocks.create, revokePublicShare: mocks.revoke } }));
+vi.mock('@/lib/api', () => ({ workspaceApi: { isConfigured: () => true, currentWorkspaceId: () => 'ws', getPublicShare: mocks.get, createPublicShare: mocks.create, revokePublicShare: mocks.revoke } }));
 vi.mock('sonner', () => ({ toast: { success: mocks.success, error: vi.fn(), warning: vi.fn() } }));
 
-import { PublicLinkSection, expiryTimestamp } from './public-link-section';
+import { PublicLinkSection, expiryTimestamp, forgetPublicShares } from './public-link-section';
 
 let host: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
@@ -29,6 +29,7 @@ beforeEach(() => {
   document.body.appendChild(host);
   root = createRoot(host);
   for (const m of Object.values(mocks)) m.mockReset();
+  forgetPublicShares();
   writeText.mockClear();
 });
 afterEach(async () => {
