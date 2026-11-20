@@ -127,3 +127,46 @@ def test_redis_down_still_returns_exact_totals(db, workspace, monkeypatch):
     dm(db, workspace, 'openagents:alpha', 'openagents:beta', now_ms - 900_000)
     pairs = dm_summary.workspace_pairs(db, workspace['id'], dm_generation(workspace['id']), dm_rewrite_generation(workspace['id']))
     assert pairs[('openagents:alpha', 'openagents:beta')] == [now_ms, 2]
+
+
+class FakeLock:
+    held = set()
+
+    def __init__(self, name):
+        self.name = name
+
+    def acquire(self, blocking=True, blocking_timeout=None):
+        if self.name in FakeLock.held:
+            return False
+        FakeLock.held.add(self.name)
+        return True
+
+    def release(self):
+        FakeLock.held.discard(self.name)
+
+
+def test_aged_base_is_served_while_another_worker_rebuilds_it(db, workspace, memory_cache, monkeypatch):
+    FakeLock.held = set()
+    monkeypatch.setattr(cache, '_lazy_client', lambda: SimpleNamespace(lock=lambda name, **kw: FakeLock(name)))
+    now_ms = int(memory_cache.now * 1000)
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', now_ms - 600_000)
+    assert totals(db, workspace, memory_cache)[('openagents:alpha', 'openagents:beta')][1] == 1
+
+    # The base ages out while another worker holds the rebuild lock.
+    memory_cache.now += dm_summary.BASE_MAX_AGE_SECONDS + 1
+    dm(db, workspace, 'openagents:beta', 'openagents:alpha', int(memory_cache.now * 1000))
+    FakeLock.held.add(dm_summary._key('base', workspace['id']) + ':rebuild')
+    memory_cache.queries.clear()
+    result = totals(db, workspace, memory_cache)
+    assert result[('openagents:alpha', 'openagents:beta')][1] == 2, 'old base + delta stays exact'
+    assert not [q for q in memory_cache.queries if '<=' in q.split('GROUP BY')[0].split('timestamp')[-1][:4]], \
+        'no full rebuild while another worker is rebuilding'
+
+    # Once the lock is free, the next request rebuilds.
+    FakeLock.held.clear()
+    memory_cache.now += dm_summary.MERGED_MAX_STALE_SECONDS + 1
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', int(memory_cache.now * 1000))
+    assert totals(db, workspace, memory_cache)[('openagents:alpha', 'openagents:beta')][1] == 3
+    import json
+    base = json.loads(memory_cache.store[dm_summary._key('base', workspace['id'])])
+    assert base['built_at'] == memory_cache.now

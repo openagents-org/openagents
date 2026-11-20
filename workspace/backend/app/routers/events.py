@@ -1025,10 +1025,16 @@ def poll_events(
             query = query.where(EventRecord.target == f"channel/{channel}")
 
         if type:
-            if type in POLL_PREFIXES:
-                query = query.where(event_type_filter(type))
+            matching = None if type in POLL_PREFIXES else workspace_types_matching(db, workspace_id, type)
+            if matching is not None and len(matching) <= 1:
+                # One concrete type (or none): equality lets PostgreSQL range-scan
+                # (network_id, type, ...) instead of reading every other type.
+                query = query.where(EventRecord.type.in_(matching))
             else:
-                query = query.where(EventRecord.type.in_(workspace_types_matching(db, workspace_id, type)))
+                # Several types: an IN list defeats ordered index scans (a
+                # thread's newest page read and sorted all 258k of its rows), so
+                # keep the prefix filter, which walks the timestamp index.
+                query = query.where(event_type_filter(type))
 
         if exclude_message_types:
             excluded = [t.strip() for t in exclude_message_types.split(",") if t.strip()]
