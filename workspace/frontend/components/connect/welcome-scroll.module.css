@@ -93,14 +93,29 @@
 .demoComposer { display: flex; align-items: center; justify-content: space-between; margin: 0 18px 17px; border: 1px solid #e5e7dd; border-radius: 8px; padding: 13px; color: #b0b3a6; font-size: 10px; }
 .demoComposer > span { display: grid; place-items: center; width: 24px; height: 24px; border-radius: 50%; background: #e9ecdf; color: #9aa48a; }
 .contextCaption { margin: 28px 0 0; font-size: 11px; color: #9ca28e; }
-.ending { text-align: center; padding: 0 24px 130px; }
-.ending > img { margin: 0 auto 35px; opacity: .7; }
-.ending .eyebrow { font-size: 8px; letter-spacing: 1.6px; margin-bottom: 24px; }
-.ending h2 { font-size: clamp(55px, 6.1vw, 87px); letter-spacing: -2.5px; }
-.ending > p:not(.eyebrow) { margin: 27px 0 0; color: #919783; font-size: 13px; }
-.finalButton { display: inline-flex; align-items: center; justify-content: center; gap: 25px; padding: 17px 25px; margin: 34px auto 0; background: #30372a; color: #fdfef9; border: 1px solid #30372a; border-radius: 40px; font-size: 12px; transition: background .2s, transform .2s; }
-.finalButton:hover { background: #4b5740; transform: translateY(-2px); }
-.backToTop { display: flex; align-items: center; gap: 8px; margin: 24px auto 0; border: 0; background: transparent; color: #abb09f; font-size: 9px; }
+.ending { text-align: center; padding: 0 6% 76px; }
+.endingCard { max-width: 760px; margin: 0 auto; padding: 56px 32px 38px; border: 1px solid #e6e8e6; border-radius: 28px; background: radial-gradient(ellipse at 50% 0%, #eaf0eb 0%, #f5f6f4 48%, #fafbf9 100%); box-shadow: 0 2px 3px #25342b03, 0 18px 54px -32px #25342b24; }
+.endingConnection { display: flex; align-items: center; justify-content: center; margin-bottom: 31px; }
+.endingAgents { display: flex; padding-left: 6px; }
+.endingAgents > span { display: grid; place-items: center; width: 54px; height: 58px; margin-left: -6px; border: 3px solid #f3f6f1; border-radius: 17px; background: #fff; box-shadow: 0 3px 9px #24372b0a; transform: rotate(-9deg); }
+.endingAgents > span:nth-child(2) { transform: translateY(-7px); z-index: 1; }
+.endingAgents > span:nth-child(3) { transform: rotate(9deg); }
+.endingConnector { display: flex; align-items: center; width: 54px; margin: 0 10px; color: #a1ad9f; }
+.endingConnector::before { content: ''; flex: 1; height: 1px; background: #c6cec2; }
+.endingWorkspace { display: grid; place-items: center; width: 66px; height: 66px; border: 1px solid #d6dfd2; border-radius: 21px; background: #fff; box-shadow: 0 0 0 6px #e5ebe180, 0 5px 14px #31433208; }
+.ending .eyebrow { font-size: 9px; letter-spacing: 1.7px; color: #63725d; margin: 0 0 21px; }
+.ending h2 { font-size: clamp(43px, 5.3vw, 64px); letter-spacing: -2px; line-height: 1.1; }
+.endingDescription { max-width: 390px; margin: 23px auto 0; color: #697267; font-size: 14px; line-height: 1.8; text-wrap: pretty; }
+.finalButton { display: inline-flex; align-items: center; justify-content: space-between; min-width: 208px; gap: 32px; padding: 10px 12px 10px 25px; min-height: 56px; margin: 29px auto 0; background: #29372f; color: #fff; border: 1px solid #29372f; border-radius: 999px; font-size: 14px; font-weight: 500; box-shadow: 0 3px 5px #24352c0c, 0 6px 16px #24352c14; transition: background .2s, box-shadow .2s, transform .2s; }
+.finalButton > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #ffffff15; transition: background .2s, transform .2s; }
+.finalButton:hover { background: #364b3e; box-shadow: 0 6px 20px #24352c24; transform: translateY(-2px); }
+.finalButton:hover > span { background: #ffffff22; transform: translateX(2px); }
+.finalButton:active { transform: translateY(0); }
+.endingOptions { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 13px; margin-top: 24px; color: #737e70; font-size: 11px; line-height: 1.5; }
+.endingOptions > span { display: inline-flex; align-items: center; gap: 6px; }
+.endingOptions > i { width: 3px; height: 3px; border-radius: 50%; background: #b9c2b3; }
+.backToTop { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; margin: 20px auto 0; padding: 8px 12px; border: 0; background: transparent; color: #798173; font-size: 11px; transition: color .2s; }
+.backToTop:hover { color: #29372f; }
 .footer { margin: 0 6%; padding: 28px 0; border-top: 1px solid #e6e7dd; display: flex; justify-content: space-between; align-items: center; gap: 20px; color: #a4aa96; font-size: 9px; }
 .footer > span { font-weight: 500; color: #7c856d; }
 .footer a { color: inherit; text-decoration: none; font-size: 8px; }
@@ -219,13 +234,18 @@
   .filePill > svg:last-child { margin-left: 0; }
   .demoComposer { margin: 0 10px 10px; padding: 10px; font-size: 8px; }
   .contextCaption { font-size: 9px; margin-top: 23px; }
-  .ending { padding: 0 22px 90px; }
-  .ending > img { width: 35px; height: 35px; margin-bottom: 29px; }
-  .ending .eyebrow { font-size: 6px; letter-spacing: 1.1px; }
-  .ending h2 { font-size: 46px; letter-spacing: -1.7px; }
-  .ending > p:not(.eyebrow) { font-size: 10px; }
-  .finalButton { font-size: 11px; padding: 16px 22px; gap: 19px; margin-top: 29px; }
-  .backToTop { font-size: 8px; }
+  .ending { padding: 0 18px 48px; }
+  .endingCard { padding: 38px 20px 30px; border-radius: 22px; }
+  .ending .eyebrow { font-size: 8px; letter-spacing: 1.4px; }
+  .ending h2 { font-size: 42px; letter-spacing: -1.4px; }
+  .endingDescription { font-size: 13px; margin-top: 20px; }
+  .endingConnection { margin-bottom: 27px; }
+  .endingAgents > span { width: 43px; height: 47px; border-radius: 14px; }
+  .endingAgents img { width: 24px; height: 24px; }
+  .endingConnector { width: 35px; margin: 0 9px; }
+  .endingWorkspace { width: 54px; height: 54px; border-radius: 17px; }
+  .endingWorkspace img { width: 29px; height: 29px; }
+  .finalButton { margin-top: 25px; }
   .footer { margin: 0 22px; padding: 23px 0; font-size: 8px; align-items: flex-start; }
   .footer a { font-size: 6px; text-align: right; max-width: 180px; line-height: 1.8; }
 }
@@ -543,10 +563,17 @@
 .embedded .tourProgress { top: 1px; left: 24px; transform: none; width: 215px; }
 .embedded .intro h1 { font-size: clamp(48px, 7cqw, 86px); }
 .embedded .chapter { padding-inline: clamp(24px, 5cqw, 70px); }
-.embedded .chapter h2, .embedded .ending h2 { font-size: clamp(40px, 6cqw, 68px); }
+.embedded .chapter h2 { font-size: clamp(40px, 6cqw, 68px); }
+.embedded .ending h2 { font-size: clamp(38px, 5.7cqw, 58px); }
 @container (max-width: 650px) {
   .embedded .tourProgress { top: 56px; left: 24px; width: 200px; }
   .embedded .agentPortraits { grid-template-columns: repeat(3, 1fr); gap: 30px 0; }
+  .embedded .endingCard { padding: 38px 20px 30px; border-radius: 22px; }
+  .embedded .endingAgents > span { width: 43px; height: 47px; border-radius: 14px; }
+  .embedded .endingAgents img { width: 24px; height: 24px; }
+  .embedded .endingConnector { width: 35px; margin-inline: 9px; }
+  .embedded .endingWorkspace { width: 54px; height: 54px; border-radius: 17px; }
+  .embedded .endingWorkspace img { width: 29px; height: 29px; }
 }
 
 }
