@@ -106,7 +106,16 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
             {/* Tap-to-ask chips (e.g. Yumi's seeded welcome), as shadcn AI
                 Elements Suggestion: one row that scrolls sideways. Only on the
                 trailing message: once the user replies, the moment is over. */}
-            {isLast && yumiWelcome && <YumiAgentLocation />}
+            {isLast && yumiWelcome && (
+              <>
+                <YumiAgentLocation />
+                {onSuggestion && (
+                  <Button variant="outline" size="sm" className="mt-2" onClick={() => onSuggestion(t('yumiOnboarding.tourPrompt'))}>
+                    {t('yumiOnboarding.tourAction')}
+                  </Button>
+                )}
+              </>
+            )}
             {suggestions.length > 0 && (
               <div className="mt-2.5 flex scroll-fade-x no-scrollbar gap-2 overflow-x-auto overscroll-x-contain">
                 {suggestions.map((s) => (

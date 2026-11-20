@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { ChevronLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { DeviceSetupMethod } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { desktopHost } from '@/lib/desktop-host';
@@ -34,6 +35,9 @@ export function NodesTab({
   loaded,
   loadFailed = false,
   pairing,
+  pairingMethodRequest,
+  onPairingMethodChange,
+  showPairingError = false,
   pairingLoading,
   pairingError,
   onGenerate,
@@ -56,6 +60,9 @@ export function NodesTab({
   loaded: boolean;
   loadFailed?: boolean;
   pairing: PairingCode | null;
+  pairingMethodRequest?: { method: DeviceSetupMethod } | null;
+  onPairingMethodChange?: (method: DeviceSetupMethod) => void;
+  showPairingError?: boolean;
   pairingLoading: boolean;
   pairingError: boolean;
   onGenerate: () => void;
@@ -107,7 +114,7 @@ export function NodesTab({
   // the "Add agent" button.
   const autoAddedRef = useRef(false);
   useEffect(() => {
-    if (!autoAddAgent || autoAddedRef.current) return;
+    if (!autoAddAgent || autoAddedRef.current || pairing || pairingLoading || showPairingError) return;
     if (pairedNodeId) {
       // The device just paired here. Wait for its first heartbeat, which lists
       // the agents it runs: one connected by `agn join` from inside Claude
@@ -125,7 +132,7 @@ export function NodesTab({
       ? nodes.find((n) => n.nodeId === preferredNodeId && n.status === 'online')
       : nodes.find((n) => (n.agents || []).length === 0) || nodes[0];
     if (target) { autoAddedRef.current = true; setAddingNodeId(target.nodeId); }
-  }, [autoAddAgent, nodes, preferredNodeId, pairedNodeId, onFirstAgentCreated, onAgentJoined]);
+  }, [autoAddAgent, nodes, preferredNodeId, pairedNodeId, onFirstAgentCreated, onAgentJoined, pairing, pairingLoading, showPairingError]);
 
   // Requests from the sidebar and the agent profile. Each opens one screen,
   // so it closes whichever form (add, retry, edit) was left open.
@@ -232,10 +239,12 @@ export function NodesTab({
 
   // Connecting another device is its own screen. Keep the existing device
   // roster out of the way while the pairing code is waiting to be redeemed.
-  if (showDeviceSetup || pairing) {
+  if (showDeviceSetup || pairing || showPairingError) {
     return (
       <PairAnotherDevice
         pairing={pairing}
+        methodRequest={pairingMethodRequest}
+        onMethodChange={onPairingMethodChange}
         pairingError={pairingError}
         pairingLoading={pairingLoading}
         onBack={() => { setShowDeviceSetup(false); onDismissPairing(); }}

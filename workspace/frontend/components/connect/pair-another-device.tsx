@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
+import type { DeviceSetupMethod } from '@/components/layout/layout-context';
 import type { PairingCode } from '@/lib/types';
 import { OnboardingPairingPanel } from './onboarding-pairing-panel';
 
@@ -17,6 +18,8 @@ export function PairAnotherDevice({
   pairingLoading,
   onBack,
   onGenerate,
+  methodRequest,
+  onMethodChange,
 }: {
   pairing: PairingCode | null;
   pairingError: boolean;
@@ -24,6 +27,8 @@ export function PairAnotherDevice({
   /** Leave for the device list, dropping the code. */
   onBack: () => void;
   onGenerate: () => void;
+  methodRequest?: { method: DeviceSetupMethod } | null;
+  onMethodChange?: (method: DeviceSetupMethod) => void;
 }) {
   const t = useT();
   return (
@@ -34,6 +39,8 @@ export function PairAnotherDevice({
       {pairing ? (
         <OnboardingPairingPanel
           pairing={pairing}
+          methodRequest={methodRequest}
+          onMethodChange={onMethodChange}
           onDismiss={onBack}
           onRegenerate={onGenerate}
           regenerating={pairingLoading}
