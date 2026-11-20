@@ -3,7 +3,6 @@
 import { ChevronDown, Filter, Plus, RefreshCw, Search, SlidersHorizontal, X } from 'lucide-react';
 import { useT } from '@/lib/i18n';
 import { ListToggleButton } from '@/components/layout/list-collapse-button';
-import { UnreadBadge } from '@/components/ui/unread-badge';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupInput } from '@/components/ui/input-group';
 import { Spinner } from '@/components/ui/spinner';
@@ -14,25 +13,19 @@ import { TABS, type FilterTab, type SortOrder } from './thread-list-utils';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
 interface ThreadListHeaderProps {
-  unreadCount: number;
   onNewThread: () => void;
   onRefresh: () => void;
   onSort: (order: SortOrder) => void;
   sortOrder: SortOrder;
 }
 
-export function ThreadListHeader({ unreadCount, onNewThread, onRefresh, onSort, sortOrder }: ThreadListHeaderProps) {
+export function ThreadListHeader({ onNewThread, onRefresh, onSort, sortOrder }: ThreadListHeaderProps) {
   const t = useT();
   return (
     <div className="flex h-(--header-height) shrink-0 items-center justify-between gap-2 border-b border-border px-3">
       <div className="flex min-w-0 items-center gap-1.5">
         <ListToggleButton className="-ml-1 shrink-0 text-muted-foreground" />
         <span className="truncate text-sm leading-relaxed font-semibold">{t('threads.title')}</span>
-        {/* Unread threads, in the shared red unread count. Hidden at zero — a
-            "0" beside the title is noise, not information. */}
-        {unreadCount > 0 && (
-          <UnreadBadge count={unreadCount} aria-label={t('threads.unreadCount', { count: unreadCount })} />
-        )}
       </div>
 
       <div className="flex shrink-0 items-center gap-0.5">
@@ -104,12 +97,11 @@ export function ThreadSearch({ value, searching, onChange, inline = false }: Thr
 export function ThreadConversationFilter({ value, counts, onChange, disabled = false }: { value: FilterTab; counts: Record<FilterTab, number | undefined>; onChange: (value: FilterTab) => void; disabled?: boolean }) {
   const t = useT();
   const tab = TABS.find(tab => tab.id === value)!;
-  const count = counts[value];
   return <DropdownMenu>
     <DropdownMenuTrigger asChild>
       <Button variant="ghost" size="sm" className="max-w-[52%] gap-1.5 px-2 text-xs text-muted-foreground" disabled={disabled} aria-label={t('threadProjects.filter')}>
         <Filter className="size-3.5 shrink-0" /><span className="truncate">{value === 'all' ? t('threadProjects.allConversations') : t(tab.labelKey)}</span>
-        {!!count && <span className="text-xs tabular-nums">{count}</span>}<ChevronDown className="size-3 shrink-0" />
+        <ChevronDown className="size-3 shrink-0" />
       </Button>
     </DropdownMenuTrigger>
     <DropdownMenuContent align="end" className="w-56">

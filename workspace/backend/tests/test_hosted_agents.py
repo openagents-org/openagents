@@ -30,6 +30,7 @@ class FakeAcenta:
             self.usage_params = kwargs["params"]
             return {"has_account": True, "billing_enabled": True, "balance_enabled": True, "balance_cents": 1234,
                     "spent_this_month_cents": 150, "auto_topup": False, "manage_url": "https://acenta.test/dashboard",
+                    "offer": {"name": "Black Friday", "percent_off": 40, "months": 6, "tiers": ["standard", "smart"], "ends_at": "2026-11-28T07:59:59+00:00", "eligible": True, "url": "https://acenta.test/pricing"},
                     "agents": [{"agent_id": "box-9", "mode": "usage", "tier": "standard", "status": "active",
                                 "spent_this_month_cents": 150, "renewal_at": None}]}
         if method == "POST" and path == "":
@@ -305,6 +306,8 @@ def test_usage_passes_through_for_members_and_sends_email_only_once_verified(cli
     assert data["agents"] == [{"id": "box-9", "mode": "usage", "tier": "standard", "status": "active",
                                "spentThisMonthCents": 150, "renewalAt": None}]
     assert data["manageUrl"] == "https://acenta.test/dashboard"
+    assert data["offer"] == {"name": "Black Friday", "percentOff": 40, "months": 6, "tiers": ["standard", "smart"],
+                             "endsAt": "2026-11-28T07:59:59+00:00", "eligible": True, "url": "https://acenta.test/pricing"}
     # Not verified yet: Acenta must not match an account by the typed address.
     assert acenta.usage_params == {"subject": "mia@acme.test", "email": ""}
     from datetime import datetime, timezone

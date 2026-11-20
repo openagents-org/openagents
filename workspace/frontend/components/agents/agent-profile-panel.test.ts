@@ -10,6 +10,10 @@ const api = vi.hoisted(() => ({
   getAgentCatalogDetail: vi.fn(),
   listNodes: vi.fn(),
   getAgentDirectory: vi.fn(),
+  enqueueNodeCommand: vi.fn(),
+  listNodeCommands: vi.fn(),
+  updateMember: vi.fn(),
+  listHostedAgents: vi.fn(),
 }));
 
 const layout = vi.hoisted(() => ({ openEditAgent: vi.fn() }));
@@ -89,6 +93,10 @@ beforeEach(() => {
   api.getAgentCatalogDetail.mockReset();
   api.listNodes.mockReset().mockResolvedValue([]);
   api.getAgentDirectory.mockReset().mockResolvedValue([]);
+  api.enqueueNodeCommand.mockReset().mockResolvedValue({ commandId: 'c1' });
+  api.listNodeCommands.mockReset().mockResolvedValue([{ commandId: 'c1', status: 'done', result: { ok: true, message: null } }]);
+  api.updateMember.mockReset().mockResolvedValue({});
+  api.listHostedAgents.mockReset().mockResolvedValue([]);
   owner.email = 'owner@example.com';
   layout.openEditAgent.mockReset();
   container = document.createElement('div');
@@ -206,31 +214,116 @@ describe('agent model settings', () => {
   });
 });
 
-describe('agent working folder', () => {
-  it('shows the folder and its device, and sends a change to the full settings', async () => {
-    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [], workspace_model: true });
+describe('agent device settings', () => {
+  const onNode = (agent: Record<string, unknown>) => [{
+    nodeId: 'n1',
+    name: 'DESKTOP-TEST',
+    agents: [{ name: 'codex-demo-key', type: 'codex', status: 'running', workingDir: 'C:\\Users\\tester', ...agent }],
+  }];
+  async function renderPanel() {
     await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
     await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+  }
+  const section = (title: string) => Array.from(document.body.querySelectorAll('section'))
+    .find((el) => el.querySelector('h3')?.textContent === title);
+  const editIn = (title: string) => Array.from(section(title)?.querySelectorAll('button') ?? [])
+    .find((button) => button.textContent === 'agents.settingsEdit');
+  const click = async (el: Element | null | undefined) => {
+    await act(async () => { el?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+  };
+  const type = async (el: Element | null, value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(el, value);
+      el?.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  const submit = async (title: string) => {
+    vi.useFakeTimers();
+    try {
+      await act(async () => { section(title)?.querySelector('form')?.requestSubmit(); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1500); });
+    } finally { vi.useRealTimers(); }
+  };
+
+  beforeEach(() => {
+    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [], workspace_model: true });
+  });
+
+  it('changes the working folder in place', async () => {
+    api.listNodes.mockResolvedValue(onNode({ authMode: 'cli_login' }));
+    await renderPanel();
 
     expect(document.body.textContent).toContain('C:\\Users\\tester');
     expect(document.body.textContent).toContain('agents.workdirDevice');
-    const edit = Array.from(document.body.querySelectorAll('button'))
-      .find((button) => button.textContent === 'agents.workdirEdit');
-    expect(edit).toBeDefined();
-    await act(async () => { edit?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    await click(editIn('agents.fieldFolder'));
+    await type(section('agents.fieldFolder')!.querySelector('input'), 'D:\\work\\codex');
+    await submit('agents.fieldFolder');
 
-    expect(layout.openEditAgent).toHaveBeenCalledWith({ agentName: 'codex-demo-key', nodeId: 'n1' });
+    expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', {
+      name: 'codex-demo-key', type: 'codex', currentWorkingDir: 'C:\\Users\\tester', workingDir: 'D:\\work\\codex',
+    });
+    expect(layout.openEditAgent).not.toHaveBeenCalled();
+    // A signed-in agent has no key or endpoint to edit.
+    expect(section('agents.accessTitle')).toBeUndefined();
   });
 
   it('offers no change for an agent someone else owns', async () => {
     owner.email = 'someone-else@example.com';
-    api.getAgentCatalogDetail.mockResolvedValue({ name: 'codex', models: [], workspace_model: true });
-    await act(async () => { root.render(React.createElement(AgentProfilePanel)); });
-    await act(async () => { await Promise.resolve(); });
+    api.listNodes.mockResolvedValue(onNode({ authMode: 'api_key', apiKeyMasked: 'sk-1...cdef' }));
+    await renderPanel();
 
     expect(document.body.textContent).toContain('C:\\Users\\tester');
-    const edit = Array.from(document.body.querySelectorAll('button'))
-      .find((button) => button.textContent === 'agents.workdirEdit');
-    expect(edit).toBeUndefined();
+    expect(editIn('agents.fieldFolder')).toBeUndefined();
+    expect(section('agents.accessTitle')).toBeUndefined();
+  });
+
+  it('shows no folder, key or endpoint for an agent a provider hosts', async () => {
+    api.listHostedAgents.mockResolvedValue([{ agentName: 'codex-demo-key', provider: 'acenta' }]);
+    api.listNodes.mockResolvedValue(onNode({ authMode: 'api_key', apiKeyMasked: 'sk-1...cdef' }));
+    await renderPanel();
+
+    expect(section('agents.fieldFolder')).toBeUndefined();
+    expect(section('agents.accessTitle')).toBeUndefined();
+    expect(document.body.textContent).not.toContain('C:\\Users\\tester');
+  });
+
+  it('moves a key agent to a custom endpoint with its model', async () => {
+    api.listNodes.mockResolvedValue(onNode({ authMode: 'api_key', apiKeyMasked: 'sk-1...cdef', baseUrlHost: null }));
+    await renderPanel();
+
+    expect(section('agents.accessTitle')?.textContent).toContain('sk-1...cdef');
+    expect(section('agents.accessTitle')?.textContent).toContain('agents.accessOfficial');
+    await click(editIn('agents.accessTitle'));
+    await click(document.getElementById('profile-custom-endpoint'));
+    await type(document.getElementById('profile-endpoint'), 'https://relay.example.com/v1');
+    await submit('agents.accessTitle');
+    // Without a model the old one would run against the new endpoint.
+    expect(section('agents.accessTitle')?.textContent).toContain('connect.nodeCustomModelRequired');
+    expect(api.enqueueNodeCommand).not.toHaveBeenCalled();
+
+    await type(document.getElementById('profile-endpoint-model'), 'relay-model');
+    await submit('agents.accessTitle');
+
+    expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', {
+      name: 'codex-demo-key', type: 'codex', currentWorkingDir: 'C:\\Users\\tester',
+      baseUrl: 'https://relay.example.com/v1', model: 'relay-model',
+    });
+    expect(api.updateMember).toHaveBeenCalledWith('codex-demo-key', { model: 'relay-model' });
+  });
+
+  it('switches a key agent back to the official endpoint', async () => {
+    api.listNodes.mockResolvedValue(onNode({ authMode: 'api_key', apiKeyMasked: 'sk-1...cdef', baseUrlHost: 'relay.example.com' }));
+    await renderPanel();
+
+    expect(section('agents.accessTitle')?.textContent).toContain('relay.example.com');
+    await click(editIn('agents.accessTitle'));
+    await click(document.getElementById('profile-custom-endpoint'));
+    await submit('agents.accessTitle');
+
+    expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'configure_agent', {
+      name: 'codex-demo-key', type: 'codex', currentWorkingDir: 'C:\\Users\\tester', baseUrl: '',
+    });
+    expect(api.updateMember).not.toHaveBeenCalled();
   });
 });

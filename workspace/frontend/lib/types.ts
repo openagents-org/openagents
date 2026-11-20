@@ -961,6 +961,20 @@ export interface AcentaUsage {
   agents: AcentaAgentUsage[];
   /** Acenta's dashboard, where the balance is topped up and plans are changed. */
   manageUrl: string | null;
+  /** A time-limited Acenta offer (e.g. Black Friday) while it runs. */
+  offer?: AcentaOffer | null;
+}
+
+/** A time-limited Acenta offer for new customers' first monthly agent. */
+export interface AcentaOffer {
+  name: string;
+  percentOff: number;
+  months: number;
+  tiers: string[] | null;
+  endsAt: string;
+  /** False once this user has had a monthly agent (the offer is for new customers). */
+  eligible: boolean;
+  url: string | null;
 }
 
 /** An agent whose runtime a provider hosts; it joins like any other agent. */
