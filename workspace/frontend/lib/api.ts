@@ -242,8 +242,9 @@ class WorkspaceApi {
   private bearerToken: string = '';
   private workspaceId: string = '';
   // Mints a fresh identity token after the server rejected ours (401). Set by
-  // the auth context for Firebase sign-ins; null where the page cannot refresh
-  // (workspace-issued sessions, the desktop host which pushes renewals itself).
+  // the auth context: Firebase sign-ins mint a new ID token, workspace-issued
+  // sessions renew. Null where the page cannot refresh (the desktop host, which
+  // pushes renewals itself).
   private bearerRefresher: (() => Promise<string | null>) | null = null;
   private refreshInFlight: Promise<string | null> | null = null;
   // Public registry metadata is shared across workspaces. Reuse hover preloads
@@ -271,6 +272,11 @@ class WorkspaceApi {
 
   setBearerRefresher(refresher: (() => Promise<string | null>) | null) {
     this.bearerRefresher = refresher;
+  }
+
+  /** Remove `refresher` if it is still the one installed (another sign-in may have replaced it). */
+  clearBearerRefresher(refresher: () => Promise<string | null>) {
+    if (this.bearerRefresher === refresher) this.bearerRefresher = null;
   }
 
   /** One refresh at a time, shared by every request that hit a 401 together. */

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { exchangeHandoffToken, loadWorkspaceSession } from './workspace-session';
+import {
+  exchangeHandoffToken, loadWorkspaceSession, renewWorkspaceSession, saveWorkspaceSession, sessionNeedsRenewal,
+} from './workspace-session';
 
 const request = vi.fn();
 beforeEach(() => {
@@ -42,4 +44,41 @@ it('does not silently route a network failure or subsequent API traffic through 
   await expect(exchangeHandoffToken('test-custom-token')).rejects.toThrow('Failed to fetch');
   expect(request).toHaveBeenCalledTimes(1);
   expect(loadWorkspaceSession()).toBeNull();
+});
+
+const held = { token: 'held-session', email: 'test@example.com', displayName: 'Test', expiresAt: Math.floor(Date.now() / 1000) + 3600 };
+
+it('renews a held session with it as the bearer and stores the new one', async () => {
+  saveWorkspaceSession(held);
+  const expiresAt = new Date(Date.now() + 30 * 86400_000);
+  request.mockResolvedValue(new Response(JSON.stringify({ data: {
+    session_token: 'fresh-session', email: 'test@example.com', display_name: 'Test', expires_at: expiresAt.toISOString(),
+  } })));
+  const renewed = await renewWorkspaceSession(held);
+  expect(request).toHaveBeenCalledExactlyOnceWith(
+    'https://workspace-endpoint.openagents.org/v1/auth/session/renew',
+    { method: 'POST', headers: { Authorization: 'Bearer held-session' } },
+  );
+  expect(renewed?.token).toBe('fresh-session');
+  expect(loadWorkspaceSession()).toEqual(renewed);
+});
+
+it('clears the stored session when the server refuses to renew it', async () => {
+  saveWorkspaceSession(held);
+  request.mockResolvedValue(new Response(JSON.stringify({ message: 'Please sign in again.' }), { status: 401 }));
+  expect(await renewWorkspaceSession(held)).toBeNull();
+  expect(loadWorkspaceSession()).toBeNull();
+});
+
+it('keeps the stored session when renewal cannot reach the server', async () => {
+  saveWorkspaceSession(held);
+  request.mockRejectedValue(new TypeError('Failed to fetch'));
+  await expect(renewWorkspaceSession(held)).rejects.toThrow();
+  expect(loadWorkspaceSession()).toEqual(held);
+});
+
+it('asks for renewal only in the last week of a session', () => {
+  const now = 1_000_000;
+  expect(sessionNeedsRenewal({ ...held, expiresAt: now + 20 * 86400 }, now)).toBe(false);
+  expect(sessionNeedsRenewal({ ...held, expiresAt: now + 3 * 86400 }, now)).toBe(true);
 });
