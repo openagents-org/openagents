@@ -19,6 +19,7 @@
     "cmdk": "^1.1.1",
     "date-fns": "^4.1.0",
     "firebase": "^12.10.0",
+    "jszip": "^3.10.2",
     "lucide-react": "^0.541.0",
     "mammoth": "^1.13.0",
     "mermaid": "^11.15.0",

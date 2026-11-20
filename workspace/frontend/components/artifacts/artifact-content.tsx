@@ -9,6 +9,9 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { BrowserArtifactPreview } from './browser-artifact-preview';
 import { useT } from '@/lib/i18n';
+import { MAX_XLSX_BYTES, isXlsx, parseXlsx, type WorkbookSheet } from '@/components/files/xlsx';
+import { WorkbookView } from '@/components/files/xlsx-stage';
+import { SheetStage, delimiterFor } from '@/components/files/sheet-stage';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
 
 export function ArtifactContent({ artifact, revision }: { artifact: ArtifactReference; revision: number }) {
@@ -16,7 +19,7 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
   const { files } = useWorkspace();
   const { idToken } = useOpenAgentsAuth();
   const file = artifact.kind === 'file' ? files.find(f => f.id === artifact.id) : null;
-  const [loaded, setLoaded] = useState<{ key: string; text?: string; url?: string; type?: string; failed?: boolean } | null>(null);
+  const [loaded, setLoaded] = useState<{ key: string; text?: string; url?: string; type?: string; sheets?: WorkbookSheet[]; failed?: boolean } | null>(null);
   const key = `${artifact.kind}:${artifact.id}:${revision}:${idToken}`;
   useEffect(() => {
     if (artifact.kind === 'browser' || file?.contentType === WEB_PROJECT_TYPE) return;
@@ -37,9 +40,14 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
       } else if (/text\/html/.test(type) || /\.html?$/i.test(filename)) {
         const text = await response.text();
         if (!abort.signal.aborted) setLoaded({key,text,type:'html'});
-      } else if (type.startsWith('text/') || /\.(mdx?|json|csv)$/i.test(filename)) {
+      } else if (type.startsWith('text/') || /\.(mdx?|json|csv|tsv)$/i.test(filename)) {
         const text = await response.text();
         if (!abort.signal.aborted) setLoaded({key,text,type: /markdown/.test(type) || /\.mdx?$/i.test(filename) ? 'markdown' : 'text'});
+      } else if (isXlsx(type, filename) && (file?.size ?? 0) <= MAX_XLSX_BYTES) {
+        const bytes = await response.arrayBuffer();
+        const sheets = await parseXlsx(bytes).catch(() => null); if (abort.signal.aborted) return;
+        if (sheets) setLoaded({key,type:'xlsx',sheets});
+        else { objectUrl = URL.createObjectURL(new Blob([bytes], { type })); setLoaded({key,url:objectUrl,type}); }
       } else {
         const blob = await response.blob(); if (abort.signal.aborted) return;
         objectUrl = URL.createObjectURL(blob); setLoaded({key,url:objectUrl,type});
@@ -54,6 +62,9 @@ export function ArtifactContent({ artifact, revision }: { artifact: ArtifactRefe
   if (loaded.failed) return <p role="alert" className="p-6 text-sm text-muted-foreground">{t('artifactPanel.unavailable')}</p>;
   if (loaded.type === 'html') return <iframe title={file?.filename || t('artifactPanel.html')} srcDoc={loaded.text} sandbox="allow-scripts" referrerPolicy="no-referrer" className="h-full w-full border-0 bg-white" />;
   if (loaded.type === 'markdown') return <article className="h-full overflow-auto p-6"><MarkdownContent content={loaded.text || ''} agentNames={[]} /></article>;
+  if (loaded.sheets) return <div className="h-full overflow-auto"><WorkbookView key={loaded.key} sheets={loaded.sheets} /></div>;
+  const delimiter = loaded.text !== undefined ? delimiterFor(loaded.type || '', file?.filename || '') : null;
+  if (delimiter) return <div className="h-full overflow-auto"><SheetStage content={loaded.text || ''} delimiter={delimiter} /></div>;
   if (loaded.text !== undefined) return <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-5 text-sm">{loaded.text}</pre>;
   if (loaded.type?.startsWith('image/')) return <div className="flex h-full items-center justify-center overflow-auto p-4"><img src={loaded.url} alt={file?.filename || ''} className="max-h-full max-w-full object-contain" /></div>;
   if (loaded.type?.includes('pdf')) return <iframe src={loaded.url} title={file?.filename || t('artifactPanel.document')} className="h-full w-full border-0" />;

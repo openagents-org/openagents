@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({ t: (key: string) => key, list: vi.fn(async () => []), create: vi.fn() }));
 vi.mock('@/lib/i18n', () => ({ useT: () => mocks.t, useFormatters: () => ({ formatDate: () => '' }) }));
-vi.mock('@/lib/api', () => ({ workspaceApi: { listGrants: mocks.list, createGrant: mocks.create } }));
+vi.mock('@/lib/api', () => ({ workspaceApi: { isConfigured: () => true, currentWorkspaceId: () => 'ws', listGrants: mocks.list, createGrant: mocks.create } }));
 vi.mock('./grantee-picker', () => ({ GranteePicker: () => React.createElement('div', null, 'Grant picker') }));
 import { ArtifactShareContent } from './artifact-share';
 it('explains read-only access instead of offering a share operation the server will reject', async () => {

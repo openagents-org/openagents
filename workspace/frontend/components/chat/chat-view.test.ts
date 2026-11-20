@@ -33,6 +33,7 @@ vi.mock('@/components/layout/layout-context', () => ({
 }));
 vi.mock('@/lib/api', () => ({
   workspaceApi: {
+    isConfigured: () => false,
     listNodes: async () => [],
     sendMessage: async (sessionId: string, content: string, ...args: unknown[]) => { h.sent.push([sessionId, content, ...args]); return ({ id: 'a3', source: 'human:user-1', target: `channel/${sessionId}`, type: 'workspace.message.posted', timestamp: Date.now(), visibility: 'channel', payload: { content }, metadata: { target_agents: ['bot'] } }); },
     loadMessageHistory: async () => ({ events: [], has_more: false }),

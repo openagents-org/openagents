@@ -1,21 +1,19 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
 import { Bot, Users, UserPlus, Plus } from 'lucide-react';
-import { workspaceApi } from '@/lib/api';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { threadPrivacyApplies } from './thread-privacy-control';
-import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
+import { loadChannelParticipants, useChannelParticipants } from '@/lib/channel-participants-store';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { displayNameFromEmail } from '@/lib/collab';
 import { AddThreadParticipants } from './add-thread-participants';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
-import type { ChannelParticipants } from '@/lib/types';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
 const TRIGGER = 'px-1.5 font-normal tabular-nums text-muted-foreground';
@@ -63,45 +61,34 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
   const key = `${workspaceId}:${channelName}`;
   const agentNames = JSON.stringify(session?.participants ?? []);
   const applicable = !!workspaceId && !!session && threadPrivacyApplies(channelName);
-  const [roster, setRoster] = useState<{ key: string; participants: ChannelParticipants } | null>(null);
+  const participants = useChannelParticipants(channelName, applicable);
   const [openList, setOpenList] = useState<'people' | 'agents' | null>(null);
 
   const [addKind, setAddKind] = useState<'human' | 'agent' | null>(null);
   useEffect(() => { setOpenList(null); setAddKind(null); }, [key]);
 
+  // The shared roster re-reads itself on mount and when the thread says its
+  // participants changed; this keeps the counts current while it stays open
+  // (others joining, agents added by discovery, visibility flipped).
+  const changes = useRef('');
   useEffect(() => {
     if (!applicable) return;
-    let active = true;
-    let pending = false;
-    const refresh = async () => {
-      if (pending) return;
-      pending = true;
-      try {
-        const participants = await workspaceApi.getChannelParticipants(channelName);
-        if (active) setRoster({ key, participants });
-      } catch {
-        if (active) setRoster(null);
-      } finally {
-        pending = false;
-      }
-    };
-    void refresh();
+    const signature = `${key}|${agentNames}|${session?.visibility ?? ''}`;
+    if (changes.current && changes.current !== signature && changes.current.startsWith(`${key}|`)) {
+      loadChannelParticipants(channelName, { force: true }).catch(() => {});
+    }
+    changes.current = signature;
+    const refresh = () => { loadChannelParticipants(channelName, { force: true }).catch(() => {}); };
     const timer = window.setInterval(refresh, 30_000);
-    const onParticipantsChanged = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === channelName) void refresh();
-    };
     window.addEventListener('focus', refresh);
-    window.addEventListener(THREAD_PARTICIPANTS_CHANGED, onParticipantsChanged);
     return () => {
-      active = false;
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
-      window.removeEventListener(THREAD_PARTICIPANTS_CHANGED, onParticipantsChanged);
     };
   }, [applicable, key, channelName, agentNames, session?.visibility]);
 
-  if (!applicable || !roster || roster.key !== key) return null;
-  const { humans, agents } = roster.participants;
+  if (!applicable || !participants) return null;
+  const { humans, agents } = participants;
   const close = (kind: 'human' | 'agent') => { setOpenList(null); setAddKind(kind); };
   return (
     <span className="inline-flex shrink-0 items-center gap-0.5">
@@ -122,7 +109,7 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
               const name = person.display_name || displayNameFromEmail(person.email);
               return { key: person.email, media: <HumanAvatar email={person.email} />, title: name, description: person.email };
             })}
-            add={roster.participants.can_add_people ? { label: t('threadAccess.addMember'), icon: <UserPlus data-icon="inline-start" aria-hidden="true" />, onClick: () => close('human') } : null}
+            add={participants.can_add_people ? { label: t('threadAccess.addMember'), icon: <UserPlus data-icon="inline-start" aria-hidden="true" />, onClick: () => close('human') } : null}
           />
         </PopoverContent>
       </Popover>
@@ -145,7 +132,7 @@ export function ThreadParticipantCount({ channelName }: { channelName: string })
               title: agent.display_name || agent.agent_name,
               description: agent.display_name && agent.display_name !== agent.agent_name ? agent.agent_name : undefined,
             }))}
-            add={roster.participants.can_add_agents ? { label: t('threadAccess.addAgent'), icon: <Plus data-icon="inline-start" aria-hidden="true" />, onClick: () => close('agent') } : null}
+            add={participants.can_add_agents ? { label: t('threadAccess.addAgent'), icon: <Plus data-icon="inline-start" aria-hidden="true" />, onClick: () => close('agent') } : null}
           />
         </PopoverContent>
       </Popover>

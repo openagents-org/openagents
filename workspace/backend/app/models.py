@@ -67,9 +67,9 @@ class EventRecord(Base):
 
     __table_args__ = (
         Index("idx_events_network_type", "network_id", "type"),
+        # JSON ->> expression is PostgreSQL-only; SQLite (tests) skips this index.
         Index("idx_events_routine_history", "network_id", payload["routine_id"].astext, timestamp.desc(),
-              postgresql_where=text("source = 'system:routine'"),
-              sqlite_where=text("source = 'system:routine'")),
+              postgresql_where=text("source = 'system:routine'")).ddl_if(dialect="postgresql"),
         Index("idx_events_network_target", "network_id", "target"),
         Index("idx_events_network_timestamp", "network_id", "timestamp"),
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),

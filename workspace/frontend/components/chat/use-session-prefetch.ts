@@ -3,7 +3,9 @@
 import { useEffect, useRef } from 'react';
 import type { WorkspaceSession } from '@/lib/types';
 import { sessionActivityTime } from '@/lib/conversation-list';
+import { prefetchChannelParticipants } from '@/lib/channel-participants-store';
 import { cacheMessages, fetchSessionMessages, messageCache, refreshCachedSession } from './chat-message-cache';
+import { threadPrivacyApplies } from './thread-privacy-control';
 
 const PREFETCH_COUNT = 6;
 const CACHE_REFRESH_INTERVAL = 5_000; // refresh caches every 5s
@@ -28,6 +30,8 @@ export function useSessionPrefetch(sessions: WorkspaceSession[], currentSessionI
     // Initial fetch — staggered
     const initial = getTopSessions();
     initial.forEach((s, i) => {
+      // Their rosters too, so the thread header opens complete.
+      if (threadPrivacyApplies(s.sessionId)) setTimeout(() => prefetchChannelParticipants(s.sessionId), i * 300);
       if (!messageCache.has(s.sessionId)) {
         setTimeout(() => fetchSessionMessages(s.sessionId).then((msgs) => {
           if (msgs.length > 0) cacheMessages(s.sessionId, msgs);
