@@ -48,23 +48,55 @@ export function expiryTimestamp(choice: Expiry, customDate: string, now = new Da
   return new Date(now.getTime() + Number(choice) * 86_400_000).toISOString();
 }
 
+/**
+ * The last link state read per artifact, so the section opens on it instead
+ * of "Loading…" while the fresh one is fetched. The Share button warms it on
+ * hover (prefetchPublicShare); the section still re-reads on every open.
+ */
+const known = new Map<string, PublicShareState>();
+const reading = new Map<string, Promise<PublicShareState>>();
+const shareKey = (kind: PublicShareKind, id: string) => `${workspaceApi.currentWorkspaceId()}\n${kind}:${id}`;
+
+function readPublicShare(kind: PublicShareKind, id: string): Promise<PublicShareState> {
+  const key = shareKey(kind, id);
+  const pending = reading.get(key);
+  if (pending) return pending;
+  const request = Promise.resolve()
+    .then(() => workspaceApi.getPublicShare(kind, id))
+    .then((next) => { known.set(key, next); return next; })
+    .finally(() => { reading.delete(key); });
+  reading.set(key, request);
+  return request;
+}
+
+/** Test seam: forget every link state read. */
+export function forgetPublicShares() { known.clear(); reading.clear(); }
+
+/** Read an artifact's link state ahead of opening its Share menu. Never throws. */
+export function prefetchPublicShare(kind: PublicShareKind, id: string) {
+  if (!workspaceApi.isConfigured() || known.has(shareKey(kind, id))) return;
+  readPublicShare(kind, id).catch(() => {});
+}
+
+/** An existing link opens on the expiry it has, so updating keeps it. */
+const expiryOf = (state: PublicShareState | undefined): Expiry => (state?.link?.expires_at ? 'custom' : 'never');
+const customDateOf = (state: PublicShareState | undefined) =>
+  dateInputValue(state?.link?.expires_at ? new Date(state.link.expires_at) : new Date(Date.now() + 7 * 86_400_000));
+
 export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicShareKind; id: string; webPage?: boolean }) {
   const t = useT();
   const { formatDate, formatDateTime } = useFormatters();
-  const [state, setState] = useState<PublicShareState | null>(null);
+  const [state, setState] = useState<PublicShareState | null>(() => known.get(shareKey(kind, id)) ?? null);
   const [busy, setBusy] = useState(false);
-  const [expiry, setExpiry] = useState<Expiry>('never');
-  const [customDate, setCustomDate] = useState(() => dateInputValue(new Date(Date.now() + 7 * 86_400_000)));
+  const [expiry, setExpiry] = useState<Expiry>(() => expiryOf(known.get(shareKey(kind, id))));
+  const [customDate, setCustomDate] = useState(() => customDateOf(known.get(shareKey(kind, id))));
 
   const load = useCallback(async () => {
     try {
-      const next = await workspaceApi.getPublicShare(kind, id);
+      const next = await readPublicShare(kind, id);
       setState(next);
-      // An existing link opens on the expiry it has, so updating keeps it.
-      if (next.link?.expires_at) {
-        setExpiry('custom');
-        setCustomDate(dateInputValue(new Date(next.link.expires_at)));
-      }
+      setExpiry(expiryOf(next));
+      if (next.link?.expires_at) setCustomDate(customDateOf(next));
     } catch {
       setState({ link: null, can_manage: false });
     }
@@ -76,6 +108,7 @@ export function PublicLinkSection({ kind, id, webPage = false }: { kind: PublicS
     setBusy(true);
     try {
       const next = await action();
+      known.set(shareKey(kind, id), next);
       setState(next);
       await done(next);
     } catch (error) {

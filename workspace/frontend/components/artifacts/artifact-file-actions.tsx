@@ -1,15 +1,14 @@
 'use client';
 /**
  * Header actions for the artifact opened in the thread's side panel — the
- * same download / copy link the full file page offers, so a file an agent
- * produced can leave the conversation without a detour to Files. Sharing is
- * the panel's Share button (artifact-share-button.tsx).
+ * download the full file page offers, so a file an agent produced can leave
+ * the conversation without a detour to Files. Links, for members or anyone,
+ * are the panel's Share button (artifact-share-button.tsx).
  */
 import { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
@@ -34,15 +33,11 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
     refreshFiles().then(() => { if (current) setUnavailableId(artifact.id); }, () => {});
     return () => { current = false; };
   }, [missing, artifact.id, refreshFiles]);
-  if (artifact.kind === 'knowledge') return <CopyResourceLink view="knowledge" id={artifact.id} />;
   if (artifact.kind !== 'file' || (!file && unavailableId === artifact.id)) return null;
   const download = () => {
     void workspaceApi.downloadFile(artifact.id, file?.filename).catch(error => toast.error(error instanceof Error ? error.message : t('files.loadFailed')));
   };
-  // Download and the link need only the id, so they show from the first
-  // frame while the list loads.
-  return <>
-    <WithTooltip label={t('common.download')}><Button variant="ghost" size="icon-sm" aria-label={t('common.download')} onClick={download}><Download className="size-4" /></Button></WithTooltip>
-    <CopyResourceLink view="files" id={artifact.id} />
-  </>;
+  // Download needs only the id, so it shows from the first frame while the
+  // list loads.
+  return <WithTooltip label={t('common.download')}><Button variant="ghost" size="icon-sm" aria-label={t('common.download')} onClick={download}><Download className="size-4" /></Button></WithTooltip>;
 }

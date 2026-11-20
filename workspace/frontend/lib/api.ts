@@ -312,6 +312,11 @@ class WorkspaceApi {
     return this.workspaceId !== '';
   }
 
+  /** The workspace requests go to; '' before configure(). */
+  currentWorkspaceId(): string {
+    return this.workspaceId;
+  }
+
   /**
    * Guard against firing requests before configure() has populated
    * workspaceId. configure() runs in a useEffect that fires *after* the
