@@ -334,13 +334,29 @@ describe('verifyComposedConfig', () => {
     }
   });
 
-  it('cannot vouch for rows an include loads from a file', () => {
+  // Review of 701c9c2c7: whether a disabled include is read depends on
+  // Cordis's loader rules, so no include is vouched for, disabled or not.
+  it('cannot vouch for rows an include loads from a file, disabled or not', () => {
     const include = "- id: extra\n  name: cordis:include\n  config:\n    path: ./more.yml\n";
     const r = verifyComposedConfig(COMPOSED + include);
     assert.equal(r.ok, false);
     assert.match(r.problem, /"extra" includes rows from a file/);
-    const off = "- id: extra\n  name: cordis:include\n  disabled: true\n  config:\n    path: ./more.yml\n";
-    assert.equal(verifyComposedConfig(COMPOSED + off).ok, true);
+    for (const flags of ['  disabled: true\n', '  disabled: true\n  group: true\n']) {
+      const off = `- id: extra\n  name: cordis:include\n${flags}  config:\n    path: ./more.yml\n`;
+      assert.equal(verifyComposedConfig(COMPOSED + off).ok, false, flags);
+    }
+    const nested = [
+      '- id: off-group',
+      '  name: cordis:group',
+      '  disabled: true',
+      '  config:',
+      '    - id: inner',
+      "      name: '@deepseek-ai/cordis-plugin-include'",
+      '      config:',
+      '        path: ./more.yml',
+      '',
+    ].join('\n');
+    assert.match(verifyComposedConfig(COMPOSED + nested).problem, /"inner" includes rows from a file/);
   });
 
   it('fails when a checked row appears twice', () => {

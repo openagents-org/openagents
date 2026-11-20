@@ -139,7 +139,8 @@ fallback to passing the prompt on the command line.
   disabled, approval `never`, every permission preset keeping its own sandbox,
   and `sandbox-policy` still taking its mode from `DSH_PERMISSION_MODE`. If
   they composed as written the agent runs; if not (or the dump cannot be read,
-  or does not finish within 30 s), the daemon installs the supported version
+  does not finish within 30 s, or carries an include entry whose rows it does
+  not show), the daemon installs the supported version
   and asks again. The check runs as a child process the daemon awaits, so it
   never blocks other agents, and a passing preview is checked once per daemon
   process.

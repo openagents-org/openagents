@@ -410,8 +410,11 @@ function verifyComposedConfig(text) {
   // items, is not a second approval row.
   //
   // An include entry loads rows from a file the dump only names, so whatever
-  // it mounts cannot be checked here: one that is not plainly disabled makes
-  // the composition unverified.
+  // it mounts cannot be checked here: any include makes the composition
+  // unverified, whatever its `disabled` says. Whether Cordis opens the file
+  // turns on its loader's rules (a disabled include flagged `group: true` is
+  // still read; one inside a disabled group is not), and re-deriving those
+  // here would drift from upstream. dsh's standard headless profile has none.
   const seen = new Map();
   let include = null;
   const nameOf = (e) => (isScalarNode(e.name) && !e.name.tag ? e.name.value : null);
@@ -422,7 +425,7 @@ function verifyComposedConfig(text) {
       const id = idOf(entry);
       if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
       const name = nameOf(entry);
-      if (INCLUDE_PLUGINS.includes(name) && !isTrue(entry.disabled)) include = include || id || name;
+      if (INCLUDE_PLUGINS.includes(name)) include = include || id || name;
       if ((isTrue(entry.group) || GROUP_PLUGINS.includes(name)) && Array.isArray(entry.config)) walkEntries(entry.config);
     }
   };
