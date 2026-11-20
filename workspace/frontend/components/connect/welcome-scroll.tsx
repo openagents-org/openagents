@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { ArrowDown, ArrowRight, ArrowUp, Cloud, Laptop, X } from 'lucide-react';
+import { ArrowDown, ArrowRight, ArrowUp, Cloud, X } from 'lucide-react';
 import styles from './welcome-scroll.module.css';
 import { CollaborationStory } from './collaboration-story';
 import { ContextPreview } from './context-preview';
@@ -179,23 +179,12 @@ function WelcomeScrollContent({ onContinue, embedded }: {
 
       <PathBetween />
 
-      <section className={styles.ending} aria-labelledby="welcome-next-step">
-        <div className={styles.endingCard}>
-          <div className={styles.endingConnection} aria-hidden="true">
-            <div className={styles.endingAgents}>
-              <span><AgentMark icon="claude" size={29}/></span>
-              <span><AgentMark icon="openai" size={29}/></span>
-              <span><AgentMark icon="hermes" size={29}/></span>
-            </div>
-            <span className={styles.endingConnector}><ArrowRight size={16}/></span>
-            <span className={styles.endingWorkspace}><img src="/logo-icon.png" width="35" height="35" alt=""/></span>
-          </div>
-          <p className={styles.eyebrow}>{t("endingEyebrow")}</p>
-          <h2 id="welcome-next-step">{t("endingTitle")}<br /><em>{t("endingEm")}</em></h2>
-          <p className={styles.endingDescription}>{t("endingBody")}</p>
-          <button className={styles.finalButton} onClick={onContinue}>{t("getStarted")}<span><ArrowRight size={18} aria-hidden="true"/></span></button>
-          <div className={styles.endingOptions}><span><Laptop size={14} aria-hidden="true"/>{t("endingLocal")}</span><i aria-hidden="true"/><span><Cloud size={14} aria-hidden="true"/>{t("endingCloud")}</span></div>
-        </div>
+      <section className={styles.ending}>
+        <img src="/logo-icon.png" width="42" height="42" alt=""/>
+        <p className={styles.eyebrow}>{t("endingEyebrow")}</p>
+        <h2>{t("endingTitle")}<br /><em>{t("endingEm")}</em></h2>
+        <p>{t("endingBody")}</p>
+        <button className={styles.finalButton} onClick={onContinue}>{t("getStarted")}<span><ArrowRight size={18} aria-hidden="true"/></span></button>
         <button className={styles.backToTop} onClick={() => goTo('welcome')}>{t("backBeginning")}<ArrowUp size={12}/></button>
       </section>
     </main>
