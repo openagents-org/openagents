@@ -191,6 +191,16 @@ export function ChatView() {
               if (email && (message.senderType === 'agent' || email.includes('@')) && !currentDraft.includes(`@${email}`)) appendMention(email);
               focusComposer();
             } : undefined}
+            onSaveKnowledge={canCompose ? (message) => {
+              const agentName = normalizeAgentAddress(message.senderAddress || message.senderName);
+              if (!agentName) return;
+              const excerpt = message.content.replace(/\s+/g, ' ').trim();
+              void handleSend(t('reactions.saveKnowledgePrompt', {
+                agent: agentName,
+                id: message.messageId,
+                excerpt: excerpt.length > 160 ? `${excerpt.slice(0, 160)}…` : excerpt,
+              }), [agentName], [], [], { replyTo: message });
+            } : undefined}
             onMentionPerson={canCompose ? (email) => {
               appendMention(email);
               focusComposer();
