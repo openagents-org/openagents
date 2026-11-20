@@ -269,6 +269,60 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(cls.category, 'network_error');
   });
 
+  // Daily errors dashboard, 2026-11-20: two OpenCode agents of one user failed
+  // in the same minute with "Failed to execute statement", read as "an
+  // undetermined reason". OpenCode's SQL layer says that for every failed
+  // statement and keeps the SQLite error in the cause.
+  it('names a failure of its local session database, and logs the SQLite cause', () => {
+    const stdout = JSON.stringify({
+      type: 'error',
+      error: {
+        name: 'SqlError',
+        message: 'Failed to execute statement',
+        cause: { _tag: 'LockTimeoutError', message: 'Failed to execute statement', cause: { code: 'SQLITE_BUSY', message: 'database is locked' } },
+      },
+    });
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout, stderr: '' });
+    assert.equal(cls.category, 'database_error');
+    assert.match(cls.diagnostic, /cause: .*SQLITE_BUSY database is locked/);
+    assert.equal(cls.detail, 'Failed to execute statement');
+    const plain = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
+    assert.equal(OpenCodeAdapter._classifyFailure(plain('Failed to execute statement')).category, 'database_error');
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Unexpected error\n\nFailed query: insert into "project" ("id") values (?)' }).category, 'database_error');
+    assert.equal(OpenCodeAdapter._classifyFailure(plain('SQLiteError: attempt to write a readonly database')).category, 'database_error');
+    assert.match(OpenCodeAdapter.prototype._failureMessages().database_error, /session database/);
+  });
+
+  // Review of f3c738f10: a database named in a config error or a provider's
+  // HTTP error is not OpenCode's own store failing.
+  it('leaves a config error and an HTTP error that mention a database to their own categories', () => {
+    const configStderr = 'Error: Configuration is invalid at /home/u/.config/opencode/opencode.json\n↳ Unrecognized key: postgresqlError';
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: configStderr }).category, 'config_invalid');
+    const http = '{"type":"error","error":{"name":"APIError","message":"PostgreSQLError: permission denied for relation keys","status":401}}';
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: http, stderr: '' }).category, 'auth_failed');
+    const name = '{"type":"error","error":{"name":"PostgreSQLError","message":"relation does not exist"}}';
+    assert.notEqual(OpenCodeAdapter._classifyFailure({ code: 1, stdout: name, stderr: '' }).category, 'database_error');
+  });
+
+  // Review of 6b8d93b29: OpenCode's own APIError carries the HTTP status in
+  // data.statusCode (opencode-ai 1.17.11, session/message-v2.ts).
+  it('reads the HTTP status OpenCode puts in error.data.statusCode', () => {
+    const apiError = (statusCode) => JSON.stringify({
+      type: 'error',
+      error: { name: 'APIError', data: { message: `Failed query: upstream ${statusCode}`, statusCode, isRetryable: false } },
+    });
+    const cat = (code) => OpenCodeAdapter._classifyFailure({ code: 1, stdout: apiError(code), stderr: '' }).category;
+    assert.equal(cat(401), 'auth_failed');
+    assert.equal(cat(429), 'rate_limited');
+    assert.equal(cat(503), 'provider_server_error');
+    assert.equal(OpenCodeAdapter._extractErrorFromStdout(apiError(401)).status, '401');
+  });
+
+  it('keeps the migrated-database case its own category', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Database is not empty and has no session table' });
+    assert.equal(cls.category, 'shared_db_migrated');
+  });
+
   // Field reports (core 0.2.223) that all read "failed for an undetermined
   // reason" while the provider had said exactly why.
   it('names a spent account, a revoked key, an oversized request and a busy provider', () => {

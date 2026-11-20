@@ -88,6 +88,14 @@ const CUSTOM_PROVIDER_ID = 'openagents-gateway';
 // Resolved per call, so it follows HOME.
 const ownDbPath = () => path.join(os.homedir(), '.openagents', 'opencode', 'opencode.db');
 const SHARED_DB_MIGRATED_RE = /database is not empty and has no session table/i;
+// Any other failure of OpenCode's local SQLite session store. OpenCode's SQL
+// layer reports every failed statement as "Failed to execute statement" and
+// keeps the SQLite error (a lock timeout, a full disk, a read-only file) in
+// the error's cause (opencode-ai 1.17.11, effect/sql SqlError); its Drizzle
+// path says "Failed query: <sql>". Two agents of one user on one Mac failed
+// this way in the same minute, each read as "failed for an undetermined
+// reason" (daily errors dashboard, 2026-11-20).
+const DATABASE_ERROR_RE = /failed to execute statement|failed query: |\bsqlerror\b|sqlite_(busy|locked|ioerr|full|readonly|corrupt|cantopen|notadb)|database (is locked|disk image is malformed)|attempt to write a readonly database/i;
 
 // Lets OpenCode's subagents read and write outside the working directory, as
 // the main session already may. `opencode run --dangerously-skip-permissions`
@@ -131,6 +139,7 @@ const FAILURE_MESSAGES = {
   permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  database_error: "OpenCode could not read or write its local session database. This is usually another OpenCode process on this device holding the database, a full disk, or a file it cannot write. Retry; if every message fails this way, close other OpenCode windows and check free disk space, or set OPENCODE_DB in this agent's configuration to the full path of a new file.",
   shared_db_migrated: "OpenCode could not open its session database: a newer OpenCode (2.x, or the OpenCode desktop app) on this device has converted it to a format the OpenCode CLI that OpenAgents runs cannot read, and running it on a database of its own did not help either. Reinstall OpenCode from the launcher, or set OPENCODE_DB in this agent's configuration to the full path of a new file, then retry.",
   malformed_tool_call: "The model sent back a tool call OpenCode could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
@@ -1760,7 +1769,24 @@ class OpenCodeAdapter extends BaseAdapter {
     return null;
   }
 
-  /** Pull { message, name, status } from one event, tolerant of nesting. */
+  /**
+   * The underlying error a wrapper carries, as one short line, or ''. OpenCode
+   * wraps a SQLite failure as "Failed to execute statement" and keeps the
+   * SQLite error here, so this is what the daemon log needs to say why.
+   * Goes to the diagnostic only, never into the category match.
+   */
+  static _causeText(cause) {
+    if (!cause) return '';
+    if (typeof cause === 'string') return cause.slice(0, 200);
+    if (typeof cause !== 'object') return '';
+    const parts = [cause._tag, cause.name, cause.code, cause.message]
+      .filter((v) => (typeof v === 'string' && v.trim()) || typeof v === 'number')
+      .map(String);
+    const nested = cause.cause && cause.cause !== cause ? OpenCodeAdapter._causeText(cause.cause) : '';
+    return [...new Set(parts), nested].filter(Boolean).join(' ').slice(0, 200);
+  }
+
+  /** Pull { message, name, status, cause } from one event, tolerant of nesting. */
   static _errorFromEvent(ev) {
     if (!ev || typeof ev !== 'object') return null;
     const type = String(ev.type || '').toLowerCase();
@@ -1784,15 +1810,20 @@ class OpenCodeAdapter extends BaseAdapter {
       const data = (c.data && typeof c.data === 'object') ? c.data : {};
       const message = pick(c.message, c.error, c.detail, c.reason, data.message);
       const name = pick(c.name, c.type);
+      // OpenCode's own APIError keeps the HTTP status in data.statusCode
+      // (opencode-ai 1.17.11, session/message-v2.ts); the others are the
+      // shapes other providers' errors take.
       const statusRaw = c.status != null ? c.status
         : (c.statusCode != null ? c.statusCode
           : (data.status != null ? data.status
-            : (typeof c.code === 'number' ? c.code : null)));
+            : (data.statusCode != null ? data.statusCode
+              : (typeof c.code === 'number' ? c.code : null))));
       if (message || name || statusRaw != null) {
         return {
           message: String(message || ''),
           name: String(name || ''),
           status: statusRaw != null ? String(statusRaw) : '',
+          cause: OpenCodeAdapter._causeText(c.cause || data.cause || c.reason),
         };
       }
     }
@@ -1812,7 +1843,8 @@ class OpenCodeAdapter extends BaseAdapter {
     const status = err && err.status ? String(err.status) : '';
     const msg = (err && err.message) || '';
     const name = (err && err.name) || '';
-    const diagnostic = [name, status, msg].filter(Boolean).join(' ')
+    const cause = (err && err.cause) || '';
+    const diagnostic = [name, status, msg, cause && `(cause: ${cause})`].filter(Boolean).join(' ')
       || (stderr || '')
       || `exit code ${code}${signal ? `, signal ${signal}` : ''}`;
     const hay = `${name} ${status} ${msg} ${stderr || ''}`.toLowerCase();
@@ -1829,6 +1861,11 @@ class OpenCodeAdapter extends BaseAdapter {
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
+    } else if (!/^[1-5]\d\d$/.test(status) && DATABASE_ERROR_RE.test(hay)) {
+      // After the config check, and never for an error that carries an HTTP
+      // status: a provider's or a config file's text may name a database
+      // ("PostgreSQLError") without OpenCode's own store having failed.
+      category = 'database_error';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets

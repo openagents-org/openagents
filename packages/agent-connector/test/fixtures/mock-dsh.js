@@ -12,10 +12,12 @@
  * Driven entirely by environment variables so one script covers every scenario:
  *   FAKE_SCENARIO      which behaviour to play (see below)
  *   FAKE_DSH_VERSION   what `-V` prints (default 0.2.1-rc.5)
+ *   FAKE_VERSION_HANG  make `-V` never return (version probe deadline)
  *   FAKE_ARGV_LOG      file to write { argv, cwd, env, taskFile, taskBody }
  *   FAKE_STDOUT        text printed by the `answer` scenario (empty is honoured)
  *   FAKE_BOOTSTRAP_FAIL  make `--dump-config` fail instead of the run
  *   FAKE_BOOTSTRAP_HANG  make `--dump-config` never return (bootstrap timeout)
+ *   FAKE_DUMP_UNPATCHED  make `--dump-config` print a tree without the patch rows
  *   FAKE_STDERR        text written by the `fail` scenario
  *   FAKE_EXIT_CODE     exit code for the `fail` scenario (default 1)
  *
@@ -35,8 +37,10 @@ const fs = require('fs');
 const argv = process.argv.slice(2);
 
 if (argv.includes('-V') || argv.includes('--version')) {
-  process.stdout.write((process.env.FAKE_DSH_VERSION || '0.2.1-rc.5') + '\n');
-  process.exit(0);
+  if (process.env.FAKE_VERSION_HANG) setInterval(() => {}, 1 << 30);
+  else process.stdout.write((process.env.FAKE_DSH_VERSION || '0.2.1-rc.5') + '\n');
+  if (!process.env.FAKE_VERSION_HANG) process.exit(0);
+  return;
 }
 
 // The task is the last positional argument; the adapter passes a constant
@@ -85,7 +89,17 @@ if (argv.includes('--dump-config')) {
     writeThenExit(process.stderr, process.env.FAKE_STDERR || 'compose failed\n',
       Number(process.env.FAKE_EXIT_CODE || 1));
   } else {
-    writeThenExit(process.stdout, '- id: approval\n', 0);
+    // dsh prints the composed tree with our patch rows merged in. The patch
+    // file is itself that row list, so echoing it stands in for the merge;
+    // FAKE_DUMP_UNPATCHED plays a preview that no longer applies it.
+    const at = argv.indexOf('--patch');
+    let tree = '- id: approval\n';
+    if (at >= 0 && !process.env.FAKE_DUMP_UNPATCHED) {
+      try { tree = fs.readFileSync(argv[at + 1], 'utf-8'); } catch { /* keep the stub */ }
+    }
+    // dsh's own base row that picks the sandbox from DSH_PERMISSION_MODE.
+    tree += "- id: sandbox-policy\n  config:\n    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'\n";
+    writeThenExit(process.stdout, tree, 0);
   }
   return;
 }

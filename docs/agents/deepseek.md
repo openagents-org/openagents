@@ -5,9 +5,10 @@ run as an OpenAgents agent. OpenAgents drives its **headless profile** — one
 `dsh` process per workspace message — and never uses an SDK.
 
 > **Preview release.** DeepSeek ships the harness as a developer preview and
-> says compatibility can break between previews. OpenAgents therefore pins one
-> exact version (`0.2.1-rc.5`) and refuses to run against any other, including
-> newer ones. See [Version pinning](#version-pinning).
+> says compatibility can break between previews. OpenAgents installs the
+> version it is written against (`0.2.1-rc.5`), runs on a newer preview only
+> after checking that its private patch still composes there, and refuses older
+> ones. See [Version pinning](#version-pinning).
 
 ---
 
@@ -128,8 +129,21 @@ fallback to passing the prompt on the command line.
 
 - Installing an agent installs exactly that version, and so does **Update** —
   the pin is not overridden with `@latest` the way an ordinary registry pin is.
-- The adapter re-checks at run time and refuses to start on anything else,
-  newer or older, and tells you the command that restores the pinned build.
+- At run time that version is a floor that orders prereleases
+  (`0.2.1-rc.4` < `0.2.1-rc.5` < `0.2.2-rc.5`). An older build is refused with
+  the command that restores the supported one.
+- A newer preview (one you installed yourself, say, from upstream's `latest`)
+  is not refused on its version number. Preflight composes the headless profile
+  with the private patch (`dsh --dump-config`, no model call) and checks the
+  fields that keep a headless run safe, each at its own path: user questions
+  disabled, approval `never`, every permission preset keeping its own sandbox,
+  and `sandbox-policy` still taking its mode from `DSH_PERMISSION_MODE`. If
+  they composed as written the agent runs; if not (or the dump cannot be read,
+  does not finish within 30 s, or carries an include entry whose rows it does
+  not show), the daemon installs the supported version
+  and asks again. The check runs as a child process the daemon awaits, so it
+  never blocks other agents, and a passing preview is checked once per daemon
+  process.
 
 To move to a new preview, update `supported_version` and the three install
 commands in `sdk/src/openagents/registry/deepseek.yaml`, mirror them into

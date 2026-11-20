@@ -10,7 +10,9 @@
  * Three things here exist because dsh is unlike every other CLI in this repo:
  *
  *  1. It is a PREVIEW release (`0.2.1-rc.5`) and upstream says compatibility may
- *     break between previews, so the gate is exact equality — not a floor. The
+ *     break between previews. The gate is a floor that orders `-rc.N`
+ *     correctly, and a newer preview runs only once `--dump-config` shows the
+ *     private patch still composes (verifyComposedConfig). The
  *     two version comparators already in this repo (installer.js's
  *     `compareVersions`, pi-stream.js's `parseVersion`) both DROP the `-rc.N`
  *     suffix, which would make rc.5 and rc.6 indistinguishable. Hence the
@@ -69,6 +71,7 @@ const ROW = {
   LLM_DEEPSEEK: 'llm-deepseek',
   LLM_PI_AI: 'llm-pi-ai',
   PERMISSION: 'permission',
+  SANDBOX_POLICY: 'sandbox-policy',
   USER_QUESTIONS: 'user-questions',
 };
 
@@ -95,6 +98,19 @@ const DEEPSEEK_MODELS_BASE = 'https://api.deepseek.com/v1';
 
 /** Permission modes dsh's `permission-presets` row declares. */
 const PERMISSION_MODES = ['read-only', 'workspace-write', 'danger-full-access'];
+
+/**
+ * How dsh's own base layer picks the sandbox (`sandbox-policy.config.mode`,
+ * 0.2.1-rc.5 and 0.2.2-rc.5 alike): a `!!js` expression. The adapter chooses
+ * the mode per run through DSH_PERMISSION_MODE, so a preview that reads it
+ * from anywhere else would ignore the user's choice — verifyComposedConfig
+ * requires this expression, compared with its whitespace collapsed.
+ */
+/** Plugin names dsh resolves to its loader's group and include carriers. */
+const GROUP_PLUGINS = ['cordis:group', '@deepseek-ai/cordis-plugin-group', '@cordisjs/plugin-group'];
+const INCLUDE_PLUGINS = ['cordis:include', '@deepseek-ai/cordis-plugin-include', '@cordisjs/plugin-include'];
+
+const SANDBOX_POLICY_MODE_EXPR = "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
 
 /**
  * The ONLY thing that ever reaches argv as the headless task.
@@ -131,7 +147,11 @@ function parseDshVersion(raw) {
 function splitVersion(v) {
   const parsed = parseDshVersion(v);
   if (!parsed) return null;
-  const [core, pre] = parsed.split('-');
+  // Split at the FIRST hyphen only: a prerelease may carry hyphens of its own
+  // (`0.2.1-rc.5-hotfix`), and dropping them made it equal `0.2.1-rc.5`.
+  const at = parsed.indexOf('-');
+  const core = at < 0 ? parsed : parsed.slice(0, at);
+  const pre = at < 0 ? '' : parsed.slice(at + 1);
   return {
     core: core.split('.').map((n) => parseInt(n, 10)),
     pre: pre ? pre.split('.') : null,
@@ -195,16 +215,22 @@ function compareDshVersions(a, b) {
 }
 
 /**
- * Preview-era compatibility gate: the installed dsh must be EXACTLY the version
- * this adapter was written against.
+ * Preview-era compatibility gate: the installed dsh must be the version this
+ * adapter was written against, or a newer preview.
  *
- * Returns { compatible: true|false|null, detected, supported, message }.
+ * Returns { compatible: true|false|null, detected, supported, tested, message }.
  * `compatible: null` means the version could not be read — reported as unknown,
- * never as a pass.
+ * never as a pass. `tested` is true only for the exact release the adapter was
+ * written against; a newer preview passes this gate with `tested: false`, and
+ * the adapter then confirms its private patch still composes as intended
+ * (see verifyComposedConfig) before running a task on it.
+ *
+ * The gate used to be exact equality. Upstream's `latest` moved on to the next
+ * preview, so every user who installed dsh themselves was refused, and the
+ * auto-repair downgraded their global dsh (daily errors dashboard, 2026-11-20).
  *
  * `installCommand` is echoed into the failure message because the recovery is
- * not obvious: the Launcher's update path would otherwise move the user to a
- * newer preview that this adapter refuses to run.
+ * not obvious.
  */
 function classifyDshVersion(rawVersion, supported, installCommand) {
   const want = parseDshVersion(supported || SUPPORTED_DSH_VERSION);
@@ -219,23 +245,231 @@ function classifyDshVersion(rawVersion, supported, installCommand) {
         'Reinstall with: ' + (installCommand || defaultInstallCommand(want)),
     };
   }
-  if (compareDshVersions(detected, want) === 0) {
-    return { compatible: true, detected, supported: want, message: null };
+  const cmp = compareDshVersions(detected, want);
+  if (cmp === 0) {
+    return { compatible: true, detected, supported: want, tested: true, message: null };
+  }
+  if (cmp > 0) {
+    return { compatible: true, detected, supported: want, tested: false, message: null };
   }
   return {
     compatible: false,
     detected,
     supported: want,
+    tested: false,
     message:
-      `DeepSeek Harness ${detected} is not supported — this agent is built ` +
-      `against ${want} exactly. DeepSeek ships the harness as a developer ` +
-      'preview and its configuration can change between previews, so the ' +
-      'version is pinned. Reinstall with: ' +
+      `DeepSeek Harness ${detected} is too old — this agent needs ${want} or ` +
+      'newer. Reinstall with: ' +
       (installCommand || defaultInstallCommand(want)),
   };
 }
 
-/** The npm command that restores the pinned preview. */
+/**
+ * Read the subset of YAML that `dsh --dump-config` prints: block mappings and
+ * sequences by indentation. Every scalar becomes a node that keeps what YAML
+ * means by it, not just its text:
+ *
+ *   { value, tag, quoted }   `true` → { value: 'true', tag: null, quoted: false }
+ *                            `'true'` → quoted: true (a string, not a boolean)
+ *                            `!!js >-` + lines → tag: '!!js', value: the lines
+ *
+ * so a quoted `'!!js …'` (a plain string) never passes for the expression.
+ * `!!js` expressions, flow collections and block scalars are kept as source
+ * text — nothing here evaluates them. Comment lines (the `# == <layer>`
+ * headers) are skipped.
+ *
+ * Not a general YAML parser, and it does not have to be: anything it cannot
+ * place makes the caller report the composition as unverified, which costs a
+ * reinstall of the supported version, never a run on an unchecked config.
+ */
+function parseDumpYaml(text) {
+  const lines = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    if (!raw.trim() || /^\s*#/.test(raw)) continue;
+    if (/\t/.test(raw.match(/^\s*/)[0])) throw new Error('tab indentation');
+    lines.push({ indent: raw.match(/^ */)[0].length, text: raw.trim() });
+  }
+  let i = 0;
+
+  const unquote = (t) => {
+    if (/^'.*'$/.test(t)) return { value: t.slice(1, -1).replace(/''/g, "'"), quoted: true };
+    if (/^".*"$/.test(t)) {
+      try { return { value: JSON.parse(t), quoted: true }; } catch { return { value: t.slice(1, -1), quoted: true }; }
+    }
+    return { value: t, quoted: false };
+  };
+  const scalar = (v) => {
+    const m = v.trim().match(/^(!!?\S+)\s+(.*)$/);
+    const tag = m ? m[1] : null;
+    return { ...unquote(m ? m[2] : v.trim()), tag };
+  };
+  const keyOf = (t) => {
+    const m = t.match(/^('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[^\s'"][^:]*?)\s*:(?:\s+(.*)|\s*)$/);
+    return m ? { key: unquote(m[1]).value, rest: m[2] === undefined ? '' : m[2] } : null;
+  };
+  const BLOCK_SCALAR = /^(?:(!!?\S+)\s+)?[|>][-+0-9]*$/; // `>-`, `|`, `!!js >-`
+  // A key whose value sits on the following, deeper lines; or a block scalar,
+  // whose deeper lines are text, not structure.
+  const valueAfter = (rest, indent) => {
+    const blockScalar = rest.match(BLOCK_SCALAR);
+    if (blockScalar) {
+      const body = [];
+      while (i < lines.length && lines[i].indent > indent) body.push(lines[i++].text);
+      return { value: body.join('\n'), tag: blockScalar[1] || null, quoted: false, block: true };
+    }
+    if (rest) return scalar(rest);
+    if (i < lines.length && lines[i].indent > indent) return block(lines[i].indent);
+    // A sequence may sit at the key's own indent (`key:\n- a`).
+    if (i < lines.length && lines[i].indent === indent && lines[i].text.startsWith('- ')) return block(indent);
+    return null;
+  };
+  const isItem = (l) => l.text.startsWith('- ') || l.text === '-';
+  const mapping = (indent, into = {}) => {
+    while (i < lines.length && lines[i].indent === indent && !isItem(lines[i])) {
+      const kv = keyOf(lines[i].text);
+      if (!kv) throw new Error(`unreadable line "${lines[i].text}"`);
+      if (Object.prototype.hasOwnProperty.call(into, kv.key)) throw new Error(`duplicate key "${kv.key}"`);
+      i += 1;
+      into[kv.key] = valueAfter(kv.rest, indent);
+    }
+    return into;
+  };
+  const sequence = (indent) => {
+    const out = [];
+    while (i < lines.length && lines[i].indent === indent && isItem(lines[i])) {
+      const item = lines[i].text === '-' ? '' : lines[i].text.slice(2);
+      const kv = item ? keyOf(item) : null;
+      if (!kv) {
+        i += 1;
+        out.push(item ? scalar(item) : (i < lines.length && lines[i].indent > indent ? block(lines[i].indent) : null));
+        continue;
+      }
+      // `- key: v` opens a mapping whose further keys align with `key`.
+      const inner = indent + 2 + (item.length - item.trimStart().length);
+      lines[i] = { indent: inner, text: item };
+      out.push(mapping(inner));
+    }
+    return out;
+  };
+  const block = (indent) => (isItem(lines[i]) ? sequence(indent) : mapping(indent));
+
+  if (!lines.length) return [];
+  const doc = block(lines[0].indent);
+  if (i < lines.length) throw new Error(`unexpected indentation at "${lines[i].text}"`);
+  return doc;
+}
+
+/** A parsed scalar node (see parseDumpYaml), as opposed to a mapping or list. */
+const isScalarNode = (n) => !!n && typeof n === 'object' && !Array.isArray(n)
+  && Object.prototype.hasOwnProperty.call(n, 'value') && Object.prototype.hasOwnProperty.call(n, 'quoted');
+
+/**
+ * Confirm that `dsh --dump-config` output carries the private patch as written.
+ *
+ * A newer preview is accepted on this evidence rather than on its version
+ * number. What the patch must achieve is what keeps a headless run safe and
+ * answerable, so those are the fields checked, each at its own path and with
+ * its YAML type:
+ *
+ *   user-questions.disabled                   the boolean true
+ *   approval.config.policy                    the string never
+ *   permission.config.presets.<mode>.sandbox  the string <mode>, every mode
+ *   permission.config.presets.<mode>.approval the string never
+ *   sandbox-policy.config.mode                the `!!js` DSH_PERMISSION_MODE
+ *                                             expression the adapter sets
+ *
+ * approval, permission and sandbox-policy must not be disabled. Each of the
+ * four rows must appear exactly once among the plugin entries, those nested
+ * in plugin groups included — a second `user-questions` inside a group with
+ * `disabled: false` would mount it again. Extra fields are fine.
+ *
+ * Returns { ok, problem } where `problem` names the first field that did not
+ * compose as expected.
+ */
+function verifyComposedConfig(text) {
+  let doc;
+  try {
+    doc = parseDumpYaml(text);
+  } catch (e) {
+    return { ok: false, problem: `the composed config could not be read (${e.message})` };
+  }
+  if (!Array.isArray(doc)) return { ok: false, problem: 'the composed config is not a row list' };
+
+  // A block scalar is a string even when its text reads `true` / `false`:
+  // dsh reads `disabled: |` + `false` as "false\n", which disables the row.
+  const plain = (n) => isScalarNode(n) && !n.tag && !n.quoted && !n.block;
+  const isTrue = (n) => plain(n) && /^(true|True|TRUE)$/.test(n.value);
+  const CHECKED = [ROW.USER_QUESTIONS, ROW.APPROVAL, ROW.PERMISSION, ROW.SANDBOX_POLICY];
+  const idOf = (n) => (n && typeof n === 'object' && !Array.isArray(n) && !isScalarNode(n) && isScalarNode(n.id) && !n.id.tag
+    ? n.id.value : null);
+  // Plugin entries are the top-level rows and, recursively, the rows a group
+  // lists as its config. A group is what dsh takes for one (dsh-app-boot
+  // config-schema/collect.ts): `group: true`, or the group plugin by name.
+  // Any other plugin's config is a value, list or not — a gateway model the
+  // user named `approval`, or a plugin whose config is an array of `id`
+  // items, is not a second approval row.
+  //
+  // An include entry loads rows from a file the dump only names, so whatever
+  // it mounts cannot be checked here: any include makes the composition
+  // unverified, whatever its `disabled` says. Whether Cordis opens the file
+  // turns on its loader's rules (a disabled include flagged `group: true` is
+  // still read; one inside a disabled group is not), and re-deriving those
+  // here would drift from upstream. dsh's standard headless profile has none.
+  const seen = new Map();
+  let include = null;
+  const nameOf = (e) => (isScalarNode(e.name) && !e.name.tag ? e.name.value : null);
+  const walkEntries = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const entry of list) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) || isScalarNode(entry)) continue;
+      const id = idOf(entry);
+      if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
+      const name = nameOf(entry);
+      if (INCLUDE_PLUGINS.includes(name)) include = include || id || name;
+      if ((isTrue(entry.group) || GROUP_PLUGINS.includes(name)) && Array.isArray(entry.config)) walkEntries(entry.config);
+    }
+  };
+  walkEntries(doc);
+  if (include) {
+    return { ok: false, problem: `"${include}" includes rows from a file the dump does not show` };
+  }
+  for (const id of CHECKED) {
+    if ((seen.get(id) || 0) > 1) return { ok: false, problem: `row "${id}" appears more than once` };
+  }
+
+  const rows = new Map(doc.map((r) => [idOf(r), r]).filter(([id]) => id));
+  const at = (obj, keys) => keys.reduce((o, k) => (o && typeof o === 'object' && !Array.isArray(o) && !isScalarNode(o) ? o[k] : undefined), obj);
+  const show = (n) => (n === undefined || n === null ? 'missing'
+    : isScalarNode(n) ? `${n.tag ? `${n.tag} ` : ''}${n.block ? `the block string ${JSON.stringify(n.value)}` : n.quoted ? JSON.stringify(n.value) : n.value}`
+      : 'not a single value');
+  const check = (id, keys, ok, want) => {
+    const r = rows.get(id);
+    if (!r) return `row "${id}" is missing`;
+    const got = at(r, keys);
+    return ok(got) ? null : `${id}.${keys.join('.')} is ${show(got)}, expected ${want}`;
+  };
+  const isString = (want) => (n) => isScalarNode(n) && !n.tag && !n.block && n.value === want;
+  const isJsExpr = (want) => (n) => isScalarNode(n) && n.tag === '!!js' && !n.quoted
+    && n.value.replace(/\s+/g, ' ').trim() === want;
+  const notDisabled = (n) => n === undefined || (plain(n) && /^(false|False|FALSE)$/.test(n.value));
+
+  const problems = [
+    check(ROW.USER_QUESTIONS, ['disabled'], isTrue, 'true'),
+    check(ROW.APPROVAL, ['disabled'], notDisabled, 'not disabled'),
+    check(ROW.APPROVAL, ['config', 'policy'], isString('never'), 'never'),
+    check(ROW.PERMISSION, ['disabled'], notDisabled, 'not disabled'),
+    ...PERMISSION_MODES.flatMap((m) => [
+      check(ROW.PERMISSION, ['config', 'presets', m, 'sandbox'], isString(m), m),
+      check(ROW.PERMISSION, ['config', 'presets', m, 'approval'], isString('never'), 'never'),
+    ]),
+    check(ROW.SANDBOX_POLICY, ['disabled'], notDisabled, 'not disabled'),
+    check(ROW.SANDBOX_POLICY, ['config', 'mode'], isJsExpr(SANDBOX_POLICY_MODE_EXPR), `!!js ${SANDBOX_POLICY_MODE_EXPR}`),
+  ];
+  const problem = problems.find(Boolean) || null;
+  return { ok: !problem, problem };
+}
+
+/** The npm command that installs the preview this adapter was written against. */
 function defaultInstallCommand(version) {
   return `npm install -g @deepseek-ai/dsh@${version || SUPPORTED_DSH_VERSION}`;
 }
@@ -416,7 +650,7 @@ function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl, of
 
   const lines = [
     '# Generated by OpenAgents for the DeepSeek Harness adapter.',
-    `# Pinned to dsh ${SUPPORTED_DSH_VERSION}. Do not edit by hand: this file is`,
+    `# Written against dsh ${SUPPORTED_DSH_VERSION}. Do not edit by hand: this file is`,
     '# rewritten on every run and lives inside a per-agent private DSH_HOME.',
     '',
     `- id: ${ROW.USER_QUESTIONS}`,
@@ -720,6 +954,8 @@ module.exports = {
   parseDshVersion,
   compareDshVersions,
   classifyDshVersion,
+  parseDumpYaml,
+  verifyComposedConfig,
   defaultInstallCommand,
 
   classifyNodeVersion,
