@@ -13,6 +13,7 @@ vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => confirm }));
 vi.mock('@/lib/i18n', () => ({
   useT: () => (key: string) => key,
+  useI18n: () => ({ locale: 'en-US' }),
   useFormatters: () => ({ formatDate: () => 'Dec 3' }),
 }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -227,4 +228,26 @@ it('shows no plan for an agent that was never paid for', async () => {
   await render();
   expect(container.textContent).toContain('connect.acentaBalance');
   expect(container.textContent).not.toContain('connect.acentaPlan');
+});
+
+
+it('shows the running Acenta offer only to people who still qualify', async () => {
+  const usage = { hasAccount: false, billingEnabled: true, balanceEnabled: true, balanceCents: 0, spentThisMonthCents: 0,
+    autoTopup: false, agents: [], manageUrl: null };
+  const offer = { name: 'Black Friday', percentOff: 40, months: 6, tiers: ['standard', 'smart'],
+    endsAt: new Date(Date.now() + 86400000).toISOString(), eligible: true, url: 'https://acenta.ai/pricing' };
+  api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer });
+  await render();
+  expect(container.textContent).toContain('connect.acentaOfferBlackFriday');
+  expect(container.querySelector('a[href="https://acenta.ai/pricing"]')).not.toBeNull();
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer: { ...offer, eligible: false } });
+  await render();
+  expect(container.textContent).not.toContain('connect.acentaOfferBlackFriday');
+  await act(async () => root.unmount());
+  root = createRoot(container);
+  api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer: { ...offer, endsAt: new Date(Date.now() - 1000).toISOString() } });
+  await render();
+  expect(container.textContent).not.toContain('connect.acentaOfferBlackFriday');
 });
