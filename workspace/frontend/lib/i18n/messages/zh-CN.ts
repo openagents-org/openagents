@@ -1591,7 +1591,6 @@ export const messages: Messages = {
     unpin: '取消置顶',
     pinned: '已置顶',
     title: '会话列表',
-    unreadCount: '{count} 条未读',
     unread: '未读',
     finished: '已完成',
     threadActions: '会话操作',
