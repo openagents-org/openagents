@@ -1,15 +1,15 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ArrowUpRight, Trash2, Wallet } from 'lucide-react';
+import { ArrowUpRight, Tag, Trash2, Wallet } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
 import { WithTooltip } from '@/components/ui/with-tooltip';
-import { useT } from '@/lib/i18n';
+import { useI18n, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { destructiveIconClass } from '@/lib/destructive-icon';
-import type { AcentaUsage, HostedAgent } from '@/lib/types';
+import type { AcentaOffer, AcentaUsage, HostedAgent } from '@/lib/types';
 
 const STARTUP_WINDOW_MS = 30 * 60 * 1000;
 
@@ -87,6 +87,35 @@ export function HostedUsageBar({ usage, lowBalance }: { usage: AcentaUsage; lowB
         <Button variant="link" size="xs" className="ml-auto px-0" asChild>
           <a href={usage.manageUrl} target="_blank" rel="noreferrer">
             {usage.balanceEnabled ? t('connect.acentaTopUp') : t('connect.acentaBilling')}
+            <ArrowUpRight data-icon="inline-end" />
+          </a>
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Acenta's running offer (e.g. Black Friday), for people who still qualify. Hidden once it ends. */
+export function HostedOfferBar({ offer }: { offer: AcentaOffer }) {
+  const t = useT();
+  const { locale } = useI18n();
+  const ends = new Date(offer.endsAt);
+  if (!offer.eligible || !(ends.getTime() > Date.now())) return null;
+  const zh = locale.startsWith('zh');
+  // The last day, in California time like acenta.ai.
+  const date = new Date(ends.getTime() - 1000).toLocaleDateString(zh ? 'zh-CN' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'America/Los_Angeles' });
+  const name = offer.name === 'Black Friday' ? t('connect.acentaOfferBlackFriday') : offer.name;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-sm">
+      <Tag className="size-4 shrink-0 text-primary" />
+      <span>
+        <span className="font-semibold">{name}</span>{' '}
+        {t('connect.acentaOffer', { percent: offer.percentOff, discount: 10 - offer.percentOff / 10, months: offer.months, date })}
+      </span>
+      {offer.url && (
+        <Button variant="link" size="xs" className="ml-auto px-0" asChild>
+          <a href={offer.url} target="_blank" rel="noreferrer">
+            {t('connect.acentaOfferPrices')}
             <ArrowUpRight data-icon="inline-end" />
           </a>
         </Button>
