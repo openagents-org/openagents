@@ -161,7 +161,7 @@ export function AppHeader() {
     title = (
       <HeaderTitle>{t("views.onboarding")}</HeaderTitle>
     )
-  } else if (viewMode === "threads" || viewMode === "routines") {
+  } else if (viewMode === "threads") {
     title = <ThreadTitle />
   } else if (viewMode === "files") {
     const name =

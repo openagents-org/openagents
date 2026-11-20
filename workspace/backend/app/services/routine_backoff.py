@@ -24,6 +24,9 @@ from sqlalchemy.orm import Session
 
 from app.models import EventRecord
 
+# Shared by the scheduler and activity UI: unanswered runs can recover after this window.
+ROUTINE_STUCK_MS = 30 * 60 * 1000
+
 BACKOFF_AFTER = 2
 BACKOFF_BASE_MS = 30 * 60 * 1000
 BACKOFF_MAX_MS = 6 * 60 * 60 * 1000

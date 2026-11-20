@@ -63,7 +63,7 @@ const DEFAULT_FILES_BROWSE: FilesBrowseState = {
  * over the full detail area, so the sidebar collapses down to the rail.
  */
 export const VIEWS_WITH_LIST: ReadonlySet<ViewMode> = new Set<ViewMode>([
-  'threads', 'files', 'routines', 'knowledge',
+  'threads', 'files', 'knowledge',
 ]);
 
 /**
@@ -188,6 +188,8 @@ interface LayoutState {
   isDetailExpanded: boolean;
   toggleDetailExpanded: () => void;
   /** Whether the current view has a list panel at all */
+  selectedRoutineId: string | null;
+  setSelectedRoutineId: (id: string | null) => void;
   hasListPanel: boolean;
   /** Whether the icon rail is widened to show its labels */
   isRailExpanded: boolean;
@@ -293,6 +295,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
 
   // In the app-shell-4 layout the list lives *inside* the sidebar, so
   // "expand the detail pane" and "collapse the sidebar" are the same gesture.
+  const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
   const hasListPanel = VIEWS_WITH_LIST.has(viewMode);
   // Default to open the first time a view is used; after that the user's own
   // choice for that view wins.
@@ -422,6 +425,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
       isDetailExpanded,
       toggleDetailExpanded,
       hasListPanel,
+      selectedRoutineId, setSelectedRoutineId,
       isRailExpanded,
       toggleRail,
       setRailExpanded,

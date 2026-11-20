@@ -607,13 +607,14 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   if (!isPlan && !disabled.has('routines')) {
     sections.push(
       '\n### Routines (Recurring Tasks)\n\n' +
-      'Create a recurring routine that fires on a schedule. Each routine gets ' +
-      '**its own dedicated thread** (`routine:<id>`) so different routines never ' +
-      'interfere, and the full context is preserved.\n\n' +
+      'Create a recurring routine linked to this conversation. Scheduled runs go ' +
+      'to a background queue, so ordinary checks do not flood the conversation. ' +
+      'Post important results or requests for help back to the source conversation.\n\n' +
       '**`context` is required** — provide a thorough description of what the ' +
       'routine should do, any background info, and relevant details from the ' +
-      'current conversation. This context is posted at the start of the routine\'s ' +
-      'thread every time it fires, so you have full background.\n\n' +
+      'current conversation. These instructions accompany each run. When the team ' +
+      'corrects a routine here, list this conversation\'s routines and update its ' +
+      'context in place so future runs follow the correction.\n\n' +
       '**Two schedule modes:**\n' +
       '- **Daily**: `hour` (0-23 UTC) + `minute` (0-59), optional `days` ' +
       'array (0=Mon, 6=Sun). Omit `days` for every day.\n' +
@@ -625,7 +626,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       `"context":"Review all open pull requests on the main repo. Check for merge conflicts, ` +
       `CI failures, and stale PRs older than 3 days. Post a summary to the workspace.",` +
       `"hour":8,"minute":0,` +
-      `"network":"${workspaceId}",` +
+      `"network":"${workspaceId}","channel":"${channelName}",` +
       `"source":"openagents:${agentName}"}'\`\n\n` +
       '**List routines (active + paused):**\n' +
       `\`${curl} -s -H "${h}" "${baseUrl}/v1/routines?network=${workspaceId}"\`\n\n` +

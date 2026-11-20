@@ -88,6 +88,8 @@ export function MobileShell({
             <div className="h-full bg-background overflow-hidden">
               <AgentDirectoryView />
             </div>
+          ) : viewMode === 'routines' ? (
+            <div className="h-full overflow-hidden bg-background"><RoutineList /></div>
           ) : viewMode === 'browser' ? (
             /* The cloud browser has no list pane: its tab strip is the tab switcher */
             <div className="relative h-full bg-background overflow-hidden">
@@ -100,13 +102,12 @@ export function MobileShell({
             <div className="flex h-full flex-col bg-background overflow-hidden">
               {viewMode === 'threads' && <ThreadList />}
               {viewMode === 'files' && <FileList />}
-              {viewMode === 'routines' && <RoutineList />}
               {viewMode === 'knowledge' && <KnowledgeList />}
             </div>
           ) : (
             /* Detail pane — full width, edge-to-edge on mobile */
             <div className="relative h-full bg-background overflow-hidden">
-              {(viewMode === 'threads' || viewMode === 'routines') && (
+              {viewMode === 'threads' && (
                 <div className="h-full">
                   <ChatView />
                 </div>
