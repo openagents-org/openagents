@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { workspaceApi } from '@/lib/api';
 import type { WorkspaceSession } from '@/lib/types';
 
 export interface ThreadProject { id: string; name: string; color: number }
@@ -25,7 +26,25 @@ export function readThreadProjects(raw: string | null): ThreadProjectState {
   } catch { return empty(); }
 }
 
-/** Personal organization only: no thread metadata or permissions are changed. */
+/** The part every device shares (the server's "thread_projects" setting);
+ *  which projects are collapsed, the filter and the layout stay per device. */
+export type SharedThreadProjects = Pick<ThreadProjectState, 'projects' | 'assignments'>;
+export const SETTING_KEY = 'thread_projects';
+const shared = (s: ThreadProjectState): SharedThreadProjects => ({ projects: s.projects, assignments: s.assignments });
+
+/** A device's first sync keeps what it already had: projects from both
+ *  (the server's order first), and the server's choice where both assigned
+ *  the same thread. */
+export function mergeThreadProjects(local: SharedThreadProjects, server: SharedThreadProjects): SharedThreadProjects {
+  const projects = [...server.projects, ...local.projects.filter(p => !server.projects.some(q => q.id === p.id))];
+  const ids = new Set(projects.map(p => p.id));
+  const assignments = Object.fromEntries(Object.entries({ ...local.assignments, ...server.assignments }).filter(([, id]) => ids.has(id)));
+  return { projects, assignments };
+}
+
+/** Personal organization only: no thread metadata or permissions are changed.
+ *  Kept on the server for the signed-in person, so the web app, the desktop
+ *  app and the phone show the same projects; the browser's copy is a cache. */
 export function useThreadProjects(workspace: string, viewer: string, sessions: WorkspaceSession[], exampleNames: string[]) {
   const key = workspace && viewer ? `oa-thread-projects:${JSON.stringify([workspace, viewer])}` : '';
   const [state, setState] = useState({ key: '', data: empty() });
@@ -51,6 +70,52 @@ export function useThreadProjects(workspace: string, viewer: string, sessions: W
       try { localStorage.setItem(key, JSON.stringify({ ...state.data, version: 1 })); } catch { /* In-memory organization still works. */ }
     }
   }, [key, state]);
+
+  // Server sync. `synced` holds the shared part as the server last had it:
+  // a change that differs is saved; null until the first fetch answers.
+  const synced = useRef<{ key: string; json: string } | null>(null);
+  const [ready, setReady] = useState('');
+  useEffect(() => {
+    if (!key || state.key !== key) return;
+    let cancelled = false;
+    const pull = async (first: boolean) => {
+      let remote: { value: SharedThreadProjects | null; persisted: boolean };
+      try { remote = await workspaceApi.getPersonalSetting<SharedThreadProjects>(SETTING_KEY); } catch { return; }
+      if (cancelled || !remote.persisted) return;
+      const mergedOnce = `${key}:synced`;
+      let firstOnDevice = false;
+      try { firstOnDevice = first && !localStorage.getItem(mergedOnce); } catch { /* treat as already merged */ }
+      setState(previous => {
+        if (previous.key !== key) return previous;
+        const local = shared(previous.data);
+        const server = remote.value ? readThreadProjects(JSON.stringify({ version: 1, ...remote.value })) : null;
+        const next = server
+          ? (firstOnDevice && local.projects.length ? mergeThreadProjects(local, shared(server)) : shared(server))
+          : local;
+        // What the server holds now; anything else in `next` gets saved.
+        synced.current = { key, json: server ? JSON.stringify(shared(server)) : JSON.stringify({ projects: [], assignments: {} }) };
+        return { key, data: { ...previous.data, ...next } };
+      });
+      try { localStorage.setItem(mergedOnce, '1'); } catch { /* merged again next time; harmless */ }
+      setReady(key);
+    };
+    void pull(true);
+    // Another device may have changed them: look again when this one comes back.
+    const onFocus = () => { if (document.visibilityState === 'visible') void pull(false); };
+    document.addEventListener('visibilitychange', onFocus);
+    return () => { cancelled = true; document.removeEventListener('visibilitychange', onFocus); };
+  }, [key, state.key]);
+  useEffect(() => {
+    if (ready !== key || state.key !== key || !synced.current || synced.current.key !== key) return;
+    const json = JSON.stringify(shared(state.data));
+    if (json === synced.current.json) return;
+    const timer = setTimeout(() => {
+      workspaceApi.putPersonalSetting(SETTING_KEY, shared(state.data))
+        .then(() => { if (synced.current?.key === key) synced.current = { key, json }; })
+        .catch(() => { /* Kept locally; saved with the next change. */ });
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [key, ready, state]);
   useEffect(() => {
     const created = (event: Event) => {
       const detail = (event as CustomEvent<{ workspace: string; viewer: string; thread: string }>).detail;
