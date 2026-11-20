@@ -32,6 +32,8 @@ BASE_MAX_AGE_SECONDS = 600
 BASE_SETTLE_MS = 120_000
 MERGED_MAX_STALE_SECONDS = 5.0
 TTL_SECONDS = 1800
+BASE_REBUILD_LOCK_SECONDS = 180
+BASE_REBUILD_WAIT_SECONDS = 60
 ALL_PAIRS = 1_000_000
 
 
@@ -71,7 +73,8 @@ def _base(db, workspace_id, rewrite):
     key = _key("base", workspace_id)
     base = _read(key)
     now = time.time()
-    if base and base.get("rewrite") == rewrite and now - base.get("built_at", 0) < BASE_MAX_AGE_SECONDS:
+    current = base is not None and base.get("rewrite") == rewrite and "watermark" in base
+    if current and now - base.get("built_at", 0) < BASE_MAX_AGE_SECONDS:
         return base
 
     def build():
@@ -79,10 +82,54 @@ def _base(db, workspace_id, rewrite):
         return {"rewrite": rewrite, "built_at": time.time(), "watermark": watermark,
                 "pairs": _pack(_aggregate(db, workspace_id, EventRecord.timestamp <= watermark))}
 
-    base = cache.json_singleflight(key + ":" + rewrite + ":" + str(int(now // BASE_MAX_AGE_SECONDS)),
-                                   TTL_SECONDS, build)
-    _write(key, base)
-    return base
+    # An aged base is still exact (the delta covers everything after its
+    # watermark), so only one worker rebuilds it while the others keep using
+    # it. Rebuilding a busy workspace's base reads its whole DM history; when
+    # every concurrent request did that, one workspace ran ~20 identical
+    # 25-second scans at once.
+    lock = _rebuild_lock(key)
+    if current:
+        if lock is not None and not _try_acquire(lock, 0):
+            return base
+    elif lock is not None and _try_acquire(lock, BASE_REBUILD_WAIT_SECONDS):
+        fresh = _read(key)   # a previous holder may have just built it
+        if fresh and fresh.get("rewrite") == rewrite and "watermark" in fresh and \
+                time.time() - fresh.get("built_at", 0) < BASE_MAX_AGE_SECONDS:
+            _release(lock)
+            return fresh
+    else:
+        lock = None   # no Redis, or the wait ran out: build without the lock
+    try:
+        base = build()
+        _write(key, base)
+        return base
+    finally:
+        if lock is not None:
+            _release(lock)
+
+
+def _rebuild_lock(key):
+    client = cache._lazy_client()
+    if client is None:
+        return None
+    try:
+        return client.lock(key + ":rebuild", timeout=BASE_REBUILD_LOCK_SECONDS, sleep=0.05)
+    except Exception:
+        return None
+
+
+def _try_acquire(lock, wait):
+    try:
+        return lock.acquire(blocking=wait > 0, blocking_timeout=wait or None)
+    except Exception:
+        return False
+
+
+def _release(lock):
+    try:
+        lock.release()
+    except Exception:
+        pass
 
 
 def workspace_pairs(db, workspace_id, generation, rewrite):
