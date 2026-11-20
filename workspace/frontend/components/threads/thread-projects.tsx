@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ArrowDown, ArrowUp, GripVertical, Check, ChevronDown, ChevronRight, Folder, FolderInput, FolderOpen, FolderPlus, Folders, Info, List, MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
-import { UnreadBadge } from '@/components/ui/unread-badge';
 import { Button } from '@/components/ui/button';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { WithTooltip } from '@/components/ui/with-tooltip';
@@ -89,8 +88,13 @@ export function ThreadProjectGroup({ project, count, unread, collapsed, onToggle
       ><GripVertical /></Button></WithTooltip>}
       <Button variant="ghost" size="sm" className="min-w-0 flex-1 shrink justify-start gap-2 px-1 text-xs font-semibold" aria-expanded={!collapsed} onClick={onToggle}>
         {collapsed ? <ChevronRight className="size-3 shrink-0 text-muted-foreground" /> : <ChevronDown className="size-3 shrink-0 text-muted-foreground" />}
-        <Folder className={cn('size-4 shrink-0', projectColor(project.color))} /><span className="truncate">{project.name}</span><span className="font-normal tabular-nums text-muted-foreground">{count}</span>
-        {unread > 0 && <UnreadBadge count={unread} className="ml-auto" aria-label={t('threadProjects.unread', { count: unread })} />}
+        {/* Unread threads in the group: a dot on the folder, not a second
+            number beside the thread count. Each row carries its own count. */}
+        <span className="relative shrink-0">
+          <Folder className={cn('size-4', projectColor(project.color))} />
+          {unread > 0 && <span className="absolute -top-0.5 -left-0.5 size-2 rounded-full bg-destructive ring-2 ring-background" role="status" aria-label={t('threadProjects.unread', { count: unread })} />}
+        </span>
+        <span className="truncate">{project.name}</span><span className="font-normal tabular-nums text-muted-foreground">{count}</span>
       </Button>
       {onRename && <DropdownMenu><DropdownMenuTrigger asChild><Button variant="ghost" size="icon-xs" aria-label={t('threadProjects.actions')}><MoreHorizontal /></Button></DropdownMenuTrigger><DropdownMenuContent align="end">
         <DropdownMenuItem onSelect={onMoveUp} disabled={!onMoveUp}><ArrowUp />{t('threadProjects.moveUp')}</DropdownMenuItem>
