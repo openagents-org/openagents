@@ -1615,7 +1615,6 @@ export const messages = {
     unpin: 'Unpin',
     pinned: 'Pinned',
     title: 'Threads',
-    unreadCount: '{count} unread',
     unread: 'Unread',
     finished: 'Finished',
     threadActions: 'Thread actions',
