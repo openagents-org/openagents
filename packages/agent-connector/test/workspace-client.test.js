@@ -364,3 +364,16 @@ describe('reliable message delivery', () => {
     assert.equal(await client.supportsMessageDelivery(), false);
   });
 });
+
+describe('WorkspaceClient routine conversation links', () => {
+  it('retains the originating conversation separately from background execution', async () => {
+    const client = new WorkspaceClient('http://127.0.0.1:19999');
+    let body;
+    client._post = async (_path, value) => { body = value; return { data: { id: 'r1' } }; };
+    await client.createRoutine('ws-1', 'team-thread', 'tok', { name: 'Feedback', message: 'Check feedback', interval_minutes: 60, source: 'claude' });
+    assert.equal(body.source_channel, 'team-thread');
+    assert.equal(body.channel, 'team-thread');
+    await client.createRoutine('ws-1', 'routines:claude', 'tok', { name: 'Feedback', message: 'Check feedback', interval_minutes: 60, source: 'claude' });
+    assert.equal(body.source_channel, undefined);
+  });
+});

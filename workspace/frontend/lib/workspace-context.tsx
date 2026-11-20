@@ -1272,12 +1272,8 @@ export function WorkspaceProvider({
   }, [refreshWorkflows]);
 
   const refreshRoutines = useCallback(async () => {
-    try {
-      const result = await workspaceApi.listRoutines();
-      setRoutines(result.routines);
-    } catch {
-      // Non-critical
-    }
+    const result = await workspaceApi.listRoutines();
+    setRoutines(prev => keepIfSame(prev, result.routines));
   }, []);
 
   const createRoutine = useCallback(async (params: RoutineDraft) => {

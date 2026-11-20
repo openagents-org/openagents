@@ -6,6 +6,8 @@ POST   /v1/routines          Create a routine
 GET    /v1/routines          List routines in scope
 PATCH  /v1/routines/{id}     Edit a routine (schedule, task, owner, pause/resume)
 DELETE /v1/routines/{id}     Cancel a routine
+GET    /v1/routines/{id}/runs  Recent attributable run history
+POST   /v1/routines/{id}/run   Request a scheduler run
 """
 
 import logging
@@ -14,7 +16,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Header, Path, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -45,6 +47,7 @@ class CreateRoutineRequest(BaseModel):
     source: str
     channel: Optional[str] = None
     thread_id: Optional[str] = None
+    source_channel: Optional[str] = None
 
 
 class UpdateRoutineRequest(BaseModel):
@@ -66,6 +69,7 @@ class UpdateRoutineRequest(BaseModel):
     days: Optional[List[int]] = None
     interval_minutes: Optional[int] = None
     source: Optional[str] = None
+    source_channel: Optional[str] = None
     status: Optional[str] = None  # active | paused (cancel goes through DELETE)
 
 
@@ -286,6 +290,7 @@ def _serialize_routine(r: RoutineRecord) -> dict:
         "created_by": r.created_by,
         "channel_name": r.channel_name,
         "thread_id": r.thread_id,
+        "source_channel_name": r.source_channel_name,
         "created_at": r.created_at.isoformat() if r.created_at else None,
     }
 
@@ -343,8 +348,8 @@ async def create_routine(
             if not body.days or not all(0 <= d <= 6 for d in body.days):
                 return json_response(ResponseCode.BAD_REQUEST, "days must be array of 0-6 (Mon=0, Sun=6)")
 
-    # The caller's `channel` is intentionally ignored — every routine lives
-    # in the target agent's dedicated routine channel. This gives each
+    # Execution stays in the target agent's background channel. The caller's
+    # conversation is retained separately as source_channel_name, giving each
     # (workspace, agent) pair a single canonical job queue and keeps regular
     # conversation threads from being spammed by scheduled output.
     target_agent = _normalize_agent_name(body.source)
@@ -370,6 +375,17 @@ async def create_routine(
             f"source '{body.source}' is not a member of this workspace",
         )
 
+    source_channel = body.source_channel or body.channel
+    origin = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == source_channel,
+        Channel.status != "deleted",
+    )).scalar_one_or_none() if source_channel else None
+    if body.source_channel and (not origin or origin.name.startswith(("routine:", "routines:"))):
+        return json_response(ResponseCode.BAD_REQUEST, "Source conversation not found")
+    # Legacy callers sent arbitrary channel hints that were ignored. Only an
+    # existing workspace channel can establish a source link.
+    source_channel = origin.name if origin and not origin.name.startswith(("routine:", "routines:")) else None
+
     # Auto-generate context via LLM if not provided (UI-created routines)
     if not body.context:
         import asyncio
@@ -388,6 +404,7 @@ async def create_routine(
         id=routine_id,
         workspace_id=str(workspace.id),
         channel_name=routine_channel.name,
+        source_channel_name=source_channel,
         thread_id=body.thread_id,
         created_by=target_agent,
         name=body.name,
@@ -436,12 +453,13 @@ def list_routines(
         # that could resume it. `cancelled` is terminal, so it stays hidden.
         query = query.where(RoutineRecord.status != "cancelled")
     if channel:
-        query = query.where(RoutineRecord.channel_name == channel)
+        query = query.where(or_(RoutineRecord.source_channel_name == channel, RoutineRecord.channel_name == channel))
 
     query = query.order_by(RoutineRecord.next_fires_at.asc())
     rows = db.execute(query).scalars().all()
 
-    return success_response({"routines": [_serialize_routine(r) for r in rows]})
+    from app.services.routine_activity import routine_runs
+    return success_response({"routines": [{**_serialize_routine(r), "latest_run": next(iter(routine_runs(db, r, limit=1)), None)} for r in rows]})
 
 
 # ---------------------------------------------------------------------------
@@ -546,6 +564,15 @@ async def update_routine(
                 ResponseCode.FORBIDDEN,
                 f"source '{body.source}' is not a member of this workspace",
             )
+
+    if body.source_channel is not None:
+        origin = db.execute(select(Channel).where(
+            Channel.workspace_id == str(workspace.id), Channel.name == body.source_channel,
+            Channel.status != "deleted",
+        )).scalar_one_or_none()
+        if not origin or origin.name.startswith(("routine:", "routines:")):
+            return json_response(ResponseCode.BAD_REQUEST, "Source conversation not found")
+        routine.source_channel_name = origin.name
 
     # ── Apply ──
     #
@@ -690,3 +717,39 @@ def cancel_routine(
     db.commit()
 
     return success_response({"id": routine.id, "status": "cancelled"})
+
+
+@router.get("/routines/{routine_id}/runs")
+def list_routine_runs(
+    routine_id: str, network: str = Query(...), limit: int = Query(20, ge=1, le=50),
+    db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    workspace = _resolve_workspace(db, network)
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    routine = db.execute(select(RoutineRecord).where(RoutineRecord.id == routine_id, RoutineRecord.workspace_id == str(workspace.id))).scalar_one_or_none()
+    if not routine:
+        return json_response(ResponseCode.NOT_FOUND, "Routine not found")
+    from app.services.routine_activity import routine_runs
+    return success_response({"runs": routine_runs(db, routine, limit=limit)})
+
+
+@router.post("/routines/{routine_id}/run")
+def run_routine_now(
+    routine_id: str, network: str = Query(...), db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None),
+):
+    workspace = _resolve_workspace(db, network)
+    if not workspace or not _verify_workspace_access(workspace, x_workspace_token, authorization):
+        return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
+    routine = db.execute(select(RoutineRecord).where(RoutineRecord.id == routine_id, RoutineRecord.workspace_id == str(workspace.id)).with_for_update()).scalar_one_or_none()
+    if not routine:
+        return json_response(ResponseCode.NOT_FOUND, "Routine not found")
+    if routine.status != "active":
+        return json_response(ResponseCode.BAD_REQUEST, "Resume the routine before running it")
+    # Go through the scheduler's atomic claim and busy/backoff checks. Never
+    # bypass them by directly posting a second task into the agent's queue.
+    routine.next_fires_at = datetime.now(timezone.utc)
+    db.commit()
+    return success_response({"status": "queued"})

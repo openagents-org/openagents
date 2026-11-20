@@ -20,6 +20,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import OperationalError, SQLAlchemyError, TimeoutError as PoolTimeoutError
 
 from app.config import config
+from app.services.routine_backoff import ROUTINE_STUCK_MS
 # Registers the commit hooks that invalidate cached permission results; it must
 # load before any request can write permission rows.
 import app.services.permission_cache  # noqa: E402,F401
@@ -34,11 +35,6 @@ logger = logging.getLogger(__name__)
 # never hold a pooled DB connection — or block the event loop — every 10s.
 TIMER_LOOP_INTERVAL_SECONDS = 10
 MAINTENANCE_EVERY_N_CYCLES = 30  # ~5 minutes
-
-# A routine whose previous fire hasn't produced an answer within this window
-# is treated as stuck (e.g. crashed adapter) and allowed to re-fire so the
-# routine can recover, rather than being skipped forever.
-ROUTINE_STUCK_MS = 30 * 60 * 1000  # 30 minutes
 
 
 def _run_maintenance():
@@ -216,6 +212,7 @@ async def _fire_due_in_thread():
                 "name": r.name,
                 "message": r.message,
                 "context": r.context,
+                "source_channel": r.source_channel_name,
                 "created_by": r.created_by,
                 "workspace_id": r.workspace_id,
                 "next_fire": _compute_next_fires_at(
@@ -347,6 +344,17 @@ async def _fire_due_in_thread():
                 if r_context:
                     content = f"**Routine Context for \"{r_name}\"**\n\n{r_context}\n\n---\n\n{content}"
 
+                if rt["source_channel"]:
+                    content += (
+                        f"\n\nSource conversation: {rt['source_channel']}. "
+                        "Read recent messages there with workspace_get_history (or the workspace history API) "
+                        "before starting, and incorporate relevant team corrections to this task. "
+                        "Save agreed corrections with workspace_update_routine so future runs retain them. "
+                        "Keep ordinary check results in this background run. "
+                        "If a meaningful result, approval, or login is needed, send one concise "
+                        "message to the source conversation using workspace messaging. "
+                        "Use workspace_list_routines and workspace_update_routine when the team changes the instructions."
+                    )
                 fire_event = Event(
                     type="workspace.message.posted",
                     source="system:routine",
@@ -354,6 +362,9 @@ async def _fire_due_in_thread():
                     payload={
                         "content": content,
                         "message_type": "chat",
+                        "routine_id": routine_id,
+                        "routine_agent": agent_name,
+                        "source_channel": rt["source_channel"],
                     },
                     metadata={"target_agents": [agent_name]},
                 )

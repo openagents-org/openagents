@@ -404,13 +404,13 @@ function buildToolDefs(disabledModules) {
     tools.push(
       {
         name: 'workspace_create_routine',
-        description: 'Create a recurring scheduled routine. Each routine gets its own dedicated thread with full context. Two schedule modes: daily (hour+minute, optional days) or interval (every N minutes).',
+        description: 'Create a recurring scheduled routine. The routine stays linked to this conversation; scheduled output runs quietly in a background queue. Two schedule modes: daily (hour+minute, optional days) or interval (every N minutes).',
         inputSchema: {
           type: 'object',
           properties: {
             name: { type: 'string', description: 'Human-readable label for the routine (e.g. "Daily PR Review")' },
             message: { type: 'string', description: 'Short trigger message posted each time the routine fires' },
-            context: { type: 'string', description: 'Comprehensive context for the routine: what it should do, background info, goals, relevant details from the current conversation. This is posted at the start of the routine\'s dedicated thread so you have full background every time it fires. Be thorough — this is your only memory of why this routine exists.' },
+            context: { type: 'string', description: 'Comprehensive context for the routine: what it should do, background info, goals, relevant details from the current conversation. These instructions are included in every background run. Include the agreed task details. Update these instructions with workspace_update_routine when the team corrects the routine in its source conversation.' },
             hour: { type: 'integer', description: 'Daily mode: hour in UTC (0-23). Omit if using interval_minutes.' },
             minute: { type: 'integer', description: 'Daily mode: minute (0-59). Omit if using interval_minutes.' },
             days: {
@@ -1176,7 +1176,7 @@ class McpServer {
         }
         const channel = (result && result.channel_name) || `routine:${result.id}`;
         return text(
-          `Routine created: "${args.name}" ${scheduleStr} in dedicated thread \`${channel}\` (id: ${result.id})`,
+          `Routine created: "${args.name}" ${scheduleStr}${result.source_channel_name ? ` linked to conversation ${result.source_channel_name}` : ''} (background queue \`${channel}\`) (id: ${result.id})`,
         );
       }
 
@@ -1193,7 +1193,9 @@ class McpServer {
               (r.schedule_days ? ` [days: ${r.schedule_days.join(',')}]` : ' (daily)');
           }
           const state = r.status && r.status !== 'active' ? ` [${r.status}]` : '';
-          return `- ${r.id}: "${r.name}"${state} ${when} — next: ${r.next_fires_at} (by ${r.created_by})`;
+          return `- ${r.id}: "${r.name}"${state} ${when} — next: ${r.next_fires_at} (by ${r.created_by})` +
+            `\n  Source conversation: ${r.source_channel_name || 'not linked'}` +
+            `\n  Instructions: ${r.context || r.message || ''}`;
         });
         return text(lines.join('\n'));
       }
