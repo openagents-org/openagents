@@ -62,7 +62,10 @@ vi.mock('./chat-messages', () => ({
 vi.mock('./chat-input', () => ({
   ChatInput: ({ onSend }: { onSend: (text: string) => Promise<void> }) => { h.send = onSend; return null; },
 }));
-vi.mock('./yumi-guide', () => ({ YumiGuide: () => null }));
+vi.mock('./yumi-guide', () => ({
+  YumiGuide: ({ showSetup }: { showSetup: boolean }) =>
+    React.createElement('div', { 'data-yumi-guide': String(showSetup) }),
+}));
 vi.mock('./yumi-dm-intro', () => ({ YumiDmIntro: () => null }));
 vi.mock('./human-profile', () => ({ HumanProfile: () => null }));
 vi.mock('./thread-live-browser', () => ({ ThreadLiveBrowser: () => null }));
@@ -291,4 +294,24 @@ it('shows an archived thread as active again once the server unarchives it on se
   await act(async () => { await h.send!('Back to this'); });
   expect(unarchived).toHaveBeenCalledWith('thread-a');
   spy.mockRestore();
+});
+
+it('keeps Yumi setup available after the welcome message and retires it once an agent is added', async () => {
+  h.ws.agents = [{ agentName: 'yumi', builtin: true, status: 'online' }];
+  h.ws.sessions = [{ sessionId: 'welcome', title: 'Welcome', status: 'active', participants: ['yumi'] }];
+  h.threads.welcome = [msg('welcome-greeting', 'welcome', {
+    senderName: 'yumi', senderType: 'agent', metadata: { onboarding: 'agent_location' },
+  })];
+  await open('welcome');
+  expect(container.querySelector('[data-yumi-guide]')).toBeNull();
+
+  await act(async () => deliver('welcome', msg('setup-question', 'welcome')));
+  expect(container.querySelector('[data-yumi-guide="true"]')).not.toBeNull();
+
+  h.ws.agents = [
+    { agentName: 'yumi', builtin: true, status: 'online' },
+    { agentName: 'codex', builtin: false, status: 'offline' },
+  ];
+  await open('welcome');
+  expect(container.querySelector('[data-yumi-guide="false"]')).not.toBeNull();
 });

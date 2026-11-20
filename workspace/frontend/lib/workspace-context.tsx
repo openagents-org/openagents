@@ -195,7 +195,7 @@ interface WorkspaceContextValue {
   createSession: (opts?: { title?: string; titleManuallySet?: boolean; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => Promise<WorkspaceSession>;
   /** Request that a thread be opened with an agent as soon as it joins — used
    *  by guided onboarding for the user's first agent. */
-  requestFirstThread: (agentName: string) => void;
+  requestFirstThread: (agentName: string, onReady?: () => void) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
   updateSession: (sessionId: string, updates: { starred?: boolean; pinned?: boolean; isChannel?: boolean; status?: string }) => Promise<void>;
   addParticipant: (sessionId: string, agentName: string) => Promise<void>;
@@ -1997,22 +1997,21 @@ export function WorkspaceProvider({
   // Guided onboarding: after the user's first agent is connected, open a thread
   // with it automatically once it joins the workspace. One-shot; only ever set
   // by the onboarding flow, so it never fires when adding agents later.
-  const [firstThreadAgent, setFirstThreadAgent] = useState<string | null>(null);
-  const firstThreadFiredRef = useRef(false);
-  const requestFirstThread = useCallback((agentName: string) => {
-    firstThreadFiredRef.current = false;
-    setFirstThreadAgent(agentName);
+  const [firstThreadRequest, setFirstThreadRequest] = useState<{ name: string; onReady?: () => void } | null>(null);
+  const firedFirstThread = useRef<typeof firstThreadRequest>(null);
+  const requestFirstThread = useCallback((name: string, onReady?: () => void) => {
+    setFirstThreadRequest({ name, onReady });
   }, []);
   useEffect(() => {
-    if (!firstThreadAgent || firstThreadFiredRef.current) return;
-    if (!agents.some((a) => a.agentName === firstThreadAgent)) return;  // wait until it joins
-    firstThreadFiredRef.current = true;
-    const name = firstThreadAgent;
-    setFirstThreadAgent(null);
+    if (!firstThreadRequest || firedFirstThread.current === firstThreadRequest) return;
+    const { name, onReady } = firstThreadRequest;
+    if (!agents.some((a) => a.agentName === name && a.status === 'online')) return;
+    firedFirstThread.current = firstThreadRequest;
+    setFirstThreadRequest(null);
     // Titled explicitly — an untitled thread would show the raw channel name
     // ("channel-abc1234") to a brand-new user as their very first thread.
-    createSession({ title: `New Thread with ${name}`, master: name, participants: [name] }).catch(() => {});
-  }, [firstThreadAgent, agents, createSession]);
+    createSession({ title: `New Thread with ${name}`, master: name, participants: [name] }).then(() => onReady?.()).catch(() => {});
+  }, [firstThreadRequest, agents, createSession]);
 
   const renameWorkspace = useCallback(async (name: string) => {
     setWorkspace((prev) => (prev ? { ...prev, name } : prev));
