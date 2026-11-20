@@ -1,0 +1,194 @@
+name: Publish Workspace Desktop Bundle
+
+# Ships the Workspace front end to installed desktop launchers without a
+# launcher release.
+#
+# Part of shipping to openagents.org: a push to openagents-release that changes
+# the front end builds its desktop target — the same bundle the installer
+# ships — from that commit, signs it, and publishes it to the feed the
+# launcher checks, the way the same push deploys the web app on Vercel:
+#
+#   https://dl.openagents.org/workspace-bundle/desktop/latest.json
+#   https://dl.openagents.org/workspace-bundle/desktop/<version>/workspace-<version>.tar.gz
+#
+# Not chained to the backend deploy: most pushes change only one side, and a
+# front-end fix should not wait on (or fail with) an unrelated backend rollout.
+# A front end that needs new API is in the same position as the web app, and
+# installed launchers only look every 30 minutes.
+#
+# A launcher installs a build only when its signature verifies, its commit is
+# newer than the bundle the launcher already has, and the launcher provides the
+# bridge version it needs (desktop/host-api.ts); otherwise it keeps what it
+# has. A build that then fails to start is rolled back on that machine. See
+# packages/launcher/src/main/bundle-ota.
+#
+# Lives on develop like every workflow here (.github is the same on both
+# branches); it only ever builds and publishes openagents-release.
+#
+# Needs WORKSPACE_BUNDLE_SIGNING_KEY (ed25519 PKCS#8 PEM; its public half is in
+# packages/launcher/src/main/bundle-ota/manifest.ts) and the R2 secrets the
+# launcher release uses. Without them the build still runs, and nothing is
+# published.
+
+on:
+  push:
+    branches: [openagents-release]
+    paths:
+      - "workspace/frontend/**"
+      - "packages/launcher/scripts/pack-workspace-bundle.mjs"
+      - "packages/launcher/scripts/check-workspace-bundle.mjs"
+      - ".github/actions/workspace-frontend-deps/**"
+      - ".github/workflows/workspace-bundle-publish.yml"
+  # Run from openagents-release to publish its current tip by hand.
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Publish even if the front end has not changed since the published build"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# One publish at a time, in push order. Launchers ignore a feed that goes
+# backwards anyway; this, and the ancestor check below, keep the feed itself
+# from doing so — a re-run of an old push included.
+concurrency:
+  group: workspace-bundle-publish
+  cancel-in-progress: false
+
+env:
+  FEED_URL: https://dl.openagents.org/workspace-bundle/desktop/latest.json
+
+jobs:
+  publish:
+    # The hosted feed carries the hosted front end only. A dispatch from any
+    # other branch would publish a build without the hosted layer to everyone.
+    if: github.ref == 'refs/heads/openagents-release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      RELEASE_SHA: ${{ github.sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # The whole history, to compare with the published build's commit.
+          fetch-depth: 0
+
+      - name: Decide whether to publish
+        id: changed
+        env:
+          FORCE: ${{ inputs.force || false }}
+        run: |
+          set -euo pipefail
+          publish=true
+          prev=$(curl -fsS "$FEED_URL" 2>/dev/null | node -e '
+            let s = ""; process.stdin.on("data", (d) => (s += d)).on("end", () => {
+              try { process.stdout.write(JSON.parse(JSON.parse(s).payload).commit || "") } catch {}
+            })' || true)
+          if [ "$FORCE" = "true" ] || [ -z "$prev" ] || ! git cat-file -e "${prev}^{commit}" 2>/dev/null; then
+            echo "Publishing ${RELEASE_SHA} (published build: ${prev:-none})."
+          elif git merge-base --is-ancestor "$RELEASE_SHA" "$prev"; then
+            echo "::notice::The feed already has ${prev}, which includes ${RELEASE_SHA} — nothing to publish."
+            publish=false
+          elif git diff --quiet "$prev" "$RELEASE_SHA" -- workspace/frontend packages/launcher/scripts/pack-workspace-bundle.mjs; then
+            echo "::notice::Front end unchanged since the published build ${prev} — nothing to publish."
+            publish=false
+          fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        if: steps.changed.outputs.publish == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Workspace frontend dependencies
+        if: steps.changed.outputs.publish == 'true'
+        uses: ./.github/actions/workspace-frontend-deps
+
+      - name: Build desktop bundle
+        if: steps.changed.outputs.publish == 'true'
+        working-directory: workspace/frontend
+        env:
+          WORKSPACE_BUNDLE_COMMIT: ${{ env.RELEASE_SHA }}
+        run: npm run build:desktop
+
+      - name: Verify bundle
+        if: steps.changed.outputs.publish == 'true'
+        run: |
+          node packages/launcher/scripts/check-workspace-bundle.mjs
+          cat workspace/frontend/dist-desktop/bundle-info.json
+
+      - name: Pack and sign
+        if: steps.changed.outputs.publish == 'true'
+        id: pack
+        env:
+          WORKSPACE_BUNDLE_SIGNING_KEY: ${{ secrets.WORKSPACE_BUNDLE_SIGNING_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WORKSPACE_BUNDLE_SIGNING_KEY:-}" ]; then
+            echo "::notice::WORKSPACE_BUNDLE_SIGNING_KEY not set — built, not published."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          node packages/launcher/scripts/pack-workspace-bundle.mjs --out bundle-out
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+          echo "version=$(node -p 'require("./workspace/frontend/dist-desktop/bundle-info.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Publish to Cloudflare R2
+        if: steps.pack.outputs.signed == 'true'
+        env:
+          R2_S3_ENDPOINT: ${{ secrets.R2_S3_ENDPOINT }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+          VERSION: ${{ steps.pack.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${R2_S3_ENDPOINT:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
+            echo "::notice::R2 secrets not set — skipping publish."
+            exit 0
+          fi
+          base="s3://${R2_BUCKET}/workspace-bundle/desktop"
+          # The archive first, under a name no other build uses; the manifest
+          # that points at it last, so no client can read a manifest whose
+          # archive is not there yet (the CDN would cache that 404 for hours).
+          aws s3 cp "bundle-out/${VERSION}/" "${base}/${VERSION}/" --recursive \
+            --cache-control "public, max-age=31536000, immutable" \
+            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          aws s3 cp bundle-out/latest.json "${base}/latest.json" \
+            --content-type "application/json" --cache-control "public, max-age=60" \
+            --no-progress --endpoint-url "$R2_S3_ENDPOINT"
+          echo "Published ${VERSION} -> ${base}/"
+
+      - name: Purge the manifest from Cloudflare cache
+        if: steps.pack.outputs.signed == 'true'
+        # Best-effort: without it, clients see the previous manifest until its
+        # short max-age runs out.
+        continue-on-error: true
+        env:
+          CF_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CF_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CF_API_TOKEN:-}" ] || [ -z "${CF_ZONE_ID:-}" ]; then
+            echo "::notice::Cloudflare secrets not set — skipping cache purge."
+            exit 0
+          fi
+          curl -fsS -X POST "https://api.cloudflare.com/client/v4/zones/${CF_ZONE_ID}/purge_cache" \
+            -H "Authorization: Bearer ${CF_API_TOKEN}" -H "Content-Type: application/json" \
+            --data "{\"files\":[\"${FEED_URL}\"]}"
+
+      - name: Summary
+        if: steps.pack.outputs.signed == 'true'
+        run: |
+          {
+            echo "## Workspace desktop bundle ${{ steps.pack.outputs.version }}"
+            echo ""
+            echo '```json'
+            cat workspace/frontend/dist-desktop/bundle-info.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

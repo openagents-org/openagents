@@ -1,0 +1,28 @@
+{
+  "version": "1.1.17",
+  "date": "2026-11-20",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Edit an agent's folder, API key and endpoint from its profile",
+        "zh": "可在智能体资料页直接修改工作目录、API 密钥与接口地址"
+      },
+      "description": {
+        "en": "Manage Agents now shows the model each agent actually uses, and changes made there take effect.",
+        "zh": "「管理智能体」显示的即为智能体实际使用的模型，在此修改后同步生效。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Unread counts are no longer repeated in the conversation list",
+        "zh": "会话列表不再重复显示未读数"
+      },
+      "description": {
+        "en": "Project groups mark unread conversations with a red dot.",
+        "zh": "项目分组改用红点提示未读。"
+      }
+    }
+  ]
+}

@@ -63,15 +63,20 @@ export function registerWorkspaceScheme(): void {
 }
 
 /**
- * Where the bundle lives.
+ * Where the bundle that shipped with the app lives.
  *
  * Packaged, it is an extraResource beside the app's code. In a dev checkout it
  * is the sibling package's build output, reached from more than one anchor
  * because `app.getAppPath()` is not the same directory under `electron-vite
  * dev` as it is elsewhere — and a wrong guess here shows up as an empty window
  * with nothing to explain it.
+ *
+ * Looked up until found rather than once: `show` checks for a bundle on every
+ * call, so a bundle built while the app is running is picked up.
  */
-export function bundleDir(): string {
+let builtinFound: string | null = null
+export function builtinBundleDir(): string {
+  if (builtinFound) return builtinFound
   const candidates = [
     path.join(process.resourcesPath, "workspace"),
     path.join(app.getAppPath(), "..", "..", "workspace", "frontend", "dist-desktop"),
@@ -80,9 +85,23 @@ export function bundleDir(): string {
     path.join(__dirname, "..", "..", "..", "..", "workspace", "frontend", "dist-desktop"),
   ]
   for (const dir of candidates) {
-    if (fs.existsSync(path.join(dir, "index.html"))) return dir
+    if (fs.existsSync(path.join(dir, "index.html"))) return (builtinFound = dir)
   }
   return candidates[0]
+}
+
+/**
+ * A downloaded bundle to serve in place of the built-in one, or null for the
+ * built-in one. Set by bundle-ota, which decides which bundle is current.
+ */
+let servedOverride: () => string | null = () => null
+export function serveBundleFrom(resolve: () => string | null): void {
+  servedOverride = resolve
+}
+
+/** The bundle being served right now: a verified download, or the built-in one. */
+export function bundleDir(): string {
+  return servedOverride() ?? builtinBundleDir()
 }
 
 /** Whether a bundle is actually present — the app runs fine without one. */
@@ -135,25 +154,19 @@ function contentType(file: string): string {
 }
 
 export function serveWorkspaceBundle(): void {
-  // Resolved per request until a bundle is found: `show` checks for one on
-  // every call, so a bundle built while the app is running is loaded — and a
-  // root fixed at startup would then answer every one of its files with 404.
-  let found: string | null = null
-  const bundleRoot = (): string => {
-    if (found) return found
-    const dir = bundleDir()
-    if (fs.existsSync(path.join(dir, "index.html"))) found = dir
-    return dir
-  }
   const ses = session.fromPartition(WORKSPACE_PARTITION)
   ses.protocol.handle(WORKSPACE_SCHEME, async (request) => {
-    const root = bundleRoot()
+    // Per request: the served bundle changes when an update is applied, and
+    // the pages are reloaded onto it right after.
+    const root = bundleDir()
     const url = new URL(request.url)
     const relative = decodeURIComponent(url.pathname).replace(/^\/+/, "")
     const target = path.join(root, relative || "index.html")
 
-    // Nothing outside the bundle may be read, whatever the path claims.
-    if (!target.startsWith(root)) {
+    // Nothing outside the bundle may be read, whatever the path claims —
+    // including a sibling folder whose name merely starts with the root's.
+    const inside = path.relative(root, target)
+    if (inside.startsWith("..") || path.isAbsolute(inside)) {
       slog(`[workspace-bundle] refusing path outside the bundle: ${relative}`)
       return new Response("Not found", { status: 404 })
     }
@@ -172,7 +185,7 @@ export function serveWorkspaceBundle(): void {
       return new Response("Not found", { status: 404 })
     }
   })
-  slog(`[workspace-bundle] serving ${bundleRoot()} on ${WORKSPACE_PARTITION}`)
+  slog(`[workspace-bundle] serving ${bundleDir()} on ${WORKSPACE_PARTITION}`)
 }
 
 /**

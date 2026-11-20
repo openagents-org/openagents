@@ -98,6 +98,7 @@ import {
   registerWorkspaceScheme,
   serveWorkspaceBundle,
 } from "./workspace-bundle"
+import { createWorkspaceBundleUpdater, type WorkspaceBundleUpdater } from "./bundle-ota"
 import { normalizeWorkspaceEndpoint } from "./agents/env-normalize"
 import { attachRendererLogging, rendererLogPath } from "./renderer-log"
 import { crashLoopGuard, startStallWatchdog } from "./responsiveness"
@@ -283,6 +284,8 @@ const githubBindingsStore = new GitHubBindingsStore()
 let mainWindow: BrowserWindow | null = null
 let tray: Tray | null = null
 let agentManager: AgentManager | null = null
+/** Keeps the Workspace bundle current between launcher releases. Set once ready. */
+let workspaceBundles: WorkspaceBundleUpdater | null = null
 let cliLogin: CliLoginManager | null = null
 let coreVersion: string | null = null
 // Last launcher-update version we notified about, so re-emitted
@@ -1636,6 +1639,8 @@ function setupIPC(): void {
     if (key === "workspaceEndpoint" && agentManager) {
       agentManager.reloadCore()
     }
+    // A downloaded Workspace bundle is the hosted front end; see reconsider.
+    if (key === "workspaceEndpoint") workspaceBundles?.reconsider()
     if (key === "startOnBoot") applyStartOnBoot()
     // Which surface announces an update rides on the updater state, so the
     // switch in Settings has to reach it — otherwise the banner keeps behaving
@@ -2680,6 +2685,7 @@ function setupIPC(): void {
       return requireManager()._ensureDaemon()
     },
     nudgeNode: () => agentManager?.nudgeNodeHeartbeat(),
+    bundles: workspaceBundles ?? undefined,
     // The launcher's own look and feel, which the hosted workspace shares.
     // `nativeTheme.themeSource` is already the mode the renderer put there
     // (see theme:set-source), so main does not keep a second copy of it.
@@ -2722,8 +2728,15 @@ if (!gotLock) {
 }
 
 app.whenReady().then(async () => {
+  // Which Workspace bundle to serve — a verified download newer than the one
+  // that shipped, or that one — decided before the first page asks for it.
+  workspaceBundles = createWorkspaceBundleUpdater({
+    endpoint: () => normalizeWorkspaceEndpoint(store.get("workspaceEndpoint")),
+    autoUpdate: () => store.get("autoUpdate") !== false,
+  })
   // The bundled workspace app, served off disk over that scheme.
   serveWorkspaceBundle()
+  workspaceBundles.start()
   // Local control server (--control-port=N / OPENAGENTS_CONTROL_PORT): a
   // curl-able status/driving surface for remote tests and diagnostics. Started
   // FIRST, before the first-run bootstrap (portable Node download can take
