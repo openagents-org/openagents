@@ -80,13 +80,16 @@ Two ways, and the agent needs exactly one:
 | **API key** | `CODEBUDDY_API_KEY`, or `CODEBUDDY_AUTH_TOKEN` for a platform/enterprise token. Set it in the launcher and nothing else is needed. |
 | **Account sign-in** | Run `codebuddy` in a terminal and use `/login`. There is no `codebuddy login` subcommand — signing in is a slash command inside the session — which is why the launcher opens the CLI rather than a login command. |
 
-The credential a `/login` writes lands under
-`~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/` (macOS),
-`%LOCALAPPDATA%\CodeBuddyExtension\…` (Windows), or
-`~/.local/share/CodeBuddyExtension/…` (Linux). The launcher does not read it:
-the agent is registered as `unverifiable`, so readiness stays honest — "sign-in
-not confirmed" until a task confirms it — instead of guessing from a file whose
-mere existence proves nothing.
+On a paired device, the connector asks CodeBuddy for its current account when
+you re-detect runtimes or finish `agn login codebuddy`. The check runs on the
+configured site with API keys removed. It reads the local account through
+CodeBuddy's ACP extension and reports only the sign-in state and check time.
+
+The add form shows **Signed in on this device** when CodeBuddy identifies an
+account, **Signed out on this device** when it reports an empty session, and
+**Sign-in status unavailable** when the check is inconclusive. You can retry an
+inconclusive check or continue adding the agent. **Test connection** on an
+existing agent still checks whether that agent can get a model response.
 
 ## Sites are separate accounts
 

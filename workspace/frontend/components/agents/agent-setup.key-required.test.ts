@@ -200,12 +200,13 @@ it('lets OpenCode run a free opencode/ model with neither', async () => {
   expect(sent(api)).toHaveLength(1);
 });
 
-// CodeBuddy's sign-in cannot be confirmed without a run (`unverifiable`):
-// the device may say "not signed in" for an account that is.
-const CODEBUDDY_NOT_DETECTED = { type: 'codebuddy', runtime: { ready: false, signedIn: false, loginCommand: 'codebuddy' } };
+const CODEBUDDY_SIGNED_OUT = {
+  type: 'codebuddy',
+  runtime: { ready: false, signedIn: false, signInCheckedAt: '2026-01-01T00:00:00Z', loginCommand: 'codebuddy' },
+};
 
-it('lets a CodeBuddy user the device does not see as signed in pick the sign-in and add anyway', async () => {
-  const api = await open(CODEBUDDY_NOT_DETECTED);
+it('lets a user add CodeBuddy on account sign-in after confirming the device is signed out', async () => {
+  const api = await open(CODEBUDDY_SIGNED_OUT);
   expect(optionValues()).toContain('__sign_in__');
   // The message follows the detection; nothing is picked on it.
   expect(credentialSelect().value).toBe('__none__');
@@ -233,9 +234,9 @@ it('picks the sign-in for a device signed in, and adds at once', async () => {
   expect(sent(api)[0][2]).toMatchObject({ authMode: 'cli_login' });
 });
 
-it('saves a rename of a signed-in agent the device does not see as signed in', async () => {
+it('saves a rename of an agent configured for account sign-in after the device signs out', async () => {
   const api = await open({
-    ...CODEBUDDY_NOT_DETECTED,
+    ...CODEBUDDY_SIGNED_OUT,
     editAgent: { name: 'codebuddy', type: 'codebuddy', status: 'running', authMode: 'cli_login', apiKeyMasked: null } as NodeAgent,
   });
   // It opens on the sign-in it runs on, and the edit only warns.
@@ -251,6 +252,6 @@ it('marks only key-only types as needing a credential', async () => {
   expect(host.querySelector('[data-testid="agent-setup-title-required"]')).not.toBeNull();
   await act(async () => root.unmount());
   host.remove();
-  await open(CODEBUDDY_NOT_DETECTED);
+  await open(CODEBUDDY_SIGNED_OUT);
   expect(host.querySelector('[data-testid="agent-setup-title-required"]')).toBeNull();
 });

@@ -13,6 +13,7 @@ import { messages } from '@/lib/i18n/messages/en-US';
 import { translate } from '@/lib/i18n/translate';
 import type { AgentCatalogDetail, AgentCatalogEntry, NodeRuntime, WorkspaceNode } from '@/lib/types';
 import { AgentSetup, type AgentSetupApi } from './agent-setup';
+import codebuddyEntry from '../../../backend/registry/codebuddy.json';
 import codexEntry from '../../../backend/registry/codex.json';
 import openclawEntry from '../../../backend/registry/openclaw.json';
 import opencodeEntry from '../../../backend/registry/opencode.json';
@@ -29,7 +30,7 @@ afterEach(async () => {
   delete (window as { __oaHost__?: unknown }).__oaHost__;
 });
 
-const ENTRIES: Record<string, { label: string }> = { codex: codexEntry, openclaw: openclawEntry, opencode: opencodeEntry };
+const ENTRIES: Record<string, { label: string }> = { codebuddy: codebuddyEntry, codex: codexEntry, openclaw: openclawEntry, opencode: opencodeEntry };
 
 async function open(type: string, runtime: Partial<NodeRuntime> = {}, os: string | null = null) {
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
@@ -61,10 +62,10 @@ it('offers a key, the desktop app, and agn login on a device that has it', async
   expect(text).toContain(t('connect.nodeNeedsLoginKeyStep'));
   expect(text).toContain(t('connect.nodeNeedsLoginDesktop', { device: 'racknerd-363e14e', label: codexEntry.label }));
   expect(hint().querySelector('code')!.textContent).toBe('agn login codex');
-  expect(downloads()).toEqual([
-    'https://openagents.org/api/download/launcher/windows',
+  expect(downloads().sort()).toEqual([
     'https://openagents.org/api/download/launcher/mac',
     'https://openagents.org/api/download/launcher/mac-intel',
+    'https://openagents.org/api/download/launcher/windows',
   ]);
 });
 
@@ -184,4 +185,35 @@ it('lets an agent that installs on add through, since it cannot be signed in yet
 it('does not warn when the device is already signed in', async () => {
   await open('codex', { ready: true });
   expect(notSignedIn()).toBeNull();
+});
+
+const checkedAt = '2026-01-01T00:00:00Z';
+
+it('recognizes a device account on the first CodeBuddy add', async () => {
+  const api = await open('codebuddy', { signedIn: true, signInCheckedAt: checkedAt, ready: true });
+  expect(host.textContent).toContain(t('connect.deviceAccountSignedIn'));
+  expect(notSignedIn()).toBeNull();
+  await submit();
+  expect(created(api)).toHaveLength(1);
+});
+
+it('prompts for sign-in when the CLI explicitly reports an empty account', async () => {
+  await open('codebuddy', { signedIn: false, signInCheckedAt: checkedAt, ready: true, auth: { mode: 'api_key', keyMasked: null } });
+  expect(host.textContent).toContain(t('connect.deviceAccountSignedOut'));
+  expect(notSignedIn()).not.toBeNull();
+});
+
+it.each([
+  { signedIn: false, authStatus: 'unknown' },
+  { signedIn: false, ready: true, authStatus: 'ready' },
+  { signedIn: null, signInCheckedAt: checkedAt, ready: true, auth: { mode: 'api_key' as const, keyMasked: null } },
+])('keeps an inconclusive CodeBuddy check actionable on the add form', async (runtime) => {
+  const api = await open('codebuddy', runtime);
+  expect(host.textContent).toContain(t('connect.deviceAccountUnknown'));
+  expect(notSignedIn()).toBeNull();
+  const retry = host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-status-hint"] button')!;
+  await act(async () => { retry.click(); });
+  expect(vi.mocked(api.enqueueNodeCommand).mock.calls.some((args) => args[1] === 'detect_runtimes')).toBe(true);
+  await submit();
+  expect(created(api)).toHaveLength(1);
 });

@@ -9,6 +9,7 @@ const { AgentConnector, Daemon } = require('./index');
 const { hasCredentialMetadata, formatAuthGuidance } = require('./auth-guidance');
 const { AUTH_MODE_KEY, CLI_LOGIN, isCliLogin } = require('./env');
 const { loginCommandOf } = require('./agent-login');
+const { codeBuddyLoginEnv, spawnCodeBuddy, checkCodeBuddySignIn } = require('./codebuddy-sign-in');
 
 // ---------------------------------------------------------------------------
 // Arg parsing
@@ -381,7 +382,8 @@ async function cmdRuntimes(connector, flags) {
     const catalog = connector.registry.getCatalogSync().filter((e) => !only || only.has(e.name));
     let agents = [];
     try { agents = connector.config.getAgents() || []; } catch {}
-    const runtimes = catalog.map((e) => {
+    const runtimes = [];
+    for (const e of catalog) {
       let h;
       try { h = connector.healthCheck(e.name); } catch { h = {}; }
       // The workspace's Configure saves a key on the AGENT (daemon.yaml), never
@@ -395,6 +397,19 @@ async function cmdRuntimes(connector, flags) {
       // it. `typeReady` keeps the type's own answer (<type>.env, this
       // process's environment, the CLI's sign-in) for the add form, which
       // otherwise read Ready and added an agent with no key at all.
+      let account;
+      if (e.name === 'codebuddy' && h.installed && h.compatible !== false) {
+        account = await checkCodeBuddySignIn(h.binary, codeBuddyLoginEnv(connector));
+        if (!h.ready) {
+          if (account === true) {
+            h = { ...h, ready: true, auth_mode: 'cli_login', auth_status: 'ready', reason: 'ready', message: 'Signed in on this device' };
+          } else if (account === false) {
+            h = { ...h, auth_status: 'no_credentials', reason: 'login_required', message: 'Signed out on this device' };
+          } else {
+            h = { ...h, auth_status: 'unknown', reason: null, message: 'Could not confirm device sign-in' };
+          }
+        }
+      }
       const typeReady = !!h.ready;
       // Whether the CLI itself is signed in on this device, keys aside: what an
       // agent added on "the account signed in on the device" runs on, the add
@@ -402,7 +417,8 @@ async function cmdRuntimes(connector, flags) {
       // type ready on a key never said whether it is signed in as well, so
       // only that case is asked again, with keys not counting.
       let signedIn = null;
-      if (loginCommandOf(e)) {
+      if (account !== undefined) signedIn = account;
+      else if (loginCommandOf(e)) {
         if (!h.installed || !h.ready) signedIn = false;
         else if (h.auth_mode === 'cli_login') signedIn = true;
         else {
@@ -436,19 +452,20 @@ async function cmdRuntimes(connector, flags) {
           : h.auth_mode === 'api_key'
             ? 'api_key'
             : 'none';
-      return {
+      runtimes.push({
         type: e.name,
         installed: !!h.installed,
         ready: !!h.ready,
         typeReady,
         signedIn,
+        ...(account !== undefined && { signInCheckedAt: new Date().toISOString() }),
         version: h.version || null,
         reason: h.reason || null,
         message: h.message || null,
         authStatus: h.auth_status || null,
         auth: { mode, keyMasked: mode === 'api_key' ? keyMasked : null },
-      };
-    });
+      });
+    }
     process.stdout.write(JSON.stringify(runtimes));
     return;
   }
@@ -1096,10 +1113,12 @@ async function cmdLogin(connector, flags, positional) {
   // A type first: the first agent of a type is often named after it.
   let type = target;
   let entry = connector.registry.getEntry(target);
+  let loginAgentEnv;
   if (!entry) {
     const agent = connector.config.getAgent(target);
     if (agent) {
       type = agent.type || 'openclaw';
+      loginAgentEnv = agent.env;
       entry = connector.registry.getEntry(type);
     }
   }
@@ -1128,6 +1147,7 @@ async function cmdLogin(connector, flags, positional) {
   const { getEnhancedEnv } = require('./paths');
   const { shouldUseShellForBinary } = require('./adapters/health-status');
   const shell = shouldUseShellForBinary(bin);
+  const env = type === 'codebuddy' ? codeBuddyLoginEnv(connector, loginAgentEnv) : getEnhancedEnv();
   print(`Signing in ${label}: ${[plan.command.split(/\s+/)[0], ...plan.args].join(' ')}`);
   if (plan.headless && plan.args.includes('--device-auth')) {
     print('No browser on this machine: open the link below on any device and enter the code.');
@@ -1143,11 +1163,9 @@ async function cmdLogin(connector, flags, positional) {
   const code = await new Promise((resolve) => {
     let child;
     try {
-      child = spawn(shell ? `"${bin}"` : bin, plan.args, {
-        stdio: 'inherit',
-        env: getEnhancedEnv(),
-        shell,
-      });
+      child = type === 'codebuddy'
+        ? spawnCodeBuddy(bin, plan.args, { stdio: 'inherit', env })
+        : spawn(shell ? `"${bin}"` : bin, plan.args, { stdio: 'inherit', env, shell });
     } catch (e) {
       print(`Could not start ${bin}: ${e.message}`);
       resolve(1);
@@ -1161,11 +1179,18 @@ async function cmdLogin(connector, flags, positional) {
   // The CLI's word is not enough (some exit 0 on a cancelled login): ask the
   // same readiness check the daemon uses, with keys not counting.
   let ready = false;
-  try { ready = !!connector.installer.healthCheck(type, { cliLogin: true }).ready; } catch {}
+  if (type === 'codebuddy') {
+    ready = await checkCodeBuddySignIn(bin, env);
+  } else {
+    try { ready = !!connector.installer.healthCheck(type, { cliLogin: true }).ready; } catch {}
+  }
   // Have a running daemon re-detect and report, so the workspace updates now.
   try { connector.sendDaemonCommand('detect'); } catch {}
   print('');
-  if (ready) {
+  if (ready === null) {
+    print('Could not confirm device sign-in. Use Re-detect in the workspace to check again.');
+    process.exitCode = 1;
+  } else if (ready) {
     print(`✓ ${label} is signed in on this device. The workspace will show it as ready shortly.`);
   } else {
     print(`✗ ${label} is still not signed in${code ? ` (the login exited with code ${code})` : ''}.`);
