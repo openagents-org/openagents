@@ -106,14 +106,15 @@ export function HostedOfferBar({ offer }: { offer: AcentaOffer }) {
   const date = new Date(ends.getTime() - 1000).toLocaleDateString(zh ? 'zh-CN' : 'en-US', { month: 'long', day: 'numeric', timeZone: 'America/Los_Angeles' });
   const name = offer.name === 'Black Friday' ? t('connect.acentaOfferBlackFriday') : offer.name;
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-sm">
-      <Tag className="size-4 shrink-0 text-primary" />
-      <span>
-        <span className="font-semibold">{name}</span>{' '}
+    // Acenta's orange, so the offer stands out from the neutral cards around it.
+    <div className="flex items-center gap-3 rounded-lg border border-[#ef6a3a]/35 bg-[#ef6a3a]/10 px-3 py-2.5 text-sm">
+      <Tag className="size-4 shrink-0 text-[#d9531f]" />
+      <span className="min-w-0 flex-1">
+        <span className="font-semibold text-[#c2410c]">{name}</span>{' '}
         {t('connect.acentaOffer', { percent: offer.percentOff, discount: 10 - offer.percentOff / 10, months: offer.months, date })}
       </span>
       {offer.url && (
-        <Button variant="link" size="xs" className="ml-auto px-0" asChild>
+        <Button variant="link" size="xs" className="shrink-0 px-0 text-[#d9531f]" asChild>
           <a href={offer.url} target="_blank" rel="noreferrer">
             {t('connect.acentaOfferPrices')}
             <ArrowUpRight data-icon="inline-end" />
