@@ -6,13 +6,16 @@ import { OpenAgentsAuthProvider, useOpenAgentsAuth } from './openagents-auth-con
 
 const mocks = vi.hoisted(() => ({
   clear: vi.fn(), signIn: vi.fn(), getToken: vi.fn(), fresh: vi.fn(), setRefresher: vi.fn(),
-  onIdTokenChange: vi.fn(), resolvedEmail: vi.fn(), load: vi.fn(),
+  onIdTokenChange: vi.fn(), resolvedEmail: vi.fn(), load: vi.fn(), renew: vi.fn(), needsRenewal: vi.fn(),
+  clearRefresher: vi.fn(),
 }));
 vi.mock('./workspace-session', () => ({
   loadWorkspaceSession: mocks.load,
   clearWorkspaceSession: mocks.clear,
+  renewWorkspaceSession: mocks.renew,
+  sessionNeedsRenewal: mocks.needsRenewal,
 }));
-vi.mock('./api', () => ({ workspaceApi: { setBearerRefresher: mocks.setRefresher } }));
+vi.mock('./api', () => ({ workspaceApi: { setBearerRefresher: mocks.setRefresher, clearBearerRefresher: mocks.clearRefresher } }));
 vi.mock('./firebase', () => ({
   signInWithGoogle: mocks.signIn, getIdToken: mocks.getToken, getFreshIdToken: mocks.fresh,
   getResolvedEmail: mocks.resolvedEmail,
@@ -26,7 +29,8 @@ function View() { auth = useOpenAgentsAuth(); return null; }
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
   vi.clearAllMocks();
-  mocks.load.mockReturnValue({ token: 'old-session', email: 'old@example.com', displayName: 'Old account' });
+  mocks.load.mockReturnValue({ token: 'old-session', email: 'old@example.com', displayName: 'Old account', expiresAt: 9e9 });
+  mocks.needsRenewal.mockReturnValue(false);
   mocks.signIn.mockResolvedValue({ email: 'new@example.com', displayName: 'New account', photoURL: null });
   mocks.getToken.mockResolvedValue('new-identity');
   mocks.fresh.mockResolvedValue('renewed-identity');
@@ -56,7 +60,44 @@ it('retains the existing identity when sign-in produces no token', async () => {
   await act(async () => { await expect(auth.signIn()).rejects.toThrow('identity token'); });
   expect(auth.idToken).toBe('old-session');
   expect(mocks.clear).not.toHaveBeenCalled();
-  expect(mocks.setRefresher).not.toHaveBeenCalled();
+  // Only the stored session's renewer is installed, no Firebase refresher.
+  expect(mocks.setRefresher).toHaveBeenCalledOnce();
+});
+
+it('renews a stored session when the server rejects it', async () => {
+  mocks.renew.mockResolvedValue({ token: 'renewed-session', email: 'old@example.com', displayName: 'Old account', expiresAt: 9e9 });
+  let fresh: string | null = null;
+  await act(async () => { fresh = await mocks.setRefresher.mock.lastCall![0](); });
+  expect(fresh).toBe('renewed-session');
+  expect(auth.idToken).toBe('renewed-session');
+  expect(auth.user?.email).toBe('old@example.com');
+});
+
+it('signs out once a stored session can no longer be renewed', async () => {
+  mocks.renew.mockResolvedValue(null);
+  const refresher = mocks.setRefresher.mock.lastCall![0];
+  let fresh: string | null = 'unset';
+  await act(async () => { fresh = await refresher(); });
+  expect(fresh).toBeNull();
+  expect(auth.user).toBeNull();
+  expect(auth.idToken).toBeNull();
+  expect(mocks.clearRefresher).toHaveBeenCalledWith(refresher);
+});
+
+it('keeps the session when renewal fails on the network', async () => {
+  mocks.renew.mockRejectedValue(new Error('offline'));
+  await act(async () => { await mocks.setRefresher.mock.lastCall![0](); });
+  expect(auth.idToken).toBe('old-session');
+});
+
+it('renews a stored session ahead of its expiry', async () => {
+  await act(async () => root.unmount());
+  mocks.needsRenewal.mockReturnValue(true);
+  mocks.renew.mockResolvedValue({ token: 'early-session', email: 'old@example.com', displayName: 'Old account', expiresAt: 9e9 });
+  root = createRoot(container);
+  await act(async () => root.render(React.createElement(OpenAgentsAuthProvider, null, React.createElement(View))));
+  expect(mocks.renew).toHaveBeenCalledOnce();
+  expect(auth.idToken).toBe('early-session');
 });
 
 it('uses the handoff name claim when the Firebase user has no profile name', async () => {
