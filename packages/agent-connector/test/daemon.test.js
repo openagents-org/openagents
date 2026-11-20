@@ -1968,6 +1968,72 @@ describe('Daemon._probeAgent — the child reads daemon.yaml mid-save', () => {
   });
 });
 
+describe('Daemon._adapterLoop — a start that is stopped or restarted while preflight runs', () => {
+  const adapters = require('../src/adapters');
+  let realCreate;
+  beforeEach(() => { realCreate = adapters.createAdapter; });
+  afterEach(() => { adapters.createAdapter = realCreate; });
+
+  /** An adapter whose preflight answers only when the test says so. */
+  function pendingAdapter() {
+    let answer;
+    const adapter = {
+      runs: 0,
+      preflight: () => new Promise((resolve) => { answer = resolve; }),
+      run: async () => { adapter.runs += 1; },
+      stop() {},
+    };
+    adapters.createAdapter = () => adapter;
+    return { adapter, answer: (pf) => answer(pf) };
+  }
+
+  function start(daemon, name) {
+    const info = { state: 'starting' };
+    daemon._processes[name] = info;
+    const loop = daemon._adapterLoop(name, { name, type: 'deepseek' }, info, { slug: 'ws', token: 't' });
+    return { info, loop };
+  }
+
+  function makeDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._writeStatus = () => {};
+    daemon._log = () => {};
+    return daemon;
+  }
+
+  it('does not run an agent stopped while its preflight was pending', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._stoppedAgents.add('ds');
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 0);
+    assert.equal(daemon._adapters.ds, undefined);
+  });
+
+  it('leaves a restart to the new start instead of running the old one too', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._processes.ds = { state: 'starting' }; // what _launchAgent does on restart
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 0);
+  });
+
+  it('runs a start nobody interrupted', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 1);
+  });
+});
+
 describe('Daemon._repairRuntime', () => {
   const { Installer } = require('../src/installer');
   let realInstall;

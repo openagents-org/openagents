@@ -2147,11 +2147,21 @@ async _runNodeCommand(n, cmd) {
       // Awaited: most adapters answer synchronously, but DeepSeek's check of a
       // newer harness preview runs a child process and must not block the
       // daemon that every other agent on the device shares.
+      //
+      // Every await below is a window in which the user can press Stop or
+      // Restart. Stop leaves nothing for stopAgent to stop yet, and Restart
+      // launches a second loop with a fresh `info`, so after each one this
+      // start checks it is still the current one before going on — otherwise
+      // a stopped agent ran once anyway, and a restarted one ran twice.
+      const superseded = () => this._shuttingDown
+        || this._stoppedAgents.has(name)
+        || this._processes[name] !== info;
       let pf =
         typeof adapter.preflight === 'function' ? await adapter.preflight() : null;
+      if (superseded()) return;
       if (pf && pf.ok === false && pf.repairable) {
         pf = (await this._repairRuntime(name, agentType, adapter, info, pf)) || pf;
-        if (this._shuttingDown || this._stoppedAgents.has(name)) return;
+        if (superseded()) return;
       }
       if (pf && pf.ok === false) {
         info.state = 'error';

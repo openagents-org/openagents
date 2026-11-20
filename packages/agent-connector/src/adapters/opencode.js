@@ -1810,10 +1810,14 @@ class OpenCodeAdapter extends BaseAdapter {
       const data = (c.data && typeof c.data === 'object') ? c.data : {};
       const message = pick(c.message, c.error, c.detail, c.reason, data.message);
       const name = pick(c.name, c.type);
+      // OpenCode's own APIError keeps the HTTP status in data.statusCode
+      // (opencode-ai 1.17.11, session/message-v2.ts); the others are the
+      // shapes other providers' errors take.
       const statusRaw = c.status != null ? c.status
         : (c.statusCode != null ? c.statusCode
           : (data.status != null ? data.status
-            : (typeof c.code === 'number' ? c.code : null)));
+            : (data.statusCode != null ? data.statusCode
+              : (typeof c.code === 'number' ? c.code : null))));
       if (message || name || statusRaw != null) {
         return {
           message: String(message || ''),

@@ -1129,6 +1129,27 @@ describe('DeepSeek adapter — preflight', () => {
     assert.match(pf.message, /timed out/);
   });
 
+  it('gives up on a wedged `dsh -V` at its deadline without holding the event loop', async () => {
+    const adapter = makeAdapter({ agentEnv: { FAKE_VERSION_HANG: '1' } });
+    adapter._versionProbeTimeoutMs = 300;
+    adapter._readNodeVersion = () => 'v22.19.0';
+    let ticks = 0;
+    const tick = setInterval(() => { ticks += 1; }, 20);
+    const started = Date.now();
+    const pf = await adapter.preflight();
+    clearInterval(tick);
+    assert.ok(Date.now() - started < 3000, 'settled at the deadline');
+    assert.ok(ticks > 3, 'the event loop kept running');
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'version_incompatible');
+    assert.match(pf.message, /Could not read the DeepSeek Harness version/);
+  });
+
+  it('reads the version from the real `dsh -V` contract', async () => {
+    const adapter = makeAdapter({ agentEnv: { FAKE_DSH_VERSION: '0.2.2-rc.5' } });
+    assert.equal(await adapter._readDshVersion(), '0.2.2-rc.5');
+  });
+
   it('asks for a repair when a newer preview cannot compose at all', async () => {
     const adapter = makeAdapter({ agentEnv: { FAKE_BOOTSTRAP_FAIL: '1' } });
     adapter._readNodeVersion = () => 'v22.19.0';

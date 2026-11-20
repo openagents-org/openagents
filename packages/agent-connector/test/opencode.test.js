@@ -304,6 +304,20 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.notEqual(OpenCodeAdapter._classifyFailure({ code: 1, stdout: name, stderr: '' }).category, 'database_error');
   });
 
+  // Review of 6b8d93b29: OpenCode's own APIError carries the HTTP status in
+  // data.statusCode (opencode-ai 1.17.11, session/message-v2.ts).
+  it('reads the HTTP status OpenCode puts in error.data.statusCode', () => {
+    const apiError = (statusCode) => JSON.stringify({
+      type: 'error',
+      error: { name: 'APIError', data: { message: `Failed query: upstream ${statusCode}`, statusCode, isRetryable: false } },
+    });
+    const cat = (code) => OpenCodeAdapter._classifyFailure({ code: 1, stdout: apiError(code), stderr: '' }).category;
+    assert.equal(cat(401), 'auth_failed');
+    assert.equal(cat(429), 'rate_limited');
+    assert.equal(cat(503), 'provider_server_error');
+    assert.equal(OpenCodeAdapter._extractErrorFromStdout(apiError(401)).status, '401');
+  });
+
   it('keeps the migrated-database case its own category', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Database is not empty and has no session table' });
     assert.equal(cls.category, 'shared_db_migrated');

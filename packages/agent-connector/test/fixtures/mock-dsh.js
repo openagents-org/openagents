@@ -12,6 +12,7 @@
  * Driven entirely by environment variables so one script covers every scenario:
  *   FAKE_SCENARIO      which behaviour to play (see below)
  *   FAKE_DSH_VERSION   what `-V` prints (default 0.2.1-rc.5)
+ *   FAKE_VERSION_HANG  make `-V` never return (version probe deadline)
  *   FAKE_ARGV_LOG      file to write { argv, cwd, env, taskFile, taskBody }
  *   FAKE_STDOUT        text printed by the `answer` scenario (empty is honoured)
  *   FAKE_BOOTSTRAP_FAIL  make `--dump-config` fail instead of the run
@@ -36,8 +37,10 @@ const fs = require('fs');
 const argv = process.argv.slice(2);
 
 if (argv.includes('-V') || argv.includes('--version')) {
-  process.stdout.write((process.env.FAKE_DSH_VERSION || '0.2.1-rc.5') + '\n');
-  process.exit(0);
+  if (process.env.FAKE_VERSION_HANG) setInterval(() => {}, 1 << 30);
+  else process.stdout.write((process.env.FAKE_DSH_VERSION || '0.2.1-rc.5') + '\n');
+  if (!process.env.FAKE_VERSION_HANG) process.exit(0);
+  return;
 }
 
 // The task is the last positional argument; the adapter passes a constant

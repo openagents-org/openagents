@@ -47,7 +47,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -115,6 +115,9 @@ const BOOTSTRAP_TIMEOUT_MS = 3 * 60 * 1000;
  * how long a broken install can keep this one agent from starting.
  */
 const COMPOSE_CHECK_TIMEOUT_MS = 30 * 1000;
+
+/** Deadline for `dsh -V` in preflight (_readDshVersion). */
+const VERSION_PROBE_TIMEOUT_MS = 15 * 1000;
 
 /**
  * The key bootstrap's child is tracked under in `_channelProcesses`.
@@ -201,6 +204,7 @@ class DeepSeekAdapter extends BaseAdapter {
     this._runTimeoutMs = opts.runTimeoutMs || RUN_TIMEOUT_MS;
     this._bootstrapTimeoutMs = opts.bootstrapTimeoutMs || BOOTSTRAP_TIMEOUT_MS;
     this._composeCheckTimeoutMs = opts.composeCheckTimeoutMs || COMPOSE_CHECK_TIMEOUT_MS;
+    this._versionProbeTimeoutMs = opts.versionProbeTimeoutMs || VERSION_PROBE_TIMEOUT_MS;
 
     // A PRIVATE harness home per agent instance. The user's own ~/.dsh is never
     // read or written: sharing it would leak their profiles, patches and saved
@@ -316,18 +320,34 @@ class DeepSeekAdapter extends BaseAdapter {
     this._composeVerified = null;
   }
 
-  /** `dsh -V` output, or null. */
+  /**
+   * `dsh -V` output, or null. Asynchronous with its own deadline: preflight
+   * runs on the daemon's event loop, which every agent on the device shares,
+   * so a slow probe must not hold up their events, Stop or the heartbeat.
+   * At the deadline this resolves null at once and the child is killed.
+   */
   _readDshVersion() {
-    if (!this._jsEntry) return null;
-    try {
-      return execFileSync(this._nodeBin, [this._jsEntry, '-V'], {
-        encoding: 'utf-8',
-        timeout: 15000,
-        env: getEnhancedEnv(this.agentEnv),
-      }).trim();
-    } catch {
-      return null;
-    }
+    if (!this._jsEntry) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let child;
+      const timer = setTimeout(() => {
+        resolve(null);
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      }, this._versionProbeTimeoutMs);
+      try {
+        child = execFile(this._nodeBin, [this._jsEntry, '-V'], {
+          encoding: 'utf-8',
+          env: getEnhancedEnv(this.agentEnv),
+          windowsHide: true,
+        }, (err, stdout) => {
+          clearTimeout(timer);
+          resolve(err ? null : String(stdout || '').trim() || null);
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve(null);
+      }
+    });
   }
 
   /**
@@ -404,7 +424,7 @@ class DeepSeekAdapter extends BaseAdapter {
       || SUPPORTED_DSH_VERSION;
     const installCmd = (entry && entry.install && entry.install[this._platformKey()])
       || defaultInstallCommand(supported);
-    const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
+    const gate = classifyDshVersion(await this._readDshVersion(), supported, installCmd);
     if (gate.compatible === false || gate.compatible === null) {
       // repairable: the daemon installs the supported version and asks again
       // (see Daemon._repairRuntime), so a stale dsh never reaches the user.
@@ -827,12 +847,12 @@ class DeepSeekAdapter extends BaseAdapter {
     try {
       if (IS_WINDOWS) {
         // /T takes the whole tree, so there is no separate group to signal.
-        try {
-          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
-          return true;
-        } catch {
-          return this._hasExited(proc);
-        }
+        // Asynchronous: this also runs from timers (a compose past its
+        // deadline), and a synchronous taskkill held the shared event loop.
+        return await new Promise((resolve) => {
+          execFile('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { timeout: 5000, windowsHide: true },
+            (err) => resolve(err ? this._hasExited(proc) : true));
+        });
       }
       // POSIX: signal the whole process group (the child is detached) so the
       // shell commands dsh spawned for its bash tool are reaped too.

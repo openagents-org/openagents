@@ -101,11 +101,12 @@ const PERMISSION_MODES = ['read-only', 'workspace-write', 'danger-full-access'];
 
 /**
  * How dsh's own base layer picks the sandbox (`sandbox-policy.config.mode`,
- * 0.2.1-rc.5 and 0.2.2-rc.5 alike). The adapter chooses the mode per run
- * through DSH_PERMISSION_MODE, so a preview that reads it from anywhere else
- * would ignore the user's choice — verifyComposedConfig requires this text.
+ * 0.2.1-rc.5 and 0.2.2-rc.5 alike): a `!!js` expression. The adapter chooses
+ * the mode per run through DSH_PERMISSION_MODE, so a preview that reads it
+ * from anywhere else would ignore the user's choice — verifyComposedConfig
+ * requires this expression, compared with its whitespace collapsed.
  */
-const SANDBOX_POLICY_MODE_EXPR = "!!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
+const SANDBOX_POLICY_MODE_EXPR = "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
 
 /**
  * The ONLY thing that ever reaches argv as the headless task.
@@ -260,11 +261,18 @@ function classifyDshVersion(rawVersion, supported, installCommand) {
 }
 
 /**
- * Read the subset of YAML that `dsh --dump-config` prints into plain values:
- * block mappings and sequences by indentation, scalars as strings with their
- * quotes removed. `!!js` expressions, flow collections and block scalars stay
- * as their source text — nothing here evaluates them. Comment lines (the
- * `# == <layer>` headers) are skipped.
+ * Read the subset of YAML that `dsh --dump-config` prints: block mappings and
+ * sequences by indentation. Every scalar becomes a node that keeps what YAML
+ * means by it, not just its text:
+ *
+ *   { value, tag, quoted }   `true` → { value: 'true', tag: null, quoted: false }
+ *                            `'true'` → quoted: true (a string, not a boolean)
+ *                            `!!js >-` + lines → tag: '!!js', value: the lines
+ *
+ * so a quoted `'!!js …'` (a plain string) never passes for the expression.
+ * `!!js` expressions, flow collections and block scalars are kept as source
+ * text — nothing here evaluates them. Comment lines (the `# == <layer>`
+ * headers) are skipped.
  *
  * Not a general YAML parser, and it does not have to be: anything it cannot
  * place makes the caller report the composition as unverified, which costs a
@@ -279,26 +287,31 @@ function parseDumpYaml(text) {
   }
   let i = 0;
 
-  const scalar = (v) => {
-    const t = v.trim();
-    if (/^'.*'$/.test(t)) return t.slice(1, -1).replace(/''/g, "'");
+  const unquote = (t) => {
+    if (/^'.*'$/.test(t)) return { value: t.slice(1, -1).replace(/''/g, "'"), quoted: true };
     if (/^".*"$/.test(t)) {
-      try { return JSON.parse(t); } catch { return t.slice(1, -1); }
+      try { return { value: JSON.parse(t), quoted: true }; } catch { return { value: t.slice(1, -1), quoted: true }; }
     }
-    return t;
+    return { value: t, quoted: false };
+  };
+  const scalar = (v) => {
+    const m = v.trim().match(/^(!!?\S+)\s+(.*)$/);
+    const tag = m ? m[1] : null;
+    return { ...unquote(m ? m[2] : v.trim()), tag };
   };
   const keyOf = (t) => {
     const m = t.match(/^('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[^\s'"][^:]*?)\s*:(?:\s+(.*)|\s*)$/);
-    return m ? { key: scalar(m[1]), rest: m[2] === undefined ? '' : m[2] } : null;
+    return m ? { key: unquote(m[1]).value, rest: m[2] === undefined ? '' : m[2] } : null;
   };
+  const BLOCK_SCALAR = /^(?:(!!?\S+)\s+)?[|>][-+0-9]*$/; // `>-`, `|`, `!!js >-`
   // A key whose value sits on the following, deeper lines; or a block scalar,
   // whose deeper lines are text, not structure.
-  const BLOCK_SCALAR = /^(?:!!\S+\s+)?[|>][-+0-9]*$/; // `>-`, `|`, `!!js >-`
   const valueAfter = (rest, indent) => {
-    if (BLOCK_SCALAR.test(rest)) {
+    const blockScalar = rest.match(BLOCK_SCALAR);
+    if (blockScalar) {
       const body = [];
       while (i < lines.length && lines[i].indent > indent) body.push(lines[i++].text);
-      return `${rest} ${body.join(' ')}`;
+      return { value: body.join('\n'), tag: blockScalar[1] || null, quoted: false, block: true };
     }
     if (rest) return scalar(rest);
     if (i < lines.length && lines[i].indent > indent) return block(lines[i].indent);
@@ -306,8 +319,9 @@ function parseDumpYaml(text) {
     if (i < lines.length && lines[i].indent === indent && lines[i].text.startsWith('- ')) return block(indent);
     return null;
   };
+  const isItem = (l) => l.text.startsWith('- ') || l.text === '-';
   const mapping = (indent, into = {}) => {
-    while (i < lines.length && lines[i].indent === indent && !lines[i].text.startsWith('- ') && lines[i].text !== '-') {
+    while (i < lines.length && lines[i].indent === indent && !isItem(lines[i])) {
       const kv = keyOf(lines[i].text);
       if (!kv) throw new Error(`unreadable line "${lines[i].text}"`);
       if (Object.prototype.hasOwnProperty.call(into, kv.key)) throw new Error(`duplicate key "${kv.key}"`);
@@ -318,7 +332,7 @@ function parseDumpYaml(text) {
   };
   const sequence = (indent) => {
     const out = [];
-    while (i < lines.length && lines[i].indent === indent && (lines[i].text.startsWith('- ') || lines[i].text === '-')) {
+    while (i < lines.length && lines[i].indent === indent && isItem(lines[i])) {
       const item = lines[i].text === '-' ? '' : lines[i].text.slice(2);
       const kv = item ? keyOf(item) : null;
       if (!kv) {
@@ -333,7 +347,7 @@ function parseDumpYaml(text) {
     }
     return out;
   };
-  const block = (indent) => (lines[i].text.startsWith('- ') || lines[i].text === '-' ? sequence(indent) : mapping(indent));
+  const block = (indent) => (isItem(lines[i]) ? sequence(indent) : mapping(indent));
 
   if (!lines.length) return [];
   const doc = block(lines[0].indent);
@@ -341,24 +355,29 @@ function parseDumpYaml(text) {
   return doc;
 }
 
+/** A parsed scalar node (see parseDumpYaml), as opposed to a mapping or list. */
+const isScalarNode = (n) => !!n && typeof n === 'object' && !Array.isArray(n)
+  && Object.prototype.hasOwnProperty.call(n, 'value') && Object.prototype.hasOwnProperty.call(n, 'quoted');
+
 /**
  * Confirm that `dsh --dump-config` output carries the private patch as written.
  *
  * A newer preview is accepted on this evidence rather than on its version
  * number. What the patch must achieve is what keeps a headless run safe and
- * answerable, so those are the fields checked, each at its own path:
+ * answerable, so those are the fields checked, each at its own path and with
+ * its YAML type:
  *
- *   user-questions.disabled                       true
- *   approval.config.policy                        never
- *   permission.config.presets.<mode>.sandbox      <mode>, for every mode
- *   permission.config.presets.<mode>.approval     never
- *   sandbox-policy.config.mode                    the DSH_PERMISSION_MODE
- *                                                 expression the adapter sets
+ *   user-questions.disabled                   the boolean true
+ *   approval.config.policy                    the string never
+ *   permission.config.presets.<mode>.sandbox  the string <mode>, every mode
+ *   permission.config.presets.<mode>.approval the string never
+ *   sandbox-policy.config.mode                the `!!js` DSH_PERMISSION_MODE
+ *                                             expression the adapter sets
  *
- * Extra fields are fine; a missing, repeated or differently-valued one is not.
- * A preview that renamed or restructured any of these would leave the run
- * waiting on an approval nobody can give, or running with a sandbox the user
- * did not pick.
+ * approval, permission and sandbox-policy must not be disabled. Each of the
+ * four rows must appear exactly once anywhere in the tree — a plugin group
+ * nests rows of its own, and a second `user-questions` there with
+ * `disabled: false` would mount it again. Extra fields are fine.
  *
  * Returns { ok, problem } where `problem` names the first field that did not
  * compose as expected.
@@ -372,28 +391,49 @@ function verifyComposedConfig(text) {
   }
   if (!Array.isArray(doc)) return { ok: false, problem: 'the composed config is not a row list' };
 
-  const rows = new Map();
-  for (const r of doc) {
-    if (!r || typeof r !== 'object' || typeof r.id !== 'string') continue;
-    if (rows.has(r.id)) return { ok: false, problem: `row "${r.id}" appears more than once` };
-    rows.set(r.id, r);
+  const CHECKED = [ROW.USER_QUESTIONS, ROW.APPROVAL, ROW.PERMISSION, ROW.SANDBOX_POLICY];
+  const idOf = (n) => (n && typeof n === 'object' && !Array.isArray(n) && !isScalarNode(n) && isScalarNode(n.id) && !n.id.tag
+    ? n.id.value : null);
+  const seen = new Map();
+  const walk = (n) => {
+    if (!n || typeof n !== 'object' || isScalarNode(n)) return;
+    const id = idOf(n);
+    if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
+    for (const v of Array.isArray(n) ? n : Object.values(n)) walk(v);
+  };
+  walk(doc);
+  for (const id of CHECKED) {
+    if ((seen.get(id) || 0) > 1) return { ok: false, problem: `row "${id}" appears more than once` };
   }
-  const at = (obj, keys) => keys.reduce((o, k) => (o && typeof o === 'object' && !Array.isArray(o) ? o[k] : undefined), obj);
-  const expect = (id, keys, want) => {
+
+  const rows = new Map(doc.map((r) => [idOf(r), r]).filter(([id]) => id));
+  const at = (obj, keys) => keys.reduce((o, k) => (o && typeof o === 'object' && !Array.isArray(o) && !isScalarNode(o) ? o[k] : undefined), obj);
+  const show = (n) => (n === undefined || n === null ? 'missing'
+    : isScalarNode(n) ? `${n.tag ? `${n.tag} ` : ''}${n.quoted ? JSON.stringify(n.value) : n.value}`
+      : 'not a single value');
+  const check = (id, keys, ok, want) => {
     const r = rows.get(id);
     if (!r) return `row "${id}" is missing`;
     const got = at(r, keys);
-    return got === want ? null : `${id}.${keys.join('.')} is ${got === undefined ? 'missing' : JSON.stringify(got)}, expected ${JSON.stringify(want)}`;
+    return ok(got) ? null : `${id}.${keys.join('.')} is ${show(got)}, expected ${want}`;
   };
+  const isTrue = (n) => isScalarNode(n) && !n.tag && !n.quoted && /^(true|True|TRUE)$/.test(n.value);
+  const isString = (want) => (n) => isScalarNode(n) && !n.tag && !n.block && n.value === want;
+  const isJsExpr = (want) => (n) => isScalarNode(n) && n.tag === '!!js' && !n.quoted
+    && n.value.replace(/\s+/g, ' ').trim() === want;
+  const notDisabled = (n) => n === undefined || (isScalarNode(n) && !n.tag && !n.quoted && /^(false|False|FALSE)$/.test(n.value));
 
   const problems = [
-    expect(ROW.USER_QUESTIONS, ['disabled'], 'true'),
-    expect(ROW.APPROVAL, ['config', 'policy'], 'never'),
+    check(ROW.USER_QUESTIONS, ['disabled'], isTrue, 'true'),
+    check(ROW.APPROVAL, ['disabled'], notDisabled, 'not disabled'),
+    check(ROW.APPROVAL, ['config', 'policy'], isString('never'), 'never'),
+    check(ROW.PERMISSION, ['disabled'], notDisabled, 'not disabled'),
     ...PERMISSION_MODES.flatMap((m) => [
-      expect(ROW.PERMISSION, ['config', 'presets', m, 'sandbox'], m),
-      expect(ROW.PERMISSION, ['config', 'presets', m, 'approval'], 'never'),
+      check(ROW.PERMISSION, ['config', 'presets', m, 'sandbox'], isString(m), m),
+      check(ROW.PERMISSION, ['config', 'presets', m, 'approval'], isString('never'), 'never'),
     ]),
-    expect(ROW.SANDBOX_POLICY, ['config', 'mode'], SANDBOX_POLICY_MODE_EXPR),
+    check(ROW.SANDBOX_POLICY, ['disabled'], notDisabled, 'not disabled'),
+    check(ROW.SANDBOX_POLICY, ['config', 'mode'], isJsExpr(SANDBOX_POLICY_MODE_EXPR), `!!js ${SANDBOX_POLICY_MODE_EXPR}`),
   ];
   const problem = problems.find(Boolean) || null;
   return { ok: !problem, problem };

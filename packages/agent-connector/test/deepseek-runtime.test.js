@@ -189,7 +189,7 @@ describe('verifyComposedConfig', () => {
   it('fails when the approval policy did not take', () => {
     const r = verifyComposedConfig(COMPOSED.replace('    policy: never', '    policy: ask'));
     assert.equal(r.ok, false);
-    assert.match(r.problem, /approval\.config\.policy is "ask"/);
+    assert.match(r.problem, /approval\.config\.policy is ask/);
   });
 
   // Review of f3c738f10: a line-by-line read without paths let a stale value
@@ -201,7 +201,7 @@ describe('verifyComposedConfig', () => {
       "  name: '@deepseek-ai/dsh-user-questions'\n  disabled: true",
       "  name: '@deepseek-ai/dsh-user-questions'\n  disabled: false\n  legacy:\n    disabled: true",
     );
-    assert.match(verifyComposedConfig(legacyDisabled).problem, /user-questions\.disabled is "false"/);
+    assert.match(verifyComposedConfig(legacyDisabled).problem, /user-questions\.disabled is false/);
   });
 
   it('is not fooled by an old preset table beside the real one', () => {
@@ -210,7 +210,7 @@ describe('verifyComposedConfig', () => {
       .replace('        sandbox: workspace-write\n        approval: never\n      danger', '        sandbox: danger-full-access\n        approval: never\n      danger');
     const r = verifyComposedConfig(text);
     assert.equal(r.ok, false);
-    assert.match(r.problem, /presets\.workspace-write\.sandbox is "danger-full-access"/);
+    assert.match(r.problem, /presets\.workspace-write\.sandbox is danger-full-access/);
   });
 
   it('fails when sandbox-policy no longer reads DSH_PERMISSION_MODE', () => {
@@ -231,7 +231,48 @@ describe('verifyComposedConfig', () => {
   it('fails when a preset lost its own sandbox', () => {
     const r = verifyComposedConfig(COMPOSED.replace('        sandbox: workspace-write', '        sandbox: danger-full-access'));
     assert.equal(r.ok, false);
-    assert.match(r.problem, /"workspace-write"/);
+    assert.match(r.problem, /presets\.workspace-write\.sandbox is danger-full-access/);
+  });
+
+  // Review of 6b8d93b29: the YAML type of a value is part of what it means.
+  const MODE_LINE = "    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
+  it('does not take a quoted "!!js …" string for the sandbox expression', () => {
+    const r = verifyComposedConfig(COMPOSED.replace(MODE_LINE, "    mode: '!!js process.env.DSH_PERMISSION_MODE ?? ''workspace-write'''"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /sandbox-policy\.config\.mode/);
+  });
+
+  it('accepts the same sandbox expression folded over several lines', () => {
+    const folded = "    mode: !!js >-\n      process.env.DSH_PERMISSION_MODE ??\n      'workspace-write'";
+    assert.equal(verifyComposedConfig(COMPOSED.replace(MODE_LINE, folded)).ok, true);
+  });
+
+  it('does not take a quoted "true" for the boolean', () => {
+    const r = verifyComposedConfig(COMPOSED.replace("dsh-user-questions'\n  disabled: true", "dsh-user-questions'\n  disabled: 'true'"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /user-questions\.disabled is "true"/);
+  });
+
+  it('fails when the approval row itself is disabled', () => {
+    const r = verifyComposedConfig(COMPOSED.replace("dsh-user-approval'\n", "dsh-user-approval'\n  disabled: true\n"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /approval\.disabled/);
+  });
+
+  it('fails when a plugin group mounts a checked row again', () => {
+    const group = [
+      '- id: extra',
+      "  name: '@cordisjs/plugin-group'",
+      '  group: true',
+      '  config:',
+      '    - id: user-questions',
+      "      name: '@deepseek-ai/dsh-user-questions'",
+      '      disabled: false',
+      '',
+    ].join('\n');
+    const r = verifyComposedConfig(COMPOSED + group);
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"user-questions" appears more than once/);
   });
 
   it('fails when a checked row appears twice', () => {
