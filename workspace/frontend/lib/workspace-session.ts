@@ -77,3 +77,40 @@ export function clearWorkspaceSession(): void {
     /* ignore */
   }
 }
+
+/** Renew once less than this is left; a session lasts 30 days by default. */
+const RENEW_WITHIN_SECONDS = 7 * 24 * 60 * 60;
+
+/** Whether a session in use should be traded for a fresh one now. */
+export function sessionNeedsRenewal(session: WorkspaceSession, now = Date.now() / 1000): boolean {
+  return session.expiresAt - now < RENEW_WITHIN_SECONDS;
+}
+
+/**
+ * Trade a still-valid session for one with a full lifetime (POST
+ * /v1/auth/session/renew), as the desktop app does, so a session in use never
+ * lapses. Returns the new session, or null when the server refuses it
+ * (expired, past its maximum age, or not ours): the stored session is cleared
+ * then and the person has to sign in again. A network failure throws and
+ * leaves the stored session alone.
+ */
+export async function renewWorkspaceSession(session: WorkspaceSession): Promise<WorkspaceSession | null> {
+  const res = await fetch(`${API_URL}/v1/auth/session/renew`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${session.token}` },
+  });
+  const json = await res.json().catch(() => null);
+  if (res.status === 401 || res.status === 403) {
+    clearWorkspaceSession();
+    return null;
+  }
+  if (!res.ok || !json?.data?.session_token) throw new Error(`Session renewal failed (${res.status})`);
+  const renewed: WorkspaceSession = {
+    token: json.data.session_token,
+    email: json.data.email || session.email,
+    displayName: json.data.display_name ?? session.displayName,
+    expiresAt: Math.floor(new Date(json.data.expires_at).getTime() / 1000),
+  };
+  saveWorkspaceSession(renewed);
+  return renewed;
+}

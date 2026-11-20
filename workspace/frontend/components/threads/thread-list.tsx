@@ -233,7 +233,6 @@ export function ThreadList() {
   return (
     <div className="flex h-full flex-col bg-background">
       <ThreadListHeader
-        unreadCount={unreadCount}
         onNewThread={openNewThread}
         onRefresh={() => { refreshAgents(); refreshDMConversations(); }}
         onSort={setSortOrder}

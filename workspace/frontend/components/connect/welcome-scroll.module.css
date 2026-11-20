@@ -98,8 +98,11 @@
 .ending .eyebrow { font-size: 8px; letter-spacing: 1.6px; margin-bottom: 24px; }
 .ending h2 { font-size: clamp(55px, 6.1vw, 87px); letter-spacing: -2.5px; }
 .ending > p:not(.eyebrow) { margin: 27px 0 0; color: #919783; font-size: 13px; }
-.finalButton { display: inline-flex; align-items: center; justify-content: center; gap: 25px; padding: 17px 25px; margin: 34px auto 0; background: #30372a; color: #fdfef9; border: 1px solid #30372a; border-radius: 40px; font-size: 12px; transition: background .2s, transform .2s; }
-.finalButton:hover { background: #4b5740; transform: translateY(-2px); }
+.finalButton { display: inline-flex; align-items: center; justify-content: space-between; min-width: 208px; gap: 32px; padding: 10px 12px 10px 25px; min-height: 56px; margin: 29px auto 0; background: #6d62bc; color: #fff; border: 1px solid #6d62bc; border-radius: 999px; font-size: 14px; font-weight: 500; box-shadow: 0 3px 5px #6d62bc0c, 0 6px 16px #6d62bc24; transition: background .2s, box-shadow .2s, transform .2s; }
+.finalButton > span { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: #ffffff15; transition: background .2s, transform .2s; }
+.finalButton:hover { background: #5d52a8; box-shadow: 0 6px 20px #6d62bc36; transform: translateY(-2px); }
+.finalButton:hover > span { background: #ffffff22; transform: translateX(2px); }
+.finalButton:active { transform: translateY(0); }
 .backToTop { display: flex; align-items: center; gap: 8px; margin: 24px auto 0; border: 0; background: transparent; color: #abb09f; font-size: 9px; }
 .footer { margin: 0 6%; padding: 28px 0; border-top: 1px solid #e6e7dd; display: flex; justify-content: space-between; align-items: center; gap: 20px; color: #a4aa96; font-size: 9px; }
 .footer > span { font-weight: 500; color: #7c856d; }
@@ -224,7 +227,7 @@
   .ending .eyebrow { font-size: 6px; letter-spacing: 1.1px; }
   .ending h2 { font-size: 46px; letter-spacing: -1.7px; }
   .ending > p:not(.eyebrow) { font-size: 10px; }
-  .finalButton { font-size: 11px; padding: 16px 22px; gap: 19px; margin-top: 29px; }
+  .finalButton { min-width: 196px; margin-top: 29px; }
   .backToTop { font-size: 8px; }
   .footer { margin: 0 22px; padding: 23px 0; font-size: 8px; align-items: flex-start; }
   .footer a { font-size: 6px; text-align: right; max-width: 180px; line-height: 1.8; }

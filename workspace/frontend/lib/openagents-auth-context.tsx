@@ -1,10 +1,15 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { capture, identify } from './analytics';
 import { desktopHost } from './desktop-host';
 import { workspaceApi } from './api';
-import { clearWorkspaceSession, loadWorkspaceSession, type WorkspaceSession } from './workspace-session';
+import {
+  clearWorkspaceSession, loadWorkspaceSession, renewWorkspaceSession, sessionNeedsRenewal, type WorkspaceSession,
+} from './workspace-session';
+
+/** How often a page on a workspace session checks whether to renew it. */
+const SESSION_CHECK_MS = 60 * 60 * 1000;
 
 interface OpenAgentsUser {
   email: string;
@@ -50,6 +55,11 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
   const [idToken, setIdToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [isOpenAgentsDomain, setIsOpenAgentsDomain] = useState(false);
+  // The workspace session this page signed in on, if any (the Google-free
+  // path). Firebase renews its own tokens; this one is renewed below.
+  const [session, setSession] = useState<WorkspaceSession | null>(null);
+  const sessionRef = useRef<WorkspaceSession | null>(null);
+  sessionRef.current = session;
 
   useEffect(() => {
     const hostname = typeof window !== 'undefined' ? window.location.hostname : '';
@@ -73,6 +83,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
       });
       setIdToken(stored.token);
       identify(stored.email, { email: stored.email, display_name: stored.displayName || stored.email });
+      setSession(stored);
       setLoading(false);
       return;
     }
@@ -174,6 +185,54 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     setIdToken(session.token);
   }), []);
 
+  // Keep a workspace session alive while it is in use, as the desktop app
+  // does: renew it a week before it lapses, and once more if the server
+  // rejects it. A session the server will no longer renew ends here, which
+  // signs the page out; the workspace page then sends the person to sign in
+  // once, instead of retrying a dead credential.
+  const hasSession = session !== null;
+  useEffect(() => {
+    if (!hasSession) return;
+    let stopped = false;
+    let inFlight: Promise<string | null> | null = null;
+    const renew = (): Promise<string | null> => {
+      const current = sessionRef.current;
+      if (!current) return Promise.resolve(null);
+      inFlight ??= renewWorkspaceSession(current)
+        .then((next) => {
+          if (stopped) return null;
+          if (!next) {
+            setSession(null);
+            setUser(null);
+            setIdToken(null);
+            return null;
+          }
+          setSession(next);
+          setIdToken(next.token);
+          return next.token;
+        })
+        // Offline or the server is down: keep the session and try again later.
+        .catch(() => null)
+        .finally(() => { inFlight = null; });
+      return inFlight;
+    };
+    const renewIfDue = () => {
+      const current = sessionRef.current;
+      if (current && sessionNeedsRenewal(current)) void renew();
+    };
+    workspaceApi.setBearerRefresher(renew);
+    renewIfDue();
+    const timer = setInterval(renewIfDue, SESSION_CHECK_MS);
+    const onVisible = () => { if (document.visibilityState === 'visible') renewIfDue(); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      workspaceApi.clearBearerRefresher(renew);
+    };
+  }, [hasSession]);
+
   const signIn = useCallback(async () => {
     const host = desktopHost();
     if (host) { host.signIn(); return; }
@@ -185,6 +244,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     // A successful account switch supersedes a stored workspace session too.
     // That restore path skips Firebase's listener, so install its refresher here.
     clearWorkspaceSession();
+    setSession(null);
     workspaceApi.setBearerRefresher(async () => {
       const fresh = await getFreshIdToken(true);
       if (fresh) setIdToken(fresh);
@@ -208,6 +268,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     });
     setIdToken(session.token);
     identify(session.email, { email: session.email, display_name: session.displayName || session.email });
+    setSession(session);
     setLoading(false);
   }, []);
 
@@ -215,6 +276,7 @@ export function OpenAgentsAuthProvider({ children }: { children: React.ReactNode
     // Drop the workspace session first so a Firebase failure (Google
     // unreachable) can't leave the user signed in.
     clearWorkspaceSession();
+    setSession(null);
     setUser(null);
     setIdToken(null);
     const host = desktopHost();
