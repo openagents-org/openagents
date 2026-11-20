@@ -230,7 +230,7 @@ def my_acenta_usage(
     if not hosting.enabled():
         return success_response({"hasAccount": False, "billingEnabled": False, "balanceEnabled": False,
                                  "balanceCents": 0, "spentThisMonthCents": 0, "autoTopup": False,
-                                 "agents": [], "manageUrl": None})
+                                 "agents": [], "manageUrl": None, "offer": None})
     email = user.email.strip().lower()
     try:
         result = hosting.usage_for_user(subject=user.firebase_uid or email,
@@ -250,7 +250,17 @@ def my_acenta_usage(
         "autoTopup": bool(result.get("auto_topup")),
         "agents": agents,
         "manageUrl": result.get("manage_url"),
+        "offer": _offer(result.get("offer")),
     })
+
+
+def _offer(offer):
+    """Acenta's running offer (e.g. Black Friday) and whether this user still qualifies."""
+    if not isinstance(offer, dict) or not offer.get("ends_at"):
+        return None
+    return {"name": offer.get("name") or "", "percentOff": offer.get("percent_off") or 0, "months": offer.get("months") or 0,
+            "tiers": offer.get("tiers"), "endsAt": offer.get("ends_at"), "eligible": bool(offer.get("eligible")),
+            "url": offer.get("url")}
 
 
 class ConnectAcentaAgentRequest(BaseModel):

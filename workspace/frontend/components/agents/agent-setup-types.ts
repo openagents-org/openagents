@@ -33,6 +33,10 @@ export interface AgentSetupExtensions {
   takenNames?: readonly string[];
   /** Sets an existing agent's display name. Offered only where the host can do it. */
   renameAgent?: (name: string, displayName: string) => Promise<void>;
+  /** Sets the model the workspace runs an existing agent on ('' = its own
+   *  default). That pick outranks the device's configured model, so an edit
+   *  that changes the model has to move it too or the change never applies. */
+  setWorkspaceModel?: (name: string, model: string) => Promise<void>;
   /** Where the host can sign an agent in on this device: the action for a
    *  type that signs in, or undefined. Offered beside "Needs login" in place
    *  of the docs link. */

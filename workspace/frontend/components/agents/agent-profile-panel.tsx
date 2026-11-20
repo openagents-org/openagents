@@ -22,6 +22,8 @@ import { InstalledSkillsCard } from './agent-profile-skills';
 import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem } from './agent-profile-sections';
 import { useAgentModelOptions } from './use-agent-model-options';
 import { WorkdirCard } from './agent-profile-workdir-card';
+import { AccessCard } from './agent-profile-access-card';
+import { useHostedRuntime, useNodeAgentSettings } from './use-node-agent-settings';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
   const {
@@ -60,6 +62,12 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const canManage = !agent?.ownerEmail || isOwnedAgent(agent, currentUser.id);
   const modelReadOnly = isManaged || !canManage;
   const models = useAgentModelOptions({ agent, isCloud, cloudConfig, setCloudConfig, refreshWorkspace });
+  // Only the device connection's owner may change its agents, and a device
+  // agent's owner is that connection's owner: the folder, key and endpoint
+  // are edited in place for agents you own.
+  const hosted = useHostedRuntime(agent?.agentName, !isCloud && !!agent);
+  const canEditDevice = !isCloud && hosted === false && canManage && !!agent?.ownerEmail && !!agent?.nodeId;
+  const nodeSettings = useNodeAgentSettings(agent, canEditDevice);
 
   const handleRemoveCloudAgent = useCallback(async () => {
     if (!agent) return;
@@ -146,7 +154,9 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
       {modelReadOnly
         ? <ReadOnlyModelCard model={models.currentModel} managed={isManaged} />
         : <ModelCard m={models} />}
-      {!isCloud && <WorkdirCard agent={agent} canManage={canManage} />}
+      {/* A provider-hosted agent runs in the provider's sandbox: no folder of yours. */}
+      {!isCloud && hosted === false && <WorkdirCard agent={agent} canManage={canManage} settings={canEditDevice ? nodeSettings : null} />}
+      {canEditDevice && <AccessCard agentName={agent.agentName} settings={nodeSettings} />}
 
       <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 

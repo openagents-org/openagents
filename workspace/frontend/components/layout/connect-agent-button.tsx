@@ -45,7 +45,10 @@ export function ConnectAgentButton({ label, active, showLabels = true, onClick }
       )}
     >
       <CirclePlus aria-hidden="true" />
-      {showLabels && <span data-label className="min-w-0 truncate">{label}</span>}
+      {/* truncate clips at the span's box, which is exactly one line tall: on
+          Windows' CJK fonts at fractional display scaling the glyph bottoms
+          fell outside it and were cut off. The padding gives them room. */}
+      {showLabels && <span data-label className="min-w-0 truncate py-0.5">{label}</span>}
     </SidebarMenuButton>
   );
 }
