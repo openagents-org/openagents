@@ -20,7 +20,12 @@ export function useBrowserSession({ selectedBrowserTabId, tab, refreshBrowserTab
 }) {
   const t = useT();
   const confirm = useConfirm();
-  const [screenshotUrl, setScreenshotUrl] = useState<string | null>(null);
+  const [screenshot, setScreenshot] = useState<{ tabId: string; url: string } | null>(null);
+  const screenshotUrl = screenshot && screenshot.tabId === selectedBrowserTabId ? screenshot.url : null;
+  const [validatedLiveKey, setValidatedLiveKey] = useState<string | null>(null);
+  // Keep a bounded set of frames while this view is mounted. Never persist page
+  // contents to localStorage or share blob URLs between workspace views.
+  const frames = useRef(new Map<string, string>());
   const [loading, setLoading] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [sessionDead, setSessionDead] = useState(false);
@@ -31,14 +36,21 @@ export function useBrowserSession({ selectedBrowserTabId, tab, refreshBrowserTab
   const validationGeneration = useRef(0);
   const keyboardRef = useRef<HTMLTextAreaElement>(null);
   const liveFrameRef = useRef<HTMLIFrameElement>(null);
-  const prevBlobRef = useRef<string | null>(null);
   const failCountRef = useRef(0);
   const refreshFrameRef = useRef<(() => void) | null>(null);
   useEffect(() => { setRecoveryError(null); }, [selectedBrowserTabId]);
 
+  useEffect(() => {
+    const cache = frames.current;
+    return () => {
+      for (const url of cache.values()) URL.revokeObjectURL(url);
+      cache.clear();
+    };
+  }, []);
+
   // Focus once on takeover (or when the first frame arrives), not on every
   // screenshot refresh: people can still deliberately return to the composer.
-  const hasScreenshot = !!screenshotUrl;
+  const hasScreenshot = !tab?.liveUrl && !!screenshotUrl;
   useEffect(() => {
     if (controlling) (liveFrameRef.current || keyboardRef.current)?.focus({ preventScroll: true });
     else if (document.activeElement === keyboardRef.current) keyboardRef.current?.blur();
@@ -63,6 +75,7 @@ export function useBrowserSession({ selectedBrowserTabId, tab, refreshBrowserTab
         if (cancelled || recoveryInFlight.current || generation !== validationGeneration.current) return;
         setSessionDead(checked.connectionStatus === 'unknown' || checked.connectionStatus === 'dead');
         setSessionAsleep(!!checked.asleep);
+        setValidatedLiveKey(checked.connectionStatus === 'alive' && !checked.asleep ? `${selectedBrowserTabId}:${tab?.liveUrl}` : null);
         // Another worker may have recreated this saved tab since the iframe
         // mounted. Refresh its current URL even after the agent has finished.
         if (checked.liveUrl && checked.liveUrl !== tab?.liveUrl) await refreshBrowserTabs();
@@ -78,59 +91,61 @@ export function useBrowserSession({ selectedBrowserTabId, tab, refreshBrowserTab
     return () => { cancelled = true; clearInterval(interval); };
   }, [selectedBrowserTabId, hasLiveUrl, tab?.liveUrl]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Screenshot polling — only for local (non-cloud) tabs without a live view.
+  // Local browsers use these frames as their live view. Cloud browsers keep a
+  // low-frequency backup only after validation, without waking an unavailable
+  // or sleeping session just to obtain a preview.
+  const cloudReady = validatedLiveKey === `${selectedBrowserTabId}:${tab?.liveUrl}`
+    && !sessionDead && !sessionAsleep && !tab?.asleep && !reconnecting;
   useEffect(() => {
-    if (!selectedBrowserTabId || !tab || tab.liveUrl) {
-      setScreenshotUrl(null);
-      return;
-    }
-    let cancelled = false;
-    setScreenshotUrl(null);
+    if (!selectedBrowserTabId || !tab) { setScreenshot(null); return; }
+    const tabId = selectedBrowserTabId;
+    const cached = frames.current.get(tabId);
+    setScreenshot(cached ? { tabId, url: cached } : null);
+    if (hasLiveUrl && !cloudReady) return;
+    const abort = new AbortController();
     failCountRef.current = 0;
-    setSessionDead(false);
+    if (!hasLiveUrl) { setSessionDead(false); setSessionAsleep(false); }
     let fetching = false;
     const fetchScreenshot = async () => {
-      if (fetching || cancelled) return;
+      if (fetching || abort.signal.aborted || (hasLiveUrl && document.hidden)) return;
       fetching = true;
       try {
-        const url = workspaceApi.getBrowserScreenshotUrl(selectedBrowserTabId);
-        const headers: Record<string, string> = {};
-        const token = (workspaceApi as unknown as { token: string }).token;
-        if (token) headers['X-Workspace-Token'] = token;
-        const bearerToken = (workspaceApi as unknown as { bearerToken: string }).bearerToken;
-        if (bearerToken) headers['Authorization'] = `Bearer ${bearerToken}`;
-        const res = await fetch(url, { headers });
-        if (cancelled) return;
-        if (!res.ok) {
-          failCountRef.current++;
-          if (failCountRef.current >= 3) { setSessionDead(true); setLoading(false); }
-          return;
-        }
+        const res = await workspaceApi.fetchBrowserScreenshot(tabId, abort.signal);
         const blob = await res.blob();
-        if (cancelled) return;
+        if (abort.signal.aborted) return;
         failCountRef.current = 0;
-        setSessionDead(false);
-        if (prevBlobRef.current) URL.revokeObjectURL(prevBlobRef.current);
-        const blobUrl = URL.createObjectURL(blob);
-        prevBlobRef.current = blobUrl;
-        setScreenshotUrl(blobUrl);
+        // A backup frame succeeding/failing must not override cloud liveness.
+        if (!hasLiveUrl) setSessionDead(false);
+        const previous = frames.current.get(tabId);
+        const url = URL.createObjectURL(blob);
+        frames.current.delete(tabId);
+        frames.current.set(tabId, url);
+        setScreenshot({ tabId, url });
+        if (previous) URL.revokeObjectURL(previous);
+        while (frames.current.size > 8) {
+          const oldest = frames.current.keys().next().value!;
+          URL.revokeObjectURL(frames.current.get(oldest)!);
+          frames.current.delete(oldest);
+        }
         setLoading(false);
       } catch {
-        failCountRef.current++;
-        if (!cancelled && failCountRef.current >= 3) { setSessionDead(true); setLoading(false); }
+        if (!abort.signal.aborted && !hasLiveUrl) {
+          failCountRef.current++;
+          if (failCountRef.current >= 3) { setSessionDead(true); setLoading(false); }
+        }
+        // Preserve the last successful frame on network/provider failure.
       } finally { fetching = false; }
     };
-    refreshFrameRef.current = fetchScreenshot;
-    setLoading(true);
-    fetchScreenshot();
-    const interval = setInterval(fetchScreenshot, 2000);
+    refreshFrameRef.current = hasLiveUrl ? null : fetchScreenshot;
+    if (!hasLiveUrl) setLoading(true);
+    void fetchScreenshot();
+    const interval = setInterval(fetchScreenshot, hasLiveUrl ? 30000 : 2000);
     return () => {
-      cancelled = true;
+      abort.abort();
       refreshFrameRef.current = null;
       clearInterval(interval);
-      if (prevBlobRef.current) { URL.revokeObjectURL(prevBlobRef.current); prevBlobRef.current = null; }
     };
-  }, [selectedBrowserTabId, !!tab, hasLiveUrl]);
+  }, [selectedBrowserTabId, !!tab, hasLiveUrl, cloudReady]);
 
   useEffect(() => { refreshFrameRef.current?.(); }, [frameRevision]);
 
