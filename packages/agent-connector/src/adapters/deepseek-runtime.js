@@ -106,6 +106,10 @@ const PERMISSION_MODES = ['read-only', 'workspace-write', 'danger-full-access'];
  * from anywhere else would ignore the user's choice — verifyComposedConfig
  * requires this expression, compared with its whitespace collapsed.
  */
+/** Plugin names dsh resolves to its loader's group and include carriers. */
+const GROUP_PLUGINS = ['cordis:group', '@deepseek-ai/cordis-plugin-group', '@cordisjs/plugin-group'];
+const INCLUDE_PLUGINS = ['cordis:include', '@deepseek-ai/cordis-plugin-include', '@cordisjs/plugin-include'];
+
 const SANDBOX_POLICY_MODE_EXPR = "process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
 
 /**
@@ -399,21 +403,33 @@ function verifyComposedConfig(text) {
   const idOf = (n) => (n && typeof n === 'object' && !Array.isArray(n) && !isScalarNode(n) && isScalarNode(n.id) && !n.id.tag
     ? n.id.value : null);
   // Plugin entries are the top-level rows and, recursively, the rows a group
-  // entry lists as its config (`group: true` with a `config:` row list). Any
-  // entry whose config IS a list is walked, whatever its `group` says, so a
-  // group flagged some other way is not skipped. Only those are counted: an id
-  // deeper in a plugin's config is a value — a gateway model the user named
-  // `approval` is not a second approval row.
+  // lists as its config. A group is what dsh takes for one (dsh-app-boot
+  // config-schema/collect.ts): `group: true`, or the group plugin by name.
+  // Any other plugin's config is a value, list or not — a gateway model the
+  // user named `approval`, or a plugin whose config is an array of `id`
+  // items, is not a second approval row.
+  //
+  // An include entry loads rows from a file the dump only names, so whatever
+  // it mounts cannot be checked here: one that is not plainly disabled makes
+  // the composition unverified.
   const seen = new Map();
+  let include = null;
+  const nameOf = (e) => (isScalarNode(e.name) && !e.name.tag ? e.name.value : null);
   const walkEntries = (list) => {
     if (!Array.isArray(list)) return;
     for (const entry of list) {
+      if (!entry || typeof entry !== 'object' || Array.isArray(entry) || isScalarNode(entry)) continue;
       const id = idOf(entry);
       if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
-      if (entry && !isScalarNode(entry) && Array.isArray(entry.config)) walkEntries(entry.config);
+      const name = nameOf(entry);
+      if (INCLUDE_PLUGINS.includes(name) && !isTrue(entry.disabled)) include = include || id || name;
+      if ((isTrue(entry.group) || GROUP_PLUGINS.includes(name)) && Array.isArray(entry.config)) walkEntries(entry.config);
     }
   };
   walkEntries(doc);
+  if (include) {
+    return { ok: false, problem: `"${include}" includes rows from a file the dump does not show` };
+  }
   for (const id of CHECKED) {
     if ((seen.get(id) || 0) > 1) return { ok: false, problem: `row "${id}" appears more than once` };
   }

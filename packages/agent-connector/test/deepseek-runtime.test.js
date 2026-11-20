@@ -304,6 +304,45 @@ describe('verifyComposedConfig', () => {
     assert.deepEqual(verifyComposedConfig(COMPOSED + gateway), { ok: true, problem: null });
   });
 
+  // Review of ac4f51ac3: only what dsh takes for a group nests plugin rows.
+  it('does not count id items in an ordinary plugin whose config is an array', () => {
+    const plugin = [
+      '- id: some-plugin',
+      "  name: '@deepseek-ai/dsh-some-plugin'",
+      '  config:',
+      '    - id: approval',
+      '      label: not a plugin',
+      '',
+    ].join('\n');
+    assert.deepEqual(verifyComposedConfig(COMPOSED + plugin), { ok: true, problem: null });
+  });
+
+  it('finds a repeated row in a group known only by its plugin name', () => {
+    for (const name of ['cordis:group', "'@deepseek-ai/cordis-plugin-group'"]) {
+      const group = [
+        '- id: named-group',
+        `  name: ${name}`,
+        '  config:',
+        '    - id: approval',
+        '      config:',
+        '        policy: ask',
+        '',
+      ].join('\n');
+      const r = verifyComposedConfig(COMPOSED + group);
+      assert.equal(r.ok, false, name);
+      assert.match(r.problem, /"approval" appears more than once/);
+    }
+  });
+
+  it('cannot vouch for rows an include loads from a file', () => {
+    const include = "- id: extra\n  name: cordis:include\n  config:\n    path: ./more.yml\n";
+    const r = verifyComposedConfig(COMPOSED + include);
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"extra" includes rows from a file/);
+    const off = "- id: extra\n  name: cordis:include\n  disabled: true\n  config:\n    path: ./more.yml\n";
+    assert.equal(verifyComposedConfig(COMPOSED + off).ok, true);
+  });
+
   it('fails when a checked row appears twice', () => {
     const r = verifyComposedConfig(`${COMPOSED}- id: approval\n  config:\n    policy: ask\n`);
     assert.equal(r.ok, false);
