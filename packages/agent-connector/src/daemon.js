@@ -2080,7 +2080,7 @@ async _runNodeCommand(n, cmd) {
     if (!(await job)) return null;
 
     if (typeof adapter.forgetRuntime === 'function') adapter.forgetRuntime();
-    const next = adapter.preflight();
+    const next = await adapter.preflight();
     if (next && next.ok !== false) {
       this._log(`${name}: supported ${agentType} runtime installed`);
       this._reprobeAfterRepair(agentType);
@@ -2144,8 +2144,11 @@ async _runNodeCommand(n, cmd) {
     // no point spinning a join/poll loop that can never run the CLI. Adapters
     // that don't override preflight() always pass.
     try {
+      // Awaited: most adapters answer synchronously, but DeepSeek's check of a
+      // newer harness preview runs a child process and must not block the
+      // daemon that every other agent on the device shares.
       let pf =
-        typeof adapter.preflight === 'function' ? adapter.preflight() : null;
+        typeof adapter.preflight === 'function' ? await adapter.preflight() : null;
       if (pf && pf.ok === false && pf.repairable) {
         pf = (await this._repairRuntime(name, agentType, adapter, info, pf)) || pf;
         if (this._shuttingDown || this._stoppedAgents.has(name)) return;

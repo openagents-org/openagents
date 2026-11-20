@@ -135,10 +135,14 @@ fallback to passing the prompt on the command line.
 - A newer preview (one you installed yourself, say, from upstream's `latest`)
   is not refused on its version number. Preflight composes the headless profile
   with the private patch (`dsh --dump-config`, no model call) and checks the
-  rows that keep a headless run safe: user questions disabled, approval
-  `never`, every permission preset keeping its own sandbox. If they composed
-  as written the agent runs; if not, the daemon installs the supported version
-  and asks again. A passing preview is checked once per daemon process.
+  fields that keep a headless run safe, each at its own path: user questions
+  disabled, approval `never`, every permission preset keeping its own sandbox,
+  and `sandbox-policy` still taking its mode from `DSH_PERMISSION_MODE`. If
+  they composed as written the agent runs; if not (or the dump cannot be read,
+  or does not finish within 30 s), the daemon installs the supported version
+  and asks again. The check runs as a child process the daemon awaits, so it
+  never blocks other agents, and a passing preview is checked once per daemon
+  process.
 
 To move to a new preview, update `supported_version` and the three install
 commands in `sdk/src/openagents/registry/deepseek.yaml`, mirror them into

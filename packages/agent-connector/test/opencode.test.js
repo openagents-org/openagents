@@ -293,6 +293,17 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.match(OpenCodeAdapter.prototype._failureMessages().database_error, /session database/);
   });
 
+  // Review of f3c738f10: a database named in a config error or a provider's
+  // HTTP error is not OpenCode's own store failing.
+  it('leaves a config error and an HTTP error that mention a database to their own categories', () => {
+    const configStderr = 'Error: Configuration is invalid at /home/u/.config/opencode/opencode.json\n↳ Unrecognized key: postgresqlError';
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: configStderr }).category, 'config_invalid');
+    const http = '{"type":"error","error":{"name":"APIError","message":"PostgreSQLError: permission denied for relation keys","status":401}}';
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: http, stderr: '' }).category, 'auth_failed');
+    const name = '{"type":"error","error":{"name":"PostgreSQLError","message":"relation does not exist"}}';
+    assert.notEqual(OpenCodeAdapter._classifyFailure({ code: 1, stdout: name, stderr: '' }).category, 'database_error');
+  });
+
   it('keeps the migrated-database case its own category', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Database is not empty and has no session table' });
     assert.equal(cls.category, 'shared_db_migrated');

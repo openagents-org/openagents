@@ -71,6 +71,7 @@ const ROW = {
   LLM_DEEPSEEK: 'llm-deepseek',
   LLM_PI_AI: 'llm-pi-ai',
   PERMISSION: 'permission',
+  SANDBOX_POLICY: 'sandbox-policy',
   USER_QUESTIONS: 'user-questions',
 };
 
@@ -97,6 +98,14 @@ const DEEPSEEK_MODELS_BASE = 'https://api.deepseek.com/v1';
 
 /** Permission modes dsh's `permission-presets` row declares. */
 const PERMISSION_MODES = ['read-only', 'workspace-write', 'danger-full-access'];
+
+/**
+ * How dsh's own base layer picks the sandbox (`sandbox-policy.config.mode`,
+ * 0.2.1-rc.5 and 0.2.2-rc.5 alike). The adapter chooses the mode per run
+ * through DSH_PERMISSION_MODE, so a preview that reads it from anywhere else
+ * would ignore the user's choice — verifyComposedConfig requires this text.
+ */
+const SANDBOX_POLICY_MODE_EXPR = "!!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'";
 
 /**
  * The ONLY thing that ever reaches argv as the headless task.
@@ -133,7 +142,11 @@ function parseDshVersion(raw) {
 function splitVersion(v) {
   const parsed = parseDshVersion(v);
   if (!parsed) return null;
-  const [core, pre] = parsed.split('-');
+  // Split at the FIRST hyphen only: a prerelease may carry hyphens of its own
+  // (`0.2.1-rc.5-hotfix`), and dropping them made it equal `0.2.1-rc.5`.
+  const at = parsed.indexOf('-');
+  const core = at < 0 ? parsed : parsed.slice(0, at);
+  const pre = at < 0 ? '' : parsed.slice(at + 1);
   return {
     core: core.split('.').map((n) => parseInt(n, 10)),
     pre: pre ? pre.split('.') : null,
@@ -247,59 +260,143 @@ function classifyDshVersion(rawVersion, supported, installCommand) {
 }
 
 /**
+ * Read the subset of YAML that `dsh --dump-config` prints into plain values:
+ * block mappings and sequences by indentation, scalars as strings with their
+ * quotes removed. `!!js` expressions, flow collections and block scalars stay
+ * as their source text — nothing here evaluates them. Comment lines (the
+ * `# == <layer>` headers) are skipped.
+ *
+ * Not a general YAML parser, and it does not have to be: anything it cannot
+ * place makes the caller report the composition as unverified, which costs a
+ * reinstall of the supported version, never a run on an unchecked config.
+ */
+function parseDumpYaml(text) {
+  const lines = [];
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    if (!raw.trim() || /^\s*#/.test(raw)) continue;
+    if (/\t/.test(raw.match(/^\s*/)[0])) throw new Error('tab indentation');
+    lines.push({ indent: raw.match(/^ */)[0].length, text: raw.trim() });
+  }
+  let i = 0;
+
+  const scalar = (v) => {
+    const t = v.trim();
+    if (/^'.*'$/.test(t)) return t.slice(1, -1).replace(/''/g, "'");
+    if (/^".*"$/.test(t)) {
+      try { return JSON.parse(t); } catch { return t.slice(1, -1); }
+    }
+    return t;
+  };
+  const keyOf = (t) => {
+    const m = t.match(/^('(?:[^']|'')*'|"(?:[^"\\]|\\.)*"|[^\s'"][^:]*?)\s*:(?:\s+(.*)|\s*)$/);
+    return m ? { key: scalar(m[1]), rest: m[2] === undefined ? '' : m[2] } : null;
+  };
+  // A key whose value sits on the following, deeper lines; or a block scalar,
+  // whose deeper lines are text, not structure.
+  const BLOCK_SCALAR = /^(?:!!\S+\s+)?[|>][-+0-9]*$/; // `>-`, `|`, `!!js >-`
+  const valueAfter = (rest, indent) => {
+    if (BLOCK_SCALAR.test(rest)) {
+      const body = [];
+      while (i < lines.length && lines[i].indent > indent) body.push(lines[i++].text);
+      return `${rest} ${body.join(' ')}`;
+    }
+    if (rest) return scalar(rest);
+    if (i < lines.length && lines[i].indent > indent) return block(lines[i].indent);
+    // A sequence may sit at the key's own indent (`key:\n- a`).
+    if (i < lines.length && lines[i].indent === indent && lines[i].text.startsWith('- ')) return block(indent);
+    return null;
+  };
+  const mapping = (indent, into = {}) => {
+    while (i < lines.length && lines[i].indent === indent && !lines[i].text.startsWith('- ') && lines[i].text !== '-') {
+      const kv = keyOf(lines[i].text);
+      if (!kv) throw new Error(`unreadable line "${lines[i].text}"`);
+      if (Object.prototype.hasOwnProperty.call(into, kv.key)) throw new Error(`duplicate key "${kv.key}"`);
+      i += 1;
+      into[kv.key] = valueAfter(kv.rest, indent);
+    }
+    return into;
+  };
+  const sequence = (indent) => {
+    const out = [];
+    while (i < lines.length && lines[i].indent === indent && (lines[i].text.startsWith('- ') || lines[i].text === '-')) {
+      const item = lines[i].text === '-' ? '' : lines[i].text.slice(2);
+      const kv = item ? keyOf(item) : null;
+      if (!kv) {
+        i += 1;
+        out.push(item ? scalar(item) : (i < lines.length && lines[i].indent > indent ? block(lines[i].indent) : null));
+        continue;
+      }
+      // `- key: v` opens a mapping whose further keys align with `key`.
+      const inner = indent + 2 + (item.length - item.trimStart().length);
+      lines[i] = { indent: inner, text: item };
+      out.push(mapping(inner));
+    }
+    return out;
+  };
+  const block = (indent) => (lines[i].text.startsWith('- ') || lines[i].text === '-' ? sequence(indent) : mapping(indent));
+
+  if (!lines.length) return [];
+  const doc = block(lines[0].indent);
+  if (i < lines.length) throw new Error(`unexpected indentation at "${lines[i].text}"`);
+  return doc;
+}
+
+/**
  * Confirm that `dsh --dump-config` output carries the private patch as written.
  *
  * A newer preview is accepted on this evidence rather than on its version
  * number. What the patch must achieve is what keeps a headless run safe and
- * answerable, so those are the rows checked: no user questions, approval
- * `never`, and every permission preset keeping its own sandbox. A preview that
- * renamed or restructured any of them would leave the run waiting on an
- * approval nobody can give, or running with a sandbox the user did not pick.
+ * answerable, so those are the fields checked, each at its own path:
  *
- * `text` is dsh's YAML dump. It carries `!!js` tags no YAML parser here reads,
- * so each row is read as the block of lines that follows its `- id:` line.
+ *   user-questions.disabled                       true
+ *   approval.config.policy                        never
+ *   permission.config.presets.<mode>.sandbox      <mode>, for every mode
+ *   permission.config.presets.<mode>.approval     never
+ *   sandbox-policy.config.mode                    the DSH_PERMISSION_MODE
+ *                                                 expression the adapter sets
  *
- * Returns { ok, problem } where `problem` names the first row that did not
+ * Extra fields are fine; a missing, repeated or differently-valued one is not.
+ * A preview that renamed or restructured any of these would leave the run
+ * waiting on an approval nobody can give, or running with a sandbox the user
+ * did not pick.
+ *
+ * Returns { ok, problem } where `problem` names the first field that did not
  * compose as expected.
  */
 function verifyComposedConfig(text) {
+  let doc;
+  try {
+    doc = parseDumpYaml(text);
+  } catch (e) {
+    return { ok: false, problem: `the composed config could not be read (${e.message})` };
+  }
+  if (!Array.isArray(doc)) return { ok: false, problem: 'the composed config is not a row list' };
+
   const rows = new Map();
-  let current = null;
-  for (const line of String(text || '').split(/\r?\n/)) {
-    const id = line.match(/^- id: *(\S+)\s*$/);
-    if (id) {
-      current = [];
-      rows.set(id[1], current);
-    } else if (/^\S/.test(line)) {
-      current = null; // a `# ==` layer header or another top-level entry
-    } else if (current) {
-      current.push(line.trim());
-    }
+  for (const r of doc) {
+    if (!r || typeof r !== 'object' || typeof r.id !== 'string') continue;
+    if (rows.has(r.id)) return { ok: false, problem: `row "${r.id}" appears more than once` };
+    rows.set(r.id, r);
   }
+  const at = (obj, keys) => keys.reduce((o, k) => (o && typeof o === 'object' && !Array.isArray(o) ? o[k] : undefined), obj);
+  const expect = (id, keys, want) => {
+    const r = rows.get(id);
+    if (!r) return `row "${id}" is missing`;
+    const got = at(r, keys);
+    return got === want ? null : `${id}.${keys.join('.')} is ${got === undefined ? 'missing' : JSON.stringify(got)}, expected ${JSON.stringify(want)}`;
+  };
 
-  const row = (id) => rows.get(id) || null;
-  const questions = row(ROW.USER_QUESTIONS);
-  if (!questions) return { ok: false, problem: `row "${ROW.USER_QUESTIONS}" is missing` };
-  if (!questions.includes('disabled: true')) {
-    return { ok: false, problem: `row "${ROW.USER_QUESTIONS}" is not disabled` };
-  }
-
-  const approval = row(ROW.APPROVAL);
-  if (!approval) return { ok: false, problem: `row "${ROW.APPROVAL}" is missing` };
-  if (!approval.includes('policy: never')) {
-    return { ok: false, problem: `row "${ROW.APPROVAL}" does not carry policy never` };
-  }
-
-  const permission = row(ROW.PERMISSION);
-  if (!permission) return { ok: false, problem: `row "${ROW.PERMISSION}" is missing` };
-  for (const mode of PERMISSION_MODES) {
-    const at = permission.indexOf(`${mode}:`);
-    const preset = at >= 0 ? permission.slice(at + 1, at + 3) : [];
-    if (!preset.includes(`sandbox: ${mode}`) || !preset.includes('approval: never')) {
-      return { ok: false, problem: `permission preset "${mode}" did not compose as written` };
-    }
-  }
-  return { ok: true, problem: null };
+  const problems = [
+    expect(ROW.USER_QUESTIONS, ['disabled'], 'true'),
+    expect(ROW.APPROVAL, ['config', 'policy'], 'never'),
+    ...PERMISSION_MODES.flatMap((m) => [
+      expect(ROW.PERMISSION, ['config', 'presets', m, 'sandbox'], m),
+      expect(ROW.PERMISSION, ['config', 'presets', m, 'approval'], 'never'),
+    ]),
+    expect(ROW.SANDBOX_POLICY, ['config', 'mode'], SANDBOX_POLICY_MODE_EXPR),
+  ];
+  const problem = problems.find(Boolean) || null;
+  return { ok: !problem, problem };
 }
 
 /** The npm command that installs the preview this adapter was written against. */
@@ -787,6 +884,7 @@ module.exports = {
   parseDshVersion,
   compareDshVersions,
   classifyDshVersion,
+  parseDumpYaml,
   verifyComposedConfig,
   defaultInstallCommand,
 

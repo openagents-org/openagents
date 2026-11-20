@@ -116,6 +116,9 @@ const COMPOSED = [
   "  name: '@deepseek-ai/dsh-sandbox-policy'",
   '  config:',
   "    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'",
+  '    workspaceRoot: !!js process.cwd()',
+  '  inject:',
+  '    - headlessStartup',
   '# == @deepseek-ai/dsh-base, patched by /home/u/.openagents/dsh/openagents.patch.yml',
   '- id: approval',
   "  name: '@deepseek-ai/dsh-user-approval'",
@@ -149,22 +152,80 @@ describe('verifyComposedConfig', () => {
     assert.equal(verifyComposedConfig(COMPOSED.replace(/\n/g, '\r\n')).ok, true);
   });
 
+  it('reads block scalars and nested lists the way dsh prints them', () => {
+    const extra = [
+      '- id: deepseek-account',
+      '  config:',
+      '    desktopPlatform: !!js >-',
+      "      ctx.get('profileContext')?.name === 'desktop' && ['darwin',",
+      "      'win32'].includes(process.platform) ? process.platform : null",
+      '  disabled: true',
+      '- id: llm-pi-ai',
+      '  config:',
+      '    providers:',
+      '      openagents-gateway:',
+      '        models:',
+      '          - id: "deepseek-4-flash"',
+      '  inject:',
+      '    - headlessStartup',
+      '',
+    ].join('\n');
+    assert.equal(verifyComposedConfig(COMPOSED + extra).ok, true);
+  });
+
+  it('accepts a quoted id and unrelated fields in a preset', () => {
+    const text = COMPOSED
+      .replace('- id: approval', "- id: 'approval'")
+      .replace('        sandbox: read-only', '        sandbox: read-only\n        label: Read only');
+    assert.equal(verifyComposedConfig(text).ok, true);
+  });
+
   it('fails when a preview renamed the approval row', () => {
     const r = verifyComposedConfig(COMPOSED.replace('- id: approval', '- id: user-approval'));
     assert.equal(r.ok, false);
-    assert.match(r.problem, /"approval" is missing/);
+    assert.match(r.problem, /row "approval" is missing/);
   });
 
   it('fails when the approval policy did not take', () => {
     const r = verifyComposedConfig(COMPOSED.replace('    policy: never', '    policy: ask'));
     assert.equal(r.ok, false);
-    assert.match(r.problem, /policy never/);
+    assert.match(r.problem, /approval\.config\.policy is "ask"/);
+  });
+
+  // Review of f3c738f10: a line-by-line read without paths let a stale value
+  // in a sub-field stand in for the real one.
+  it('is not fooled by the expected value under another key', () => {
+    const legacyPolicy = COMPOSED.replace('    policy: never', '    policy: ask\n    legacy:\n      policy: never');
+    assert.equal(verifyComposedConfig(legacyPolicy).ok, false);
+    const legacyDisabled = COMPOSED.replace(
+      "  name: '@deepseek-ai/dsh-user-questions'\n  disabled: true",
+      "  name: '@deepseek-ai/dsh-user-questions'\n  disabled: false\n  legacy:\n    disabled: true",
+    );
+    assert.match(verifyComposedConfig(legacyDisabled).problem, /user-questions\.disabled is "false"/);
+  });
+
+  it('is not fooled by an old preset table beside the real one', () => {
+    const text = COMPOSED
+      .replace('    presets:', '    oldPresets:\n      workspace-write:\n        sandbox: workspace-write\n        approval: never\n    presets:')
+      .replace('        sandbox: workspace-write\n        approval: never\n      danger', '        sandbox: danger-full-access\n        approval: never\n      danger');
+    const r = verifyComposedConfig(text);
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /presets\.workspace-write\.sandbox is "danger-full-access"/);
+  });
+
+  it('fails when sandbox-policy no longer reads DSH_PERMISSION_MODE', () => {
+    const r = verifyComposedConfig(COMPOSED.replace(
+      "    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'",
+      '    mode: danger-full-access',
+    ));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /sandbox-policy\.config\.mode/);
   });
 
   it('fails when user questions are still mounted', () => {
-    const r = verifyComposedConfig(COMPOSED.replace("  disabled: true\n# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-headless", "# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-headless"));
+    const r = verifyComposedConfig(COMPOSED.replace("  name: '@deepseek-ai/dsh-user-questions'\n  disabled: true", "  name: '@deepseek-ai/dsh-user-questions'"));
     assert.equal(r.ok, false);
-    assert.match(r.problem, /"user-questions" is not disabled/);
+    assert.match(r.problem, /user-questions\.disabled is missing/);
   });
 
   it('fails when a preset lost its own sandbox', () => {
@@ -173,14 +234,20 @@ describe('verifyComposedConfig', () => {
     assert.match(r.problem, /"workspace-write"/);
   });
 
+  it('fails when a checked row appears twice', () => {
+    const r = verifyComposedConfig(`${COMPOSED}- id: approval\n  config:\n    policy: ask\n`);
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"approval" appears more than once/);
+  });
+
   it('does not read a key of the next row as part of the previous one', () => {
-    // `policy: never` under a later row must not satisfy the approval row.
     const text = COMPOSED.replace('    policy: never', '    policy: ask') + '- id: other\n  config:\n    policy: never\n';
     assert.equal(verifyComposedConfig(text).ok, false);
   });
 
-  it('fails on empty output', () => {
+  it('fails on empty or unreadable output', () => {
     assert.equal(verifyComposedConfig('').ok, false);
+    assert.match(verifyComposedConfig('- id: approval\n\t config: x\n').problem, /could not be read/);
   });
 });
 
@@ -208,6 +275,14 @@ describe('classifyDshVersion', () => {
 
   it('accepts the stable release too', () => {
     assert.equal(classifyDshVersion('0.1.0', '0.1.0-rc.6').compatible, true);
+  });
+
+  it('keeps a hyphenated prerelease whole instead of cutting it at the hyphen', () => {
+    // Review of f3c738f10: `0.2.1-rc.5-hotfix` compared equal to rc.5, so it
+    // passed as the tested release and skipped the composed-config check.
+    const r = classifyDshVersion('0.2.1-rc.5-hotfix', '0.2.1-rc.5');
+    assert.equal(r.compatible, true);
+    assert.equal(r.tested, false);
   });
 
   it('rejects an older preview — rc.N is ordered, not stripped', () => {

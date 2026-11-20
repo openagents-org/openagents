@@ -94,6 +94,8 @@ if (argv.includes('--dump-config')) {
     if (at >= 0 && !process.env.FAKE_DUMP_UNPATCHED) {
       try { tree = fs.readFileSync(argv[at + 1], 'utf-8'); } catch { /* keep the stub */ }
     }
+    // dsh's own base row that picks the sandbox from DSH_PERMISSION_MODE.
+    tree += "- id: sandbox-policy\n  config:\n    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'\n";
     writeThenExit(process.stdout, tree, 0);
   }
   return;

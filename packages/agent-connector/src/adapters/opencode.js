@@ -95,7 +95,7 @@ const SHARED_DB_MIGRATED_RE = /database is not empty and has no session table/i;
 // path says "Failed query: <sql>". Two agents of one user on one Mac failed
 // this way in the same minute, each read as "failed for an undetermined
 // reason" (daily errors dashboard, 2026-11-20).
-const DATABASE_ERROR_RE = /failed to execute statement|failed query: |sqlerror|sqlite_(busy|locked|ioerr|full|readonly|corrupt|cantopen|notadb)|database (is locked|disk image is malformed)|attempt to write a readonly database/i;
+const DATABASE_ERROR_RE = /failed to execute statement|failed query: |\bsqlerror\b|sqlite_(busy|locked|ioerr|full|readonly|corrupt|cantopen|notadb)|database (is locked|disk image is malformed)|attempt to write a readonly database/i;
 
 // Lets OpenCode's subagents read and write outside the working directory, as
 // the main session already may. `opencode run --dangerously-skip-permissions`
@@ -1852,13 +1852,16 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'install_incomplete';
     } else if (SHARED_DB_MIGRATED_RE.test(hay)) {
       category = 'shared_db_migrated';
-    } else if (DATABASE_ERROR_RE.test(hay)) {
-      category = 'database_error';
     } else if (configError) {
       // Checked before the provider patterns: what is wrong with the file is
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
+    } else if (!/^[1-5]\d\d$/.test(status) && DATABASE_ERROR_RE.test(hay)) {
+      // After the config check, and never for an error that carries an HTTP
+      // status: a provider's or a config file's text may name a database
+      // ("PostgreSQLError") without OpenCode's own store having failed.
+      category = 'database_error';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets
