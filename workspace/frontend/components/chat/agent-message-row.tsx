@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Copy, Reply } from 'lucide-react';
+import { BookmarkPlus, Check, Copy, Reply } from 'lucide-react';
 import { toast } from 'sonner';
 import type { ApprovalRequest, WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import type { HandoffRecord } from '@/lib/handoff';
@@ -40,11 +40,13 @@ export interface AgentMessageRowProps {
   isLast: boolean;
   onSuggestion?: (text: string) => void;
   onReply?: (message: WorkspaceMessage) => void;
+  /** Ask this agent to rewrite the message and save it to shared knowledge. */
+  onSaveKnowledge?: (message: WorkspaceMessage) => void;
 }
 
 // Full-bleed, no bubble — ChatGPT's assistant turn. The avatar and name stay:
 // a thread can have several agents, so the author still has to be readable.
-export function AgentMessageRow({ message, agents, agent, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, handoff, displayContent, yumiWelcome, isLast, onSuggestion, onReply }: AgentMessageRowProps) {
+export function AgentMessageRow({ message, agents, agent, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, handoff, displayContent, yumiWelcome, isLast, onSuggestion, onReply, onSaveKnowledge }: AgentMessageRowProps) {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
@@ -120,6 +122,11 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
               {onReply && !approval && !message.messageId.startsWith('optimistic-') && (
                 <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => onReply(message)} aria-label={t('reactions.reply')}>
                   <Reply data-icon="inline-start" />{t('reactions.reply')}
+                </Button>
+              )}
+              {onSaveKnowledge && !approval && !handoff && displayContent.trim() && !message.messageId.startsWith('optimistic-') && (
+                <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={() => onSaveKnowledge(message)} aria-label={t('reactions.saveKnowledge')}>
+                  <BookmarkPlus data-icon="inline-start" />{t('reactions.saveKnowledge')}
                 </Button>
               )}
               <AgentSharingAction agentName={message.senderName} />

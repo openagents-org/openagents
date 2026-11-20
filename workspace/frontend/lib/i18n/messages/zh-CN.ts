@@ -3432,6 +3432,8 @@ export const messages: Messages = {
     copyLink: '复制消息链接',
     linkFailed: '无法复制消息链接。',
     linkMissing: '此消息不可用。',
+    saveKnowledge: '保存为知识',
+    saveKnowledgePrompt: '@{agent} 请把我回复的这条你的消息保存为共享知识条目。改写成独立可读的内容：补充日后理解所需的背景（讨论的主题、时间、结论和待解决问题），起一个清晰的标题，然后保存到工作区知识库。完成后回复条目标题。\n\n消息（{id}）：“{excerpt}”',
 
     reply: "回复", add: '添加表情回应', choose: '选择表情', count: '{emoji} · {count} 人回应', failed: '无法保存表情回应，请重试。' },
   services: { title: '共享智能体服务', subtitle: '与你共享的可复用服务。每项服务都有独立的指令和使用者。', experimental: '实验功能 — 服务及其行为可能会调整。', create: '创建服务', edit: '编辑服务', name: '服务名称', agent: '运行此服务的智能体', description: '描述', instructions: '服务指令', examples: '请求示例（每行一条）', inputs: '请求者需要提供的信息', approver: '审批每个请求', noApproval: '无需审批', audience: '谁可以使用此服务', save: '保存服务', request: '发起请求', search: '搜索服务…', empty: '还没有与你共享的服务。', sharing: '共享', agentSharing: '共享智能体', agentSharingHint: '直接访问允许他人与该智能体聊天并将其加入讨论。服务使用者在“服务”中单独管理。', owner: '所有者', failed: '操作失败，请重试。', requestPlaceholder: '描述你需要此服务完成的工作…', },
