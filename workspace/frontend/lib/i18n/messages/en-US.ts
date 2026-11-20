@@ -2512,6 +2512,7 @@ export const messages = {
     expiredTitle: 'Browser session expired',
     expiredBody: 'The remote browser timed out. Click reconnect to start a new session.',
     liveBrowser: 'Live browser: {url}',
+    previousScreenshot: 'Last captured view · Not live',
     thumbnailUnavailable: 'Page preview unavailable',
     screenshotOf: 'Screenshot of {url}',
     noScreenshot: 'No screenshot available',

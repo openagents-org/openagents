@@ -2474,6 +2474,7 @@ export const messages: Messages = {
     expiredTitle: '浏览器会话已过期',
     expiredBody: '远程浏览器已超时。点击重连即可开启新会话。',
     liveBrowser: '实时浏览器:{url}',
+    previousScreenshot: '上次截图 · 非实时画面',
     thumbnailUnavailable: '暂时无法预览页面',
     screenshotOf: '{url} 的截图',
     noScreenshot: '暂无截图',

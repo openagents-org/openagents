@@ -200,7 +200,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
       {!artifactTabId && <DetailHeader
         title={<>
           <Globe className={cn('size-4 shrink-0', navigating ? 'animate-pulse text-warning' : 'text-foreground/70')} />
-          <p className="truncate text-sm font-medium">{tab?.title || asleepEntry?.context.name || t('browser.cloudBrowser')}</p>
+          <p className="truncate text-sm font-medium">{t('browser.cloudBrowser')}</p>
         </>}
       >
         {!isMobile && (
@@ -218,7 +218,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
         )}
       </DetailHeader>}
 
-      {!artifactTabId && <FeatureTourBanner feature="browser" />}
+      {!artifactTabId && <FeatureTourBanner feature="browser" subtle />}
 
       {!artifactTabId && (
         <BrowserTabStrip
