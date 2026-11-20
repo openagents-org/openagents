@@ -3,6 +3,17 @@
   "date": "2026-11-20",
   "entries": [
     {
+      "type": "feature",
+      "title": {
+        "en": "Routines are linked to the conversations that started them",
+        "zh": "定时任务与发起它的对话相关联"
+      },
+      "description": {
+        "en": "Routines are grouped by conversation, can be created and changed from within it, and show their recent runs.",
+        "zh": "定时任务按对话分组，可在对话中创建与修改，并可查看最近的运行记录。"
+      }
+    },
+    {
       "type": "improvement",
       "title": {
         "en": "Edit an agent's folder, API key and endpoint from its profile",
