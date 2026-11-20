@@ -1000,6 +1000,7 @@ class WorkspaceClient {
       context: context || '',
       network: workspaceId,
       channel: channelName,
+      source_channel: channelName && !/^routines?:/.test(channelName) ? channelName : undefined,
       source: source || 'openagents:unknown',
     };
     if (interval_minutes != null) {

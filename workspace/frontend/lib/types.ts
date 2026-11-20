@@ -585,6 +585,7 @@ export interface TimerItem {
  * Schedule is either/or: `interval_minutes`, or `hour`/`minute`/`days`.
  */
 export interface RoutineDraft {
+  source_channel?: string;
   name: string;
   message: string;
   source: string;
@@ -595,7 +596,17 @@ export interface RoutineDraft {
   conversation_history?: string;
 }
 
+export interface RoutineRun {
+  id: string;
+  started_at: number;
+  status: 'waiting' | 'responded' | 'failed' | 'unanswered';
+  summary: string | null;
+  channel_name: string;
+}
+
 export interface RoutineItem {
+  sourceChannelName?: string | null;
+  latestRun?: RoutineRun | null;
   id: string;
   name: string;
   message: string;

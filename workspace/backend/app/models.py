@@ -66,6 +66,9 @@ class EventRecord(Base):
 
     __table_args__ = (
         Index("idx_events_network_type", "network_id", "type"),
+        Index("idx_events_routine_history", "network_id", payload["routine_id"].astext, timestamp.desc(),
+              postgresql_where=text("source = 'system:routine'"),
+              sqlite_where=text("source = 'system:routine'")),
         Index("idx_events_network_target", "network_id", "target"),
         Index("idx_events_network_timestamp", "network_id", "timestamp"),
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),
@@ -1134,6 +1137,8 @@ class RoutineRecord(Base):
     id = Column(Text, primary_key=True, default=_uuid)
     workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
     channel_name = Column(Text, nullable=False)
+    # The conversation that owns the routine; execution stays in channel_name.
+    source_channel_name = Column(Text, nullable=True)
     thread_id = Column(Text, nullable=True)
     created_by = Column(Text, nullable=False)              # "openagents:agent-name"
     name = Column(Text, nullable=False)                     # human-readable label
@@ -1153,6 +1158,7 @@ class RoutineRecord(Base):
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
 
     __table_args__ = (
+        Index("idx_routines_source_channel", "workspace_id", "source_channel_name"),
         Index("idx_routines_workspace_channel", "workspace_id", "channel_name"),
         Index("idx_routines_next_fires_status", "next_fires_at", "status"),
     )

@@ -42,6 +42,7 @@ import type {
   PairingCode,
   RoutineDraft,
   RoutineItem,
+  RoutineRun,
   ShareSummary,
   TimerItem,
   TodoItem,
@@ -223,6 +224,8 @@ function toRoutineItem(raw: Record<string, unknown>): RoutineItem {
     name: raw.name as string,
     message: raw.message as string,
     context: (raw.context || null) as string | null,
+    sourceChannelName: (raw.source_channel_name || null) as string | null,
+    latestRun: (raw.latest_run || null) as RoutineRun | null,
     scheduleHour: (raw.schedule_hour || 0) as number,
     scheduleMinute: (raw.schedule_minute || 0) as number,
     scheduleDays: (raw.schedule_days || null) as number[] | null,
@@ -2419,6 +2422,14 @@ class WorkspaceApi {
       }),
     });
     return toRoutineItem(raw);
+  }
+
+  async routineRuns(id: string): Promise<{ runs: RoutineRun[] }> {
+    return this.request(`/v1/routines/${encodeURIComponent(id)}/runs?${new URLSearchParams({network: this.workspaceId})}`);
+  }
+
+  async runRoutine(id: string): Promise<void> {
+    await this.request(`/v1/routines/${encodeURIComponent(id)}/run?${new URLSearchParams({network: this.workspaceId})}`, {method: 'POST'});
   }
 
   async cancelRoutine(routineId: string): Promise<void> {

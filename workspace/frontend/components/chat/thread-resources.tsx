@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useDragScroll } from './use-drag-scroll';
-import { Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Layers, ListOrdered, PencilLine, X } from 'lucide-react';
+import { CalendarClock, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Layers, ListOrdered, PencilLine, X } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -22,6 +22,8 @@ import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } 
 import type { WorkspaceMessage } from '@/lib/types';
 import { useQueuedMessages, type PendingQueueEntry } from './use-queued-messages';
 import { BrowserResourceTile, FileResourceTile, LinkedBrowserResourceTile } from './thread-resource-tiles';
+import { routineNeedsAttention } from '@/components/routines/routine-status';
+import { useRoutineFormat } from '@/components/routines/use-routine-format';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
 // Radix Select has no empty value; this stands for "no reviewer".
@@ -38,8 +40,11 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
   const artifactDrag = useDragScroll();
   const agentDrag = useDragScroll();
   const queueDrag = useDragScroll();
-  const { agents, files, browserTabs, currentSessionId, sessions } = useWorkspace();
-  const { selectedArtifact, selectedBrowser, setSelectedAgentName } = useLayout();
+  const { agents, files, browserTabs, currentSessionId, sessions, routines } = useWorkspace();
+  const { selectedArtifact, selectedBrowser, setSelectedAgentName, selectedRoutineId, setSelectedRoutineId } = useLayout();
+  const { formatSchedule } = useRoutineFormat();
+  const threadRoutines = routines.filter(r => r.status !== 'cancelled' && r.sourceChannelName === currentSessionId);
+  const routineRow = useRef<HTMLUListElement>(null);
   const participants = sessions.find(s => s.sessionId === currentSessionId)?.participants || [];
   const members = currentSessionId?.startsWith('dm:') ? [] : agents.filter(a => participants.includes(a.agentName));
   const documents = files.filter(f => f.channelName === currentSessionId && !f.filename.endsWith('/.keep'));
@@ -48,9 +53,13 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
   const artifactRow = useRef<HTMLUListElement>(null);
   const agentRow = useRef<HTMLUListElement>(null);
   const queueRow = useRef<HTMLUListElement>(null);
-  const scrollRow = (direction: number) => (active === 'agents' ? agentRow : active === 'queue' ? queueRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
-  const [section, setSection] = useState('artifacts');
+  const scrollRow = (direction: number) => (active === 'routines' ? routineRow : active === 'agents' ? agentRow : active === 'queue' ? queueRow : artifactRow).current?.scrollBy({ left: direction * 336, behavior: 'smooth' });
+  const [section, setSection] = useState(selectedRoutineId && threadRoutines.some(r => r.id === selectedRoutineId) ? 'routines' : 'artifacts');
   const [collapsed, setCollapsed] = useState(false);
+  const selectedInThread = threadRoutines.some(r => r.id === selectedRoutineId);
+  useEffect(() => {
+    if (selectedInThread) { setSection('routines'); setCollapsed(false); }
+  }, [selectedRoutineId, selectedInThread]);
   const [editing, setEditing] = useState<string | null>(null);
   const [instruction, setInstruction] = useState('');
   const { queued, cancel: cancelQueued } = useQueuedMessages(currentSessionId, queueMessages, pendingQueue);
@@ -61,9 +70,9 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
     queuedCount.current = queued.length;
   }, [queued.length]);
   const artifactCount = documents.length + browsers.length + linkedBrowsers.length;
-  if (!members.length && !artifactCount && !queued.length) return null;
-  const active = section === 'queue' ? (queued.length ? 'queue' : 'artifacts') : section === 'agents' && members.length ? 'agents' : 'artifacts';
-  const showArrows = !collapsed && (active === 'artifacts' ? artifactCount : active === 'queue' ? queued.length : members.length) > 1;
+  if (!members.length && !artifactCount && !queued.length && !threadRoutines.length) return null;
+  const active = section === 'routines' && threadRoutines.length ? 'routines' : section === 'queue' ? (queued.length ? 'queue' : 'artifacts') : section === 'agents' && members.length ? 'agents' : 'artifacts';
+  const showArrows = !collapsed && (active === 'routines' ? threadRoutines.length : active === 'artifacts' ? artifactCount : active === 'queue' ? queued.length : members.length) > 1;
   const selectedAgent = members.find(a => a.agentName === editing);
   const editable = !!selectedAgent && collaboration.canEdit(selectedAgent);
   // The backend only accepts another agent that is already in this thread as reviewer.
@@ -75,6 +84,7 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
           {queued.length > 0 && <TabsTrigger value="queue" className="px-2 text-xs"><ListOrdered />{t('threadResources.queue')}<span className="tabular-nums text-muted-foreground">{queued.length}</span></TabsTrigger>}
           <TabsTrigger value="artifacts" className="px-2 text-xs"><Layers />{t('artifactPanel.title')}<span className="tabular-nums text-muted-foreground">{artifactCount}</span></TabsTrigger>
           {members.length > 0 && <TabsTrigger value="agents" className="px-2 text-xs"><Bot />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
+          {threadRoutines.length > 0 && <TabsTrigger value="routines" className="px-2 text-xs"><CalendarClock/>{t('routines.title')}<span className="tabular-nums text-muted-foreground">{threadRoutines.length}</span></TabsTrigger>}
         </TabsList>
         {showArrows && <div className="ml-auto flex items-center gap-1">
           <Button variant="outline" size="icon-xs" aria-label={t('threadResources.scrollLeft')} onClick={() => scrollRow(-1)}><ChevronLeft /></Button>
@@ -83,6 +93,7 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
         <Button variant="ghost" size="icon-xs" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={cn('text-muted-foreground', !showArrows && 'ml-auto')}>{collapsed ? <ChevronDown /> : <ChevronUp />}</Button>
       </div>
       {!collapsed && <>
+        <TabsContent value="routines" className="mt-0 min-w-0"><ul ref={routineRow} className={ROW} aria-label={t('routines.title')}>{threadRoutines.map(r => <li key={r.id} className="w-60 shrink-0 snap-start"><button aria-pressed={selectedRoutineId === r.id} onClick={() => setSelectedRoutineId(r.id)} className={cn('w-full rounded-lg border bg-background p-2.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring', selectedRoutineId === r.id && 'border-ring bg-muted')}><span className="flex items-start gap-2"><CalendarClock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"/><strong className="flex-1 text-xs font-medium">{r.name}</strong><ChevronRight className="size-3 text-muted-foreground"/></span><span className="mt-1.5 block text-[11px] text-muted-foreground">{routineNeedsAttention(r) ? <span className="text-warning">{t('routineHub.attention')}</span> : r.status === 'paused' ? t('routines.paused') : formatSchedule(r)}</span></button></li>)}</ul></TabsContent>
         <TabsContent value="queue" className="mt-0 min-w-0">
           <ul {...queueDrag} ref={queueRow} aria-label={t('threadResources.queue')} className={ROW}>
             {queued.map((q, i) => <li key={q.queueId} className="flex w-64 shrink-0 snap-start flex-col gap-1 rounded-lg border bg-background p-2">

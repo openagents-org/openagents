@@ -19,6 +19,7 @@ import { MobileShell } from './mobile-shell';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { cn } from '@/lib/utils';
 import { hasAddedWorkspaceAgent, shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
+import { RoutineList } from '@/components/routines/routine-list';
 import { ChatView } from '@/components/chat/chat-view';
 import { FilePreview } from '@/components/files/file-preview';
 import { TrashView } from '@/components/files/trash-view';
@@ -267,8 +268,8 @@ export function Wrapper() {
             <div className="relative flex-1 min-w-0 overflow-hidden bg-background">
               {/* Kept mounted like the views below: remounting a long thread or
                   a large file grid on every switch back was the visible lag. */}
-              {(visitedViews.current.has('threads') || visitedViews.current.has('routines')) && (
-                <Activity mode={viewMode === 'threads' || viewMode === 'routines' ? 'visible' : 'hidden'}>
+              {visitedViews.current.has('threads') && (
+                <Activity mode={viewMode === 'threads' ? 'visible' : 'hidden'}>
                   {/* In the chat view the profile DOCKS beside the thread instead
                       of sliding over it: clicking an agent opens their DM in the
                       middle with the profile alongside, so neither hides the other. */}
@@ -276,10 +277,11 @@ export function Wrapper() {
                     <div className="relative flex-1 min-w-0 overflow-hidden">
                       <ChatView />
                     </div>
-                    {isAgentPanelOpen && (viewMode === 'threads' || viewMode === 'routines') && <AgentProfilePanel docked />}
+                    {isAgentPanelOpen && viewMode === 'threads' && <AgentProfilePanel docked />}
                   </div>
                 </Activity>
               )}
+              {visitedViews.current.has('routines') && <Activity mode={viewMode === 'routines' ? 'visible' : 'hidden'}><RoutineList /></Activity>}
               {visitedViews.current.has('files') && (
                 <Activity mode={viewMode === 'files' ? 'visible' : 'hidden'}>
                   {filesSection === 'trash' ? <TrashView /> : <FilePreview />}
@@ -295,7 +297,7 @@ export function Wrapper() {
               {visitedViews.current.has('knowledge') && <Activity mode={viewMode === 'knowledge' ? 'visible' : 'hidden'}><KnowledgeView /></Activity>}
 
               {/* Agent profile slide-over (non-chat views keep the overlay) */}
-              {isAgentPanelOpen && viewMode !== 'threads' && viewMode !== 'routines' && <AgentProfilePanel />}
+              {isAgentPanelOpen && viewMode !== 'threads' && <AgentProfilePanel />}
             </div>
           )}
         </div>

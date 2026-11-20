@@ -2,8 +2,8 @@
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { beforeEach, afterEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ instruct: vi.fn().mockResolvedValue({}), profile: vi.fn(), canEdit: { value: true }, workspace: {
-  currentSessionId: 'one', sessions: [{ sessionId: 'one', participants: ['scout'] }],
+const mocks = vi.hoisted(() => ({ routine: vi.fn(), instruct: vi.fn().mockResolvedValue({}), profile: vi.fn(), canEdit: { value: true }, workspace: {
+  routines: [] as import('@/lib/types').RoutineItem[], currentSessionId: 'one', sessions: [{ sessionId: 'one', participants: ['scout'] }],
   agents: [{ agentName: 'scout', description: 'Research and verify sources', status: 'online' }, { agentName: 'other', description: 'Elsewhere' }],
   files: [{ id: 'image', filename: 'people/me/photo.png', contentType: 'image/png', size: 30, channelName: 'one' }, { id: 'hidden', filename: 'private.pdf', channelName: 'two' }],
   browserTabs: [{ id: 'live', title: 'XE', url: 'https://www.xe.com', status: 'active', artifactChannels: ['one'], activity: null }],
@@ -11,8 +11,9 @@ const mocks = vi.hoisted(() => ({ instruct: vi.fn().mockResolvedValue({}), profi
 vi.mock('@/lib/api', () => ({ workspaceApi: { saveThreadCollaboration: mocks.instruct } }));
 vi.mock('./agent-message-access', () => ({ AgentOwnershipBadge: () => null, AgentSharingAction: () => null, useThreadCollaboration: () => ({ roles: {}, supported: true, canEdit: () => mocks.canEdit.value }) }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => mocks.workspace }));
-vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile }) }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ selectedArtifact: null, setSelectedAgentName: mocks.profile, setSelectedRoutineId: mocks.routine }) }));
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string, params?: any) => params?.agent ? `${key} ${params.agent}` : key }));
+vi.mock('@/components/routines/use-routine-format', () => ({ useRoutineFormat: () => ({ formatSchedule: () => 'Every hour' }) }));
 vi.mock('@/components/agents/agent-avatar', () => ({ AgentAvatar: () => null }));
 vi.mock('@/components/artifacts/browser-thumbnail', () => ({ BrowserThumbnail: ({ tabId, pageUrl, enabled }: any) => React.createElement('span', { 'data-browser-thumbnail': tabId, 'data-url': pageUrl, 'data-enabled': enabled }) }));
 vi.mock('@/components/files/file-utils', () => ({ FileTile: ({ file }: any) => React.createElement('img', { alt: file.filename }) }));
@@ -165,4 +166,23 @@ it('keeps a shared browser in Artifacts after it leaves the active list', async 
     await act(async () => card.click());
     expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser', id:url});
   } finally { window.removeEventListener('workspace:open-artifact', opened); }
+});
+
+it('shows only routines linked to this conversation and selects the exact routine', async () => {
+  mocks.workspace.routines = [
+    { id: 'routine-one', name: 'Check feedback', sourceChannelName: 'one', status: 'active' },
+    { id: 'routine-two', name: 'Check latency', sourceChannelName: 'two', status: 'active' },
+    { id: 'cancelled', name: 'Old routine', sourceChannelName: 'one', status: 'cancelled' },
+  ] as import('@/lib/types').RoutineItem[];
+  try {
+    await act(async () => root.render(React.createElement(ThreadResources)));
+    const tab = Array.from(host.querySelectorAll('[role=tab]')).find(el => el.textContent?.includes('routines.title'))!;
+    await act(async () => tab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })));
+    expect(host.textContent).toContain('Check feedback');
+    expect(host.textContent).not.toContain('Check latency');
+    expect(host.textContent).not.toContain('Old routine');
+    const routine = Array.from(host.querySelectorAll('button')).find(el => el.textContent?.includes('Check feedback'))!;
+    await act(async () => routine.click());
+    expect(mocks.routine).toHaveBeenCalledWith('routine-one');
+  } finally { mocks.workspace.routines = []; }
 });
