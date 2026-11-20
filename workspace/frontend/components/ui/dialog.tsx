@@ -124,11 +124,14 @@ function DialogContent({
   )
 }
 
+// The body starts 4px (pt-1) below its scroll edge so rings, focus rings and
+// card hairlines on its first child are not clipped by overflow-y-auto; the
+// header's bottom padding gives those 4px back, keeping the gap unchanged.
 function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-header"
-      className={cn("flex shrink-0 flex-col gap-2 p-6 pr-14", className)}
+      className={cn("flex shrink-0 flex-col gap-2 p-6 pr-14 pb-5", className)}
       {...props}
     />
   )
@@ -140,7 +143,7 @@ function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
     <div
       data-slot="dialog-body"
       className={cn(
-        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-6 pb-6",
+        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-6 pt-1 pb-6",
         className
       )}
       {...props}

@@ -2,8 +2,9 @@
 
 import { Pencil, Trash2, UsersRound } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { Spinner } from '@/components/ui/spinner';
+import { IconAction } from '@/components/settings/icon-action';
 import { useT } from '@/lib/i18n';
 import type { SecurityGroup } from '@/lib/types';
 import { cn } from '@/lib/utils';
@@ -31,47 +32,47 @@ export function GroupListItem({
   const t = useT();
   const builtin = g.builtin || g.kind !== 'custom';
   return (
-    <div
+    <Item
+      size="sm"
       role="button"
       tabIndex={0}
       aria-pressed={active}
       onClick={onSelect}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
-      className={cn(
-        'flex cursor-pointer items-center gap-3 px-3 py-2.5 transition-colors',
-        active ? 'bg-muted' : 'hover:bg-muted/50',
-      )}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
+      className={cn('cursor-pointer', active ? 'bg-muted' : 'hover:bg-muted/50')}
     >
-      <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <UsersRound className="size-4" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+      <ItemMedia variant="icon">
+        <UsersRound className="text-muted-foreground" />
+      </ItemMedia>
+      <ItemContent className="min-w-0">
+        <ItemTitle>
           <span className="truncate">{name}</span>
-          {builtin && <Badge variant="outline" className="shrink-0">{t('groups.builtin')}</Badge>}
-        </p>
-        <p className="truncate text-xs text-muted-foreground">
+          {builtin && <Badge variant="outline">{t('groups.builtin')}</Badge>}
+        </ItemTitle>
+        <ItemDescription className="line-clamp-1 text-xs">
           {t('groups.memberCount', { count: g.member_count })}
           {g.kind === 'everyone' && ` · ${t('groups.everyoneHint')}`}
           {g.kind === 'guest' && ` · ${t('groups.guestHint')}`}
-        </p>
-      </div>
+        </ItemDescription>
+      </ItemContent>
       {editable && !builtin && (
-        <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+        // The row itself selects the group; its actions must not — neither
+        // their clicks nor their keys (Enter on delete would select the row).
+        <ItemActions className="gap-0.5 text-muted-foreground" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
           {busy ? (
             <Spinner />
           ) : (
             <>
-              <Button variant="ghost" size="icon-sm" onClick={onRename} title={t('groups.rename')} aria-label={t('groups.rename')}>
+              <IconAction label={t('groups.rename')} onClick={onRename}>
                 <Pencil />
-              </Button>
-              <Button variant="ghost" size="icon-sm" onClick={onRemove} title={t('groups.delete')} aria-label={t('groups.delete')}>
+              </IconAction>
+              <IconAction label={t('groups.delete')} destructive onClick={onRemove}>
                 <Trash2 />
-              </Button>
+              </IconAction>
             </>
           )}
-        </div>
+        </ItemActions>
       )}
-    </div>
+    </Item>
   );
 }

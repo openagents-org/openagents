@@ -26,7 +26,7 @@ async function render() {
 }
 
 function button(label: string) {
-  return [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label || b.title === label)!;
+  return [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => b.textContent?.trim() === label || b.getAttribute('aria-label') === label)!;
 }
 
 beforeEach(() => {

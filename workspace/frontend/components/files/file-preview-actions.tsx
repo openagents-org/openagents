@@ -8,11 +8,12 @@ import { ArtifactSharePopover } from '@/components/sharing/artifact-share';
 import { CopyResourceLink } from '@/components/sharing/copy-resource-link';
 import { Button } from '@/components/ui/button';
 import { Spinner } from '@/components/ui/spinner';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import type { WorkspaceFile } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { destructiveIconClass } from '@/lib/destructive-icon';
 import { useWorkspace } from '@/lib/workspace-context';
 import { projectDisplayName } from '@/lib/web-projects';
 import { basename, getFileTypeMeta, type FileKind } from './file-utils';
@@ -21,32 +22,29 @@ import { basename, getFileTypeMeta, type FileKind } from './file-utils';
 function IconAction({
   label,
   onClick,
+  destructive = false,
   className,
   children,
   pressed,
 }: {
   label: string;
   onClick: () => void;
+  destructive?: boolean;
   className?: string;
   children: ReactNode;
   pressed?: boolean;
 }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
+    <WithTooltip label={label}><Button
           variant="ghost"
           size="icon-sm"
           onClick={onClick}
           aria-label={label}
           aria-pressed={pressed}
-          className={cn('text-muted-foreground', className)}
+          className={cn(destructive ? destructiveIconClass : 'text-muted-foreground', className)}
         >
           {children}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
-    </Tooltip>
+        </Button></WithTooltip>
   );
 }
 
@@ -162,7 +160,7 @@ export function FilePreviewActions({
       <IconAction label={t('common.download')} onClick={onDownload}>
         <Download />
       </IconAction>
-      <IconAction label={t('common.delete')} onClick={onDelete} className="hover:text-destructive">
+      <IconAction label={t('common.delete')} onClick={onDelete} destructive>
         <Trash2 />
       </IconAction>
     </>

@@ -14,6 +14,7 @@ import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference }) {
   const t = useT();
@@ -41,7 +42,7 @@ export function ArtifactFileActions({ artifact }: { artifact: ArtifactReference 
   // Download and the link need only the id, so they show from the first
   // frame while the list loads.
   return <>
-    <Button variant="ghost" size="icon-sm" aria-label={t('common.download')} title={t('common.download')} onClick={download}><Download className="size-4" /></Button>
+    <WithTooltip label={t('common.download')}><Button variant="ghost" size="icon-sm" aria-label={t('common.download')} onClick={download}><Download className="size-4" /></Button></WithTooltip>
     <CopyResourceLink view="files" id={artifact.id} />
   </>;
 }

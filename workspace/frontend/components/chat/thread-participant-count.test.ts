@@ -17,6 +17,8 @@ let root: Root;
 beforeEach(() => {
   vi.stubGlobal('React', React);
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
+  // The trigger's tooltip opens when the popover returns focus to it.
+  vi.stubGlobal('ResizeObserver', class { observe() {} unobserve() {} disconnect() {} });
   state.roster.can_add_people = true; state.roster.can_add_agents = true;
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });

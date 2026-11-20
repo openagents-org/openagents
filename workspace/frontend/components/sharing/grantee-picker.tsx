@@ -10,10 +10,11 @@
 // pages have no provider, and the main context does not expose collaborators.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bot, Check, Plus, Users, UsersRound, X } from 'lucide-react';
+import { Check, Plus } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import {
   Command,
   CommandEmpty,
@@ -22,19 +23,20 @@ import {
   CommandItem,
   CommandList,
 } from '@/components/ui/command';
-import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { displayNameFromEmail } from '@/lib/collab';
 import {
-  granteeChipLabel,
   granteeKey,
   isExcludedGrantee,
   mergeGrantees,
   removeGrantee,
 } from '@/lib/access-ui';
 import type { Grantee, GranteeKind, SecurityGroup, TeamMember } from '@/lib/types';
+import { CandidateAvatar, GranteeChip, KindIcon } from './grantee-chip';
+
+export { GranteeChip, KindIcon };
 
 export interface GranteePickerProps {
   value: Grantee[];
@@ -169,24 +171,16 @@ export function GranteePicker({
           <Command loop>
             <CommandInput placeholder={t('groups.pickerSearch')} />
             {offered.length > 1 && (
-              <div className="flex flex-wrap gap-1 border-b px-2 py-1.5">
+              <ToggleGroup type="single" size="sm" variant="outline" spacing={1} value={kindFilter ?? ''}
+                onValueChange={(next) => setKindFilter((next || null) as GranteeKind | null)}
+                className="w-full flex-wrap border-b px-2 py-1.5">
                 {offered.map((k) => (
-                  <button
-                    key={k}
-                    type="button"
-                    onClick={() => setKindFilter((cur) => (cur === k ? null : k))}
-                    className={cn(
-                      'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors',
-                      kindFilter === k
-                        ? 'border-foreground bg-foreground text-background'
-                        : 'border-border text-muted-foreground hover:bg-muted',
-                    )}
-                  >
-                    <KindIcon kind={k} className="size-3" />
+                  <ToggleGroupItem key={k} value={k} className="text-xs">
+                    <KindIcon kind={k} />
                     {kindLabel(k)}
-                  </button>
+                  </ToggleGroupItem>
                 ))}
-              </div>
+              </ToggleGroup>
             )}
             <CommandList className="max-h-72 overscroll-contain">
               {loading && (
@@ -251,66 +245,3 @@ export function GranteePicker({
 }
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
-
-export function KindIcon({ kind, className }: { kind: GranteeKind; className?: string }) {
-  if (kind === 'agent') return <Bot className={className} />;
-  if (kind === 'group') return <UsersRound className={className} />;
-  return <Users className={className} />;
-}
-
-function CandidateAvatar({ c }: { c: Grantee }) {
-  if (c.kind === 'agent') return <AgentAvatar name={c.id} size={20} />;
-  if (c.kind === 'group') {
-    return (
-      <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-        <UsersRound className="size-3" />
-      </span>
-    );
-  }
-  return (
-    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-      {(c.label || c.id)[0]?.toUpperCase()}
-    </span>
-  );
-}
-
-/** A selected (or granted) principal as a removable chip. */
-export function GranteeChip({
-  grantee,
-  onRemove,
-  muted,
-  className,
-}: {
-  grantee: Grantee;
-  onRemove?: () => void;
-  /** Struck-through look for an expired grant. */
-  muted?: boolean;
-  className?: string;
-}) {
-  const t = useT();
-  return (
-    <span
-      className={cn(
-        'inline-flex max-w-full items-center gap-1 rounded-full border bg-muted/50 py-0.5 pl-1 pr-1.5 text-xs',
-        muted && 'line-through opacity-60',
-        className,
-      )}
-      title={grantee.id}
-    >
-      {grantee.kind === 'agent'
-        ? <AgentAvatar name={grantee.id} size={16} />
-        : <KindIcon kind={grantee.kind} className="size-3 text-muted-foreground" />}
-      <span className="truncate">{granteeChipLabel(grantee)}</span>
-      {onRemove && (
-        <button
-          type="button"
-          onClick={onRemove}
-          className="ml-0.5 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          aria-label={t('common.remove')}
-        >
-          <X className="size-3" />
-        </button>
-      )}
-    </span>
-  );
-}

@@ -66,7 +66,7 @@ export function MessageAttachments({ items, senderAgentName = null }: { items: M
               type="button"
               onClick={() => openPreview(img.fileId)}
               aria-label={img.filename}
-              className="block max-w-sm overflow-hidden rounded-lg border text-left outline-none transition-shadow hover:shadow-md focus-visible:ring-3 focus-visible:ring-ring/50"
+              className="block max-w-sm overflow-hidden rounded-lg border text-left outline-none transition-colors hover:border-foreground/20 focus-visible:ring-3 focus-visible:ring-ring/50"
             >
               <AuthenticatedImage
                 fileId={img.fileId}

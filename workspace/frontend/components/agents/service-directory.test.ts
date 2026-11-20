@@ -25,7 +25,7 @@ beforeEach(() => { vi.clearAllMocks(); Object.assign(globalThis,{IS_REACT_ACT_EN
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); });
 it('shows separate services backed by one agent and edits the service audience', async () => {
   await act(async () => root.render(createElement(ServiceDirectory)));
-  expect(host.querySelectorAll('article')).toHaveLength(2);
+  expect(host.querySelectorAll('[data-slot="card"]')).toHaveLength(2);
   await act(async () => button('Edit service').click());
   expect(host.querySelector('[data-resource="service"]')?.getAttribute('data-id')).toBe('review');
   expect(host.querySelector('[data-resource="agent"]')).toBeNull();

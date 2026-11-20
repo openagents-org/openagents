@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { DeviceOfflineHint } from '@/components/agents/agent-roster-hints'; // v1.1 M1
 import { AgentUsabilityLine } from '@/components/sharing/agent-access-section';
@@ -80,19 +81,18 @@ export function AgentProfileHeader({ agent, canManage, refreshWorkspace }: { age
               </Button>
             </div>
           ) : (
-            <div className="group/name flex min-w-0 items-center gap-1.5">
+            <div className="flex min-w-0 items-center gap-1.5">
               <h3 className="truncate text-lg leading-tight font-semibold">{agentLabel(agent)}</h3>
               {canManage && (
-                <Button
-                  variant="ghost"
-                  size="icon-xs"
-                  onClick={() => setEditingName(true)}
-                  className="text-muted-foreground hover:text-foreground"
-                  title={t('agents.editDisplayName')}
-                  aria-label={t('agents.editDisplayName')}
-                >
-                  <Pencil />
-                </Button>
+                <WithTooltip label={t('agents.editDisplayName')}><Button
+                      variant="ghost"
+                      size="icon-xs"
+                      onClick={() => setEditingName(true)}
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label={t('agents.editDisplayName')}
+                    >
+                      <Pencil />
+                    </Button></WithTooltip>
               )}
             </div>
           )}

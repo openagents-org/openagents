@@ -230,7 +230,7 @@ describe('shared issues', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(250); });
     const dev = [...host.querySelectorAll('[role="tab"]')].find(tab => tab.textContent?.includes('Development')) as HTMLButtonElement;
     expect(dev).toBeTruthy();
-    await act(async () => { dev.click(); await vi.advanceTimersByTimeAsync(250); });
+    await act(async () => { dev.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0 })); await vi.advanceTimersByTimeAsync(250); });
     expect(mocks.api.listIssues).toHaveBeenLastCalledWith(expect.objectContaining({ board: 'b-dev' }));
     expect(dev.getAttribute('aria-selected')).toBe('true');
     expect(new URL(window.location.href).searchParams.get('board')).toBe('b-dev');
@@ -606,7 +606,7 @@ it.each([
   await openIssue();
   const header = host.querySelector('main > header')!;
   expect(header.querySelector('[aria-labelledby="issue-assignee-issue-1"]')?.textContent).toBe(name);
-  expect(header.querySelector('select[aria-label="Status"]')).not.toBeNull();
+  expect(header.querySelector('[role="combobox"][aria-label="Status"]')).not.toBeNull();
   expect(header.textContent).toContain('Due date');
   expect(header.textContent).toContain('Labels');
   expect(button('Details')).toBeUndefined();
@@ -706,14 +706,16 @@ it.each(['metaKey', 'ctrlKey'] as const)('sends an issue comment with %s + Enter
 
 it('saves labels and paused status in issue details', async () => {
   await openIssue();
-  const status = host.querySelector('select[id^="issue-status-"]') as HTMLSelectElement;
-  expect([...status.options].some(option => option.value === 'paused')).toBe(true);
-  await act(async () => { status.value = 'paused'; status.dispatchEvent(new Event('change', { bubbles: true })); });
+  const status = host.querySelector('button[role="combobox"][id^="issue-status-"]') as HTMLButtonElement;
+  await act(async () => status.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
+  const paused = [...document.querySelectorAll<HTMLElement>('[role="option"]')].find(option => option.textContent === 'Paused')!;
+  expect(paused).toBeTruthy();
+  await click(paused);
   expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ status: 'paused' }));
   await click(host.querySelector<HTMLButtonElement>('button[aria-label="Add a label"]')!);
-  const input = host.querySelector('input[id^="issue-label-"]') as HTMLInputElement;
+  const input = document.querySelector('input[aria-label="Add a label"]') as HTMLInputElement;
   await fill(input, 'Bug');
-  await act(async () => input.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+  await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
   expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ labels: ['Bug'] }));
 });
 
@@ -724,7 +726,7 @@ it('searches the assignee picker and saves a selected person', async () => {
   const search = document.querySelector<HTMLInputElement>('input[aria-label="Search people…"]')!;
   expect(search).not.toBeNull();
   await fill(search, 'Bob');
-  const choice = Array.from(document.querySelectorAll('button')).find(item => item.textContent === 'Bob')!;
+  const choice = Array.from(document.querySelectorAll<HTMLElement>('[cmdk-item]')).find(item => item.textContent === 'Bob')!;
   await click(choice);
   expect(mocks.api.updateIssue).toHaveBeenCalledWith('issue-1', expect.objectContaining({ assignee: 'human:bob@example.com' }));
   expect(document.querySelector('input[aria-label="Search people…"]')).toBeNull();
@@ -772,7 +774,7 @@ it('shows saved attachments and knowledge as links on the issue', async () => {
     knowledge: [{ id: 'guide-1', title: 'Support guide' }],
   });
   await openIssue();
-  expect(host.querySelector('a[href="/workspace-1/files/file-1"]')?.textContent).toBe('evidence.txt');
+  expect(host.querySelector('a[href="/workspace-1/files/file-1"]')?.getAttribute('aria-label')).toBe('evidence.txt');
   expect(host.querySelector('a[href="/workspace-1/knowledge/guide-1"]')?.textContent).toBe('Support guide');
 });
 
@@ -814,9 +816,10 @@ it('autocompletes existing labels by keyboard and preserves their spelling', asy
   mocks.api.updateIssue.mockResolvedValue({ ...issue, labels: ['暂停'] });
   await openIssue();
   await click(button('Add a label'));
-  const input = host.querySelector('input[role="combobox"]') as HTMLInputElement;
+  const input = document.querySelector('input[role="combobox"]') as HTMLInputElement;
   await fill(input, '暂');
-  expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);
+  // The typed text comes first, so plain Enter would add it as a new label.
+  expect([...document.querySelectorAll('[role="option"]')].map(option => option.textContent)).toEqual(['Create “暂”', '暂停']);
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })));
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })));
   expect(mocks.api.updateIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ labels: ['暂停'] }));
@@ -992,15 +995,16 @@ it('autocompletes knowledge context, removes selections, and sends selected ids 
     { id: 'spec', title: 'Product spec', description: 'Workspace behavior' },
   ];
   await chooseWorkAgent();
-  const input = host.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
+  await click(button('Add knowledge'));
+  const input = document.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
   await fill(input, 'runtime');
-  expect(host.querySelector('[role="option"]')?.textContent).toContain('Support guide');
-  expect(host.querySelectorAll('[role="option"]')).toHaveLength(1);
+  expect(document.querySelector('[role="option"]')?.textContent).toContain('Support guide');
+  expect(document.querySelectorAll('[role="option"]')).toHaveLength(1);
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
   expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
   expect(host.querySelector('[aria-label="Remove Support guide"]')).not.toBeNull();
   await fill(input, 'product');
-  await click(host.querySelector('[role="option"]')!);
+  await click(document.querySelector<HTMLElement>('[role="option"]')!);
   await click(host.querySelector('[aria-label="Remove Support guide"]')!);
   await click(button('Assign to agent'));
   expect(mocks.api.commentOnIssue).toHaveBeenCalledWith(issue.id, expect.objectContaining({ content: '@research-agent', knowledge_ids: ['spec'] }));
@@ -1010,11 +1014,12 @@ it('autocompletes knowledge context, removes selections, and sends selected ids 
 it('keeps selected knowledge on failure and prevents empty searches from submitting the job', async () => {
   mocks.ws.knowledge = [{ id: 'guide', title: 'Support guide', description: 'Troubleshooting' }];
   await chooseWorkAgent();
-  const input = host.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
+  await click(button('Add knowledge'));
+  const input = document.querySelector('input[placeholder="Search knowledge…"]') as HTMLInputElement;
   await fill(input, 'guide');
-  await click(host.querySelector('[role="option"]')!);
+  await click(document.querySelector<HTMLElement>('[role="option"]')!);
   await fill(input, 'missing');
-  expect(host.textContent).toContain('No matching knowledge entries.');
+  expect(document.body.textContent).toContain('No matching knowledge entries.');
   await act(async () => input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })));
   expect(mocks.api.commentOnIssue).not.toHaveBeenCalled();
   mocks.api.commentOnIssue.mockRejectedValueOnce(new Error('Network unavailable'));

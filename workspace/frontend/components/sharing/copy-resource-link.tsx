@@ -6,13 +6,14 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { resourcePath, type ResourceView } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 import { useT } from '@/lib/i18n';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 export function CopyResourceLink({ view, id }: { view: ResourceView; id: string }) {
   const { workspace } = useWorkspace();
   const t = useT();
-  return <Button variant="ghost" size="icon-sm" aria-label={t('issues.copyLink')} title={t('issues.copyLink')} onClick={async () => {
+  return <WithTooltip label={t('issues.copyLink')}><Button variant="ghost" size="icon-sm" aria-label={t('issues.copyLink')} onClick={async () => {
     try {
       const url = new URL(resourcePath(workspace?.slug || workspace?.workspaceId || '', view, id), shareOrigin());
       await navigator.clipboard.writeText(url.toString()); toast.success(t('common.copied'));
     } catch { toast.error(t('resourceLinks.copyFailed')); }
-  }}><Link className="size-3.5" /></Button>;
+  }}><Link className="size-3.5" /></Button></WithTooltip>;
 }

@@ -14,18 +14,31 @@ import { Bug, Lightbulb, Send } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { Field, FieldDescription, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Textarea } from '@/components/ui/textarea';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/responsive-dialog';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 
 const API_URL = getApiBaseUrl();
+
+type FeedbackKind = 'bug' | 'feature';
 
 export function FeedbackDialog({ onClose }: { onClose: () => void }) {
   const t = useT();
   const { workspace } = useWorkspace();
   const { idToken } = useOpenAgentsAuth();
-  const [kind, setKind] = useState<'bug' | 'feature'>('feature');
+  const [kind, setKind] = useState<FeedbackKind>('feature');
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -64,58 +77,58 @@ export function FeedbackDialog({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-md flex flex-col gap-4 rounded-2xl border bg-background p-6 shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div>
-          <h3 className="text-sm font-semibold">{t('feedback.title')}</h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('feedback.body')}</p>
-        </div>
+    <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t('feedback.title')}</DialogTitle>
+          <DialogDescription>{t('feedback.body')}</DialogDescription>
+        </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            { id: 'feature' as const, icon: Lightbulb, label: t('feedback.kindFeature') },
-            { id: 'bug' as const, icon: Bug, label: t('feedback.kindBug') },
-          ]).map(({ id, icon: Icon, label }) => (
-            <button
-              key={id}
-              onClick={() => setKind(id)}
-              className={cn(
-                'flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors',
-                kind === id
-                  ? 'border-primary bg-primary/5 text-foreground'
-                  : 'text-muted-foreground hover:text-foreground',
-              )}
+        <DialogBody>
+          <FieldGroup className="gap-4">
+            <ToggleGroup
+              type="single"
+              variant="outline"
+              value={kind}
+              onValueChange={(v) => { if (v) setKind(v as FeedbackKind); }}
+              aria-label={t('feedback.title')}
+              className="grid w-full grid-cols-2"
             >
-              <Icon className="size-4" />
-              {label}
-            </button>
-          ))}
-        </div>
+              <ToggleGroupItem value="feature">
+                <Lightbulb data-icon="inline-start" />
+                {t('feedback.kindFeature')}
+              </ToggleGroupItem>
+              <ToggleGroupItem value="bug">
+                <Bug data-icon="inline-start" />
+                {t('feedback.kindBug')}
+              </ToggleGroupItem>
+            </ToggleGroup>
 
-        <textarea
-          value={message}
-          onChange={(e) => setMessage(e.target.value)}
-          placeholder={kind === 'bug' ? t('feedback.placeholderBug') : t('feedback.placeholderFeature')}
-          autoFocus
-          rows={5}
-          maxLength={5000}
-          className="w-full resize-none rounded-lg border bg-background px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-primary/30"
-        />
+            <Field>
+              <FieldLabel htmlFor="feedback-message">{t('feedback.messageLabel')}</FieldLabel>
+              <Textarea
+                id="feedback-message"
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+                placeholder={kind === 'bug' ? t('feedback.placeholderBug') : t('feedback.placeholderFeature')}
+                autoFocus
+                rows={5}
+                maxLength={5000}
+                className="min-h-28 resize-none"
+              />
+              <FieldDescription>{t('feedback.contextNote')}</FieldDescription>
+            </Field>
+          </FieldGroup>
+        </DialogBody>
 
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-xs text-muted-foreground">{t('feedback.contextNote')}</span>
-          <div className="flex gap-2">
-            <Button variant="ghost" onClick={onClose} disabled={sending}>{t('connect.nodeCancel')}</Button>
-            <Button onClick={submit} disabled={!message.trim() || sending}>
-              {sending ? <Spinner data-icon="inline-start" /> : <Send className="mr-1.5 size-4" />}
-              {t('feedback.submit')}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={sending}>{t('connect.nodeCancel')}</Button>
+          <Button onClick={submit} disabled={!message.trim() || sending}>
+            {sending ? <Spinner data-icon="inline-start" /> : <Send data-icon="inline-start" />}
+            {t('feedback.submit')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

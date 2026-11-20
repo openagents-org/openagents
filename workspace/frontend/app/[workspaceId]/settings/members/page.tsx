@@ -2,8 +2,6 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'sonner';
-import { Card } from '@/components/ui/card';
-import { Spinner } from '@/components/ui/spinner';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAdminSettings, canAdminister } from '@/components/settings/admin-context';
@@ -13,6 +11,8 @@ import { GroupsPanel } from '@/components/settings/groups-panel'; // v1.1 permis
 import { InviteCard } from '@/components/settings/members/invite-card';
 import { MemberRow } from '@/components/settings/members/member-row';
 import { PendingInvites } from '@/components/settings/members/pending-invites';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { ListEmpty, ListLoading, SettingsList } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import type { TeamInvite, TeamMember, WorkspaceRole } from '@/lib/types';
 import { useT } from '@/lib/i18n';
@@ -75,7 +75,7 @@ export default function MembersSettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-6">
       <SectionHeader title={t('admin.membersTitle')} description={t('admin.membersDescription')} />
       {!editable && <ReadOnlyBanner />}
 
@@ -85,22 +85,19 @@ export default function MembersSettingsPage() {
           <TabsTrigger value="people">{t('groups.tabPeople')}</TabsTrigger>
           <TabsTrigger value="groups">{t('groups.tabGroups')}</TabsTrigger>
         </TabsList>
-        <TabsContent value="people" className="flex w-full min-w-0 flex-col gap-8">
+        <TabsContent value="people" className="flex w-full min-w-0 flex-col gap-6">
           {editable && <InviteCard onInvited={load} />}
 
           {editable && pendingInvites.length > 0 && <PendingInvites invites={pendingInvites} onChanged={load} />}
 
           {/* v1.1 M1: unified roster — people first, agents below */}
-          <section className="flex flex-col gap-3">
-            <h3 className="text-sm font-medium">{t('collab.peopleSection')}</h3>
+          <SettingsCard title={t('collab.peopleSection')}>
             {loading ? (
-              <div className="flex items-center justify-center py-10">
-                <Spinner className="size-5 text-muted-foreground" />
-              </div>
+              <ListLoading />
             ) : members.length === 0 ? (
-              <p className="py-4 text-sm text-muted-foreground">{t('admin.noMembers')}</p>
+              <ListEmpty>{t('admin.noMembers')}</ListEmpty>
             ) : (
-              <Card className="gap-0 divide-y py-0">
+              <SettingsList>
                 {members.map((m) => (
                   <MemberRow
                     key={m.email}
@@ -111,9 +108,9 @@ export default function MembersSettingsPage() {
                     onRemove={() => remove(m.email)}
                   />
                 ))}
-              </Card>
+              </SettingsList>
             )}
-          </section>
+          </SettingsCard>
 
           {/* v1.1 M1: agents — owner + Personal/Team editable by owner/admins */}
           {!loading && <AgentRoster me={me} members={members} />}

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import {
-  Check, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
+  Check, EllipsisVertical, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -33,10 +33,15 @@ import { currentRouteSearch } from '@/lib/route-search';
 import { LanguageMenuSub } from './language-menu';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { FeedbackDialog } from '@/components/feedback/feedback-dialog';
+import { WithTooltip } from '@/components/ui/with-tooltip';
+import { SidebarMenu, SidebarMenuButton, SidebarMenuItem } from '@/components/ui/sidebar';
 
 interface UserMenuProps {
   side?: 'top' | 'right' | 'bottom' | 'left';
   align?: 'start' | 'center' | 'end';
+  /** `row`: the sidebar footer's account row (avatar, name, email — shadcn
+   *  sidebar-07's NavUser); `icon`: the avatar alone, for tight spots. */
+  variant?: 'icon' | 'row';
 }
 
 // System first — it is the default, and the one most people leave it on.
@@ -46,8 +51,8 @@ const THEME_OPTIONS = [
   { value: 'dark', labelKey: 'theme.dark', icon: Moon },
 ] as const;
 
-export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
-  const { workspace, token } = useWorkspace();
+export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProps = {}) {
+  const { workspace, token, currentUser } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
   const isAdmin = canAdminister(me);
@@ -116,24 +121,46 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
     if (ok) goToCentralLogout(signOut);
   };
 
-  return (
-    <>
+  // The row names the person: their display name over their email, or just
+  // the email when that is all we have. Signed out, the local identity's name.
+  const rowName = user ? user.displayName || user.email : currentUser.name || t('userMenu.account');
+  const rowEmail = user && user.displayName && user.displayName !== user.email ? user.email : '';
+
+  const menu = (
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon"
-            title={user?.email || t('userMenu.account')}
-            aria-label={user?.email || t('userMenu.account')}
-            className="rounded-full text-muted-foreground"
-          >
-            {user ? (
-              <HumanAvatar email={user.email} className="size-6" />
-            ) : (
-              <User />
-            )}
-          </Button>
-        </DropdownMenuTrigger>
+        {variant === 'row' ? (
+          <DropdownMenuTrigger asChild>
+            <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+              {user ? (
+                <HumanAvatar email={user.email} className="size-8" />
+              ) : (
+                <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-muted"><User /></span>
+              )}
+              <span className="grid min-w-0 flex-1 leading-tight">
+                <span className="truncate font-medium">{rowName}</span>
+                {rowEmail && <span className="truncate text-xs text-muted-foreground">{rowEmail}</span>}
+              </span>
+              <EllipsisVertical className="ml-auto text-muted-foreground" />
+            </SidebarMenuButton>
+          </DropdownMenuTrigger>
+        ) : (
+          <WithTooltip label={user?.email || t('userMenu.account')}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={user?.email || t('userMenu.account')}
+                className="rounded-full text-muted-foreground"
+              >
+                {user ? (
+                  <HumanAvatar email={user.email} className="size-6" />
+                ) : (
+                  <User />
+                )}
+              </Button>
+            </DropdownMenuTrigger>
+          </WithTooltip>
+        )}
 
         <DropdownMenuContent side={side} align={align} sideOffset={8} className="w-60">
           {user && (
@@ -169,7 +196,7 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
             <DropdownMenuSubTrigger>
               <ActiveThemeIcon />
               {t('theme.label')}
-              <span className="ms-auto pe-1 text-xs text-muted-foreground">
+              <span className="flex-1 text-end text-xs text-muted-foreground">
                 {t(activeThemeOption.labelKey)}
               </span>
             </DropdownMenuSubTrigger>
@@ -251,6 +278,15 @@ export function UserMenu({ side, align = 'end' }: UserMenuProps = {}) {
           )}
         </DropdownMenuContent>
       </DropdownMenu>
+  );
+
+  return (
+    <>
+      {variant === 'row' ? (
+        <SidebarMenu>
+          <SidebarMenuItem>{menu}</SidebarMenuItem>
+        </SidebarMenu>
+      ) : menu}
       {showFeedback && <FeedbackDialog onClose={() => setShowFeedback(false)} />}
     </>
   );

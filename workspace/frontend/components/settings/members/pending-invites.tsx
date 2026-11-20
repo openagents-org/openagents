@@ -3,9 +3,14 @@
 import { Link2, Mail, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { IconAction } from '@/components/settings/icon-action';
+import { SettingsCard } from '@/components/settings/settings-card';
+import { SettingsList } from '@/components/settings/settings-list';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { roleLabel } from '@/lib/roles';
 import type { TeamInvite } from '@/lib/types';
 import { copyText } from './copy-text';
 
@@ -28,43 +33,35 @@ export function PendingInvites({ invites, onChanged }: { invites: TeamInvite[]; 
   };
 
   return (
-    <section className="flex flex-col gap-3">
-      <h3 className="text-sm font-medium">{t('admin.pendingInvites')}</h3>
-      <Card className="gap-0 divide-y py-0">
+    <SettingsCard title={t('admin.pendingInvites')}>
+      <SettingsList>
         {invites.map((inv) => (
-          <div key={inv.inviteId} className="flex items-center gap-3 px-4 py-2.5">
-            {inv.email ? (
-              <Mail className="size-4 shrink-0 text-muted-foreground" />
-            ) : (
-              <Link2 className="size-4 shrink-0 text-muted-foreground" />
-            )}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm">
-                {inv.email ?? t('admin.openInviteLink')}
-                <span className="ms-1.5 text-xs text-muted-foreground">· {inv.role}</span>
-              </p>
+          <Item key={inv.inviteId} size="sm">
+            <ItemMedia variant="icon">
+              {inv.email ? <Mail className="text-muted-foreground" /> : <Link2 className="text-muted-foreground" />}
+            </ItemMedia>
+            <ItemContent className="min-w-0">
+              <ItemTitle className="font-normal">
+                <span className="truncate">{inv.email ?? t('admin.openInviteLink')}</span>
+                <Badge variant="outline">{roleLabel(t, inv.role)}</Badge>
+              </ItemTitle>
               {inv.expiresAt && (
-                <p className="text-xs text-muted-foreground">
+                <ItemDescription className="text-xs">
                   {t('admin.inviteExpires', { time: new Date(inv.expiresAt).toLocaleDateString() })}
-                </p>
+                </ItemDescription>
               )}
-            </div>
-            <Button variant="ghost" size="sm" onClick={() => copyLink(inv)}>
-              {t('admin.copyLink')}
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => revoke(inv)}
-              title={t('admin.inviteRevoke')}
-              aria-label={t('admin.inviteRevoke')}
-              className="text-muted-foreground"
-            >
-              <X />
-            </Button>
-          </div>
+            </ItemContent>
+            <ItemActions>
+              <Button variant="ghost" size="sm" onClick={() => copyLink(inv)}>
+                {t('admin.copyLink')}
+              </Button>
+              <IconAction label={t('admin.inviteRevoke')} destructive onClick={() => revoke(inv)}>
+                <X />
+              </IconAction>
+            </ItemActions>
+          </Item>
         ))}
-      </Card>
-    </section>
+      </SettingsList>
+    </SettingsCard>
   );
 }

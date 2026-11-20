@@ -46,7 +46,7 @@ export function SkillCategoryFilter({ value, onChange }: { value: string; onChan
     >
       {CATEGORIES.map(cat => (
         <ToggleGroupItem key={cat.id} value={cat.id} className="shrink-0 text-xs text-muted-foreground data-[state=on]:text-foreground">
-          <span>{cat.icon}</span>
+          <cat.icon data-icon="inline-start" />
           {categoryLabel(t, cat.id)}
         </ToggleGroupItem>
       ))}

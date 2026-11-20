@@ -20,6 +20,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceCustomSkill } from '@/lib/types';
+import { SkillFileField } from './skill-file-field';
 import { CUSTOM_SKILL_ID_RE, deriveSkillId, extractErrorMessage } from './skill-utils';
 
 export function UploadSkillDialog({
@@ -85,38 +86,16 @@ export function UploadSkillDialog({
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) reset(); onOpenChange(o); }}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t('skills.uploadTitle')}</DialogTitle>
         </DialogHeader>
 
         <DialogBody>
           <FieldGroup className="gap-4">
-            {/* File picker: the whole dashed row is the label for the hidden input */}
             <Field data-invalid={extInvalid || undefined}>
               <FieldLabel htmlFor="skill-upload-file">{t('skills.uploadPackageLabel')}</FieldLabel>
-              <label
-                htmlFor="skill-upload-file"
-                className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-input px-3 py-2.5 transition-colors hover:bg-muted/50"
-              >
-                <Upload className="size-4 shrink-0 text-muted-foreground" />
-                <span className="flex-1 truncate text-xs">
-                  {file ? file.name : t('skills.uploadChooseFile')}
-                </span>
-                {file && (
-                  <span className="shrink-0 text-xs text-muted-foreground">
-                    {(file.size / 1024).toFixed(1)} KB
-                  </span>
-                )}
-                <input
-                  id="skill-upload-file"
-                  type="file"
-                  accept=".md,.zip"
-                  className="sr-only"
-                  aria-invalid={extInvalid || undefined}
-                  onChange={(e) => onPickFile(e.target.files?.[0] || null)}
-                />
-              </label>
+              <SkillFileField id="skill-upload-file" file={file} onChange={onPickFile} invalid={extInvalid} />
               {extInvalid && <FieldError>{t('skills.uploadExtError')}</FieldError>}
               <FieldDescription>{t('skills.uploadZipHint')}</FieldDescription>
             </Field>

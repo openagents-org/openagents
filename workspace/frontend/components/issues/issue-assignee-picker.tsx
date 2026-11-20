@@ -7,6 +7,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { cn } from '@/lib/utils';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 
@@ -22,7 +23,8 @@ function Avatar({ id }: { id: string }) {
     : <HumanAvatar email={id.slice(6)} />;
 }
 
-export function IssueAssigneePicker({ value, onChange, choices, disabled, agentsOnly = false }: {
+export function IssueAssigneePicker({ id, value, onChange, choices, disabled, agentsOnly = false }: {
+  id?: string;
   value: string;
   onChange: (value: string) => void;
   choices: AssigneeChoice[];
@@ -38,12 +40,12 @@ export function IssueAssigneePicker({ value, onChange, choices, disabled, agents
   // Otherwise the parent dialog treats wheel/touch events here as outside.
   return <Popover modal open={open} onOpenChange={setOpen}>
     <PopoverTrigger asChild>
-      <button type="button" disabled={disabled} aria-label={t(agentsOnly ? 'newThread.agent' : 'issues.assignee')} className="flex min-h-11 w-full items-center gap-2.5 rounded-lg border border-input bg-background px-3 py-2 text-left text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
+      <Button id={id} type="button" variant="outline" disabled={disabled} aria-label={t(agentsOnly ? 'newThread.agent' : 'issues.assignee')} className="h-auto min-h-11 w-full justify-start gap-2.5 px-3 py-2 font-normal">
         <Avatar id={value} />
-        <span className={cn('min-w-0 flex-1 truncate', value ? 'font-medium' : 'text-muted-foreground')}>{selected?.name || value || t(agentsOnly ? 'issues.chooseAgent' : 'issues.unassigned')}</span>
+        <span className={cn('min-w-0 flex-1 truncate text-left', value ? 'font-medium' : 'text-muted-foreground')}>{selected?.name || value || t(agentsOnly ? 'issues.chooseAgent' : 'issues.unassigned')}</span>
         {value.startsWith('openagents:') && <Badge variant="secondary">{t('newThread.agent')}</Badge>}
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-      </button>
+        <ChevronDown data-icon="inline-end" className="text-muted-foreground" />
+      </Button>
     </PopoverTrigger>
     <PopoverContent align="start" sideOffset={6} className="w-(--radix-popover-trigger-width) max-w-[calc(100vw-2rem)] gap-0 overflow-hidden p-0 shadow-xl" onEscapeKeyDown={event => event.stopPropagation()} onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); event.stopPropagation(); } }}>
       <Command loop className="rounded-lg! [&_[data-slot=command-input-wrapper]]:h-11 [&_[data-slot=command-input-wrapper]]:px-3">

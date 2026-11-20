@@ -1,11 +1,11 @@
 'use client';
 
-import { Folder, SlidersHorizontal } from 'lucide-react';
+import { SlidersHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceAgent } from '@/lib/types';
+import { ProfileSection } from './agent-profile-section';
 
 const HINT = 'text-xs leading-relaxed text-muted-foreground';
 
@@ -22,12 +22,8 @@ export function WorkdirCard({ agent, canManage }: { agent: WorkspaceAgent; canMa
   const { openEditAgent } = useLayout();
   const nodeId = canManage && agent.ownerEmail ? agent.nodeId : null;
   return (
-    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
-      <CardHeader className="flex items-center gap-1.5 px-0 pb-3 pt-0">
-        <Folder className="size-3 text-muted-foreground" />
-        <span className="text-sm font-medium">{t('agents.fieldFolder')}</span>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-1.5 px-0 py-0">
+    <ProfileSection title={t('agents.fieldFolder')}>
+      <div className="flex flex-col gap-1.5">
         <div className="font-mono text-xs break-all">{agent.workingDir || '—'}</div>
         {agent.serverHost && <p className={HINT}>{t('agents.workdirDevice', { device: agent.serverHost })}</p>}
         {nodeId ? (
@@ -45,7 +41,7 @@ export function WorkdirCard({ agent, canManage }: { agent: WorkspaceAgent; canMa
             </div>
           </>
         ) : !canManage && <p className={HINT}>{t('agents.ownerOnlyHint')}</p>}
-      </CardContent>
-    </Card>
+      </div>
+    </ProfileSection>
   );
 }

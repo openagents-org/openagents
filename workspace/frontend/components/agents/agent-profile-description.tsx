@@ -4,12 +4,13 @@ import { useCallback, useEffect, useState } from 'react';
 import { Sparkles } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { Textarea } from '@/components/ui/textarea';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { WorkspaceAgent } from '@/lib/types';
+import { ProfileSection } from './agent-profile-section';
 
 /** What the agent is for — a local draft saved on blur, or suggested by the server. */
 export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { agent: WorkspaceAgent; canManage: boolean; refreshWorkspace: () => Promise<void> }) {
@@ -59,28 +60,26 @@ export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { a
   }, [agent]);
 
   return (
-    <Card size="sm" className="gap-0 overflow-visible rounded-none border-b bg-transparent py-5 ring-0">
-      <CardHeader className="flex items-center justify-between gap-2 px-0 pb-3 pt-0">
-        <span className="text-sm font-medium">{t('agents.description')}</span>
-        {canManage && (
-          <Button
-            variant="ghost"
-            size="xs"
-            onClick={handleGenerateDescription}
-            disabled={generatingDesc}
-            className="shrink-0 text-muted-foreground"
-            title={t('agents.autoGenerateHint')}
-          >
-            {generatingDesc
-              ? <Spinner data-icon="inline-start" />
-              : <Sparkles data-icon="inline-start" className="text-warning" />}
-            {generatingDesc ? t('agents.generating') : t('agents.autoGenerate')}
-          </Button>
-        )}
-      </CardHeader>
-      <CardContent className="flex flex-col gap-2 px-0 py-0">
+    <ProfileSection
+      title={t('agents.description')}
+      action={canManage && (
+        <WithTooltip label={t('agents.autoGenerateHint')}><Button
+              variant="ghost"
+              size="xs"
+              onClick={handleGenerateDescription}
+              disabled={generatingDesc}
+              className="shrink-0 text-muted-foreground"
+            >
+              {generatingDesc
+                ? <Spinner data-icon="inline-start" />
+                : <Sparkles data-icon="inline-start" className="text-warning" />}
+              {generatingDesc ? t('agents.generating') : t('agents.autoGenerate')}
+            </Button></WithTooltip>
+      )}
+    >
+      <div className="flex flex-col gap-2">
         <Textarea
-          className="min-h-24 resize-y bg-muted/20 text-sm leading-relaxed"
+          className="min-h-24 resize-y text-sm leading-relaxed"
           placeholder={t('agents.descriptionPlaceholder', { agent: agent.agentName })}
           value={description}
           onChange={(e) => {
@@ -99,7 +98,7 @@ export function AgentDescriptionCard({ agent, canManage, refreshWorkspace }: { a
             </Button>
           </div>
         )}
-      </CardContent>
-    </Card>
+      </div>
+    </ProfileSection>
   );
 }

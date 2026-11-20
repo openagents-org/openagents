@@ -3,9 +3,11 @@
 import { use, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { usePathname, useSearchParams } from 'next/navigation';
-import { ArrowLeft, KeyRound, LogIn } from 'lucide-react';
+import { ArrowLeft, KeyRound, Lock, LogIn } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
+import { Spinner } from '@/components/ui/spinner';
 import { AdminSettingsContext, canAdminister, canAccessSettingsSection, type AdminSettingsValue } from '@/components/settings/admin-context';
 import { SettingsNav } from '@/components/settings/settings-nav';
 import { workspaceApi } from '@/lib/api';
@@ -26,6 +28,15 @@ function readCookieToken(workspaceId: string): string | null {
     if (parsed?.slug === workspaceId && typeof parsed.token === 'string') return parsed.token;
   } catch { /* malformed cookie */ }
   return null;
+}
+
+/** A whole-screen message (sign in, no access, failed or still loading). */
+function FullPageState({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-screen bg-background p-8">
+      <Empty>{children}</Empty>
+    </div>
+  );
 }
 
 function SettingsShell({ workspaceId, children }: { workspaceId: string; children: React.ReactNode }) {
@@ -105,48 +116,57 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
     // A signed-out visitor on the hosted domain may simply need to log in.
     if (isOpenAgentsDomain && !user && !authLoading) {
       return (
-        <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-background p-8">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="text-xl font-semibold">{t('workspaceGate.signInTitle')}</h1>
-            <p className="max-w-md text-sm text-muted-foreground">{t('workspaceGate.signInBody')}</p>
-          </div>
-          <button
-            onClick={() => goToCentralLogin(signIn)}
-            className="flex items-center gap-3 rounded-lg bg-primary px-6 py-3 font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <LogIn className="size-5" />
-            {t('workspaceGate.logIn')}
-          </button>
-        </div>
+        <FullPageState>
+          <EmptyHeader>
+            <EmptyMedia variant="icon"><LogIn /></EmptyMedia>
+            <EmptyTitle>{t('workspaceGate.signInTitle')}</EmptyTitle>
+            <EmptyDescription>{t('workspaceGate.signInBody')}</EmptyDescription>
+          </EmptyHeader>
+          <EmptyContent>
+            <Button size="lg" onClick={() => goToCentralLogin(signIn)}>
+              <LogIn data-icon="inline-start" />
+              {t('workspaceGate.logIn')}
+            </Button>
+          </EmptyContent>
+        </FullPageState>
       );
     }
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-8 text-center">
-        <h1 className="text-xl font-semibold">{t('admin.accessDeniedTitle')}</h1>
-        <p className="max-w-md text-sm text-muted-foreground">{t('admin.accessDeniedBody')}</p>
-        <Button variant="outline" asChild>
-          <Link href={`/${workspaceId}${query}`}>{t('admin.backToWorkspace')}</Link>
-        </Button>
-      </div>
+      <FullPageState>
+        <EmptyHeader>
+          <EmptyMedia variant="icon"><Lock /></EmptyMedia>
+          <EmptyTitle>{t('admin.accessDeniedTitle')}</EmptyTitle>
+          <EmptyDescription>{t('admin.accessDeniedBody')}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" asChild>
+            <Link href={`/${workspaceId}${query}`}>{t('admin.backToWorkspace')}</Link>
+          </Button>
+        </EmptyContent>
+      </FullPageState>
     );
   }
 
   if (error === 'load') {
     return (
-      <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-8 text-center">
-        <p className="text-sm text-muted-foreground">{t('admin.loadFailed')}</p>
-        <Button variant="outline" onClick={() => window.location.reload()}>
-          {t('admin.retry')}
-        </Button>
-      </div>
+      <FullPageState>
+        <EmptyHeader>
+          <EmptyDescription>{t('admin.loadFailed')}</EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button variant="outline" onClick={() => window.location.reload()}>
+            {t('admin.retry')}
+          </Button>
+        </EmptyContent>
+      </FullPageState>
     );
   }
 
   if (!ctxValue) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <p className="animate-pulse text-sm text-muted-foreground">{t('admin.loading')}</p>
-      </div>
+      <FullPageState>
+        <Spinner className="size-5 text-muted-foreground" aria-label={t('admin.loading')} />
+      </FullPageState>
     );
   }
 
@@ -187,11 +207,16 @@ function SettingsShell({ workspaceId, children }: { workspaceId: string; childre
         <div className="mx-auto flex max-w-5xl flex-col gap-6 px-4 py-6 md:flex-row md:gap-10">
           <SettingsNav workspaceId={workspaceId} me={ctxValue.me} pathname={pathname} query={query} />
           <main className="min-w-0 flex-1 pb-16">{sectionAllowed ? children : (
-            <div className="flex flex-col gap-3 py-6">
-              <h2 className="font-heading text-lg font-medium">{t('admin.accessDeniedTitle')}</h2>
-              <p className="text-sm text-muted-foreground">{t('admin.adminRequired')}</p>
-              <Button variant="outline" asChild><Link href={`/${workspaceId}/settings/profile${query}`}>{t('userMenu.personalSettings')}</Link></Button>
-            </div>
+            <Empty className="border">
+              <EmptyHeader>
+                <EmptyMedia variant="icon"><Lock /></EmptyMedia>
+                <EmptyTitle>{t('admin.accessDeniedTitle')}</EmptyTitle>
+                <EmptyDescription>{t('admin.adminRequired')}</EmptyDescription>
+              </EmptyHeader>
+              <EmptyContent>
+                <Button variant="outline" asChild><Link href={`/${workspaceId}/settings/profile${query}`}>{t('userMenu.personalSettings')}</Link></Button>
+              </EmptyContent>
+            </Empty>
           )}</main>
         </div>
       </div>
@@ -210,9 +235,9 @@ export default function SettingsLayout({
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-background">
-          <p className="animate-pulse text-sm text-muted-foreground">…</p>
-        </div>
+        <FullPageState>
+          <Spinner className="size-5 text-muted-foreground" />
+        </FullPageState>
       }
     >
       <SettingsShell workspaceId={workspaceId}>{children}</SettingsShell>

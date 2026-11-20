@@ -120,14 +120,9 @@ export function MobileShell({
         {/* The agent profile is opened from the nav drawer, which is reachable
             from every view and both panes — so it hangs off the shell rather
             than off one branch above, where it only rendered on the detail pane
-            of a list view and tapping an agent looked like a dead click. It is
-            `fixed` so the panel's own `absolute` inset resolves to the viewport,
-            over the header and tab bar. */}
-        {isAgentPanelOpen && (
-          <div className="fixed inset-0 z-60">
-            <AgentProfilePanel />
-          </div>
-        )}
+            of a list view and tapping an agent looked like a dead click. The
+            panel is a portaled Sheet, so it needs no positioning wrapper here. */}
+        {isAgentPanelOpen && <AgentProfilePanel />}
 
         <NewThreadDialogHost />
       </div>

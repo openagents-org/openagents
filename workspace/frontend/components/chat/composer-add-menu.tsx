@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { useT } from '@/lib/i18n';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /** Everything in the composer that isn't typing or sending lives behind the `+`. */
 export function ComposerAddMenu({ onPickFile, onCreateRoutine }: {
@@ -19,17 +20,18 @@ export function ComposerAddMenu({ onPickFile, onCreateRoutine }: {
   const t = useT();
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <InputGroupButton
-          variant="outline"
-          size="icon-sm"
-          className="rounded-full"
-          title={t('chatInput.addAttachments')}
-          aria-label={t('chatInput.addAttachments')}
-        >
-          <Plus />
-        </InputGroupButton>
-      </DropdownMenuTrigger>
+      <WithTooltip label={t('chatInput.addAttachments')}>
+        <DropdownMenuTrigger asChild>
+          <InputGroupButton
+            variant="outline"
+            size="icon-sm"
+            className="rounded-full"
+            aria-label={t('chatInput.addAttachments')}
+          >
+            <Plus />
+          </InputGroupButton>
+        </DropdownMenuTrigger>
+      </WithTooltip>
       <DropdownMenuContent align="start" side="top" className="min-w-50">
         <DropdownMenuGroup>
           <DropdownMenuItem onSelect={() => onPickFile()}>

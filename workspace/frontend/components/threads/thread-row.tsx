@@ -82,7 +82,7 @@ export function UnreadDot({ show, pulse }: { show: boolean; pulse?: boolean }) {
   const t = useT();
   return (
     <div className="flex w-2 shrink-0 justify-center pt-3">
-      {show && <span className={cn('size-1.5 shrink-0 rounded-full bg-primary', pulse && 'animate-pulse')} aria-label={t('threads.unread')} />}
+      {show && <span className={cn('size-1.5 shrink-0 rounded-full bg-destructive', pulse && 'animate-pulse')} aria-label={t('threads.unread')} />}
     </div>
   );
 }

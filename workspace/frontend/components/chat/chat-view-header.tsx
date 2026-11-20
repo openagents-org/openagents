@@ -4,12 +4,13 @@ import { useRef, useState } from 'react';
 import { ChevronLeft, Cpu, Globe, Lock, PanelRight, Pencil, Share2, Square } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Toggle } from '@/components/ui/toggle';
 import { DetailHeader } from '@/components/layout/app-header';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { agentLabel } from '@/lib/helpers';
 import { useT } from '@/lib/i18n';
-import { cn } from '@/lib/utils';
 import type { RoutineItem, WorkspaceSession } from '@/lib/types';
 import { DmAvatars } from './dm-avatars';
 import { ForkTag } from './fork-thread';
@@ -18,6 +19,7 @@ import { ThreadParticipantCount } from './thread-participant-count';
 import { AddThreadParticipants } from './add-thread-participants';
 import { ResponseModeControl } from './response-mode-control';
 import { ThreadSettings } from './thread-settings';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export type ChatViewDm = {
   isDM: boolean;
@@ -101,7 +103,7 @@ export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, canShare
       )}
 
       {routine && (
-        <Button variant="outline" size="sm" onClick={() => onEditRoutine(routine)} title={t('routines.edit')}>
+        <Button variant="outline" size="sm" onClick={() => onEditRoutine(routine)} aria-label={t('routines.edit')}>
           <Pencil data-icon="inline-start" />
           <span className="hidden sm:inline">{t('routines.edit')}</span>
         </Button>
@@ -109,29 +111,31 @@ export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, canShare
 
       {/* Personal assistant conversations cannot be shared. */}
       {canShare && (
-        <Button variant="ghost" size="icon-sm" onClick={onShare} title={t('chat.shareConversation')} aria-label={t('chat.shareConversation')}>
-          <Share2 />
-        </Button>
+        <WithTooltip label={t('chat.shareConversation')}>
+          <Button variant="ghost" size="icon-sm" onClick={onShare} aria-label={t('chat.shareConversation')}>
+            <Share2 />
+          </Button>
+        </WithTooltip>
       )}
       {channel && !sessionId.startsWith('routines:') && (
         <ThreadSettings key={`thread-settings:${sessionId}`} session={channel} />
       )}
 
       {/* Artifact preview toggle */}
-      <Button
-        variant={previewOpen ? 'outline' : 'ghost'}
-        size="icon-sm"
-        onClick={() => {
-          if (!splitBrowser) setSplitBrowser(true);
-          setShowBrowserPreview(!previewOpen);
-        }}
-        className={cn(previewOpen && 'border-primary/30 bg-primary/5 text-primary')}
-        aria-pressed={previewOpen}
-        aria-label={previewOpen ? t('artifactPanel.close') : t('artifactPanel.open')}
-        title={previewOpen ? t('artifactPanel.close') : t('artifactPanel.open')}
-      >
-        <PanelRight />
-      </Button>
+      <WithTooltip label={previewOpen ? t('artifactPanel.close') : t('artifactPanel.open')}>
+        <Toggle
+          variant="outline"
+          size="sm"
+          pressed={previewOpen}
+          onPressedChange={(open) => {
+            if (!splitBrowser) setSplitBrowser(true);
+            setShowBrowserPreview(open);
+          }}
+          aria-label={previewOpen ? t('artifactPanel.close') : t('artifactPanel.open')}
+        >
+          <PanelRight />
+        </Toggle>
+      </WithTooltip>
     </DetailHeader>
   );
 }
@@ -143,16 +147,16 @@ function DmTitle({ dm, onOpenProfile }: { dm: ChatViewDm; onOpenProfile: (email:
   return (
     <h2 className="flex items-center gap-1.5 truncate text-sm font-semibold">
       <DmAvatars addresses={counterpart ? [counterpart] : dm.pairAddrs} />
-      <button type="button" className="truncate text-left transition-colors hover:text-primary" disabled={!counterpart} onClick={() => {
+      <Button variant="ghost" size="sm" className="-mx-1 min-w-0 shrink px-1 text-sm font-semibold disabled:opacity-100" disabled={!counterpart} onClick={() => {
         if (counterpart?.startsWith('openagents:')) setSelectedAgentName(counterpart.slice('openagents:'.length));
         else if (counterpart?.startsWith('human:')) onOpenProfile(counterpart.slice('human:'.length));
-      }}>{dm.title}</button>
+      }}><span className="truncate">{dm.title}</span></Button>
       {!dm.writable && <Badge variant="secondary">{t('header.readOnly')}</Badge>}
     </h2>
   );
 }
 
-/** The thread title renames in place: click to edit, Enter or blur to save. */
+/** The thread title renames in place: activate to edit, Enter or blur to save. */
 function ThreadTitle({ sessionId, session }: { sessionId: string; session: WorkspaceSession | undefined }) {
   const t = useT();
   const { renameSession } = useWorkspace();
@@ -173,7 +177,7 @@ function ThreadTitle({ sessionId, session }: { sessionId: string; session: Works
 
   if (editing) {
     return (
-      <input
+      <Input
         ref={inputRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
@@ -182,19 +186,20 @@ function ThreadTitle({ sessionId, session }: { sessionId: string; session: Works
           if (e.key === 'Enter') commit();
           if (e.key === 'Escape') setEditing(false);
         }}
-        className="min-w-0 max-w-xs border-b border-primary bg-transparent text-sm font-semibold outline-none"
+        aria-label={t('threads.renameTitle')}
+        className="h-8 min-w-0 max-w-xs font-semibold"
         autoFocus
       />
     );
   }
   return (
     <>
-      <h2
-        className="cursor-pointer truncate text-sm font-semibold transition-colors hover:text-primary"
-        onClick={start}
-        title={t('header.clickToRename')}
-      >
-        {session?.title || t('header.untitledThread')}
+      <h2 className="flex min-w-0">
+        <WithTooltip label={t('header.clickToRename')}>
+          <Button variant="ghost" size="sm" onClick={start} className="-mx-1 min-w-0 shrink px-1 text-sm font-semibold">
+            <span className="truncate">{session?.title || t('header.untitledThread')}</span>
+          </Button>
+        </WithTooltip>
       </h2>
       {session?.forkedFrom && <ForkTag forkedFrom={session.forkedFrom} />}
     </>

@@ -2,6 +2,8 @@
 
 import { RotateCcw, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Progress } from '@/components/ui/progress';
+import { TableCell, TableRow } from '@/components/ui/table';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
 import { useFormatters, useT, type TranslateFn } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -44,25 +46,19 @@ function UploadProgress({
     : Math.max(3, Math.round(upload.progress * 100));
 
   return (
-    <div
-      className={cn('h-1 w-full overflow-hidden rounded-full bg-foreground/10', className)}
-      role="progressbar"
+    <Progress
+      value={percent}
       aria-valuenow={Math.round(upload.progress * 100)}
-      aria-valuemin={0}
-      aria-valuemax={100}
       aria-label={t('files.uploadingItem', { name: upload.name })}
-    >
-      <div
-        className={cn(
-          'h-full rounded-full transition-[width] duration-200 ease-out',
-          failed ? 'bg-destructive' : 'bg-primary',
-          // Queued files haven't been asked for yet — a still bar at 3% would
-          // claim otherwise.
-          upload.status === 'queued' && 'animate-pulse',
-        )}
-        style={{ width: `${percent}%` }}
-      />
-    </div>
+      className={cn(
+        'bg-foreground/10',
+        failed && '*:data-[slot=progress-indicator]:bg-destructive',
+        // Queued files haven't been asked for yet — a still bar at 3% would
+        // claim otherwise.
+        upload.status === 'queued' && '*:data-[slot=progress-indicator]:animate-pulse',
+        className,
+      )}
+    />
   );
 }
 
@@ -85,8 +81,9 @@ function UploadActions({
       className={cn(
         'flex shrink-0 items-center gap-0.5 transition-opacity',
         // A failure is waiting on an answer, so its buttons stay put; a healthy
-        // upload's cancel is there when you go looking for it.
-        failed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100',
+        // upload's cancel is there when you go looking for it — and always on
+        // touch screens, which have no hover to go looking with.
+        failed ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100 pointer-coarse:opacity-100',
         className,
       )}
     >
@@ -106,7 +103,7 @@ function UploadActions({
         size="icon-xs"
         onClick={onCancel}
         aria-label={failed ? t('files.dismissItem', { name: upload.name }) : t('files.cancelUploadItem', { name: upload.name })}
-        className="bg-background/80 text-muted-foreground shadow-sm hover:text-destructive"
+        className="bg-background/80 text-muted-foreground shadow-sm"
       >
         <X />
       </Button>
@@ -192,42 +189,49 @@ export function UploadRow({
   const { formatFileSize } = useFormatters();
   const failed = upload.status === 'error';
 
+  // Same columns as a file row in the list Table: name (with the bar and the
+  // status under it), size, an empty date cell, then the actions.
   return (
-    <div className="group flex items-center gap-3 rounded-lg px-3 py-2">
-      {upload.previewUrl ? (
-        <span className="block size-7 shrink-0 overflow-hidden rounded-md border border-border/60">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={upload.previewUrl} alt="" className="size-full object-cover" />
-        </span>
-      ) : (
-        <span className="flex size-7 shrink-0 items-center justify-center">
-          {getFileIcon(upload.contentType, upload.name)}
-        </span>
-      )}
+    <TableRow className="group">
+      <TableCell className="w-full max-w-0 py-2.5 ps-3 whitespace-normal">
+        <div className="flex min-w-0 items-center gap-3">
+          {upload.previewUrl ? (
+            <span className="block size-7 shrink-0 overflow-hidden rounded-md border border-border/60">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={upload.previewUrl} alt="" className="size-full object-cover" />
+            </span>
+          ) : (
+            <span className="flex size-7 shrink-0 items-center justify-center">
+              {getFileIcon(upload.contentType, upload.name)}
+            </span>
+          )}
 
-      {/* The bar sits under the name, in the space the row already gives it —
-          it's this file's progress, so it stays this file's width. */}
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <span className="truncate text-sm font-medium" title={upload.name}>
-          {upload.name}
-        </span>
-        <UploadProgress upload={upload} className="max-w-72" />
-      </div>
-
-      <span
-        className={cn(
-          'max-w-40 shrink-0 truncate text-xs tabular-nums',
-          failed ? 'text-destructive' : 'text-muted-foreground',
-        )}
-        title={failed ? upload.error : undefined}
-      >
-        {failed ? upload.error ?? t('files.uploadFailed') : uploadStatusLabel(upload, t)}
-      </span>
-      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+          {/* The bar sits under the name, in the space the row already gives it —
+              it's this file's progress, so it stays this file's width. */}
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+            <span className="truncate text-sm font-medium" title={upload.name}>
+              {upload.name}
+            </span>
+            <UploadProgress upload={upload} className="max-w-72" />
+            <span
+              className={cn(
+                'truncate text-xs tabular-nums',
+                failed ? 'text-destructive' : 'text-muted-foreground',
+              )}
+              title={failed ? upload.error : undefined}
+            >
+              {failed ? upload.error ?? t('files.uploadFailed') : uploadStatusLabel(upload, t)}
+            </span>
+          </div>
+        </div>
+      </TableCell>
+      <TableCell className="hidden text-right text-xs text-muted-foreground tabular-nums @lg:table-cell">
         {formatFileSize(upload.size)}
-      </span>
-
-      <UploadActions upload={upload} onRetry={onRetry} onCancel={onCancel} />
-    </div>
+      </TableCell>
+      <TableCell className="hidden @2xl:table-cell" />
+      <TableCell className="pe-3">
+        <UploadActions upload={upload} onRetry={onRetry} onCancel={onCancel} className="justify-end" />
+      </TableCell>
+    </TableRow>
   );
 }

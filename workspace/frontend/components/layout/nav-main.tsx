@@ -7,6 +7,7 @@ import {
   BookOpen, Bot, CircleDot, CalendarClock, FileText, Globe, Inbox, MessageSquare, Sparkles, Waypoints,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { UnreadBadge } from '@/components/ui/unread-badge';
 import {
   SidebarGroup,
   SidebarGroupContent,
@@ -119,12 +120,13 @@ export function NavMain({ onNavigate }: { onNavigate?: () => void }) {
               </SidebarMenuButton>
               {item.count !== undefined && item.count > 0 && (
                 <SidebarMenuBadge className="group-data-[collapsible=icon]:hidden">
-                  <Badge
-                    variant={item.urgent || item.mode === 'inbox' || item.mode === 'threads' ? 'destructive' : 'secondary'}
-                    className="min-w-5 justify-center px-1.5 tabular-nums"
-                  >
-                    {item.count > 99 ? '99+' : item.count}
-                  </Badge>
+                  {item.urgent || item.mode === 'inbox' || item.mode === 'threads' ? (
+                    <UnreadBadge count={item.count} />
+                  ) : (
+                    <Badge variant="secondary" className="h-4 min-w-4 justify-center px-1 tabular-nums">
+                      {item.count > 99 ? '99+' : item.count}
+                    </Badge>
+                  )}
                 </SidebarMenuBadge>
               )}
             </SidebarMenuItem>

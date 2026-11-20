@@ -4,6 +4,9 @@ import { useRef, useState } from 'react';
 import Image from 'next/image';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /**
  * Sidebar brand block: logo + workspace name (click to rename) + slug.
@@ -39,7 +42,7 @@ export function Brand() {
 
       <div className="grid min-w-0 flex-1 leading-tight group-data-[collapsible=icon]:hidden">
         {editing ? (
-          <input
+          <Input
             ref={inputRef}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -48,17 +51,16 @@ export function Brand() {
               if (e.key === 'Enter') commit();
               if (e.key === 'Escape') setEditing(false);
             }}
-            className="w-full min-w-0 border-b border-primary bg-transparent text-sm font-medium outline-none"
+            aria-label={t('workspaceLanding.renameTitle')}
+            className="h-8 font-medium"
             autoFocus
           />
         ) : (
-          <span
-            className="truncate text-base font-semibold cursor-pointer transition-colors hover:text-primary"
-            onClick={startEditing}
-            title={t('header.clickToRename')}
-          >
-            {workspace?.name || t('nav.workspaceFallback')}
-          </span>
+          <WithTooltip label={t('header.clickToRename')}>
+            <Button variant="ghost" size="sm" onClick={startEditing} className="-mx-1 w-fit max-w-full min-w-0 shrink justify-start px-1 text-base font-semibold">
+              <span className="truncate">{workspace?.name || t('nav.workspaceFallback')}</span>
+            </Button>
+          </WithTooltip>
         )}
         <span className="truncate font-mono text-xs text-muted-foreground">{workspace?.slug || ''}</span>
       </div>
