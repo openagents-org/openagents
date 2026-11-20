@@ -2143,19 +2143,18 @@ async _runNodeCommand(n, cmd) {
     // precise reason ('runtime_missing') and DO NOT join the workspace — there is
     // no point spinning a join/poll loop that can never run the CLI. Adapters
     // that don't override preflight() always pass.
+    // Every await in the preflight below is a window in which the user can
+    // press Stop or Restart. Stop leaves nothing for stopAgent to stop yet,
+    // and Restart launches a second loop with a fresh `info`, so this start
+    // checks it is still the current one before going on — otherwise a
+    // stopped agent ran once anyway, and a restarted one ran twice.
+    const superseded = () => this._shuttingDown
+      || this._stoppedAgents.has(name)
+      || this._processes[name] !== info;
     try {
       // Awaited: most adapters answer synchronously, but DeepSeek's check of a
       // newer harness preview runs a child process and must not block the
       // daemon that every other agent on the device shares.
-      //
-      // Every await below is a window in which the user can press Stop or
-      // Restart. Stop leaves nothing for stopAgent to stop yet, and Restart
-      // launches a second loop with a fresh `info`, so after each one this
-      // start checks it is still the current one before going on — otherwise
-      // a stopped agent ran once anyway, and a restarted one ran twice.
-      const superseded = () => this._shuttingDown
-        || this._stoppedAgents.has(name)
-        || this._processes[name] !== info;
       let pf =
         typeof adapter.preflight === 'function' ? await adapter.preflight() : null;
       if (superseded()) return;
@@ -2174,6 +2173,8 @@ async _runNodeCommand(n, cmd) {
     } catch (e) {
       this._log(`${name} preflight error (ignored, continuing): ${e.message}`, 'warn');
     }
+    // Again here, for a preflight that threw: the catch above continues.
+    if (superseded()) return;
 
     // Store adapter reference for stop and duplicate detection
     this._adapters[name] = adapter;

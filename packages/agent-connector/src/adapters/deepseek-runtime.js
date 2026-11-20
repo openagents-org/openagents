@@ -375,8 +375,8 @@ const isScalarNode = (n) => !!n && typeof n === 'object' && !Array.isArray(n)
  *                                             expression the adapter sets
  *
  * approval, permission and sandbox-policy must not be disabled. Each of the
- * four rows must appear exactly once anywhere in the tree — a plugin group
- * nests rows of its own, and a second `user-questions` there with
+ * four rows must appear exactly once among the plugin entries, those nested
+ * in plugin groups included — a second `user-questions` inside a group with
  * `disabled: false` would mount it again. Extra fields are fine.
  *
  * Returns { ok, problem } where `problem` names the first field that did not
@@ -391,17 +391,29 @@ function verifyComposedConfig(text) {
   }
   if (!Array.isArray(doc)) return { ok: false, problem: 'the composed config is not a row list' };
 
+  // A block scalar is a string even when its text reads `true` / `false`:
+  // dsh reads `disabled: |` + `false` as "false\n", which disables the row.
+  const plain = (n) => isScalarNode(n) && !n.tag && !n.quoted && !n.block;
+  const isTrue = (n) => plain(n) && /^(true|True|TRUE)$/.test(n.value);
   const CHECKED = [ROW.USER_QUESTIONS, ROW.APPROVAL, ROW.PERMISSION, ROW.SANDBOX_POLICY];
   const idOf = (n) => (n && typeof n === 'object' && !Array.isArray(n) && !isScalarNode(n) && isScalarNode(n.id) && !n.id.tag
     ? n.id.value : null);
+  // Plugin entries are the top-level rows and, recursively, the rows a group
+  // entry lists as its config (`group: true` with a `config:` row list). Any
+  // entry whose config IS a list is walked, whatever its `group` says, so a
+  // group flagged some other way is not skipped. Only those are counted: an id
+  // deeper in a plugin's config is a value — a gateway model the user named
+  // `approval` is not a second approval row.
   const seen = new Map();
-  const walk = (n) => {
-    if (!n || typeof n !== 'object' || isScalarNode(n)) return;
-    const id = idOf(n);
-    if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
-    for (const v of Array.isArray(n) ? n : Object.values(n)) walk(v);
+  const walkEntries = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const entry of list) {
+      const id = idOf(entry);
+      if (id && CHECKED.includes(id)) seen.set(id, (seen.get(id) || 0) + 1);
+      if (entry && !isScalarNode(entry) && Array.isArray(entry.config)) walkEntries(entry.config);
+    }
   };
-  walk(doc);
+  walkEntries(doc);
   for (const id of CHECKED) {
     if ((seen.get(id) || 0) > 1) return { ok: false, problem: `row "${id}" appears more than once` };
   }
@@ -409,7 +421,7 @@ function verifyComposedConfig(text) {
   const rows = new Map(doc.map((r) => [idOf(r), r]).filter(([id]) => id));
   const at = (obj, keys) => keys.reduce((o, k) => (o && typeof o === 'object' && !Array.isArray(o) && !isScalarNode(o) ? o[k] : undefined), obj);
   const show = (n) => (n === undefined || n === null ? 'missing'
-    : isScalarNode(n) ? `${n.tag ? `${n.tag} ` : ''}${n.quoted ? JSON.stringify(n.value) : n.value}`
+    : isScalarNode(n) ? `${n.tag ? `${n.tag} ` : ''}${n.block ? `the block string ${JSON.stringify(n.value)}` : n.quoted ? JSON.stringify(n.value) : n.value}`
       : 'not a single value');
   const check = (id, keys, ok, want) => {
     const r = rows.get(id);
@@ -417,11 +429,10 @@ function verifyComposedConfig(text) {
     const got = at(r, keys);
     return ok(got) ? null : `${id}.${keys.join('.')} is ${show(got)}, expected ${want}`;
   };
-  const isTrue = (n) => isScalarNode(n) && !n.tag && !n.quoted && /^(true|True|TRUE)$/.test(n.value);
   const isString = (want) => (n) => isScalarNode(n) && !n.tag && !n.block && n.value === want;
   const isJsExpr = (want) => (n) => isScalarNode(n) && n.tag === '!!js' && !n.quoted
     && n.value.replace(/\s+/g, ' ').trim() === want;
-  const notDisabled = (n) => n === undefined || (isScalarNode(n) && !n.tag && !n.quoted && /^(false|False|FALSE)$/.test(n.value));
+  const notDisabled = (n) => n === undefined || (plain(n) && /^(false|False|FALSE)$/.test(n.value));
 
   const problems = [
     check(ROW.USER_QUESTIONS, ['disabled'], isTrue, 'true'),

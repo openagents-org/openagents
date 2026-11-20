@@ -275,6 +275,35 @@ describe('verifyComposedConfig', () => {
     assert.match(r.problem, /"user-questions" appears more than once/);
   });
 
+  // Review of 455f9e769: a block scalar is a string whatever its text says.
+  it('does not take a block scalar reading false for "not disabled"', () => {
+    const r = verifyComposedConfig(COMPOSED.replace("dsh-user-approval'\n", "dsh-user-approval'\n  disabled: |\n    false\n"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /approval\.disabled/);
+  });
+
+  it('does not take a block scalar reading true for the boolean', () => {
+    const r = verifyComposedConfig(COMPOSED.replace("dsh-user-questions'\n  disabled: true", "dsh-user-questions'\n  disabled: |\n    true"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /user-questions\.disabled/);
+  });
+
+  it('does not count a gateway model named like a checked row', () => {
+    const gateway = [
+      '- id: llm-pi-ai',
+      "  name: '@deepseek-ai/dsh-llm-pi-ai'",
+      '  config:',
+      '    providers:',
+      '      openagents-gateway:',
+      '        api: openai-completions',
+      '        models:',
+      '          - id: "approval"',
+      '          - id: "user-questions"',
+      '',
+    ].join('\n');
+    assert.deepEqual(verifyComposedConfig(COMPOSED + gateway), { ok: true, problem: null });
+  });
+
   it('fails when a checked row appears twice', () => {
     const r = verifyComposedConfig(`${COMPOSED}- id: approval\n  config:\n    policy: ask\n`);
     assert.equal(r.ok, false);
