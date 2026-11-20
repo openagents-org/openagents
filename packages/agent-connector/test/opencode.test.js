@@ -269,6 +269,35 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(cls.category, 'network_error');
   });
 
+  // Daily errors dashboard, 2026-11-20: two OpenCode agents of one user failed
+  // in the same minute with "Failed to execute statement", read as "an
+  // undetermined reason". OpenCode's SQL layer says that for every failed
+  // statement and keeps the SQLite error in the cause.
+  it('names a failure of its local session database, and logs the SQLite cause', () => {
+    const stdout = JSON.stringify({
+      type: 'error',
+      error: {
+        name: 'SqlError',
+        message: 'Failed to execute statement',
+        cause: { _tag: 'LockTimeoutError', message: 'Failed to execute statement', cause: { code: 'SQLITE_BUSY', message: 'database is locked' } },
+      },
+    });
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout, stderr: '' });
+    assert.equal(cls.category, 'database_error');
+    assert.match(cls.diagnostic, /cause: .*SQLITE_BUSY database is locked/);
+    assert.equal(cls.detail, 'Failed to execute statement');
+    const plain = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
+    assert.equal(OpenCodeAdapter._classifyFailure(plain('Failed to execute statement')).category, 'database_error');
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Unexpected error\n\nFailed query: insert into "project" ("id") values (?)' }).category, 'database_error');
+    assert.equal(OpenCodeAdapter._classifyFailure(plain('SQLiteError: attempt to write a readonly database')).category, 'database_error');
+    assert.match(OpenCodeAdapter.prototype._failureMessages().database_error, /session database/);
+  });
+
+  it('keeps the migrated-database case its own category', () => {
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: Database is not empty and has no session table' });
+    assert.equal(cls.category, 'shared_db_migrated');
+  });
+
   // Field reports (core 0.2.223) that all read "failed for an undetermined
   // reason" while the provider had said exactly why.
   it('names a spent account, a revoked key, an oversized request and a busy provider', () => {

@@ -71,6 +71,7 @@ const {
   buildPrivatePatch,
   classifyDshFailure,
   classifyDshVersion,
+  verifyComposedConfig,
   classifyNodeVersion,
   cleanStdout,
   defaultInstallCommand,
@@ -107,6 +108,13 @@ const STOP_GRACE_MS = 5000;
  * shipped templates.
  */
 const BOOTSTRAP_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * Ceiling for the synchronous `--dump-config` that checks a newer preview in
+ * preflight (_verifyComposedPatch). It composes in well under a second; this
+ * only bounds how long a broken install can hold the daemon's preflight.
+ */
+const COMPOSE_CHECK_TIMEOUT_MS = 30 * 1000;
 
 /**
  * The key bootstrap's child is tracked under in `_channelProcesses`.
@@ -299,11 +307,12 @@ class DeepSeekAdapter extends BaseAdapter {
 
   /**
    * Drop the resolved dsh so the next preflight resolves it afresh — after the
-   * daemon installed the pinned version into the managed prefix.
+   * daemon installed the supported version into the managed prefix.
    */
   forgetRuntime() {
     this._nodeBin = null;
     this._jsEntry = null;
+    this._composeVerified = null;
   }
 
   /** `dsh -V` output, or null. Synchronous: preflight() is a sync contract. */
@@ -396,7 +405,7 @@ class DeepSeekAdapter extends BaseAdapter {
       || defaultInstallCommand(supported);
     const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
     if (gate.compatible === false || gate.compatible === null) {
-      // repairable: the daemon installs the pinned version and asks again
+      // repairable: the daemon installs the supported version and asks again
       // (see Daemon._repairRuntime), so a stale dsh never reaches the user.
       return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message, repairable: true };
     }
@@ -412,8 +421,65 @@ class DeepSeekAdapter extends BaseAdapter {
       };
     }
 
+    if (!gate.tested) {
+      const problem = this._verifyComposedPatch(gate.detected);
+      if (problem) {
+        return {
+          ok: false,
+          reason: REASON.VERSION_INCOMPATIBLE,
+          message:
+            `DeepSeek Harness ${gate.detected} is newer than ${gate.supported}, the `
+            + `version this agent is written against, and its configuration changed: ${problem}. `
+            + `Reinstall with: ${installCmd}`,
+          repairable: true,
+        };
+      }
+    }
+
     this._log(`DeepSeek Harness ${gate.detected} resolved (node ${node.version})`);
     return { ok: true };
+  }
+
+  /**
+   * For a dsh newer than the one this adapter was written against: compose the
+   * headless profile with the private patch and check the result. Returns null
+   * when the patch composed as written, else what did not.
+   *
+   * Remembered per dsh entry and version, so a passing preview is composed once
+   * per daemon process rather than on every preflight. Synchronous, like
+   * preflight; `--dump-config` composes without booting (no model call, no key).
+   */
+  _verifyComposedPatch(version) {
+    const key = `${this._jsEntry}|${version}`;
+    if (this._composeVerified === key) return null;
+    let problem;
+    try {
+      fs.mkdirSync(this._dshHome, { recursive: true, mode: 0o700 });
+      this._writePrivatePatch();
+      const out = execFileSync(
+        this._nodeBin,
+        buildDumpConfigArgs({ jsEntry: this._jsEntry, patchFile: this._patchFile }),
+        {
+          encoding: 'utf-8',
+          timeout: COMPOSE_CHECK_TIMEOUT_MS,
+          maxBuffer: MAX_STDOUT_BYTES,
+          env: this._buildSubprocessEnv('workspace-write'),
+          cwd: this.workingDir,
+          stdio: ['ignore', 'pipe', 'pipe'],
+          windowsHide: true,
+        },
+      );
+      problem = verifyComposedConfig(out).problem;
+    } catch (e) {
+      problem = `dsh --dump-config failed (${redactDiagnostic(String(e && e.message || e)).slice(0, 200)})`;
+    }
+    if (problem) {
+      this._log(`DeepSeek Harness ${version}: private patch check failed — ${problem}`, 'warn');
+      return problem;
+    }
+    this._log(`DeepSeek Harness ${version}: private patch composes as written`);
+    this._composeVerified = key;
+    return null;
   }
 
   _platformKey() {

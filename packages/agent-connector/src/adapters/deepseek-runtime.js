@@ -10,7 +10,9 @@
  * Three things here exist because dsh is unlike every other CLI in this repo:
  *
  *  1. It is a PREVIEW release (`0.2.1-rc.5`) and upstream says compatibility may
- *     break between previews, so the gate is exact equality — not a floor. The
+ *     break between previews. The gate is a floor that orders `-rc.N`
+ *     correctly, and a newer preview runs only once `--dump-config` shows the
+ *     private patch still composes (verifyComposedConfig). The
  *     two version comparators already in this repo (installer.js's
  *     `compareVersions`, pi-stream.js's `parseVersion`) both DROP the `-rc.N`
  *     suffix, which would make rc.5 and rc.6 indistinguishable. Hence the
@@ -195,16 +197,22 @@ function compareDshVersions(a, b) {
 }
 
 /**
- * Preview-era compatibility gate: the installed dsh must be EXACTLY the version
- * this adapter was written against.
+ * Preview-era compatibility gate: the installed dsh must be the version this
+ * adapter was written against, or a newer preview.
  *
- * Returns { compatible: true|false|null, detected, supported, message }.
+ * Returns { compatible: true|false|null, detected, supported, tested, message }.
  * `compatible: null` means the version could not be read — reported as unknown,
- * never as a pass.
+ * never as a pass. `tested` is true only for the exact release the adapter was
+ * written against; a newer preview passes this gate with `tested: false`, and
+ * the adapter then confirms its private patch still composes as intended
+ * (see verifyComposedConfig) before running a task on it.
+ *
+ * The gate used to be exact equality. Upstream's `latest` moved on to the next
+ * preview, so every user who installed dsh themselves was refused, and the
+ * auto-repair downgraded their global dsh (daily errors dashboard, 2026-11-20).
  *
  * `installCommand` is echoed into the failure message because the recovery is
- * not obvious: the Launcher's update path would otherwise move the user to a
- * newer preview that this adapter refuses to run.
+ * not obvious.
  */
 function classifyDshVersion(rawVersion, supported, installCommand) {
   const want = parseDshVersion(supported || SUPPORTED_DSH_VERSION);
@@ -219,23 +227,82 @@ function classifyDshVersion(rawVersion, supported, installCommand) {
         'Reinstall with: ' + (installCommand || defaultInstallCommand(want)),
     };
   }
-  if (compareDshVersions(detected, want) === 0) {
-    return { compatible: true, detected, supported: want, message: null };
+  const cmp = compareDshVersions(detected, want);
+  if (cmp === 0) {
+    return { compatible: true, detected, supported: want, tested: true, message: null };
+  }
+  if (cmp > 0) {
+    return { compatible: true, detected, supported: want, tested: false, message: null };
   }
   return {
     compatible: false,
     detected,
     supported: want,
+    tested: false,
     message:
-      `DeepSeek Harness ${detected} is not supported — this agent is built ` +
-      `against ${want} exactly. DeepSeek ships the harness as a developer ` +
-      'preview and its configuration can change between previews, so the ' +
-      'version is pinned. Reinstall with: ' +
+      `DeepSeek Harness ${detected} is too old — this agent needs ${want} or ` +
+      'newer. Reinstall with: ' +
       (installCommand || defaultInstallCommand(want)),
   };
 }
 
-/** The npm command that restores the pinned preview. */
+/**
+ * Confirm that `dsh --dump-config` output carries the private patch as written.
+ *
+ * A newer preview is accepted on this evidence rather than on its version
+ * number. What the patch must achieve is what keeps a headless run safe and
+ * answerable, so those are the rows checked: no user questions, approval
+ * `never`, and every permission preset keeping its own sandbox. A preview that
+ * renamed or restructured any of them would leave the run waiting on an
+ * approval nobody can give, or running with a sandbox the user did not pick.
+ *
+ * `text` is dsh's YAML dump. It carries `!!js` tags no YAML parser here reads,
+ * so each row is read as the block of lines that follows its `- id:` line.
+ *
+ * Returns { ok, problem } where `problem` names the first row that did not
+ * compose as expected.
+ */
+function verifyComposedConfig(text) {
+  const rows = new Map();
+  let current = null;
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const id = line.match(/^- id: *(\S+)\s*$/);
+    if (id) {
+      current = [];
+      rows.set(id[1], current);
+    } else if (/^\S/.test(line)) {
+      current = null; // a `# ==` layer header or another top-level entry
+    } else if (current) {
+      current.push(line.trim());
+    }
+  }
+
+  const row = (id) => rows.get(id) || null;
+  const questions = row(ROW.USER_QUESTIONS);
+  if (!questions) return { ok: false, problem: `row "${ROW.USER_QUESTIONS}" is missing` };
+  if (!questions.includes('disabled: true')) {
+    return { ok: false, problem: `row "${ROW.USER_QUESTIONS}" is not disabled` };
+  }
+
+  const approval = row(ROW.APPROVAL);
+  if (!approval) return { ok: false, problem: `row "${ROW.APPROVAL}" is missing` };
+  if (!approval.includes('policy: never')) {
+    return { ok: false, problem: `row "${ROW.APPROVAL}" does not carry policy never` };
+  }
+
+  const permission = row(ROW.PERMISSION);
+  if (!permission) return { ok: false, problem: `row "${ROW.PERMISSION}" is missing` };
+  for (const mode of PERMISSION_MODES) {
+    const at = permission.indexOf(`${mode}:`);
+    const preset = at >= 0 ? permission.slice(at + 1, at + 3) : [];
+    if (!preset.includes(`sandbox: ${mode}`) || !preset.includes('approval: never')) {
+      return { ok: false, problem: `permission preset "${mode}" did not compose as written` };
+    }
+  }
+  return { ok: true, problem: null };
+}
+
+/** The npm command that installs the preview this adapter was written against. */
 function defaultInstallCommand(version) {
   return `npm install -g @deepseek-ai/dsh@${version || SUPPORTED_DSH_VERSION}`;
 }
@@ -416,7 +483,7 @@ function buildPrivatePatch({ model, provider, permissionMode, gatewayBaseUrl, of
 
   const lines = [
     '# Generated by OpenAgents for the DeepSeek Harness adapter.',
-    `# Pinned to dsh ${SUPPORTED_DSH_VERSION}. Do not edit by hand: this file is`,
+    `# Written against dsh ${SUPPORTED_DSH_VERSION}. Do not edit by hand: this file is`,
     '# rewritten on every run and lives inside a per-agent private DSH_HOME.',
     '',
     `- id: ${ROW.USER_QUESTIONS}`,
@@ -720,6 +787,7 @@ module.exports = {
   parseDshVersion,
   compareDshVersions,
   classifyDshVersion,
+  verifyComposedConfig,
   defaultInstallCommand,
 
   classifyNodeVersion,

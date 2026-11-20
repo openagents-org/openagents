@@ -148,4 +148,19 @@ describe('version gate', () => {
     assert.equal(gate.compatible, null);
     assert.equal(inst._evaluateCompatibility({ name: 'pi', install: { min_version: '0.83.0' } }, '0.82.0').compatible, false);
   });
+
+  // deepseek's `supported_version` is a floor that orders prereleases: users
+  // who installed upstream's newer `latest` were refused while it was an exact
+  // match (daily errors dashboard, 2026-11-20).
+  it('admits a newer preview than supported_version and refuses an older one', () => {
+    const inst = new Installer({ getEntry: () => null, getResolveRules: () => [] }, cacheDir);
+    const entry = { name: 'deepseek', label: 'DeepSeek Harness', install: { supported_version: '0.2.1-rc.5' } };
+    assert.equal(inst._evaluateCompatibility(entry, '0.2.1-rc.5').compatible, true);
+    assert.equal(inst._evaluateCompatibility(entry, '0.2.2-rc.5').compatible, true);
+    assert.equal(inst._evaluateCompatibility(entry, '0.2.2-rc.2').compatible, true);
+    const old = inst._evaluateCompatibility(entry, '0.2.1-rc.4');
+    assert.equal(old.compatible, false);
+    assert.match(old.message, /0\.2\.1-rc\.4 is too old/);
+    assert.equal(inst._evaluateCompatibility(entry, null).compatible, null);
+  });
 });

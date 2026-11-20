@@ -1070,14 +1070,54 @@ describe('DeepSeek adapter — preflight', () => {
     assert.match(pf.message, /Node 23\.x is not supported/);
   });
 
-  it('rejects a dsh preview other than the pinned one', () => {
+  it('rejects a dsh preview older than the supported one', () => {
     const adapter = makeAdapter();
     adapter._readNodeVersion = () => 'v22.19.0';
     adapter._readDshVersion = () => '0.1.0-rc.6';
     const pf = adapter.preflight();
     assert.equal(pf.ok, false);
     assert.equal(pf.reason, 'version_incompatible');
-    assert.match(pf.message, /0\.1\.0-rc\.6 is not supported/);
+    assert.equal(pf.repairable, true);
+    assert.match(pf.message, /0\.1\.0-rc\.6 is too old/);
+  });
+
+  it('runs on a newer preview once the private patch composes on it', () => {
+    const adapter = makeAdapter();
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.2.2-rc.5';
+    assert.deepEqual(adapter.preflight(), { ok: true });
+    assert.ok(adapter._logs.some((l) => /0\.2\.2-rc\.5: private patch composes as written/.test(l)));
+  });
+
+  it('composes a passing newer preview once, not on every preflight', () => {
+    const adapter = makeAdapter();
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.2.2-rc.5';
+    adapter.preflight();
+    adapter.agentEnv.FAKE_DUMP_UNPATCHED = '1';
+    assert.deepEqual(adapter.preflight(), { ok: true });
+  });
+
+  it('asks for a repair when a newer preview no longer takes the patch', () => {
+    const adapter = makeAdapter({ agentEnv: { FAKE_DUMP_UNPATCHED: '1' } });
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.2.2-rc.5';
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.reason, 'version_incompatible');
+    assert.equal(pf.repairable, true);
+    assert.match(pf.message, /0\.2\.2-rc\.5 is newer than 0\.2\.1-rc\.5/);
+    assert.match(pf.message, /npm install -g @deepseek-ai\/dsh@0\.2\.1-rc\.5/);
+  });
+
+  it('asks for a repair when a newer preview cannot compose at all', () => {
+    const adapter = makeAdapter({ agentEnv: { FAKE_BOOTSTRAP_FAIL: '1' } });
+    adapter._readNodeVersion = () => 'v22.19.0';
+    adapter._readDshVersion = () => '0.2.2-rc.5';
+    const pf = adapter.preflight();
+    assert.equal(pf.ok, false);
+    assert.equal(pf.repairable, true);
+    assert.match(pf.message, /dsh --dump-config failed/);
   });
 
   it('requires an API key', () => {
@@ -1097,7 +1137,7 @@ describe('DeepSeek adapter — preflight', () => {
     assert.deepEqual(adapter.preflight(), { ok: true });
   });
 
-  it('reads the pinned version from the bundled registry', () => {
+  it('reads the supported version from the bundled registry', () => {
     const adapter = makeAdapter();
     const entry = adapter._registryEntry();
     assert.ok(entry, 'the registry carries a deepseek entry');

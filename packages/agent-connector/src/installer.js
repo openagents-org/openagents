@@ -29,6 +29,7 @@ const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
 const { nativeBuildFor } = require('./native-build');
 const { classifyClineAuth } = require('./adapters/cline-stream');
+const { compareDshVersions } = require('./adapters/deepseek-runtime');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -190,7 +191,7 @@ const versionRefresh = new Set();
 /** The version token in a `--version` output, or its first line. */
 function parseVersionOutput(raw) {
   // The optional `-prerelease` tail is NOT decoration. An agent pinned to a
-  // preview release (`@deepseek-ai/dsh@0.1.0-rc.6`) is gated on the exact
+  // preview release (`@deepseek-ai/dsh@0.1.0-rc.6`) is gated on its
   // version, and dropping the suffix reported a correctly installed rc.6 as
   // plain `0.1.0` — which then failed its own gate. Agents without a
   // prerelease segment match exactly as before.
@@ -863,12 +864,13 @@ class Installer {
    *
    * Two gate shapes, in priority order:
    *
-   *   `install.supported_version` — EXACT match. For agents pinned to an
-   *   upstream preview whose configuration can change between releases, a floor
-   *   is the wrong shape: it happily admits the next preview, which is precisely
-   *   the version the adapter has not been written against. Declared by
-   *   deepseek (dsh is a developer preview).
-   *
+   *   `install.supported_version` — the release the adapter is written
+   *   against, used as a floor that orders prereleases (`0.2.1-rc.5` <
+   *   `0.2.2-rc.5`). For agents pinned to an upstream preview: the installer
+   *   and the Launcher install exactly this version, while a newer preview the
+   *   user installed is left to the adapter, which checks it composes before
+   *   running on it. Declared by deepseek (dsh is a developer preview).
+
    *   `install.min_version` / `check_ready.min_version` — a floor (>=). The
    *   original behaviour, unchanged for every agent that does not declare
    *   supported_version.
@@ -877,28 +879,29 @@ class Installer {
     const supported = (entry && entry.install && entry.install.supported_version) || null;
     if (supported) {
       // Compare the version-shaped token from each side, prerelease included.
-      // `compareVersions` cannot be used: it strips `-rc.N`, so rc.5 and rc.6
-      // would compare equal and the exact gate would admit the wrong preview.
+      // `compareVersions` cannot be used: it strips `-rc.N`, so rc.4 and rc.5
+      // would compare equal and the floor would admit the older preview.
       const norm = (v) => {
         const m = String(v == null ? '' : v).match(/\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?/);
         return m ? m[0] : null;
       };
       const got = norm(version);
       const want = norm(supported);
-      if (!got) {
+      const cmp = got && want ? compareDshVersions(got, want) : null;
+      if (cmp === null) {
         return {
           compatible: null,
           minVersion: supported,
-          message: `Version unknown (requires exactly ${supported})`,
+          message: `Version unknown (requires ${supported} or newer)`,
         };
       }
-      if (got !== want) {
+      if (cmp < 0) {
         return {
           compatible: false,
           minVersion: supported,
           message:
-            `${(entry.label || entry.name || 'This agent')} ${got} is not supported — ` +
-            `it is pinned to ${want} exactly (upstream ships it as a developer preview).`,
+            `${(entry.label || entry.name || 'This agent')} ${got} is too old — ` +
+            `it needs ${want} or newer.`,
         };
       }
       return { compatible: true, minVersion: supported, message: null };

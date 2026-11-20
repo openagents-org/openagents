@@ -18,6 +18,7 @@ const {
   parseDshVersion,
   compareDshVersions,
   classifyDshVersion,
+  verifyComposedConfig,
   defaultInstallCommand,
   classifyNodeVersion,
   safeDshHomeName,
@@ -102,26 +103,117 @@ describe('version comparison', () => {
   });
 });
 
+// What `dsh --profile headless --patch <ours> --dump-config` prints for the
+// rows the private patch addresses — trimmed from dsh 0.2.2-rc.5, whose output
+// for these rows matches 0.2.1-rc.5 line for line.
+const COMPOSED = [
+  '# == @deepseek-ai/dsh-base, patched by /home/u/.openagents/dsh/openagents.patch.yml',
+  '- id: user-questions',
+  "  name: '@deepseek-ai/dsh-user-questions'",
+  '  disabled: true',
+  '# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-headless',
+  '- id: sandbox-policy',
+  "  name: '@deepseek-ai/dsh-sandbox-policy'",
+  '  config:',
+  "    mode: !!js process.env.DSH_PERMISSION_MODE ?? 'workspace-write'",
+  '# == @deepseek-ai/dsh-base, patched by /home/u/.openagents/dsh/openagents.patch.yml',
+  '- id: approval',
+  "  name: '@deepseek-ai/dsh-user-approval'",
+  '  config:',
+  '    policy: never',
+  '- id: permission',
+  "  name: '@deepseek-ai/dsh-permission-presets'",
+  '  config:',
+  '    presets:',
+  '      read-only:',
+  '        sandbox: read-only',
+  '        approval: never',
+  '      workspace-write:',
+  '        sandbox: workspace-write',
+  '        approval: never',
+  '      danger-full-access:',
+  '        sandbox: danger-full-access',
+  '        approval: never',
+  '# == @deepseek-ai/dsh-base',
+  '- id: shell-env',
+  "  name: '@deepseek-ai/dsh-shell-env'",
+  '',
+].join('\n');
+
+describe('verifyComposedConfig', () => {
+  it('passes the composition dsh prints with the private patch applied', () => {
+    assert.deepEqual(verifyComposedConfig(COMPOSED), { ok: true, problem: null });
+  });
+
+  it('reads Windows line endings', () => {
+    assert.equal(verifyComposedConfig(COMPOSED.replace(/\n/g, '\r\n')).ok, true);
+  });
+
+  it('fails when a preview renamed the approval row', () => {
+    const r = verifyComposedConfig(COMPOSED.replace('- id: approval', '- id: user-approval'));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"approval" is missing/);
+  });
+
+  it('fails when the approval policy did not take', () => {
+    const r = verifyComposedConfig(COMPOSED.replace('    policy: never', '    policy: ask'));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /policy never/);
+  });
+
+  it('fails when user questions are still mounted', () => {
+    const r = verifyComposedConfig(COMPOSED.replace("  disabled: true\n# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-headless", "# == @deepseek-ai/dsh-base, patched by @deepseek-ai/dsh-headless"));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"user-questions" is not disabled/);
+  });
+
+  it('fails when a preset lost its own sandbox', () => {
+    const r = verifyComposedConfig(COMPOSED.replace('        sandbox: workspace-write', '        sandbox: danger-full-access'));
+    assert.equal(r.ok, false);
+    assert.match(r.problem, /"workspace-write"/);
+  });
+
+  it('does not read a key of the next row as part of the previous one', () => {
+    // `policy: never` under a later row must not satisfy the approval row.
+    const text = COMPOSED.replace('    policy: never', '    policy: ask') + '- id: other\n  config:\n    policy: never\n';
+    assert.equal(verifyComposedConfig(text).ok, false);
+  });
+
+  it('fails on empty output', () => {
+    assert.equal(verifyComposedConfig('').ok, false);
+  });
+});
+
 describe('classifyDshVersion', () => {
-  it('accepts exactly the supported preview', () => {
+  it('accepts exactly the supported preview as tested', () => {
     const r = classifyDshVersion('0.1.0-rc.6', '0.1.0-rc.6');
     assert.equal(r.compatible, true);
+    assert.equal(r.tested, true);
     assert.equal(r.detected, '0.1.0-rc.6');
     assert.equal(r.message, null);
   });
 
-  it('rejects a NEWER preview — a floor would have admitted it', () => {
+  it('accepts a NEWER preview, but not as tested', () => {
     const r = classifyDshVersion('0.1.0-rc.7', '0.1.0-rc.6');
+    assert.equal(r.compatible, true);
+    assert.equal(r.tested, false);
+    assert.equal(r.message, null);
+  });
+
+  it('accepts the next minor preview upstream ships as latest', () => {
+    const r = classifyDshVersion('0.2.2-rc.5', '0.2.1-rc.5');
+    assert.equal(r.compatible, true);
+    assert.equal(r.tested, false);
+  });
+
+  it('accepts the stable release too', () => {
+    assert.equal(classifyDshVersion('0.1.0', '0.1.0-rc.6').compatible, true);
+  });
+
+  it('rejects an older preview — rc.N is ordered, not stripped', () => {
+    const r = classifyDshVersion('0.1.0-rc.5', '0.1.0-rc.6');
     assert.equal(r.compatible, false);
-    assert.match(r.message, /0\.1\.0-rc\.7 is not supported/);
-  });
-
-  it('rejects the stable release too', () => {
-    assert.equal(classifyDshVersion('0.1.0', '0.1.0-rc.6').compatible, false);
-  });
-
-  it('rejects an older preview', () => {
-    assert.equal(classifyDshVersion('0.1.0-rc.5', '0.1.0-rc.6').compatible, false);
+    assert.match(r.message, /0\.1\.0-rc\.5 is too old/);
   });
 
   it('reports unknown rather than passing when the version cannot be read', () => {
@@ -129,9 +221,9 @@ describe('classifyDshVersion', () => {
     assert.equal(r.compatible, null);
   });
 
-  it('tells the user how to get back to the pinned version', () => {
+  it('tells the user how to get back to the supported version', () => {
     const cmd = 'npm install -g @deepseek-ai/dsh@0.1.0-rc.6';
-    for (const raw of ['0.1.0-rc.7', null]) {
+    for (const raw of ['0.1.0-rc.5', null]) {
       assert.ok(classifyDshVersion(raw, '0.1.0-rc.6', cmd).message.includes(cmd));
     }
   });

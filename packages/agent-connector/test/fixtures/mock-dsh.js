@@ -16,6 +16,7 @@
  *   FAKE_STDOUT        text printed by the `answer` scenario (empty is honoured)
  *   FAKE_BOOTSTRAP_FAIL  make `--dump-config` fail instead of the run
  *   FAKE_BOOTSTRAP_HANG  make `--dump-config` never return (bootstrap timeout)
+ *   FAKE_DUMP_UNPATCHED  make `--dump-config` print a tree without the patch rows
  *   FAKE_STDERR        text written by the `fail` scenario
  *   FAKE_EXIT_CODE     exit code for the `fail` scenario (default 1)
  *
@@ -85,7 +86,15 @@ if (argv.includes('--dump-config')) {
     writeThenExit(process.stderr, process.env.FAKE_STDERR || 'compose failed\n',
       Number(process.env.FAKE_EXIT_CODE || 1));
   } else {
-    writeThenExit(process.stdout, '- id: approval\n', 0);
+    // dsh prints the composed tree with our patch rows merged in. The patch
+    // file is itself that row list, so echoing it stands in for the merge;
+    // FAKE_DUMP_UNPATCHED plays a preview that no longer applies it.
+    const at = argv.indexOf('--patch');
+    let tree = '- id: approval\n';
+    if (at >= 0 && !process.env.FAKE_DUMP_UNPATCHED) {
+      try { tree = fs.readFileSync(argv[at + 1], 'utf-8'); } catch { /* keep the stub */ }
+    }
+    writeThenExit(process.stdout, tree, 0);
   }
   return;
 }
