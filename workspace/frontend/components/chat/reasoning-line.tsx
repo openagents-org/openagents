@@ -12,6 +12,7 @@ import {
   TraceTitle,
 } from '@/components/ui/trace';
 import { useT } from '@/lib/i18n';
+import { MarkdownContent } from './markdown-content';
 
 /**
  * An agent's reasoning as one Trace line (shadcn AI Elements "Reasoning"):
@@ -37,8 +38,8 @@ export function ReasoningLine({ text, running, className }: { text: string; runn
   return (
     <TraceCollapsible open={open ?? running} onOpenChange={setOpen}>
       <TraceCollapsibleTrigger>{line}</TraceCollapsibleTrigger>
-      <TraceCollapsibleContent className={cn('whitespace-pre-wrap', className)}>
-        {text}
+      <TraceCollapsibleContent className={cn('min-w-0 wrap-anywhere', className)}>
+        <MarkdownContent content={text} agentNames={[]} textOnlyImages />
       </TraceCollapsibleContent>
     </TraceCollapsible>
   );
