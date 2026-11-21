@@ -13,6 +13,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { agentLabel } from '@/lib/helpers';
 import { WorkingBubble } from './working-bubble';
 import { StepItem } from './step-item';
+import type { Todo } from './todo-queue';
 import { isPlaceholderThinking, parseStepContent } from './step-parsing';
 import { isTerminalStatus } from './chat-message-groups';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
@@ -33,37 +34,8 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
   const lastAgent = agents?.find(agent => agent.agentName === steps[steps.length - 1].senderName);
   const active = isActive && !hasTerminalStatus && lastAgent?.status !== 'offline';
 
-  // While the agent is active its most recent status / tool step moves into
-  // the working bubble ("bubble with live status") instead of rendering as its
-  // own row. Todos and real reasoning keep their rows; a bare "thinking..."
-  // placeholder just yields the dots.
-  let bubbleStatus: string | undefined;
-  let absorbed: WorkspaceMessage | null = null;
   const lastStep = steps[steps.length - 1];
-  if (active && lastStep?.messageType === 'thinking') bubbleStatus = t('chat.thinking');
-  if (active && lastStep && lastStep.messageType === 'status') {
-    if (isPlaceholderThinking(lastStep)) {
-      absorbed = lastStep;
-    } else {
-      const parsed = parseStepContent(lastStep.content);
-      if (parsed.type === 'status') {
-        bubbleStatus = parsed.text;
-        absorbed = lastStep;
-      } else if (parsed.type === 'tool_call') {
-        bubbleStatus = parsed.summary ? `${parsed.toolDisplay} › ${parsed.summary}` : parsed.toolDisplay;
-        absorbed = lastStep;
-      } else if (parsed.type === 'compacting') {
-        bubbleStatus = t('chat.vibing');
-        absorbed = lastStep;
-      }
-    }
-  }
-
-  // Placeholder-only groups show nothing of their own; in history they vanish,
-  // while active only the bubble appears.
-  const rows = steps.filter((s) => s !== absorbed && !isPlaceholderThinking(s));
-  // The step still in progress, if the bubble did not take it (e.g. reasoning).
-  const liveStep = active && !absorbed ? lastStep : null;
+  const rows = steps.filter((step) => !isPlaceholderThinking(step));
   if (rows.length === 0 && !active) return null;
 
   // A task message is a full snapshot. Keep only the latest per author,
@@ -86,6 +58,41 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
   const taskCount = [...latestTodos.values()].reduce((count, message) =>
     count + (Array.isArray(message.metadata?.todos) ? message.metadata.todos.length : 0), 0);
   const stepCount = rows.filter(step => step.messageType !== 'todos').length;
+  const activeTodos = latestTodos.get(lastStep.senderName)?.metadata?.todos;
+  const currentTask = Array.isArray(activeTodos)
+    ? (activeTodos as Todo[]).find(todo => todo.status === 'in_progress')?.content
+    : undefined;
+  let latestThought: string | undefined;
+  if (active) {
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const step = rows[i];
+      if (step.senderName !== lastStep.senderName || step.messageType === 'todos') continue;
+      const parsed = step.messageType === 'thinking'
+        ? { type: 'thinking', text: step.content }
+        : parseStepContent(step.content);
+      if (parsed.type === 'thinking' && parsed.text?.trim()) {
+        latestThought = parsed.text;
+        break;
+      }
+    }
+  }
+  const latestAction = active
+    ? steps.slice().reverse().find(step => step.senderName === lastStep.senderName && step.messageType !== 'todos')
+    : undefined;
+  let status = t('chat.stepsRunning');
+  if (active && latestAction) {
+    if (latestAction.messageType === 'thinking') {
+      status = t('chat.thinking');
+    } else {
+      const action = parseStepContent(latestAction.content);
+      // Some adapters emit a plain "Tool › input" line. Use the tool name
+      // alone for the live summary so commands and arguments stay in history.
+      const tool = action.toolDisplay ?? action.text?.match(/^([\w.-]+)\s+›\s+/)?.[1];
+      if (tool) status = t('chat.usingTool', { tool });
+      else if (action.type === 'thinking') status = t('chat.thinking');
+      else if (action.type === 'compacting') status = t('chat.vibing');
+    }
+  }
 
   return (
     <div>
@@ -116,7 +123,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
                     </div>
                   )}
                   <Trace>
-                    {group.steps.map(step => <StepItem key={step.messageId} message={step} running={active && step === liveStep} />)}
+                    {group.steps.map(step => <StepItem key={step.messageId} message={step} running={active && (step === latestAction || step === latestTodos.get(lastStep.senderName))} />)}
                   </Trace>
                 </div>
               ))}
@@ -124,7 +131,7 @@ export const IntermediateSteps = memo(function IntermediateSteps({ steps, agents
           </TraceCollapsible>
         </div>
       )}
-      {active && <WorkingBubble agentName={lastStep?.senderName} agents={agents} status={bubbleStatus} />}
+      {active && <WorkingBubble key={lastStep.senderName} agentName={lastStep.senderName} agents={agents} status={status} task={currentTask} thought={latestThought} />}
     </div>
   );
 });

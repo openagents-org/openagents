@@ -699,6 +699,8 @@ export const messages: Messages = {
     activitySteps: { one: '{count} 步', other: '{count} 步' },
     activityTasks: { one: '{count} 项任务', other: '{count} 项任务' },
     stepsRunning: '执行中',
+    usingTool: '正在使用 {tool}',
+    latestThought: '最新思考',
     stepsDone: { one: '执行了 {count} 步', other: '执行了 {count} 步' },
     copyCode: '复制代码',
     codeCopied: '已复制代码',

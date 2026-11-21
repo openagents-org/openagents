@@ -706,6 +706,8 @@ export const messages = {
     activitySteps: { one: '{count} step', other: '{count} steps' },
     activityTasks: { one: '{count} task', other: '{count} tasks' },
     stepsRunning: 'Working',
+    usingTool: 'Using {tool}',
+    latestThought: 'Latest thought',
     stepsDone: { one: 'Took {count} step', other: 'Took {count} steps' },
     copyCode: 'Copy code',
     codeCopied: 'Copied',
