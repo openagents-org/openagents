@@ -1,5 +1,6 @@
 'use client';
 
+import type { DeviceSetupMethod } from '@/components/layout/layout-context';
 import { useEffect, useRef, useState } from 'react';
 import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
 import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
@@ -27,18 +28,19 @@ function SetupCommand({ command, disabled = false }: { command: string; disabled
 }
 
 /** Guided setup: one installation path at a time, followed by a clear next step. */
-export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false, methodRequest, stepLabel }: {
+export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regenerating = false, methodRequest, stepLabel, onMethodChange }: {
   pairing: PairingCode;
   onDismiss?: () => void;
   onRegenerate?: () => void;
   regenerating?: boolean;
-  methodRequest?: { method: 'desktop' | 'terminal' } | null;
+  methodRequest?: { method: DeviceSetupMethod } | null;
+  onMethodChange?: (method: DeviceSetupMethod) => void;
   /** Small label above the title; defaults to the first-run "Step 1 of 2" label. */
   stepLabel?: string;
 }) {
   const t = useT();
   const isMobile = useIsMobileDevice();
-  const [method, setMethod] = useState<'desktop' | 'terminal' | 'agent'>(methodRequest?.method ?? 'terminal');
+  const [method, setMethod] = useState<DeviceSetupMethod>(methodRequest?.method ?? 'terminal');
   const appliedMethodRequest = useRef(methodRequest);
   useEffect(() => {
     if (methodRequest && methodRequest !== appliedMethodRequest.current) {
@@ -81,7 +83,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
           ] as const).map(({ id, icon: Icon, label, hint, platforms }) => {
             const active = method === id;
             return (
-              <button type="button" key={id} aria-pressed={active} onClick={() => setMethod(id)}
+              <button type="button" key={id} aria-pressed={active} onClick={() => { setMethod(id); onMethodChange?.(id); }}
                 className={cn('flex min-h-16 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors', active ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/15' : 'border-border hover:border-foreground/25 hover:bg-muted/30')}>
                 <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
                   <Icon className="size-4.5" />

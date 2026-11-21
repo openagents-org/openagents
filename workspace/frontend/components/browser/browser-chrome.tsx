@@ -33,7 +33,7 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
 }) {
   const t = useT();
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-2">
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3">
       <WithTooltip label={t('browser.reconnectHint')}>
         <Button
           variant="ghost"
@@ -48,7 +48,7 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
       </WithTooltip>
 
       {/* Always an input: focusing it starts an edit, Enter navigates, Escape or blur cancels. */}
-      <InputGroup className="h-7 min-w-0 flex-1">
+      <InputGroup className="h-8 min-w-0 flex-1 bg-muted/40 shadow-none">
         <InputGroupAddon><Globe className="size-3.5" /></InputGroupAddon>
         <InputGroupInput
           ref={urlInputRef}
@@ -61,7 +61,7 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
             if (e.key === 'Escape') e.currentTarget.blur();
           }}
           aria-label={t('browser.addressLabel')}
-          className={cn('font-mono text-xs md:text-xs', !editingUrl && 'text-muted-foreground')}
+          className={cn('text-xs md:text-xs', !editingUrl && 'text-muted-foreground')}
           spellCheck={false}
         />
       </InputGroup>
@@ -74,11 +74,11 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
       )}
 
       <Button
-        variant="secondary"
-        size="xs"
+        variant={controlling ? "default" : "outline"}
+        size="sm"
         onClick={onToggleControl}
         disabled={controlDisabled}
-        className="rounded-full"
+        className="shrink-0"
       >
         <Hand data-icon="inline-start" />
         {controlling ? t('browser.handBack') : t('browser.takeOver')}
@@ -104,23 +104,24 @@ export function BrowserStatusBar({ tab, liveState, controlling }: { tab: Browser
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
   return (
-    <div className="flex h-7 shrink-0 items-center gap-3 border-t border-border bg-muted px-3 text-xs text-muted-foreground">
+    <div className="flex h-8 shrink-0 items-center gap-3 border-t border-border bg-background px-3 text-[11px] text-muted-foreground">
       <span className="inline-flex items-center gap-1.5">
         <span
           className={cn(
             'size-1.5 rounded-full',
-            liveState === 'live' && 'animate-pulse bg-success',
-            liveState === 'connecting' && 'animate-pulse bg-warning',
-            liveState === 'unavailable' && 'bg-destructive',
+            liveState === 'live' && 'bg-success',
+            liveState === 'connecting' && 'motion-safe:animate-pulse bg-warning',
+            liveState === 'unavailable' && 'bg-warning',
+            (liveState === 'asleep' || liveState === 'none') && 'bg-muted-foreground',
           )}
         />
         {liveState === 'live' ? t('browser.live') : liveState === 'unavailable' ? t('browser.unavailableTitle') : liveState === 'asleep' ? t('browser.sleepingTitle') : t('browser.opening')}
         <span className="hidden text-muted-foreground/60 sm:inline">· {t('browser.cloudBrowser')}</span>
       </span>
-      <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
+      {liveState === 'live' && <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
         {controlling ? t('browser.youAreInControl') : t('browser.watching')}
-      </span>
-      <span className="ml-auto hidden items-center gap-1.5 md:inline-flex">
+      </span>}
+      <span className="ml-auto hidden min-w-0 items-center gap-1.5 md:inline-flex">
         <span className="truncate">
           {t('browser.openedBy', { who: tab.createdBy?.startsWith('human:') ? t('browser.you') : whoLabel(tab.createdBy) })}
         </span>
@@ -141,7 +142,7 @@ export function BrowserPlaceholder({ asleepEntry, hasTabs, wakingId, onWake, onF
 }) {
   const t = useT();
   return (
-    <div className="flex flex-1 items-center justify-center bg-muted p-6">
+    <div className="flex flex-1 items-center justify-center bg-muted/30 p-6">
       {asleepEntry ? (
         <Empty>
           <EmptyHeader>

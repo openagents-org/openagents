@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Spinner } from '@/components/ui/spinner';
-import { useLayout } from '@/components/layout/layout-context';
+import { useLayout, type DeviceSetupMethod } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useRetryingLoad } from '@/hooks/use-retrying-load';
@@ -48,19 +48,28 @@ export function ConnectAgentView({
   onDismiss?: () => void;
 } = {}) {
   const t = useT();
-  const { openView, connectSetupRequest, cloudAgentsPending, consumeCloudAgents, addAgentPending, editAgentPending } = useLayout();
+  const { openView, openMobileDetail, connectSetupRequest, cloudAgentsPending, consumeCloudAgents, addAgentPending, editAgentPending } = useLayout();
   const { workspace, token, refreshWorkspace, agents, requestFirstThread } = useWorkspace();
   const { isCopied, copyToClipboard } = useCopyToClipboard();
   const { idToken: oaIdToken } = useOpenAgentsAuth();
   const isDesktop = desktopHost() !== null;
 
-  const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(initialTab);
+  const deviceRequest = useMemo(() => connectSetupRequest && connectSetupRequest.method !== 'cloud'
+    ? { method: connectSetupRequest.method }
+    : null, [connectSetupRequest]);
+  const [selectedTab, setSelectedTab] = useState<'local' | 'cloud' | 'node'>(
+    connectSetupRequest ? (connectSetupRequest.method === 'cloud' ? 'cloud' : 'node') : initialTab,
+  );
+  const [pairingMethod, setPairingMethod] = useState<DeviceSetupMethod>(deviceRequest?.method ?? 'terminal');
+  const pairingMethodRequest = useMemo(() => ({ method: pairingMethod }), [pairingMethod]);
   const activeTab = selectedTab === 'local' ? 'node' : selectedTab;
   const appliedSetupRequest = useRef(connectSetupRequest);
   useEffect(() => {
     if (connectSetupRequest && connectSetupRequest !== appliedSetupRequest.current) {
       appliedSetupRequest.current = connectSetupRequest;
-      setSelectedTab('node');
+      const { method } = connectSetupRequest;
+      setSelectedTab(method === 'cloud' ? 'cloud' : 'node');
+      if (method !== 'cloud') setPairingMethod(method);
     }
   }, [connectSetupRequest]);
   useEffect(() => {
@@ -207,6 +216,7 @@ export function ConnectAgentView({
       setSelectedProvider(null);
       setCfgKey('');
       setCfgPrompt('');
+      if (connectSetupRequest?.method === 'cloud' && !agents.some((agent) => !agent.builtin)) openFirstThread(cfgName);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('connect.cloudAgentAddFailed'));
     } finally {
@@ -249,6 +259,14 @@ export function ConnectAgentView({
   // Snapshot of node ids taken when a pairing code is generated, so we can tell
   // when a *new* node connects and auto-dismiss the pairing panel.
   const pairingBaselineRef = useRef<Set<string>>(new Set());
+  const pairingAgentBaseline = useRef<Set<string>>(new Set());
+  const [agentJoinNodeId, setAgentJoinNodeId] = useState<string | null>(null);
+  const openFirstThread = useCallback((name: string) => {
+    requestFirstThread(name, () => {
+      openView('threads');
+      openMobileDetail();
+    });
+  }, [requestFirstThread, openView, openMobileDetail]);
 
   // Load nodes when the tab is opened, then poll for live status while it's
   // visible. Poll faster (3s) while a pairing code is up so a freshly connected
@@ -270,31 +288,53 @@ export function ConnectAgentView({
     capture('node_connected', { source: 'workspace_ui' });
   }, [t]);
   useEffect(() => {
-    if (!pairing) return;
+    if (!pairing || pairingMethod === 'agent') return;
     const fresh = nodes.find((n) => !pairingBaselineRef.current.has(n.nodeId));
     if (fresh) finishPairing(fresh.nodeId);
-  }, [nodes, pairing, finishPairing]);
+  }, [nodes, pairing, pairingMethod, finishPairing]);
   // A device that was already paired keeps its node id, so also ask whether
   // the code itself was used (an agent joining from a machine already
   // connected here, the common case for `agn join`).
   useEffect(() => {
-    if (!pairing || activeTab !== 'node') return;
+    if (!pairing || agentJoinNodeId || activeTab !== 'node') return;
     let cancelled = false;
     const id = setInterval(async () => {
       try {
         const status = await workspaceApi.getPairingCodeStatus(pairing.code);
-        if (!cancelled && status.redeemed) { finishPairing(status.nodeId); loadNodes(false); }
+        if (cancelled || !status.redeemed) return;
+        if (pairingMethod === 'agent' && status.nodeId) setAgentJoinNodeId(status.nodeId);
+        else finishPairing(status.nodeId);
+        loadNodes(false);
       } catch { /* the node list keeps watching */ }
     }, 3000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [pairing, activeTab, finishPairing, loadNodes]);
+  }, [pairing, agentJoinNodeId, activeTab, pairingMethod, finishPairing, loadNodes]);
+
+  useEffect(() => {
+    if (!agentJoinNodeId || activeTab !== 'node') return;
+    const node = nodes.find((entry) => entry.nodeId === agentJoinNodeId && entry.status === 'online');
+    const joined = node?.agents?.find((entry) =>
+      !pairingAgentBaseline.current.has(entry.name) &&
+      agents.some((agent) => agent.agentName === entry.name && agent.status === 'online'),
+    );
+    if (!joined) return;
+    setAgentJoinNodeId(null);
+    setPairing(null);
+    openFirstThread(joined.name);
+  }, [agentJoinNodeId, agents, nodes, activeTab, openFirstThread]);
 
   const handleGeneratePairingCode = async () => {
     setPairingLoading(true);
     setPairingError(false);
+    setAgentJoinNodeId(null);
+    setPairedNodeId(null);
     try {
-      const code = await workspaceApi.createPairingCode();
       pairingBaselineRef.current = new Set(nodes.map((n) => n.nodeId));
+      pairingAgentBaseline.current = new Set([
+        ...agents.map((agent) => agent.agentName),
+        ...nodes.flatMap((node) => (node.agents ?? []).map((agent) => agent.name)),
+      ]);
+      const code = await workspaceApi.createPairingCode();
       setPairing(code);
       capture('pairing_code_generated', { source: 'node_tab' });
     } catch (err: unknown) {
@@ -306,28 +346,37 @@ export function ConnectAgentView({
     }
   };
 
-  // First run and explicit reentry share the guided pairing surface. Generate
-  // a code only after a successful device read confirms an empty list. The
-  // pairing form replaces the empty-state detour on both entry points.
+  // First run starts on an empty device list. A user who chooses a specific
+  // method can also request a code for an additional device or an agent on
+  // a device that's already paired.
   const autoPairedRef = useRef(false);
+  const attemptedDeviceRequest = useRef(deviceRequest && autoAddAgent ? deviceRequest : null);
   useEffect(() => {
-    if (!(autoPair || workspace?.needsFirstDevice === true) || autoPairedRef.current) return;
-    if (activeTab !== 'node' || loading || nodesLoading || !nodesLoaded || nodesError) return;
-    if (nodes.length > 0 || pairing || pairingLoading) return;
+    if (activeTab !== 'node' || loading || nodesLoading || !nodesLoaded || nodesError || pairingLoading) return;
+    if (deviceRequest && attemptedDeviceRequest.current !== deviceRequest) {
+      attemptedDeviceRequest.current = deviceRequest;
+      autoPairedRef.current = !agents.some((agent) => !agent.builtin);
+      if (!pairing || agentJoinNodeId) void handleGeneratePairingCode();
+      return;
+    }
+    if (!(autoPair || workspace?.needsFirstDevice === true) || autoPairedRef.current || deviceRequest) return;
+    if (nodes.length > 0 || pairing) return;
     autoPairedRef.current = true;
-    handleGeneratePairingCode();
+    void handleGeneratePairingCode();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoPair, workspace?.needsFirstDevice, activeTab, loading, nodesLoading, nodesLoaded, nodesError, nodes.length, pairing, pairingLoading]);
+  }, [autoPair, workspace?.needsFirstDevice, activeTab, loading, nodesLoading, nodesLoaded, nodesError, nodes.length, pairing, pairingLoading, deviceRequest, agentJoinNodeId, agents]);
 
   const handleDismissPairing = () => {
+    setAgentJoinNodeId(null);
+    setPairingError(false);
     setPairing(null);
     loadNodes(true);
   };
 
   // An edit request still goes to the devices tab, which reports why it cannot
   // open the agent there; otherwise it would wait unseen until a later visit.
-  const showFirstDeviceSetup = !isDesktop && nodesLoaded && !nodesError && nodes.length === 0 &&
-    (autoPair || workspace?.needsFirstDevice === true) && !editAgentPending;
+  const showFirstDeviceSetup = nodesLoaded && !nodesError && nodes.length === 0 &&
+    (deviceRequest || (!isDesktop && (autoPair || workspace?.needsFirstDevice === true))) && !editAgentPending;
   const close = onDismiss ?? (() => openView('threads'));
 
   return (
@@ -363,11 +412,19 @@ export function ConnectAgentView({
             <Spinner data-icon="inline-start" />
             <span className="text-xs">{t('common.loading')}</span>
           </div>
+        ) : activeTab === 'node' && agentJoinNodeId ? (
+          <div className="mx-auto max-w-lg space-y-4 px-5 py-12">
+            <div role="status" className="space-y-2">
+              <p className="font-medium">{t('connect.agentJoinWaiting')}</p>
+              <p className="text-sm text-muted-foreground">{t('connect.agentJoinPairedHint')}</p>
+            </div>
+            <Button variant="outline" onClick={() => { handleDismissPairing(); close(); }}>{t('connect.nodeCancel')}</Button>
+          </div>
         ) : activeTab === 'node' && showFirstDeviceSetup ? (
           <>
             <div id="onboarding-device-setup" className="mx-auto w-full max-w-3xl scroll-mt-8 flex flex-col gap-6 px-4 py-6 sm:px-6 sm:py-7">
               {pairing ? (
-                <OnboardingPairingPanel pairing={pairing} onDismiss={close} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} methodRequest={connectSetupRequest} />
+                <OnboardingPairingPanel pairing={pairing} onDismiss={() => { handleDismissPairing(); close(); }} onRegenerate={handleGeneratePairingCode} regenerating={pairingLoading} methodRequest={pairingMethodRequest} onMethodChange={setPairingMethod} />
               ) : pairingError ? (
                 <Empty role="alert" className="border">
                   <EmptyHeader>
@@ -379,10 +436,12 @@ export function ConnectAgentView({
                     </Button>
                   </EmptyContent>
                 </Empty>
-              ) : (
+              ) : pairingLoading || attemptedDeviceRequest.current !== deviceRequest ? (
                 <div role="status" className="flex items-center justify-center gap-2 py-14 text-sm text-muted-foreground">
                   <Spinner />{t('connect.nodeGenerating')}
                 </div>
+              ) : (
+                <Button className="self-start" onClick={handleGeneratePairingCode}>{t('onboarding.newPairingCode')}</Button>
               )}
               <SetupEmailButton />
               {footer}
@@ -396,13 +455,16 @@ export function ConnectAgentView({
             cloudProviders={cloudProviders}
             autoAddAgent={autoAddAgent || autoPairedRef.current}
             preferredNodeId={preferredNodeId}
-            onFirstAgentCreated={requestFirstThread}
+            onFirstAgentCreated={openFirstThread}
             pairedNodeId={pairedNodeId}
-            onAgentJoined={(name) => { requestFirstThread(name); openView('threads'); }}
+            onAgentJoined={openFirstThread}
             loading={nodesLoading}
             loaded={nodesLoaded}
             loadFailed={nodesError}
             pairing={pairing}
+            pairingMethodRequest={pairingMethodRequest}
+            onPairingMethodChange={setPairingMethod}
+            showPairingError={!!deviceRequest && pairingError}
             pairingLoading={pairingLoading}
             pairingError={pairingError}
             onGenerate={handleGeneratePairingCode}

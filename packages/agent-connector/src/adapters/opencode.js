@@ -161,6 +161,8 @@ class OpenCodeAdapter extends BaseAdapter {
     fs.mkdirSync(this.agentHome, { recursive: true });
 
     this._channelSessions = {};
+    // Channels whose next run must start a new OpenCode session (routine fires).
+    this._freshChannels = new Set();
     this._sessionsFile = this._sessionsFileFor();
     this._migrateSessionsFile();
     this._loadSessions();
@@ -407,6 +409,8 @@ class OpenCodeAdapter extends BaseAdapter {
     }
     this._log(`Shared OpenCode database was migrated by a newer OpenCode; using ${file}`);
     this._channelSessions = {};
+    // Channels whose next run must start a new OpenCode session (routine fires).
+    this._freshChannels = new Set();
     this._saveSessions();
     return true;
   }
@@ -624,6 +628,11 @@ class OpenCodeAdapter extends BaseAdapter {
     const msgChannel = msg.sessionId || this.channelName;
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+    // Every routine fire carries the routine's full instructions, so each run
+    // starts a new OpenCode session instead of resuming one that grows with every
+    // fire until it overflows the model. The new session is still saved for the
+    // channel, so a person replying in the routine thread continues that run.
+    if (sender === 'system:routine') this._freshChannels.add(msgChannel);
 
     await this._autoTitleChannel(msgChannel, content);
     await this.sendStatus(msgChannel, 'thinking...');
@@ -1117,7 +1126,9 @@ class OpenCodeAdapter extends BaseAdapter {
       this._log(`Gateway provider config failed (continuing): ${e.message}`);
     }
     const model = this._resolveModel();
-    const sessionId = this._channelSessions[msgChannel];
+    const fresh = this._freshChannels.delete(msgChannel);
+    if (fresh) this._log(`Routine run in ${msgChannel}: starting a new OpenCode session`);
+    const sessionId = fresh ? undefined : this._channelSessions[msgChannel];
     const args = this._buildRunArgs({ runCwd, model, sessionId, channel: msgChannel });
     const fullPrompt = this._composePrompt(content, msgChannel, sessionId);
 
@@ -1142,7 +1153,11 @@ class OpenCodeAdapter extends BaseAdapter {
       const contextFile = this._turnContextFile();
       const serverEnv = this._spawnEnv(this.channelName || 'general', { contextFile });
       return this._runViaServer({ msgChannel, runCwd, model, sessionId, fullPrompt, spawnEnv: serverEnv, contextFile })
-        .then((r) => (r === NO_SERVER ? this._runOpencode(content, msgChannel, { noServer: true }) : r));
+        .then((r) => {
+          if (r !== NO_SERVER) return r;
+          if (fresh) this._freshChannels.add(msgChannel);  // the fallback run starts fresh too
+          return this._runOpencode(content, msgChannel, { noServer: true });
+        });
     }
 
     return new Promise((resolve, reject) => {
@@ -1470,6 +1485,9 @@ class OpenCodeAdapter extends BaseAdapter {
       return { failure: { category: 'permission_denied', diagnostic: `permission rejected for ${lastTool}`,
         detail: `Tool: \`${lastTool}\`` } };
     }
+    // An error the run already got past (e.g. a too-long request that OpenCode
+    // answered by summarizing and continuing) is not why it ended.
+    if (stdoutErr && OpenCodeAdapter._errorRecovered(stdout)) stdoutErr = null;
     if (endedOnTool) {
       if (stdoutErr) {
         const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
@@ -1751,6 +1769,22 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   /** Scan stdout JSONL for a structured error event; last one wins. */
+  /**
+   * True when the run carried on after its last error event: a step or tool
+   * call finished later in the same output, so the error was recovered from
+   * (OpenCode retried, or summarized a too-long conversation and continued).
+   */
+  static _errorRecovered(raw) {
+    const events = OpenCodeAdapter._splitJsonObjects(raw);
+    let lastError = -1;
+    events.forEach((ev, i) => { if (OpenCodeAdapter._errorFromEvent(ev)) lastError = i; });
+    if (lastError < 0) return false;
+    return events.slice(lastError + 1).some((ev) => {
+      const type = String((ev && ev.type) || '').toLowerCase();
+      return type === 'step_finish' || type === 'step-finish' || type === 'tool_use' || type === 'tool';
+    });
+  }
+
   static _extractErrorFromStdout(raw) {
     const events = OpenCodeAdapter._splitJsonObjects(raw);
     for (let i = events.length - 1; i >= 0; i--) {
@@ -1962,5 +1996,8 @@ class OpenCodeAdapter extends BaseAdapter {
     return redactSecrets(s);
   }
 }
+
+// The warm-server "run the ordinary way instead" sentinel, for tests.
+OpenCodeAdapter._NO_SERVER = NO_SERVER;
 
 module.exports = OpenCodeAdapter;

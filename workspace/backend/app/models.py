@@ -1851,6 +1851,19 @@ class DirectThreadPreference(Base):
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
 
 
+class PersonalSetting(Base):
+    """One person's own settings in a workspace, shared by all their devices
+    (web, desktop app, phone). ``key`` names the setting — "thread_projects"
+    is their projects and which threads are in each — and ``value`` is its
+    JSON. Nobody else reads or writes it."""
+    __tablename__ = 'personal_settings'
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey('workspaces.id', ondelete='CASCADE'), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    key = Column(Text, primary_key=True)
+    value = Column(JSONB, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
+
+
 class ReadMarker(Base):
     """A person's last-read position in one thread or DM, shared by all of
     their devices. `session_id` is the client session id: the thread name, or

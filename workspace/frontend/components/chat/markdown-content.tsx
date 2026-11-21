@@ -3,6 +3,7 @@
 import { memo, type ReactNode, useMemo, isValidElement, cloneElement } from 'react';
 import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import type { Root } from 'mdast';
 import { getAgentColor } from '@/lib/helpers';
 import { cn } from '@/lib/utils';
 import { MarkdownCodeBlock } from './markdown-code-block';
@@ -13,9 +14,41 @@ import { MarkdownImage } from './markdown-image';
 // Stable plugin arrays — avoids re-creating on every render
 const remarkPlugins = [remarkGfm];
 
+/** Parse the full Markdown first so shortening it never breaks a fence or link. */
+function remarkExcerpt({ limit }: { limit: number }) {
+  return (tree: Root) => {
+    const firstHidden = tree.children.findIndex(node => (node.position?.end.offset ?? 0) > limit);
+    if (firstHidden === -1) return;
+    const block = tree.children[firstHidden];
+    let visible = Math.max(1, firstHidden);
+    if (block.type === 'paragraph' && (block.position?.start.offset ?? 0) < limit) {
+      const boundary = block.children.findIndex(child => (child.position?.end.offset ?? 0) > limit);
+      if (boundary !== -1) {
+        const inline = block.children[boundary];
+        const start = inline.position?.start.offset ?? limit;
+        const children = block.children.slice(0, boundary);
+        if (inline.type === 'text' && start < limit) {
+          const excerpt = inline.value.slice(0, limit - start).replace(/[\uD800-\uDBFF]$/, '').trimEnd();
+          children.push({ type: 'text', value: `${excerpt}…` });
+        }
+        if (children.length) {
+          block.children = children;
+          visible = firstHidden + 1;
+        }
+      }
+    }
+    tree.children = [
+      ...tree.children.slice(0, visible),
+      ...tree.children.slice(visible).filter(node => node.type === 'definition'),
+    ];
+  };
+}
+
 interface MarkdownContentProps {
   content: string;
   agentNames: string[];
+  excerptLimit?: number;
+  textOnlyImages?: boolean;
   /** agentName → display label; mentions render as @<label> (Slack-style)
    * while the underlying text keeps the ASCII agent name. */
   agentLabels?: Record<string, string>;
@@ -96,7 +129,7 @@ function renderMentions(children: ReactNode, agentNames: string[], agentLabels?:
   return processNode(children);
 }
 
-export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels, humanNames, selfMention }: MarkdownContentProps) {
+export const MarkdownContent = memo(function MarkdownContent({ content, agentNames, agentLabels, humanNames, selfMention, excerptLimit, textOnlyImages }: MarkdownContentProps) {
   const hasStreamingMermaidFence = hasOpenMermaidFence(content);
 
   const components: Components = useMemo(() => ({
@@ -199,17 +232,17 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 
     // Inline
     img: ({ src, alt, title }) => (
-      <MarkdownImage src={src} alt={alt} title={title} className="max-w-full h-auto rounded-md" />
+      textOnlyImages ? (alt || null) : <MarkdownImage src={src} alt={alt} title={title} className="max-w-full h-auto rounded-md" />
     ),
     strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
     del: ({ children }) => <del className="text-muted-foreground">{children}</del>,
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [agentNames, agentLabels, hasStreamingMermaidFence, humanNames, selfMention]);
+  }), [agentNames, agentLabels, hasStreamingMermaidFence, humanNames, selfMention, textOnlyImages]);
 
   return (
     <div className="markdown-content">
       <ReactMarkdown
-        remarkPlugins={remarkPlugins}
+        remarkPlugins={excerptLimit ? [remarkGfm, [remarkExcerpt, { limit: excerptLimit }]] : remarkPlugins}
         components={components}
       >
         {content}
@@ -227,6 +260,8 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 function arePropsEqual(prev: MarkdownContentProps, next: MarkdownContentProps): boolean {
   return (
     prev.content === next.content &&
+    prev.excerptLimit === next.excerptLimit &&
+    prev.textOnlyImages === next.textOnlyImages &&
     prev.agentNames.length === next.agentNames.length &&
     prev.agentNames.every((name, i) => name === next.agentNames[i]) &&
     prev.agentNames.every((name) => prev.agentLabels?.[name] === next.agentLabels?.[name]) &&

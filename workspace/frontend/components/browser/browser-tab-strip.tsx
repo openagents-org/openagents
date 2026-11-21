@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode, RefObject } from 'react';
-import { ChevronDown, Globe, Moon, Plus, X } from 'lucide-react';
+import { ChevronDown, Globe, Moon, Plus, PanelsTopLeft, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 import {
@@ -31,15 +31,14 @@ function TabChip({
         onClick={onSelect}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(); } }}
         className={cn(
-          'group relative flex h-8 max-w-52 min-w-30 shrink-0 cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors select-none',
+          'group relative outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset flex h-9 max-w-52 min-w-36 shrink-0 cursor-pointer items-center gap-2 rounded-t-lg border border-b-0 px-2.5 text-xs transition-colors select-none',
           active
-            ? 'z-10 border-border bg-background text-foreground'
+            ? 'z-10 border-border bg-background font-medium text-foreground shadow-xs'
             : 'border-transparent text-muted-foreground hover:bg-muted hover:text-foreground',
-          !awake && 'italic',
-          busy && 'animate-pulse',
+          busy && 'motion-safe:animate-pulse',
         )}
       >
-        <span className="shrink-0 text-muted-foreground [&_svg]:size-3.5">{icon}</span>
+        <span className={cn("shrink-0 text-muted-foreground [&_svg]:size-3.5", !awake && "opacity-60")}>{icon}</span>
         <span className="min-w-0 flex-1 truncate">{label}</span>
         {onClose && (
           <Button
@@ -58,7 +57,7 @@ function TabChip({
 }
 
 /** Every tab, by name, including the ones scrolled out of the strip. */
-function AllTabsMenu({ permanent, temporary, onSelect }: Entries & { onSelect: (entry: TabEntry) => void }) {
+function AllTabsMenu({ permanent, temporary, limits, onSelect }: Entries & { limits?: BrowserTabLimits | null; onSelect: (entry: TabEntry) => void }) {
   const t = useT();
   const tabCount = permanent.length + temporary.length;
   if (tabCount === 0) return null;
@@ -69,16 +68,20 @@ function AllTabsMenu({ permanent, temporary, onSelect }: Entries & { onSelect: (
           <Button
             variant="ghost"
             size="xs"
-            className="mb-1 shrink-0 text-muted-foreground tabular-nums"
+            className="mb-1 ml-1 shrink-0 gap-1.5 text-muted-foreground tabular-nums"
             aria-label={t('browser.allTabsCount', { count: tabCount })}
           >
+            <PanelsTopLeft className="size-3.5" />
             {tabCount}
             <ChevronDown data-icon="inline-end" />
           </Button>
         </DropdownMenuTrigger>
       </WithTooltip>
       <DropdownMenuContent align="end" className="max-h-96 w-72 overflow-y-auto">
-        <DropdownMenuLabel>{t('browser.allTabsCount', { count: tabCount })}</DropdownMenuLabel>
+        <DropdownMenuLabel className="flex items-center justify-between gap-3">
+          {t('browser.allTabsCount', { count: tabCount })}
+          {limits && <span className="text-xs font-normal text-muted-foreground">{t('browser.awakeOfMax', { used: limits.concurrent.used, max: limits.concurrent.max })}</span>}
+        </DropdownMenuLabel>
         {permanent.length > 0 && <DropdownMenuSeparator />}
         {permanent.length > 0 && (
           <DropdownMenuGroup>
@@ -127,8 +130,8 @@ export function BrowserTabStrip({ stripRef, permanent, temporary, tab, selectedT
 }) {
   const t = useT();
   return (
-    <div className="flex h-10 shrink-0 items-end border-b border-border bg-muted px-2 pt-1.5">
-      <div ref={stripRef} className="no-scrollbar flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
+    <div className="flex h-12 shrink-0 items-end gap-1 border-b border-border bg-muted/40 px-2 pt-2">
+      <div ref={stripRef} aria-label={t('browser.allTabs')} role="tablist" className="no-scrollbar flex min-w-0 flex-1 items-end gap-1 overflow-x-auto">
         {permanent.map((entry) => {
           const awake = !!entry.tab && !entry.tab.asleep;
           const active = entry.tab ? entry.tab.id === selectedTabId : entry.context.id === selectedContextId && !tab;
@@ -165,28 +168,28 @@ export function BrowserTabStrip({ stripRef, permanent, temporary, tab, selectedT
             closeTitle={t('browser.closeTab')}
           />
         ))}
-        <WithTooltip label={t('browser.openNewTab')}>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onNewTab}
-            className="mb-1 ml-0.5 text-muted-foreground"
-            aria-label={t('browser.openNewTab')}
-          >
-            <Plus />
-          </Button>
-        </WithTooltip>
       </div>
+      <WithTooltip label={t('browser.openNewTab')}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          onClick={onNewTab}
+          className="mb-1 ml-0.5 text-muted-foreground"
+          aria-label={t('browser.openNewTab')}
+        >
+          <Plus />
+        </Button>
+      </WithTooltip>
       {limits && (
         <span
-          className="mb-1.5 ml-2 inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground tabular-nums"
+          className="mb-2 ml-2 hidden shrink-0 items-center gap-1 text-xs xl:inline-flex text-muted-foreground tabular-nums"
           title={t('browser.sessionCapacityHint')}
         >
           <Globe className="size-3" />
           <span>{t('browser.awakeOfMax', { used: limits.concurrent.used, max: limits.concurrent.max })}</span>
         </span>
       )}
-      <AllTabsMenu permanent={permanent} temporary={temporary} onSelect={onSelectEntry} />
+      <AllTabsMenu permanent={permanent} temporary={temporary} limits={limits} onSelect={onSelectEntry} />
     </div>
   );
 }
