@@ -1,5 +1,5 @@
 """
-cloro web search tool: Google results, or Google AI Mode and Bing AI Mode answers.
+cloro web search tool: Google or Bing results, or Google AI Mode and Bing AI Mode answers.
 
 Requires: CLORO_API_KEY environment variable.
 """
