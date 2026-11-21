@@ -810,3 +810,10 @@ async def network_manifest():
         "capabilities": ["channels", "files", "events", "presence"],
         "mods": ["messaging", "file_storage", "browser"],
     }
+
+
+# Keep last: exact-path routing shortcut (see app/route_index.py). Routes added
+# later are picked up automatically; behaviour matches Starlette's own matching.
+from app.route_index import install_static_route_index  # noqa: E402
+
+install_static_route_index(app)
