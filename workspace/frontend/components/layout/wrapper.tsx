@@ -56,7 +56,7 @@ export function Wrapper() {
   const {
     isMobile, viewMode, isAgentPanelOpen, isSidebarOpen, setSidebarOpen,
     hasListPanel, mobilePane, splitBrowser, showBrowserPreview, isRailExpanded, conversationWidth, setConversationWidth,
-    filesSection, selectedAgentName, setSelectedAgentName, openView,
+    filesSection, selectedAgentName, setSelectedAgentName, openView, connectSetupRequest,
   } = useLayout();
 
   // v1.1 M2: `#?agent=<name>` (where an agent invite lands) opens the agent
@@ -168,6 +168,7 @@ export function Wrapper() {
   }, [loading, workspaceLoadError, workspace, currentUser.id, hasAgents, userSessions.length, currentSessionId, viewMode, openView]);
   const showOnboarding =
     !onboardingDismissed && viewMode === 'connect' &&
+    (forceWelcome || !connectSetupRequest) &&
     (previewWelcome || !hasAgents);
 
   const dismissOnboarding = () => {

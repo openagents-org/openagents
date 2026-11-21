@@ -1,15 +1,13 @@
 'use client';
 
 import { useRef } from 'react';
-import { Globe, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Spinner } from '@/components/ui/spinner';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { BrowserTab } from '@/lib/types';
 import type { useBrowserControl } from './use-browser-control';
 import type { BrowserSession } from './use-browser-session';
+import { BrowserRecoveryCard } from './browser-recovery-card';
 import { BrowserControlLayer } from './browser-control-layer';
 
 type SendInput = ReturnType<typeof useBrowserControl>['input'];
@@ -109,27 +107,20 @@ export function BrowserViewport({ tab, session, controlling, controlBusy, onTogg
   return (
     <div
       className={cn(
-        'relative flex flex-1 items-start justify-center overflow-hidden bg-muted transition-shadow',
+        'relative flex flex-1 items-start justify-center min-h-0 overflow-hidden bg-muted/30 transition-shadow',
         agentActive && 'ring-2 ring-info/55 ring-inset',
       )}
     >
       {sessionDead || asleep ? (
-        <Empty className="h-full">
-          <EmptyHeader>
-            <EmptyMedia variant="icon"><Globe /></EmptyMedia>
-            <EmptyTitle>{t(asleep ? 'browser.sleepingTitle' : 'browser.unavailableTitle')}</EmptyTitle>
-            <EmptyDescription role={recoveryError ? 'alert' : undefined}>{recoveryError || t(asleep ? 'browser.sleepingBody' : 'browser.unavailableBody')}</EmptyDescription>
-          </EmptyHeader>
-          <EmptyContent>
-            <Button size="sm" onClick={session.handleReconnect} disabled={reconnecting}>
-              <RefreshCw data-icon="inline-start" className={cn(reconnecting && 'animate-spin')} />
-              {t('browser.reactivate')}
-            </Button>
-            {sessionDead && tab.contextId && (
-              <Button variant="link" size="xs" onClick={session.handleReplace} disabled={reconnecting}>{t('browser.replace')}</Button>
-            )}
-          </EmptyContent>
-        </Empty>
+        <BrowserRecoveryCard
+          tab={tab}
+          screenshotUrl={screenshotUrl}
+          asleep={!!asleep}
+          reconnecting={reconnecting}
+          error={recoveryError}
+          onReconnect={session.handleReconnect}
+          onReplace={sessionDead && tab.contextId ? session.handleReplace : undefined}
+        />
       ) : reconnecting || (!tab.liveUrl && loading && !screenshotUrl) ? (
         <div className="flex h-full w-full items-center justify-center text-muted-foreground">
           <Spinner className="size-6" />

@@ -2516,6 +2516,21 @@ class WorkspaceApi {
     return raw?.markers ?? {};
   }
 
+  /** One of the signed-in person's own settings, shared by all their
+   *  devices. `persisted` is false for token-only callers (nothing kept). */
+  async getPersonalSetting<T>(key: string): Promise<{ value: T | null; persisted: boolean }> {
+    const params = new URLSearchParams({ network: this.requireWorkspace() });
+    const raw = await this.request<{ value?: T | null; persisted?: boolean }>(`/v1/personal-settings/${encodeURIComponent(key)}?${params}`);
+    return { value: raw?.value ?? null, persisted: !!raw?.persisted };
+  }
+
+  async putPersonalSetting<T>(key: string, value: T): Promise<void> {
+    await this.request<unknown>(`/v1/personal-settings/${encodeURIComponent(key)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ network: this.requireWorkspace(), value }),
+    });
+  }
+
   /** Mark the caller's unread DM / mention rows for one thread or DM read. */
   async markChannelSignalsRead(channel: string): Promise<number> {
     const params = new URLSearchParams({ network: this.workspaceId, channel });

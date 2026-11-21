@@ -833,7 +833,7 @@ def test_yumi_does_not_advertise_identity_only_device_pairing():
     assert 'list_nodes' in names
 
 
-def test_seeded_welcome_asks_where_the_agent_will_run(db, yumi_enabled):
+def test_seeded_welcome_offers_all_four_connection_paths(db, yumi_enabled):
     from app.access import provision_workspace
     from app.models import User
     user = User(email="location-onboarding@example.com", display_name="New User")
@@ -845,9 +845,11 @@ def test_seeded_welcome_asks_where_the_agent_will_run(db, yumi_enabled):
         EventRecord.source == "openagents:yumi",
         EventRecord.type == "workspace.message.posted",
     )).scalar_one()
-    assert "Where will your agent run?" in greeting.payload["content"]
+    assert "How would you like to connect an agent?" in greeting.payload["content"]
     assert greeting.metadata_["onboarding"] == "agent_location"
-    assert greeting.metadata_["suggestions"] == ["On a remote machine", "On my computer"]
+    assert greeting.metadata_["suggestions"] == [
+        "On my computer", "On a remote machine", "From an agent I’m already using", "Use a cloud agent",
+    ]
 
 
 class TestClientPlatformGuide:

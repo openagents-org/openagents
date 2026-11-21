@@ -33,3 +33,29 @@ def test_database_timeouts_return_retryable_response_with_cors(client, monkeypat
     assert response.headers["retry-after"] == "5"
     assert response.headers["access-control-allow-origin"] == "https://workspace.openagents.org"
     assert "retry" in response.json()["message"].lower()
+
+
+def test_postgres_timeouts_are_one_round_trip(monkeypatch):
+    """All three limits go in one statement, transaction-local (is_local=true)."""
+    monkeypatch.setattr(db_timeouts, "STATEMENT_TIMEOUT_MS", 30000)
+    monkeypatch.setattr(db_timeouts, "LOCK_TIMEOUT_MS", 3000)
+    monkeypatch.setattr(db_timeouts, "IDLE_TRANSACTION_TIMEOUT_MS", 60000)
+    sent = []
+
+    class Result:
+        def close(self):
+            sent.append("closed")
+
+    class Connection:
+        dialect = type("Dialect", (), {"name": "postgresql"})()
+
+        def exec_driver_sql(self, sql):
+            sent.append(sql)
+            return Result()
+
+    db_timeouts.apply_transaction_timeouts(None, None, Connection())
+    assert len(sent) == 2 and sent[1] == "closed"
+    sql = sent[0]
+    assert "set_config('statement_timeout', '30000', true)" in sql
+    assert "set_config('lock_timeout', '3000', true)" in sql
+    assert "set_config('idle_in_transaction_session_timeout', '60000', true)" in sql

@@ -3,7 +3,7 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({
-  validate: vi.fn(), reactivate: vi.fn(), refresh: vi.fn(), reconnect: vi.fn(), replace: vi.fn(), get: vi.fn(), confirm: vi.fn(),
+  screenshot: vi.fn(), validate: vi.fn(), reactivate: vi.fn(), refresh: vi.fn(), reconnect: vi.fn(), replace: vi.fn(), get: vi.fn(), confirm: vi.fn(),
   tab: {id:'saved', sessionId:'old-session', contextId:'context', url:'https://example.com', title:'Example', liveUrl:'https://browserfabric.com/live/old', sharedWith:[], createdBy:'human:user', asleep:false},
 }));
 vi.mock('./use-browser-control', () => ({useBrowserControl: () => ({controlling:false,busy:false,toggle:vi.fn(),input:vi.fn(),frameRevision:0})}));
@@ -15,7 +15,7 @@ vi.mock('@/lib/i18n', () => ({useT: () => (key:string) => key, useFormatters: ()
 vi.mock('sonner', () => ({toast:{success:vi.fn(),error:vi.fn()}}));
 vi.mock('@/lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/api')>()),
-  workspaceApi:{validateBrowserTab:state.validate,reactivateBrowserTab:state.reactivate,replaceBrowserTab:state.replace,getBrowserTab:state.get},
+  workspaceApi:{fetchBrowserScreenshot:state.screenshot,validateBrowserTab:state.validate,reactivateBrowserTab:state.reactivate,replaceBrowserTab:state.replace,getBrowserTab:state.get},
 }));
 vi.mock('@/lib/workspace-context', () => ({useWorkspace: () => ({
   browserTabs:[state.tab],browserContexts:[],agents:[],refreshBrowserTabs:state.refresh,reconnectBrowserTab:state.reconnect,
@@ -27,6 +27,7 @@ const render = () => act(async () => root.render(React.createElement<{artifactTa
 const retry = () => act(async () => (host.querySelector('button[aria-label="browser.reactivate"]') as HTMLButtonElement).click());
 beforeEach(() => {
   Object.assign(globalThis,{IS_REACT_ACT_ENVIRONMENT:true});
+  state.screenshot.mockReset().mockRejectedValue(new Error('No frame'));
   state.tab.asleep=false;
   state.tab.liveUrl="https://browserfabric.com/live/old";
   state.validate.mockReset().mockResolvedValue({connectionStatus:'alive'});
@@ -38,7 +39,7 @@ beforeEach(() => {
   state.confirm.mockReset().mockResolvedValue(false);
   host=document.createElement('div'); document.body.append(host); root=createRoot(host);
 });
-afterEach(async () => {await act(async () => root.unmount()); host.remove();});
+afterEach(async () => {await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals();});
 it('shows Reactivate for a sleeping session that still has an active tab record',async () => {
   state.validate.mockResolvedValue({connectionStatus:'alive',asleep:true});
   await render();
@@ -101,4 +102,29 @@ it.each([false,true])('replacement requires explicit confirmation (%s) and the f
   expect(state.confirm).toHaveBeenCalledWith(expect.objectContaining({destructive:true,description:'browser.replaceDescription'}));
   if (approved) expect(state.replace).toHaveBeenCalledWith('saved','current-session');
   else expect(state.replace).not.toHaveBeenCalled();
+});
+
+
+it('shows the last real frame under recovery without leaving an interactive browser', async () => {
+  vi.useFakeTimers();
+  vi.stubGlobal('URL', class extends URL {
+    static createObjectURL() { return 'blob:previous-frame'; }
+    static revokeObjectURL() {}
+  });
+  state.screenshot.mockResolvedValue(new Response(new Blob(['frame'])));
+  await render();
+  expect(host.querySelector('iframe')).not.toBeNull();
+  state.validate.mockResolvedValue({connectionStatus: 'unknown'});
+  state.screenshot.mockRejectedValue(new Error('offline'));
+  await act(async () => { await vi.advanceTimersByTimeAsync(30000); });
+  expect(host.querySelector('iframe')).toBeNull();
+  expect(host.querySelector('img[src="blob:previous-frame"]')).not.toBeNull();
+  expect(host.textContent).toContain('browser.previousScreenshot');
+  expect(host.textContent).toContain('browser.unavailableTitle');
+  expect((Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'browser.takeOver') as HTMLButtonElement).disabled).toBe(true);
+  // A broken cached frame falls back to the ordinary recovery surface.
+  await act(async () => host.querySelector('img')!.dispatchEvent(new Event('error')));
+  expect(host.querySelector('img')).toBeNull();
+  expect(host.textContent).not.toContain('browser.previousScreenshot');
+  expect(host.textContent).toContain('browser.unavailableTitle');
 });
