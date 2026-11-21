@@ -16,6 +16,7 @@ function makeAdapter() {
   adapter.sendResponse = async () => {};
   adapter._autoTitleChannel = async () => {};
   adapter._preflight = () => ({ ok: true });
+  adapter._opencodeBinary = 'opencode';  // CI has no OpenCode; Windows checks the program's name before running
   adapter._ensureCustomProviderConfig = () => {};
   adapter._resolveModel = () => 'openagents-gateway/test-model';
   adapter._composePrompt = (content) => content;
