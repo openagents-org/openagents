@@ -154,3 +154,12 @@ it('falls back to the thread link for people who cannot manage guest links', asy
   expect(button('share.guestLink')).toBeUndefined();
   expect(document.querySelector('button[role="tab"][data-state="active"]')?.textContent).toBe('share.threadLink');
 });
+
+it('stays usable after an action under StrictMode (dev double-mount)', async () => {
+  vi.mocked(workspaceApi.updateGuestLinkExpiry).mockImplementation(async (id, expiresAt) => ({ ...LIVE, id, expiresAt }));
+  await act(async () => root.render(React.createElement(React.StrictMode, null,
+    React.createElement(ShareDialog, { open: true, sessionId: 'share-abc', onOpenChange: () => {} }))));
+  for (let i = 0; i < 3; i++) await act(async () => { await Promise.resolve(); });
+  await click(document.querySelector('[data-expiry-choice="1d"]')!);
+  expect(button('share.guestLinkTurnOff')?.hasAttribute('disabled')).toBe(false);
+});

@@ -1941,7 +1941,7 @@ export const messages = {
     notFoundTitle: 'This link isn’t available',
     notFoundBody: 'It may have been turned off by the person who shared it, or the address is incomplete. Ask them for a new link.',
     expiredTitle: 'This link has expired',
-    expiredBody: 'Shared thread links stop working after a while. Ask the person who shared it for a new link.',
+    expiredBody: 'The person who shared it set this link to expire. Ask them for a new one.',
     loadFailedTitle: 'Couldn’t open this thread',
     loadFailedBody: 'Check your connection and try again.',
     tryAgain: 'Try again',

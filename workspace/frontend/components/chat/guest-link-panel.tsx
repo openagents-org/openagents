@@ -70,7 +70,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks }: {
   /** The choice made here, so it stays highlighted (the server keeps a date). */
   const [picked, setPicked] = useState<{ linkId: string; choice: ExpiryChoice } | null>(null);
   const mounted = useRef(true);
-  useEffect(() => () => { mounted.current = false; }, []);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   if (error) {
     return <p className="text-sm text-muted-foreground" data-guest-link-error={error}>

@@ -1906,7 +1906,7 @@ export const messages: Messages = {
     notFoundTitle: '此链接不可用',
     notFoundBody: '分享者可能已关闭此链接，或链接地址不完整。请向对方索取新链接。',
     expiredTitle: '此链接已过期',
-    expiredBody: '分享的话题链接会在一段时间后失效。请向分享者索取新链接。',
+    expiredBody: '分享者为这个链接设置了有效期，现已过期。请向对方索取新链接。',
     loadFailedTitle: '无法打开此话题',
     loadFailedBody: '请检查网络连接后重试。',
     tryAgain: '重试',
