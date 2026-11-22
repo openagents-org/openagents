@@ -39,13 +39,13 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 |---|---|---|
 | GET | `/v1/share/instructions` | anyone |
 | POST | `/v1/share/publish` | anyone; optional bearer = owned by that account |
-| GET | `/v1/thread-links?network=&channel=` | workspace owner/admin or workspace token |
-| PATCH | `/v1/thread-links/{id}?network=` `{expires_at}` | same |
-| DELETE | `/v1/thread-links/{id}?network=` | same |
-| GET | `/v1/thread-links/public/{token}` | anyone with the link |
-| POST | `/v1/thread-links/public/{token}/guests` `{name}` | anyone with the link |
-| GET | `/v1/thread-links/public/{token}/messages?after=&limit=` | anyone with the link |
-| POST | `/v1/thread-links/public/{token}/messages` `{content, idempotency_key}` | guest session (`X-Guest-Session`) |
+| GET | `/v1/guest-links?network=&channel=` | workspace owner/admin or workspace token |
+| PATCH | `/v1/guest-links/{id}?network=` `{expires_at}` | same |
+| DELETE | `/v1/guest-links/{id}?network=` | same |
+| GET | `/v1/guest-links/public/{token}` | anyone with the link |
+| POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
+| GET | `/v1/guest-links/public/{token}/messages?after=&limit=` | anyone with the link |
+| POST | `/v1/guest-links/public/{token}/messages` `{content, idempotency_key}` | guest session (`X-Guest-Session`) |
 
 Tables: `thread_guest_links`, `thread_guests` (migration 101, new tables only).
 

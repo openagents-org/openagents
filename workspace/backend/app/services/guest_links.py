@@ -452,7 +452,7 @@ def create_guest(db: Session, token: str, name: Optional[str]) -> dict:
     return {"guest": {"id": guest.id, "name": guest.display_name}, "session": session}
 
 
-def list_messages(db: Session, token: str, after: Optional[str], limit: int) -> dict:
+def list_messages(db: Session, token: str, after: Optional[str], limit: int, before: Optional[str] = None) -> dict:
     link, workspace, channel = live_link(db, token)
     limit = max(1, min(int(limit or 100), 200))
     base = select(EventRecord).where(
@@ -461,7 +461,19 @@ def list_messages(db: Session, token: str, after: Optional[str], limit: int) -> 
         EventRecord.target == f"channel/{channel.name}",
         EventRecord.visibility != "direct",
     )
-    if after:
+    if after and before:
+        raise LinkError(400, "Use either 'after' or 'before', not both")
+    if before:
+        anchor = db.get(EventRecord, before)
+        if anchor is None or anchor.target != f"channel/{channel.name}":
+            raise LinkError(400, "Unknown 'before' message")
+        rows = db.execute(base.where(
+            (EventRecord.timestamp < anchor.timestamp)
+            | ((EventRecord.timestamp == anchor.timestamp) & (EventRecord.id < anchor.id))
+        ).order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)).scalars().all()
+        has_more = len(rows) > limit
+        rows = list(reversed(rows[:limit]))
+    elif after:
         anchor = db.get(EventRecord, after)
         if anchor is None or anchor.target != f"channel/{channel.name}":
             raise LinkError(400, "Unknown 'after' message")
@@ -481,10 +493,19 @@ def list_messages(db: Session, token: str, after: Optional[str], limit: int) -> 
 
 # Metadata a guest may see. Everything else (routing traces, delivery
 # fingerprints, who an agent acted for) stays inside the workspace.
-_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "guest", "reply_to", "in_reply_to",
+_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "guest", "client_key", "reply_to", "in_reply_to",
                     "message_kind", "attachments", "task_id", "run_id")
 _PUBLIC_PAYLOAD = ("content", "message_type", "sender_name", "sender_display_name", "sender_type", "attachments",
                    "reply_to", "quote", "status", "progress", "title")
+
+
+# Home folders in agent output ("Read › /home/alex/…") name the person's
+# account on their computer. Guests see "~/…" instead.
+_HOME_PATH = re.compile(r"(?:/home/|/Users/|[A-Za-z]:\\Users\\)[^/\\\s`'\")]+")
+
+
+def _redact_home(text):
+    return _HOME_PATH.sub("~", text) if isinstance(text, str) else text
 
 
 def serialize_event(r: EventRecord) -> dict:
@@ -494,12 +515,15 @@ def serialize_event(r: EventRecord) -> dict:
     if source.startswith("human:") and not is_guest_source(source):
         # A member's email never reaches a guest; their display name does.
         source = "human:member"
+    public_payload = {k: payload[k] for k in _PUBLIC_PAYLOAD if k in payload}
+    if source.startswith("openagents:") and "content" in public_payload:
+        public_payload["content"] = _redact_home(public_payload["content"])
     return {
         "id": r.id,
         "type": r.type,
         "source": source,
         "target": r.target,
-        "payload": {k: payload[k] for k in _PUBLIC_PAYLOAD if k in payload},
+        "payload": public_payload,
         "metadata": {k: metadata[k] for k in _PUBLIC_METADATA if k in metadata},
         "timestamp": r.timestamp,
     }
@@ -578,6 +602,86 @@ def links_for(db: Session, workspace_id: str, channel_name: Optional[str]) -> Li
     if channel_name:
         q = q.where(ThreadGuestLink.channel_name == channel_name)
     return db.execute(q.order_by(ThreadGuestLink.created_at.desc())).scalars().all()
+
+
+def create_link(db: Session, workspace: Workspace, channel_name: str, raw_expiry: Optional[str],
+                created_by: str) -> ThreadGuestLink:
+    """A new guest link for a thread that was shared before (e.g. after turning one off).
+
+    Only threads published through Share get guest links: a link is the
+    owner's decision to let strangers in, made at publish time. Turning a
+    link off and making a new one keeps that decision; it never opens an
+    ordinary workspace thread to guests.
+    """
+    channel = db.execute(select(Channel).where(
+        Channel.workspace_id == str(workspace.id), Channel.name == channel_name,
+    )).scalar_one_or_none()
+    if channel is None or (channel.status or "active") == "deleted":
+        raise LinkError(404, "Thread not found")
+    previous = db.execute(select(ThreadGuestLink).where(
+        ThreadGuestLink.workspace_id == str(workspace.id), ThreadGuestLink.channel_name == channel_name,
+    ).order_by(ThreadGuestLink.created_at.desc()).limit(1)).scalar_one_or_none()
+    if previous is None:
+        raise LinkError(403, "Guest links are available only for threads shared with OpenAgents Share")
+    live = [l for l in links_for(db, str(workspace.id), channel_name)
+            if l.revoked_at is None and (l.expires_at is None or _aware(l.expires_at) > _now())]
+    if live:
+        raise LinkError(409, "This thread already has a live guest link")
+    link = ThreadGuestLink(
+        workspace_id=str(workspace.id),
+        channel_name=channel_name,
+        token=secrets.token_urlsafe(24),
+        created_by=created_by,
+        owner_name=previous.owner_name,
+        can_post=True,
+        expires_at=_parse_expiry(raw_expiry),
+    )
+    db.add(link)
+    db.commit()
+    db.refresh(link)
+    return link
+
+
+def share_state(workspace: Workspace) -> Optional[dict]:
+    """{claimed, ownerEmail?} for a workspace made by Share, else None."""
+    if not (workspace.settings or {}).get("openagents_share"):
+        return None
+    return {"claimed": bool(workspace.creator_email)}
+
+
+def claim(db: Session, workspace: Workspace, token: Optional[str], user) -> dict:
+    """Make an anonymously shared workspace the signed-in person's.
+
+    Proof is the creator credential (the workspace token in the owner link)
+    plus a signed-in account. Idempotent for the same person; a workspace
+    someone already kept can't be taken over with an old owner link.
+    """
+    if not (workspace.settings or {}).get("openagents_share"):
+        raise LinkError(404, "Not a shared workspace")
+    if not token or not secrets.compare_digest(str(token), str(workspace.password_hash or "")):
+        raise LinkError(403, "Open the private owner link to keep this workspace")
+    email = user.email.strip().lower()
+    if workspace.creator_email:
+        if workspace.creator_email.strip().lower() == email:
+            return {"claimed": True, "already": True}
+        raise LinkError(409, "Someone has already kept this workspace")
+    workspace.creator_email = email
+    exists = db.execute(select(WorkspaceMembership).where(
+        WorkspaceMembership.workspace_id == str(workspace.id), WorkspaceMembership.user_id == user.id,
+    )).scalar_one_or_none()
+    if exists is None:
+        db.add(WorkspaceMembership(workspace_id=str(workspace.id), user_id=user.id, role="owner"))
+    else:
+        exists.role = "owner"
+    for channel in db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id))).scalars():
+        if not channel.owner_email:
+            channel.owner_email = email
+    for member in db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == str(workspace.id))).scalars():
+        if not member.owner_email:
+            member.owner_email = email
+    db.commit()
+    logger.info("share: workspace %s kept by an account", workspace.id)
+    return {"claimed": True, "already": False}
 
 
 def revoke(db: Session, workspace_id: str, link_id: str) -> ThreadGuestLink:

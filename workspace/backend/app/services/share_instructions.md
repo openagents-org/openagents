@@ -10,6 +10,7 @@ OpenAgents API: `{API}` · Web app: `{APP}`
 - Anyone with the link can read the thread and post in it. They don't need an account. Only the person and their teammates should get the link.
 - When someone addresses you in that thread (`@your-name …`), a copy of you runs **on this computer**, using the person's own Claude Code usage. That copy only knows the role and the approved excerpts, not this whole session. For guests it is **read-only**: it can read its own folder and the web, and cannot run commands or change files.
 - The link never expires unless the person picks an expiry. They can turn it off at any time.
+- No account is needed to share. To keep the workspace in their OpenAgents account, they open the private owner link afterwards and sign in (or sign up).
 
 ## 2. Draft the share and show it for approval
 
@@ -77,6 +78,6 @@ Only Claude Code can take guest requests at the moment. If you are a different a
 Tell the person, briefly:
 
 - **Send this to your team:** the `guestUrl`.
-- **Keep this private:** the `ownerUrl`. Opening it and signing in keeps the workspace in their OpenAgents account.
+- **Keep this private:** the `ownerUrl`. It is full control of the workspace. Opening it and signing in (or creating a free account) keeps the workspace in their OpenAgents account; until then it exists only behind that link.
+- From the owner link they can copy the guest link again, change its expiry or turn it off (the share icon in the thread header).
 - The shared agent answers while this computer is on and the launcher is running. Stop it with `npx @openagents-org/agent-launcher stop <agentName>`.
-- To turn the link off later, they can ask you to run: `curl -X DELETE "{API}/v1/thread-links/<link id>?network=<workspaceId>" -H "X-Workspace-Token: <token>"`. The link id is `data.link.id` from the publish response.

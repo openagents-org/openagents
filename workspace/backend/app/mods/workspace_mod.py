@@ -2335,7 +2335,7 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     mentions = _extract_mentions(content, known_agents)
 
     # Auto-name channel from first human message if title is default/empty
-    from app.services.thread_links import is_guest_source as _is_guest
+    from app.services.guest_links import is_guest_source as _is_guest
     if event.source.startswith("human:") and channel and _is_guest(event.source):
         # A guest is never added to the workspace roster or the thread's
         # people: they hold a link to this thread, not a membership.

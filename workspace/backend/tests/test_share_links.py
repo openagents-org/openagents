@@ -47,7 +47,7 @@ def _token(data):
 
 
 def _guest(client, token, name="Maya"):
-    r = client.post(f"/v1/thread-links/public/{token}/guests", json={"name": name})
+    r = client.post(f"/v1/guest-links/public/{token}/guests", json={"name": name})
     assert r.status_code == 200, r.text
     return r.json()["data"]
 
@@ -56,12 +56,12 @@ def _post(client, token, session, content, key=None):
     body = {"content": content}
     if key:
         body["idempotency_key"] = key
-    return client.post(f"/v1/thread-links/public/{token}/messages", json=body,
+    return client.post(f"/v1/guest-links/public/{token}/messages", json=body,
                        headers={"X-Guest-Session": session} if session else {})
 
 
 def _messages(client, token, after=None):
-    url = f"/v1/thread-links/public/{token}/messages" + (f"?after={after}" if after else "")
+    url = f"/v1/guest-links/public/{token}/messages" + (f"?after={after}" if after else "")
     r = client.get(url)
     assert r.status_code == 200, r.text
     return r.json()["data"]["messages"]
@@ -139,7 +139,7 @@ def test_signed_in_publisher_owns_the_workspace(client, db, monkeypatch, no_push
 def test_guest_reads_without_a_name_and_posts_after_choosing_one(client, db, no_push):
     data = _published(client)
     token = _token(data)
-    info = client.get(f"/v1/thread-links/public/{token}")
+    info = client.get(f"/v1/guest-links/public/{token}")
     assert info.status_code == 200
     assert info.headers["referrer-policy"] == "no-referrer"
     body = info.json()["data"]
@@ -151,7 +151,7 @@ def test_guest_reads_without_a_name_and_posts_after_choosing_one(client, db, no_
 
     assert _post(client, token, None, "hello").status_code == 401
     g = _guest(client, token)
-    again = client.get(f"/v1/thread-links/public/{token}", headers={"X-Guest-Session": g["session"]})
+    again = client.get(f"/v1/guest-links/public/{token}", headers={"X-Guest-Session": g["session"]})
     assert again.json()["data"]["guest"] == g["guest"]
     assert db.query(ThreadGuest).one().session_hash != g["session"], "only a hash is stored"
 
@@ -179,7 +179,7 @@ def test_addressing_the_agent_routes_the_message_to_it(client, db, no_push):
     member = db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").one()
     assert member.capabilities == ["guest_turns"], "unknown capabilities are dropped"
     token = _token(data)
-    info = client.get(f"/v1/thread-links/public/{token}").json()["data"]
+    info = client.get(f"/v1/guest-links/public/{token}").json()["data"]
     assert info["agents"][0]["acceptsGuests"] is True and info["agents"][0]["online"] is True
     g = _guest(client, token)
     r = _post(client, token, g["session"], "@pr-reviewer please review https://github.com/example/repo/pull/42")
@@ -228,7 +228,7 @@ def test_guest_link_reaches_only_its_own_thread(client, db, no_push):
     a = _published(client)
     b = _published(client)
     other = db.query(EventRecord).filter(EventRecord.target == f"channel/{b['channel']['name']}").first()
-    r = client.get(f"/v1/thread-links/public/{_token(a)}/messages?after={other.id}")
+    r = client.get(f"/v1/guest-links/public/{_token(a)}/messages?after={other.id}")
     assert r.status_code == 400, "an id from another thread is not a valid cursor"
     g = _guest(client, _token(a))
     # A guest session is bound to its link.
@@ -245,34 +245,34 @@ def test_revoked_and_expired_links_stop_working(client, db, no_push):
     link_id = data["link"]["id"]
 
     # Only the owner manages links: the guest token is not enough.
-    denied = client.delete(f"/v1/thread-links/{link_id}?network={data['workspaceId']}",
+    denied = client.delete(f"/v1/guest-links/{link_id}?network={data['workspaceId']}",
                            headers={"X-Workspace-Token": token})
     assert denied.status_code == 403
 
     owner = {"X-Workspace-Token": data["token"]}
-    listed = client.get(f"/v1/thread-links?network={data['workspaceId']}", headers=owner)
+    listed = client.get(f"/v1/guest-links?network={data['workspaceId']}", headers=owner)
     assert [l["id"] for l in listed.json()["data"]["links"]] == [link_id]
 
     past = datetime.now(timezone.utc) - timedelta(minutes=1)
     db.query(ThreadGuestLink).filter_by(id=link_id).update({"expires_at": past})
     db.commit()
-    assert client.get(f"/v1/thread-links/public/{token}").status_code == 410
+    assert client.get(f"/v1/guest-links/public/{token}").status_code == 410
     assert _post(client, token, g["session"], "still here?").status_code == 410
 
-    patched = client.patch(f"/v1/thread-links/{link_id}?network={data['workspaceId']}",
+    patched = client.patch(f"/v1/guest-links/{link_id}?network={data['workspaceId']}",
                            json={"expires_at": None}, headers=owner)
     assert patched.status_code == 200 and patched.json()["data"]["link"]["expiresAt"] is None
-    assert client.get(f"/v1/thread-links/public/{token}").status_code == 200
+    assert client.get(f"/v1/guest-links/public/{token}").status_code == 200
 
-    revoked = client.delete(f"/v1/thread-links/{link_id}?network={data['workspaceId']}", headers=owner)
+    revoked = client.delete(f"/v1/guest-links/{link_id}?network={data['workspaceId']}", headers=owner)
     assert revoked.status_code == 200
-    assert client.get(f"/v1/thread-links/public/{token}").status_code == 404
+    assert client.get(f"/v1/guest-links/public/{token}").status_code == 404
     assert _post(client, token, g["session"], "hello?").status_code == 404
-    assert client.post(f"/v1/thread-links/public/{token}/guests", json={"name": "Sam"}).status_code == 404
+    assert client.post(f"/v1/guest-links/public/{token}/guests", json={"name": "Sam"}).status_code == 404
 
 
 def test_guest_posting_is_rate_limited(client, monkeypatch, no_push):
-    import app.services.thread_links as svc
+    import app.services.guest_links as svc
     monkeypatch.setattr(svc, "GUEST_POSTS_PER_HOUR", 2)
     data = _published(client)
     token = _token(data)
@@ -284,7 +284,7 @@ def test_guest_posting_is_rate_limited(client, monkeypatch, no_push):
 
 def test_guest_name_is_required_and_cleaned(client, no_push):
     token = _token(_published(client))
-    assert client.post(f"/v1/thread-links/public/{token}/guests", json={"name": "  "}).status_code == 400
+    assert client.post(f"/v1/guest-links/public/{token}/guests", json={"name": "  "}).status_code == 400
     g = _guest(client, token, name="Maya‮  Lee")
     assert g["guest"]["name"] == "Maya Lee"
 
@@ -330,3 +330,116 @@ def test_an_older_launcher_never_gets_a_guests_request(client, db, no_push):
     db.expire_all()
     member = db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").one()
     assert member.capabilities == []
+
+
+def test_older_messages_page_backwards_with_before(client, no_push):
+    data = _published(client)
+    token = _token(data)
+    g = _guest(client, token)
+    for i in range(5):
+        _post(client, token, g["session"], f"m{i}")
+    latest = client.get(f"/v1/guest-links/public/{token}/messages?limit=3").json()["data"]
+    assert [m["payload"]["content"] for m in latest["messages"]] == ["m2", "m3", "m4"]
+    assert latest["hasMore"] is True
+    older = client.get(f"/v1/guest-links/public/{token}/messages?limit=3&before={latest['messages'][0]['id']}").json()["data"]
+    assert [m["payload"]["content"] for m in older["messages"]][-2:] == ["m0", "m1"]
+    assert older["hasMore"] is True
+    oldest = client.get(f"/v1/guest-links/public/{token}/messages?limit=10&before={older['messages'][0]['id']}").json()["data"]
+    assert oldest["hasMore"] is False
+    assert all(m["metadata"].get("share_seed") for m in oldest["messages"]), "the excerpts come first"
+    both = client.get(f"/v1/guest-links/public/{token}/messages?after=x&before=y")
+    assert both.status_code == 400
+
+
+def test_a_post_echoes_its_key_so_the_page_can_match_it(client, no_push):
+    data = _published(client)
+    token = _token(data)
+    g = _guest(client, token)
+    r = _post(client, token, g["session"], "hello", key="client-key-123")
+    assert r.json()["data"]["metadata"]["client_key"] == "client-key-123"
+    polled = [m for m in _messages(client, token) if m["id"] == r.json()["data"]["id"]]
+    assert polled[0]["metadata"]["client_key"] == "client-key-123"
+
+
+def test_owner_can_make_a_new_link_after_turning_one_off(client, db, no_push):
+    data = _published(client)
+    owner = {"X-Workspace-Token": data["token"]}
+    body = {"network": data["workspaceId"], "channel": data["channel"]["name"]}
+    assert client.post("/v1/guest-links", json=body, headers=owner).status_code == 409, "one live link at a time"
+    client.delete(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", headers=owner)
+    fresh = client.post("/v1/guest-links", json={**body, "expires_at": None}, headers=owner)
+    assert fresh.status_code == 200, fresh.text
+    new = fresh.json()["data"]["link"]
+    assert new["url"] != data["guestUrl"] and new["expiresAt"] is None
+    new_token = new["url"].rsplit("/", 1)[1]
+    assert client.get(f"/v1/guest-links/public/{new_token}").json()["data"]["owner"]["name"] == "Alex"
+    assert client.get(f"/v1/guest-links/public/{_token(data)}").status_code == 404, "the old link stays off"
+    # The guest token is not an owner credential.
+    assert client.post("/v1/guest-links", json=body, headers={"X-Workspace-Token": new_token}).status_code == 403
+
+
+def test_ordinary_threads_never_get_guest_links(client, workspace, no_push):
+    r = client.post("/v1/guest-links", json={"network": workspace["id"], "channel": workspace["channel"]["name"]},
+                    headers={"X-Workspace-Token": workspace["token"]})
+    assert r.status_code == 403
+
+
+def _people(db, monkeypatch, *names):
+    import app.access as access
+    claims = {}
+    for name in names:
+        email = f"{name}@acme.test"
+        db.add(User(email=email, display_name=name.capitalize()))
+        claims[name] = {"provider": "firebase", "email": email, "firebase_uid": name,
+                        "apple_sub": None, "display_name": name.capitalize()}
+    db.commit()
+    monkeypatch.setattr(access, "verify_identity_claims", lambda tok: claims.get(tok))
+
+
+def test_signing_in_from_the_owner_link_keeps_the_workspace(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex", "eve")
+    data = _published(client)
+    owner = {"X-Workspace-Token": data["token"]}
+    state = client.get(f"/v1/guest-links/workspace?network={data['workspaceId']}", headers=owner)
+    assert state.json()["data"]["share"] == {"claimed": False}
+
+    # Signed in but without the owner link: no claim.
+    r = client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]},
+                    headers={"Authorization": "Bearer eve"})
+    assert r.status_code == 403
+    # Owner link without a sign-in: no claim.
+    assert client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]}, headers=owner).status_code == 401
+
+    alex = {**owner, "Authorization": "Bearer alex"}
+    r = client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]}, headers=alex)
+    assert r.status_code == 200 and r.json()["data"] == {"claimed": True, "already": False}
+    assert client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]}, headers=alex).json()["data"]["already"] is True
+    ws = db.get(Workspace, data["workspaceId"])
+    db.refresh(ws)
+    assert ws.creator_email == "alex@acme.test"
+    channel = db.query(Channel).filter(Channel.name == data["channel"]["name"]).one()
+    assert channel.owner_email == "alex@acme.test"
+    member = db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").one()
+    assert member.owner_email == "alex@acme.test"
+    listed = client.get("/v1/workspaces", headers={"Authorization": "Bearer alex"}).json()["data"]
+    assert data["workspaceId"] in [w.get("workspaceId") or w.get("id") for w in listed]
+
+    # A forwarded owner link can't take it over later.
+    r = client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]},
+                    headers={**owner, "Authorization": "Bearer eve"})
+    assert r.status_code == 409
+    # The guest link still works, with the same scope.
+    assert client.get(f"/v1/guest-links/public/{_token(data)}").status_code == 200
+
+
+def test_agent_output_does_not_name_the_owners_home_folder(client, db, no_push):
+    data = _published(client)
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=data["workspaceId"], type="workspace.message.posted",
+                       source="openagents:pr-reviewer", target=f"channel/{data['channel']['name']}",
+                       payload={"content": "Read › /home/alex/.openagents/shared/pr-reviewer/CLAUDE.md",
+                                "message_type": "status"},
+                       metadata_={}, timestamp=int(datetime.now(timezone.utc).timestamp() * 1000) + 10,
+                       visibility="channel"))
+    db.commit()
+    last = _messages(client, _token(data))[-1]
+    assert last["payload"]["content"] == "Read › ~/.openagents/shared/pr-reviewer/CLAUDE.md"

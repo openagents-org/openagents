@@ -128,7 +128,7 @@ def get_or_create_user(db: Session, claims: dict) -> Optional[User]:
         return None
     if email.endswith("@guest.invalid"):
         # Shared-thread guests post under this reserved domain
-        # (services/thread_links.py). No sign-in may ever claim one of them.
+        # (services/guest_links.py). No sign-in may ever claim one of them.
         return None
 
     user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()

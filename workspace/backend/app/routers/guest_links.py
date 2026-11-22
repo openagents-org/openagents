@@ -1,16 +1,19 @@
 # -*- coding: utf-8 -*-
-"""OpenAgents Share — guest links into one thread (app/services/thread_links.py).
+"""OpenAgents Share — guest links into one thread (app/services/guest_links.py).
 
   GET    /v1/share/instructions                         the markdown an agent follows to share itself
   POST   /v1/share/publish                              an agent publishes, on its person's say-so
-  GET    /v1/thread-links?network=&channel=             owner: the links of a workspace / thread
-  PATCH  /v1/thread-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
-  DELETE /v1/thread-links/{id}?network=                 owner: turn a link off for good
+  GET    /v1/guest-links?network=&channel=             owner: the links of a workspace / thread
+  POST   /v1/guest-links  {network, channel, expires_at}  owner: a new link for a shared thread
+  GET    /v1/guest-links/workspace?network=             is this a Share workspace, and is it kept yet
+  POST   /v1/guest-links/claim  {network}               owner link token + sign-in: keep the workspace
+  PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
+  DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
 
-  GET    /v1/thread-links/public/{token}                thread, agents, owner name; no auth
-  POST   /v1/thread-links/public/{token}/guests         {name} → a guest session
-  GET    /v1/thread-links/public/{token}/messages       ?after=&limit= — the thread's messages
-  POST   /v1/thread-links/public/{token}/messages       X-Guest-Session; {content, idempotency_key}
+  GET    /v1/guest-links/public/{token}                thread, agents, owner name; no auth
+  POST   /v1/guest-links/public/{token}/guests         {name} → a guest session
+  GET    /v1/guest-links/public/{token}/messages       ?after= | ?before= &limit= — the thread's messages
+  POST   /v1/guest-links/public/{token}/messages       X-Guest-Session; {content, idempotency_key}
 
 Publishing needs no account. With a signed-in bearer the new workspace belongs
 to that account; without one it is anonymous and the returned workspace token
@@ -35,7 +38,7 @@ from app.config import config
 from app.database import get_db
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _emit_event_blocking, _resolve_workspace
-from app.services import thread_links as svc
+from app.services import guest_links as svc
 from openagents.core.onm_events import Event
 
 logger = logging.getLogger(__name__)
@@ -130,7 +133,57 @@ class LinkPatch(BaseModel):
     expires_at: Optional[str] = None
 
 
-@router.get("/thread-links")
+class ClaimRequest(BaseModel):
+    network: str
+
+
+@router.get("/guest-links/workspace")
+def share_workspace_state(network: str, db: Session = Depends(get_db),
+                          x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Whether this workspace came from Share and whether someone kept it yet."""
+    workspace = _resolve_workspace(db, network) if network else None
+    if workspace is None or not verify_workspace_access(workspace, x_workspace_token, authorization, db):
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    return _ok({"share": svc.share_state(workspace)})
+
+
+@router.post("/guest-links/claim")
+def claim_workspace(body: ClaimRequest, db: Session = Depends(get_db),
+                    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Keep an anonymously shared workspace: owner link (token) + a signed-in account."""
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to keep this workspace")
+    workspace = _resolve_workspace(db, body.network) if body.network else None
+    if workspace is None or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    try:
+        return _ok(svc.claim(db, workspace, x_workspace_token, user))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+class LinkCreate(BaseModel):
+    network: str
+    channel: str
+    expires_at: Optional[str] = None
+
+
+@router.post("/guest-links")
+def create_link(body: LinkCreate, db: Session = Depends(get_db),
+                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, body.network, x_workspace_token, authorization)
+    if err:
+        return err
+    owner = resolve_current_user(db, authorization) if authorization else None
+    created_by = f"human:{owner.email.lower()}" if owner else "share:owner-token"
+    try:
+        return _ok({"link": svc.serialize_link(svc.create_link(db, workspace, body.channel, body.expires_at, created_by))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links")
 def list_links(network: str, channel: Optional[str] = None, db: Session = Depends(get_db),
                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
@@ -139,7 +192,7 @@ def list_links(network: str, channel: Optional[str] = None, db: Session = Depend
     return _ok({"links": [svc.serialize_link(l) for l in svc.links_for(db, str(workspace.id), channel)]})
 
 
-@router.patch("/thread-links/{link_id}")
+@router.patch("/guest-links/{link_id}")
 def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depends(get_db),
                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
@@ -151,7 +204,7 @@ def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depend
         return _fail(e)
 
 
-@router.delete("/thread-links/{link_id}")
+@router.delete("/guest-links/{link_id}")
 def revoke_link(link_id: str, network: str, db: Session = Depends(get_db),
                 x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
@@ -176,7 +229,7 @@ class GuestMessage(BaseModel):
     idempotency_key: Optional[str] = None
 
 
-@router.get("/thread-links/public/{token}")
+@router.get("/guest-links/public/{token}")
 def describe_link(token: str, db: Session = Depends(get_db), x_guest_session: Optional[str] = Header(None)):
     try:
         return _ok(svc.describe(db, token, x_guest_session))
@@ -184,7 +237,7 @@ def describe_link(token: str, db: Session = Depends(get_db), x_guest_session: Op
         return _fail(e)
 
 
-@router.post("/thread-links/public/{token}/guests")
+@router.post("/guest-links/public/{token}/guests")
 def create_guest(token: str, body: GuestCreate, db: Session = Depends(get_db)):
     try:
         return _ok(svc.create_guest(db, token, body.name))
@@ -192,16 +245,16 @@ def create_guest(token: str, body: GuestCreate, db: Session = Depends(get_db)):
         return _fail(e)
 
 
-@router.get("/thread-links/public/{token}/messages")
-def guest_messages(token: str, after: Optional[str] = Query(None), limit: int = Query(100),
-                   db: Session = Depends(get_db)):
+@router.get("/guest-links/public/{token}/messages")
+def guest_messages(token: str, after: Optional[str] = Query(None), before: Optional[str] = Query(None),
+                   limit: int = Query(100), db: Session = Depends(get_db)):
     try:
-        return _ok(svc.list_messages(db, token, after, limit))
+        return _ok(svc.list_messages(db, token, after, limit, before=before))
     except svc.LinkError as e:
         return _fail(e)
 
 
-@router.post("/thread-links/public/{token}/messages")
+@router.post("/guest-links/public/{token}/messages")
 def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks,
                db: Session = Depends(get_db, scope="function"), x_guest_session: Optional[str] = Header(None)):
     try:
@@ -226,6 +279,9 @@ def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks
     if key:
         if len(key) > 128:
             return _fail(svc.LinkError(400, "idempotency_key is too long"))
+        # Echoed so the page can match its pending copy to the stored message,
+        # even when a poll returns it before this request does.
+        event.metadata["client_key"] = key
         from app.services.message_delivery import prepare_delivery
         try:
             receipt = prepare_delivery(db, event, key)

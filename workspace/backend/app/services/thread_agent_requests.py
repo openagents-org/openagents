@@ -13,7 +13,7 @@ def sharing_mode(setting):
 def request_access(db, workspace_id, channel, member, email):
     if not member or member.status == "removed" or not email:
         return "no"
-    from app.services.thread_links import guest_may_run, is_guest_email
+    from app.services.guest_links import guest_may_run, is_guest_email
     if is_guest_email(email):
         # A guest of a shared thread may run that thread's agents while its
         # link is live, and nothing else; no grant or sharing rule applies.
@@ -49,7 +49,7 @@ def request_access(db, workspace_id, channel, member, email):
 def blocked_notice(db, workspace, channel, member):
     from app.mods.workspace_mod import _post_system_notice
     from app.models import User
-    from app.services.thread_links import guest_blocked_text
+    from app.services.guest_links import guest_blocked_text
     guest_text = guest_blocked_text(db, workspace, channel, member)
     if guest_text:
         _post_system_notice(db, workspace, channel.name, guest_text, notice="agent_access_required")
