@@ -1333,6 +1333,14 @@ async _runNodeCommand(n, cmd) {
         data = this._listDir(args.path);
         ok = true;
         message = `Listed ${data.dirs.length} folder(s)`;
+      } else if (action === 'list_local_sessions') {
+        // The owner's own past Claude Code / Codex sessions, for the
+        // workspace's import picker (src/local-sessions.js). Titles only.
+        const { listLocalSessions } = require('./local-sessions');
+        const sessions = listLocalSessions(args.type, { limit: Number(args.limit) || 200 });
+        data = { type: args.type, sessions };
+        ok = true;
+        message = `Found ${sessions.length} session(s)`;
       } else {
         message = `Unknown action '${action}'`;
       }
