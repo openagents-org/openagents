@@ -1,0 +1,63 @@
+# OpenAgents Share
+
+Share an agent from your own coding session with your team: one instruction in the session, one link for teammates, and they use the agent in a real Workspace thread without an account.
+
+Status: step 1 (the real local loop) is built behind this branch. Decisions below marked **Decided** come from the product owner; **Proposed** are working defaults for step 1, open to change in the product review.
+
+## Decisions
+
+| Topic | Status | Decision |
+|---|---|---|
+| Base branch | Decided | Build on `develop`. Hosted-only parts (cloud spend, analytics) go to `openagents-release`. |
+| Entry point | Decided (for now) | A copy-paste instruction that works in any agent: *"Read `<API>/v1/share/instructions` and follow it to share this agent with my team."* Registering as a plugin on agent platforms comes later. |
+| Account | Decided | Sharing never requires an account. A signed-in publisher owns the workspace from the start (`Authorization` on publish). An anonymous publisher gets an owner link; signing in from it keeps the workspace. |
+| What is shared | Decided | The person chooses. The agent drafts title, role, intro and excerpts, shows them verbatim, and publishes only after an explicit yes. |
+| Link expiry | Decided | The person chooses; default **never**. Owner can change it (null = never) or revoke at any time. |
+| Role instructions | Proposed | Stay on the sharer's computer (the shared agent's `CLAUDE.md`/`AGENTS.md`). The thread only gets the intro and excerpts. |
+| Context isolation | Proposed | The shared agent is a fresh agent with role + approved excerpts, never the original session, so a guest can't extract what wasn't shared. |
+| Guest identity | Proposed | Reading needs nothing. Posting asks for a display name and mints a per-browser guest session (only its hash is stored). Guests post as `guest-<id>@guest.invalid`; no sign-in can ever claim that domain. Guests are not added to the workspace roster. |
+| Guest scope | Proposed | One thread: read messages, post, ask that thread's agents. No other threads, files, members, settings, or approvals. Member emails are replaced by display names in what a guest receives. |
+| When the agent runs | Proposed | The shared thread is passive: a plain message is a comment and runs nothing. Only a message addressed to the agent (`@name`, or the composer's "Ask" toggle) starts a run. |
+| What a guest can make the agent do | Proposed | A guest's turn runs **read-only** on the sharer's computer: Read/Glob/Grep in the agent's own folder plus WebFetch/WebSearch; no shell, no file writes, no skipped permissions — whatever mode the owner set. Implemented for Claude Code; other agent types decline guest requests with a notice instead of running with the owner's rights. The launcher advertises `guest_turns` on join; the server never routes a guest's request to a client that didn't (older launchers), and tells the guest the owner needs to update. |
+| Abuse limits | Proposed | Per guest 60 posts/hour, per link 300 posts/hour, 200 guests per link. Retried posts (same idempotency key) are delivered and counted once. |
+| Spend: local agent | Proposed | No money cap (tokens are the sharer's own plan and we can't price them). Controls are count-based limits above, the on/off of the local launcher, expiry and revoke. A per-link daily run cap is the next lever if needed. |
+| Spend: cloud (Acenta) | Open, hosted-only | Owner sets a dollar cap for the cloud workspace; reserve before dispatch, settle after; pause at the cap with the thread still readable. Never move local work to cloud silently. Not in step 1. |
+| Offline sharer | Proposed | The thread stays readable and postable. The guest page says the agent is offline and answers when the sharer's computer is back. |
+| Fork, bring-your-agent, claim UI, cloud | Later | Steps 3–5 of the handoff. |
+
+## How it works (step 1)
+
+1. The person pastes the instruction into their agent session. The agent reads `GET /v1/share/instructions` (served by this backend with its own URLs, so self-hosters hand out their own endpoints).
+2. The agent explains what sharing does, drafts the share, and waits for a yes.
+3. `POST /v1/share/publish` creates a workspace, one passive thread with the agent as its only member, the approved excerpts and intro as the first messages, and a guest link. Idempotent on `idempotency_key`.
+4. The agent writes the role into `~/.openagents/shared/<agent>/CLAUDE.md` and connects itself with the OpenAgents launcher (`create --path`, `connect <token>`, `up`).
+5. A teammate opens `/share/thread/<token>`, reads, picks a name, and asks `@agent …`. The message is routed to the sharer's local agent, which runs a read-only turn and replies in the thread. The sharer sees everything from the owner link.
+
+## API
+
+| Method | Path | Who |
+|---|---|---|
+| GET | `/v1/share/instructions` | anyone |
+| POST | `/v1/share/publish` | anyone; optional bearer = owned by that account |
+| GET | `/v1/thread-links?network=&channel=` | workspace owner/admin or workspace token |
+| PATCH | `/v1/thread-links/{id}?network=` `{expires_at}` | same |
+| DELETE | `/v1/thread-links/{id}?network=` | same |
+| GET | `/v1/thread-links/public/{token}` | anyone with the link |
+| POST | `/v1/thread-links/public/{token}/guests` `{name}` | anyone with the link |
+| GET | `/v1/thread-links/public/{token}/messages?after=&limit=` | anyone with the link |
+| POST | `/v1/thread-links/public/{token}/messages` `{content, idempotency_key}` | guest session (`X-Guest-Session`) |
+
+Tables: `thread_guest_links`, `thread_guests` (migration 101, new tables only).
+
+## Known gaps / next
+
+- No owner UI yet for listing, re-copying, changing expiry or revoking links (API only).
+- The owner's normal workspace view shows guest messages, but has no "guest" badge yet.
+- Guests can't attach files.
+- No live push to the guest page; it polls every few seconds.
+- Anonymous publish has no rate limit, same as anonymous workspace creation today.
+- WebFetch on guest turns can reach any URL the sharer's machine can, including local addresses. A URL policy for guest turns is a follow-up.
+- The guest page loads the latest 100 messages; older ones (including the shared excerpts in a long thread) need a `before` cursor.
+- An agent CLI error (e.g. a model safeguard refusal) is posted into the thread verbatim by the existing adapters, request IDs included; guests see it too.
+- Guest turns rely on Claude Code's WebFetch to read PRs. On a machine where WebFetch isn't available the reviewer says it can't fetch the diff.
+- Production needs the user's OK for migration 101 (two new tables, one nullable column on `workspace_members`) before promotion.
