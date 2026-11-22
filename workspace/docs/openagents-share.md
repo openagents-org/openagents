@@ -66,13 +66,11 @@ Person A (sharer) needs Node.js and Claude Code. Person B (guest) needs only a b
 
 ## Known gaps / next
 
-- No owner UI yet for listing, re-copying, changing expiry or revoking links (API only).
-- The owner's normal workspace view shows guest messages, but has no "guest" badge yet.
 - Guests can't attach files.
 - No live push to the guest page; it polls every few seconds.
 - Anonymous publish has no rate limit, same as anonymous workspace creation today.
 - WebFetch on guest turns can reach any URL the sharer's machine can, including local addresses. A URL policy for guest turns is a follow-up.
-- The guest page loads the latest 100 messages; older ones (including the shared excerpts in a long thread) need a `before` cursor.
-- An agent CLI error (e.g. a model safeguard refusal) is posted into the thread verbatim by the existing adapters, request IDs included; guests see it too.
 - Guest turns rely on Claude Code's WebFetch to read PRs. On a machine where WebFetch isn't available the reviewer says it can't fetch the diff.
+- Only Claude Code runs guest turns; other agent types reply that they can't take guest requests yet.
+- Keeping a workspace needs a sign-in round trip from the owner link; there is no "sign up first, then share" path inside the agent session yet.
 - Production needs the user's OK for migration 101 (two new tables, one nullable column on `workspace_members`) before promotion.
