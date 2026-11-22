@@ -46,7 +46,12 @@ class ResponseOutbox {
     catch (e) { if (e.code === 'ENOENT') return []; throw e; }
     return files.map(file => {
       try { return JSON.parse(fs.readFileSync(path.join(this.directory, file), 'utf8')); }
-      catch { this.log('Unreadable saved reply in response outbox; retained for recovery.', 'error'); return null; }
+      catch (e) {
+        // Name the file and error class only: parse errors can quote reply content.
+        const reason = e instanceof SyntaxError ? 'invalid JSON' : (e.code || e.name || 'read error');
+        this.log(`Unreadable saved reply in response outbox (${file}: ${reason}); retained for recovery.`, 'error');
+        return null;
+      }
     }).filter(Boolean).sort((a, b) => a.createdAt - b.createdAt);
   }
 
