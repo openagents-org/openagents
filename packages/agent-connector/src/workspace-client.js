@@ -196,12 +196,15 @@ class WorkspaceClient {
   /**
    * Join a workspace via POST /v1/join.
    */
-  async joinNetwork(agentName, token, { network, agentType, serverHost, workingDir } = {}) {
+  async joinNetwork(agentName, token, { network, agentType, serverHost, workingDir, capabilities } = {}) {
     const body = { agent_name: agentName, token };
     if (network) body.network = network;
     if (agentType) body.agent_type = agentType;
     if (serverHost) body.server_host = serverHost;
     if (workingDir) body.working_dir = workingDir;
+    // Always sent (possibly empty): the server replaces the stored list on
+    // every join, so a client that can't do something stops being asked to.
+    body.capabilities = Array.isArray(capabilities) ? capabilities : [];
 
     const data = await this._post('/v1/join', body);
     return data.data || data;

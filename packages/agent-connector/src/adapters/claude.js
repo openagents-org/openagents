@@ -30,6 +30,13 @@ const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../ho
 
 const IS_WINDOWS = process.platform === 'win32';
 
+
+// A guest of a shared thread (OpenAgents Share) may make this agent read its
+// own folder and the web, never run commands or change files. The CLI runs
+// headless, so a tool outside the allowed list is refused, not prompted.
+const GUEST_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
+const GUEST_DISALLOWED_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'KillShell', 'BashOutput', 'Task'];
+
 class ClaudeAdapter extends BaseAdapter {
   /**
    * The env the spawned `claude` CLI runs with. Pure — takes the agent's env
@@ -477,6 +484,11 @@ class ClaudeAdapter extends BaseAdapter {
     return null;
   }
 
+  /** Guest turns run read-only (see GUEST_ALLOWED_TOOLS). */
+  get supportsGuestRuns() {
+    return true;
+  }
+
   _buildClaudeCmd(prompt, channelName, { skipResume = false, browserEnabled = false, glossary = null } = {}) {
     const claudeBin = this._findClaudeBinary();
     if (!claudeBin) {
@@ -487,11 +499,14 @@ class ClaudeAdapter extends BaseAdapter {
     // The builder emits the correct tool-reference block for toolMode directly
     // (mcp → workspace_* tools, skills → openagents-workspace skill), so there
     // is no post-hoc string replacement to drift out of sync.
+    // A guest's turn reads and proposes like plan mode, under the guest tool
+    // policy below (no shell, no writes), whatever mode the owner set.
+    const runMode = this._effectiveMode(channelName);
     const systemPrompt = '\n' + buildClaudeSystemPrompt({
       agentName: this.agentName,
       workspaceId: this.workspaceId,
       channelName,
-      mode: this._mode,
+      mode: runMode === 'guest' ? 'plan' : runMode,
       model: this.modelLabel(),
       browserEnabled,
       toolMode: this.toolMode,
@@ -506,7 +521,9 @@ class ClaudeAdapter extends BaseAdapter {
       cmd.push('--model', this.workspaceModel);
     }
     const disallowedTools = ['AskUserQuestion', 'CronCreate', 'CronDelete', 'CronList', 'ScheduleWakeup'];
-    if (browserEnabled) {
+    if (runMode === 'guest') {
+      disallowedTools.push(...GUEST_DISALLOWED_TOOLS);
+    } else if (browserEnabled) {
       // Hard-ban the native WebFetch: it can't render JS and bypasses the
       // workspace fetch chain. Prompt-level bans proved insufficient.
       // WebSearch stays allowed (pure search, no page fetching).
@@ -564,7 +581,10 @@ class ClaudeAdapter extends BaseAdapter {
    * Skills mode: write a SKILL.md file and allow Bash + curl for workspace ops.
    */
   _buildSkillsCmd(cmd, channelName) {
-    if (this._mode === 'plan') {
+    if (this._effectiveMode(channelName) === 'guest') {
+      cmd.push('--permission-mode', 'default');
+      cmd.push('--allowedTools', ...GUEST_ALLOWED_TOOLS);
+    } else if (this._mode === 'plan') {
       cmd.push('--permission-mode', 'plan');
       cmd.push('--allowedTools', 'Read', 'Glob', 'Grep', 'Bash');
     } else {
@@ -655,7 +675,11 @@ class ClaudeAdapter extends BaseAdapter {
     mcpTools.push(`${pfx}workspace_get_todos`, `${pfx}workspace_list_timers`, `${pfx}workspace_list_routines`);
     mcpWriteTools.push(`${pfx}workspace_put_todos`, `${pfx}workspace_create_timer`, `${pfx}workspace_cancel_timer`, `${pfx}workspace_create_routine`, `${pfx}workspace_update_routine`, `${pfx}workspace_cancel_routine`);
 
-    if (this._mode === 'plan') {
+    if (this._effectiveMode(channelName) === 'guest') {
+      // Read-only workspace tools plus the guest set; never the write tools.
+      cmd.push('--permission-mode', 'default');
+      cmd.push('--allowedTools', ...mcpTools, ...GUEST_ALLOWED_TOOLS);
+    } else if (this._mode === 'plan') {
       cmd.push('--permission-mode', 'plan');
       cmd.push('--allowedTools', ...mcpTools, 'Read', 'Glob', 'Grep');
     } else {
@@ -1432,7 +1456,7 @@ class ClaudeAdapter extends BaseAdapter {
       // never be reused. This check is deliberately independent of the
       // pinned fingerprint: a failed knowledge fetch must not keep a
       // read-only plan process serving execute requests.
-      const modeStale = existingPP.spawnMode !== this._mode;
+      const modeStale = existingPP.spawnMode !== this._effectiveMode(msgChannel);
       const pinnedStale = pinnedHash !== null && existingPP.pinnedHash !== pinnedHash;
       const modelStale = (existingPP.spawnModel || null) !== (this.workspaceModel || null);
       if (modeStale || modelStale) {
@@ -1440,7 +1464,7 @@ class ClaudeAdapter extends BaseAdapter {
         // conversation (it lives in the CLI transcript), while the new spawn
         // carries the current mode / model flags (and the current pins).
         this._log(modeStale
-          ? `Mode changed to ${this._mode} for ${msgChannel} — respawning with resume`
+          ? `Mode changed to ${this._effectiveMode(msgChannel)} for ${msgChannel} — respawning with resume`
           : `Model changed to ${this.workspaceModel || '(default)'} for ${msgChannel} — respawning with resume`);
         await this._killPersistentProc(msgChannel);
       } else {
@@ -1554,7 +1578,7 @@ class ClaudeAdapter extends BaseAdapter {
         pp.pinnedHash = pinnedHash !== null ? pinnedHash : pinnedFingerprint([
           { entryId: glossaryOpt && glossaryOpt.entryId, content: glossaryOpt && glossaryOpt.content },
         ]);
-        pp.spawnMode = this._mode;
+        pp.spawnMode = this._effectiveMode(msgChannel);
         pp.spawnModel = this.workspaceModel || null;
         const resumed = attempt === 0 && (!!this._channelSessions[msgChannel] || seeded);
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);

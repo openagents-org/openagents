@@ -17,6 +17,18 @@
 
 'use strict';
 
+// Guests of a shared thread post as guest-<id>@guest.invalid (workspace
+// backend, services/thread_links.py); no account can hold that domain.
+const GUEST_DOMAIN = '@guest.invalid';
+const GUEST_DECLINED_TEXT = 'I can\'t take requests from guests on this computer yet. '
+  + 'The person who shared this thread can still answer here.';
+
+function isGuestMessage(msg) {
+  if (!msg || msg.senderType !== 'human') return false;
+  const email = String(msg.senderEmail || '').toLowerCase();
+  return email.endsWith(GUEST_DOMAIN) || !!(msg.metadata && msg.metadata.guest);
+}
+
 const crypto = require('crypto');
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
@@ -206,6 +218,10 @@ class BaseAdapter {
     this._processedIds = new Set();
     this._titledSessions = new Set();
     this._mode = 'execute';
+    // Channels whose current turn was asked for by a guest of a shared
+    // thread (OpenAgents Share). Each channel runs one turn at a time, so a
+    // per-channel flag is exact. Adapters read it through _effectiveMode().
+    this._guestChannels = new Set();
     // Workspace-selected model id (WorkspaceMember.model). Synced from
     // discover at startup and via the `model.set` control event; null means
     // the agent CLI runs with its own default.
@@ -380,6 +396,9 @@ class BaseAdapter {
         agentType: this.agentType || 'agent',
         serverHost: require('os').hostname(),
         workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
+        // "guest_turns": this client runs a shared-thread guest's turn
+        // read-only. The server routes guests' requests only to such clients.
+        capabilities: this.supportsGuestRuns ? ['guest_turns'] : [],
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
@@ -1487,7 +1506,23 @@ class BaseAdapter {
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
           this._channelTriggerId[channel] = current.messageId || null;
-          await this._handleMessage(current);
+          if (isGuestMessage(current)) {
+            if (!this.supportsGuestRuns) {
+              await this.sendResponse(channel, GUEST_DECLINED_TEXT);
+            } else {
+              // A guest's turn always runs read-only, whatever mode the
+              // owner set: no shell, no file writes, nothing beyond reading
+              // this agent's own folder and the web.
+              this._guestChannels.add(channel);
+              try {
+                await this._handleMessage(current);
+              } finally {
+                this._guestChannels.delete(channel);
+              }
+            }
+          } else {
+            await this._handleMessage(current);
+          }
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
@@ -1814,6 +1849,20 @@ class BaseAdapter {
   // Message helpers
   // ------------------------------------------------------------------
 
+  /**
+   * Whether this adapter can run a guest's turn read-only (OpenAgents Share).
+   * Adapters that cannot enforce it leave this false, and a guest's request
+   * is answered with a notice instead of running with the owner's rights.
+   */
+  get supportsGuestRuns() {
+    return false;
+  }
+
+  /** The mode for the turn now running in `channel`: 'guest' for a guest's turn. */
+  _effectiveMode(channel) {
+    return this._guestChannels && this._guestChannels.has(channel) ? 'guest' : this._mode;
+  }
+
   async sendStatus(channel, content, extraMeta) {
     if (this._isMuted(channel)) return;
     try {
@@ -2045,3 +2094,4 @@ module.exports.PRESENCE_HEARTBEAT_DEBOUNCE_MS = PRESENCE_HEARTBEAT_DEBOUNCE_MS;
 module.exports.SHARED_CONTEXT_TTL_MS = SHARED_CONTEXT_TTL_MS;
 module.exports.buildPresenceFields = buildPresenceFields;
 module.exports.buildSharedContextBlock = buildSharedContextBlock;
+module.exports.isGuestMessage = isGuestMessage;
