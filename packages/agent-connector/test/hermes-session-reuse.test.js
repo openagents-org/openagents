@@ -433,6 +433,22 @@ describe('Hermes: what a run reports', () => {
       } else if (mode === 'env') {
         process.stdout.write(String(process.env.HERMES_PREFILL_MESSAGES_FILE));
         process.stderr.write('\\nsession_id: S1\\n');
+      } else if (mode === 'echo') {
+        // [stub, 'echo', how]: by which route the prompt came, and how much.
+        if (process.argv[3] === 'stdin') {
+          let input = '';
+          process.stdin.on('data', (d) => { input += d; });
+          process.stdin.on('end', () => {
+            process.stdout.write('stdin:' + input.length);
+            process.stderr.write('\\nsession_id: S1\\n');
+          });
+        } else {
+          process.stdout.write('argv:0');
+          process.stderr.write('\\nsession_id: S1\\n');
+        }
+      } else if (mode === 'old') {
+        process.stderr.write('usage: hermes [-h] ...\\nhermes: error: unrecognized arguments: --query-file -\\n');
+        process.exit(2);
       } else if (mode === 'slow') {
         process.stderr.write('started\\n');
         setTimeout(() => {}, 60000);
@@ -474,6 +490,43 @@ describe('Hermes: what a run reports', () => {
 
     assert.equal((await a._runHermes('p', CHANNEL, null, '/tmp/prefill.json')).text, '/tmp/prefill.json');
     assert.equal((await a._runHermes('p', CHANNEL, null)).text, 'undefined');
+  });
+
+  // Daily errors dashboard, 2026-11-21: "spawn ENAMETOOLONG" on Windows, the
+  // workspace instructions in the message pushing it past the command line.
+  describe('a prompt too long for a command line', () => {
+    const long = 'x'.repeat(200000);
+    function routed(mode) {
+      const made = makeHermes({ script: null, session: 'S1' });
+      made.a._hermesBin = process.execPath;
+      made.a._buildHermesCmd = (prompt, resume, opts = {}) => [stub, mode, opts.viaStdin ? 'stdin' : 'argv'];
+      return made;
+    }
+
+    it('goes to stdin, whole, and a short one stays on the command line', async () => {
+      const { a } = routed('echo');
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, `stdin:${long.length}`);
+      assert.equal((await a._runHermes('hi', CHANNEL, null)).text, 'argv:0');
+    });
+
+    it('asks for `--query-file -` instead of `-q`', () => {
+      const { a } = makeHermes({ script: null });
+      a._hermesBin = '/usr/bin/hermes';
+      const args = a._buildHermesCmd(long, null, { viaStdin: true });
+      assert.deepEqual(args.slice(args.indexOf('chat'), args.indexOf('chat') + 3), ['chat', '--query-file', '-']);
+      assert.ok(!args.includes(long));
+      assert.ok(!args.includes('-q'));
+      assert.deepEqual(a._buildHermesCmd('hi', null).slice(0, 3), ['chat', '-q', 'hi']);
+    });
+
+    it('tells a Hermes too old for `--query-file` to update, not "exit 2"', async () => {
+      const { a } = routed('old');
+      await assert.rejects(a._runHermes(long, CHANNEL, null), (e) => {
+        assert.match(e.message, /too long for a command line/);
+        assert.match(e.message, /hermes update/);
+        return true;
+      });
+    });
   });
 
   it('a CLI that cannot be started reports why', async () => {

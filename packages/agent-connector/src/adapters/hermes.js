@@ -38,7 +38,7 @@ const { isRecapEligible } = require('./decision-log');
 const { REASON } = require('./health-status');
 const { whichBinary, whereBinary } = require('../paths');
 const { classifyRunFailure, classifiedError, isClassifiedError } = require('./run-failure');
-const { maskSecretValues } = require('./utils');
+const { maskSecretValues, promptFitsArgv } = require('./utils');
 
 const IS_WINDOWS = process.platform === 'win32';
 /** The variable each run hands its key in; every agent's provider names it as key_env. */
@@ -51,6 +51,8 @@ const isWindowsShim = (file) => /\.(cmd|bat)$/i.test(String(file || ''));
 const HERMES_INSTALL_HINT = IS_WINDOWS
   ? 'powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.ps1 | iex"'
   : 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash';
+// argparse's refusal of a flag the installed hermes predates.
+const QUERY_FILE_UNKNOWN_RE = /unrecognized arguments:.*--query-file|--query-file.*(?:unrecognized|no such option)/i;
 const SESSION_ID_RE = /session_id:\s*(\S+)/;
 const SESSION_LINE_RE = /^session_id:\s*\S+$/;
 // Hermes validates the toolsets in its own config.yaml before the turn starts
@@ -589,7 +591,17 @@ class HermesAdapter extends BaseAdapter {
   // Subprocess lifecycle
   // ------------------------------------------------------------------
 
-  _buildHermesCmd(prompt, resumeSessionId) {
+  /**
+   * `viaStdin`: the prompt is too long for a command line (promptFitsArgv) and
+   * goes to the child's stdin through `--query-file -` instead of `-q`.
+   * Windows caps a whole command line at 32,767 characters and Node failed
+   * the spawn itself with ENAMETOOLONG: a Hermes too old to read its prefill
+   * file from the environment gets the ~18 KB of workspace instructions in
+   * every message, and a long message on top went over (daily errors
+   * dashboard, 2026-11-21). A prompt that fits keeps `-q`, so a Hermes that
+   * predates `--query-file` runs every message it always could.
+   */
+  _buildHermesCmd(prompt, resumeSessionId, { viaStdin = false } = {}) {
     if (!this._hermesBin) {
       throw new Error(`hermes CLI not found. Install with: ${HERMES_INSTALL_HINT}`);
     }
@@ -599,7 +611,7 @@ class HermesAdapter extends BaseAdapter {
     }
     args.push(
       'chat',
-      '-q', prompt,
+      ...(viaStdin ? ['--query-file', '-'] : ['-q', prompt]),
       '-Q',
       '--source', this.hermesSource,
       '--max-turns', String(this.maxTurns),
@@ -733,8 +745,11 @@ class HermesAdapter extends BaseAdapter {
 
     const endpoint = this._endpoint();
     if (endpoint) await this._ensureProvider(endpoint);
-    const args = this._buildHermesCmd(prompt, resumeId);
-    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''})`);
+    // Measured on the platform the command line is built on: a WSL hermes is
+    // still started through wsl.exe's Windows command line.
+    const viaStdin = !promptFitsArgv(prompt);
+    const args = this._buildHermesCmd(prompt, resumeId, { viaStdin });
+    this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''}${viaStdin ? `, prompt on stdin (${prompt.length} chars)` : ''})`);
 
     const env = { ...(this.agentEnv || process.env) };
     if (prefillFile) env[PREFILL_ENV] = prefillFile;
@@ -747,7 +762,7 @@ class HermesAdapter extends BaseAdapter {
     // for model and keys. Nothing to special-case here.
     const proc = spawn(this._hermesBin, args, {
       env,
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: [viaStdin ? 'pipe' : 'ignore', 'pipe', 'pipe'],
       cwd: this.workingDir,
       // No process group on Windows (can't signal one); windowsHide keeps a
       // console from flashing up.
@@ -755,6 +770,13 @@ class HermesAdapter extends BaseAdapter {
       windowsHide: true,
     });
     this._channelProcesses[channelName] = proc;
+    // The whole prompt, then EOF: `--query-file -` reads stdin to the end. A
+    // child that exits first (one too old for the flag) turns the write into
+    // EPIPE, which is not the error worth reporting.
+    if (viaStdin && proc.stdin) {
+      proc.stdin.on('error', () => {});
+      proc.stdin.end(prompt);
+    }
 
     let stdout = '';
     let stderr = '';
@@ -779,6 +801,15 @@ class HermesAdapter extends BaseAdapter {
     // Hermes -Q mode: response body on stdout, session metadata
     // (session_id:, resume banner) on stderr — parse both streams.
     const { text, sessionId } = this._parseHermesOutput(stdout, stderr);
+    if (viaStdin && exitCode !== 0 && QUERY_FILE_UNKNOWN_RE.test(stderr)) {
+      throw classifiedError(
+        `This message and the workspace instructions sent with it (${prompt.length} characters) are too long `
+        + 'for a command line, and this Hermes is too old to read them any other way (it does not know '
+        + '`--query-file`). Update Hermes with `hermes update`, then send the message again. A current '
+        + 'Hermes also takes the workspace instructions as a prefill file, so every message gets shorter. '
+        + `To reinstall instead: ${HERMES_INSTALL_HINT}`,
+      );
+    }
     return {
       stopped: this._stopRequestedDuringTurn(channelName),
       exitCode,
