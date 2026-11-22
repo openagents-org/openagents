@@ -1,14 +1,14 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, KeyRound, LogIn, RefreshCw, ShieldCheck, Timer } from 'lucide-react';
-import { useT } from '@/lib/i18n';
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, ChevronDown, KeyRound, LogIn, RefreshCw, ShieldCheck, TerminalSquare, Timer } from 'lucide-react';
+import { useT, type MessageKey } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import type { AgentCatalogEntry } from '@/lib/types';
@@ -18,8 +18,15 @@ import { agentDisplayName } from './agent-display-name';
 import { AgentNameField, WorkingDirectoryField } from './agent-setup-name-fields';
 import { CodexModeField } from './agent-setup-model-fields';
 import { NativeCredentialFields } from './agent-setup-credentials';
-import { BrowserAgentLogin } from './browser-agent-login';
+import { BROWSER_LOGIN_TYPES, BrowserAgentLogin } from './browser-agent-login';
+import { ManualSignInGuide } from './agent-setup-manual-sign-in';
+import { AgentSetupKeyLink } from './agent-setup-key-link';
 import { AgentSetupAuthChoice, type AuthChoice, type AuthOption } from './agent-setup-auth-choice';
+
+const LOGIN_METHOD_LABELS: Record<string, MessageKey> = {
+  chatgpt: 'agentSetup.loginMethod.chatgpt',
+  copilot: 'agentSetup.loginMethod.copilot',
+};
 
 /** Name first, then authenticate; optional model discovery never gates progress. */
 export function AgentSetupWizard({ form, props, entry, onSubmit }: {
@@ -32,13 +39,22 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
   const [customEndpoint, setCustomEndpoint] = useState(!!form.baseUrl);
   const [keyError, setKeyError] = useState(false);
   const [browserSignedIn, setBrowserSignedIn] = useState(false);
-  useEffect(() => setBrowserSignedIn(false), [entry.name, props.node.nodeId]);
+  // The terminal sign-in, folded under the browser link until the link fails.
+  const [manualOpen, setManualOpen] = useState(false);
+  const [loginMethod, setLoginMethod] = useState<string | null>(null);
+  useEffect(() => { setBrowserSignedIn(false); setManualOpen(false); setLoginMethod(null); }, [entry.name, props.node.nodeId]);
   const agent = agentDisplayName(entry);
   const device = props.node.name || props.node.hostname || '';
   const runtime = form.runtimeByType[entry.name];
   // Detection sends booleans only: never request the machine's existing key.
   const signedIn = browserSignedIn || (!!runtime?.installed && (runtime.signedIn === true || runtime.auth?.mode === 'subscription'));
-  const browserLogin = runtime?.browserLogin === true && ['claude', 'codex'].includes(entry.name);
+  // An agent with several accounts to sign in to (OpenCode: ChatGPT or Copilot)
+  // names them; the user picks one before the link is made. One this page
+  // doesn't know is left to the terminal.
+  const loginMethods = (runtime?.browserLoginMethods || []).filter((m) => m in LOGIN_METHOD_LABELS);
+  const browserLogin = runtime?.browserLogin === true && BROWSER_LOGIN_TYPES.includes(entry.name)
+    && (loginMethods.length > 0 || !runtime?.browserLoginMethods);
+  const method = loginMethods.length ? (loginMethod && loginMethods.includes(loginMethod) ? loginMethod : loginMethods[0]) : undefined;
   const canSignIn = !!form.creds.deviceLoginCommand;
   const choice = form.setupAuth ?? (signedIn && canSignIn ? 'subscription' : null);
   const loginCommand = form.creds.deviceLoginCommand;
@@ -83,7 +99,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
     onSubmit();
   };
   const submitDisabled = (choice === 'key' && form.detailState !== 'ready') || form.busy || props.extensions?.disabled || nameInvalid || !choice ||
-    (choice === 'subscription' && !signedIn && (browserLogin || !installLater));
+    (choice === 'subscription' && !signedIn && ((browserLogin && !manualOpen) || !installLater));
   const deviceModels = runtime?.cliModels || [];
 
   return (
@@ -140,16 +156,29 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                 ) : (
                   <div className="flex flex-col gap-3 border-t pt-5">
                     <h2 className="text-sm font-medium">{t('agentSetup.signInTitle', { device })}</h2>
-                    {!browserLogin && <p className="text-sm leading-relaxed text-muted-foreground">{t(installLater ? 'agentSetup.installHint' : 'agentSetup.signInHint', { agent, device })}</p>}
-                    {browserLogin ? <BrowserAgentLogin key={`${props.node.nodeId}:${entry.name}`} api={props.api} nodeId={props.node.nodeId} type={entry.name} agent={agent} needsInstall={installLater} onSignedIn={() => { setBrowserSignedIn(true); void form.reDetect(); }} /> : form.signIn ? <Button type="button" variant="outline" onClick={form.signIn} className="w-fit">{t('agentSetup.openSignIn', { agent })}<ArrowRight data-icon="inline-end" /></Button> : (
-                      <CodeBlock>
-                        <CodeBlockActions>
-                          <CodeBlockCopyButton type="button" value={loginCommand} copyLabel={t('common.copy')} copiedLabel={t('common.copied')} />
-                        </CodeBlockActions>
-                        <CodeBlockContent className="pe-12">{loginCommand}</CodeBlockContent>
-                      </CodeBlock>
+                    {browserLogin ? <>
+                      {loginMethods.length > 1 && <div className="flex flex-col gap-2">
+                        <p id="agent-login-method" className="text-sm text-muted-foreground">{t('agentSetup.loginMethodLabel', { agent })}</p>
+                        <ToggleGroup type="single" variant="outline" size="sm" spacing={1} className="flex-wrap" aria-labelledby="agent-login-method" value={method} onValueChange={(next) => { if (next) setLoginMethod(next); }}>
+                          {loginMethods.map((m) => <ToggleGroupItem key={m} value={m} data-testid={`agent-login-method-${m}`}>{t(LOGIN_METHOD_LABELS[m])}</ToggleGroupItem>)}
+                        </ToggleGroup>
+                      </div>}
+                      <BrowserAgentLogin key={`${props.node.nodeId}:${entry.name}:${method || ''}`} api={props.api} nodeId={props.node.nodeId} type={entry.name} method={method} agent={agent} needsInstall={installLater} onSignedIn={() => { setBrowserSignedIn(true); void form.reDetect(); }} onFailed={() => setManualOpen(true)} />
+                      <Collapsible data-testid="agent-setup-manual-toggle" open={manualOpen} onOpenChange={setManualOpen} className="group/manual mt-1">
+                        <CollapsibleTrigger className="flex items-center gap-1.5 rounded-md text-left text-sm text-muted-foreground outline-none hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+                          <TerminalSquare className="size-4 shrink-0" />{t('agentSetup.manualToggle')}<ChevronDown className="size-4 shrink-0 transition-transform group-data-[state=open]/manual:rotate-180" />
+                        </CollapsibleTrigger>
+                        <CollapsibleContent className="pt-4">
+                          <ManualSignInGuide type={entry.name} agent={agent} device={device} command={loginCommand} installLater={installLater} checking={form.detecting} onCheck={() => void form.reDetect()} onUseKey={() => choose('key')} />
+                        </CollapsibleContent>
+                      </Collapsible>
+                    </> : form.signIn ? <>
+                      <p className="text-sm leading-relaxed text-muted-foreground">{t(installLater ? 'agentSetup.installHint' : 'agentSetup.signInHint', { agent, device })}</p>
+                      <Button type="button" variant="outline" onClick={form.signIn} className="w-fit">{t('agentSetup.openSignIn', { agent })}<ArrowRight data-icon="inline-end" /></Button>
+                      <Button type="button" variant="outline" className="w-fit" onClick={() => void form.reDetect()} disabled={form.detecting}><RefreshCw data-icon="inline-start" className={cn(form.detecting && 'animate-spin')} />{t('agentSetup.checkAgain')}</Button>
+                    </> : (
+                      <ManualSignInGuide type={entry.name} agent={agent} device={device} command={loginCommand} installLater={installLater} checking={form.detecting} onCheck={() => void form.reDetect()} onUseKey={() => choose('key')} />
                     )}
-                    {!browserLogin && <Button type="button" variant="outline" className="w-fit" onClick={() => void form.reDetect()} disabled={form.detecting}><RefreshCw data-icon="inline-start" className={cn(form.detecting && 'animate-spin')} />{t('agentSetup.checkAgain')}</Button>}
                     <p className="text-xs text-muted-foreground">{t('agentSetup.accountModelHint')}</p>
                   </div>
                 ))}
@@ -166,6 +195,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                       </Field>
                     )}
                     {keyError && <p role="alert" className="text-sm text-destructive">{t('agentSetup.keyRequired')}</p>}
+                    <AgentSetupKeyLink type={entry.name} />
                     <div className="flex items-start gap-2 text-xs leading-relaxed text-muted-foreground"><ShieldCheck className="mt-0.5 size-4 shrink-0" /><p>{t('agentSetup.keySecurity', { device })}</p></div>
                     {!form.detail?.provider_locked && (
                       <Field orientation="horizontal">

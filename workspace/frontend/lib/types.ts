@@ -127,6 +127,8 @@ export interface NodeRuntime {
   loginCommand?: string | null;
   /** The device can relay its native CLI's browser sign-in. Missing on older connectors. */
   browserLogin?: boolean;
+  /** Accounts the browser sign-in offers, for an agent with a choice (OpenCode: chatgpt, copilot). */
+  browserLoginMethods?: string[];
   probe?: NodeProbe | null;
 }
 
