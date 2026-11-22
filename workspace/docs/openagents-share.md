@@ -42,12 +42,27 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 | GET | `/v1/guest-links?network=&channel=` | workspace owner/admin or workspace token |
 | PATCH | `/v1/guest-links/{id}?network=` `{expires_at}` | same |
 | DELETE | `/v1/guest-links/{id}?network=` | same |
+| POST | `/v1/guest-links` `{network, channel, expires_at}` | same; only threads made by Share, one live link at a time |
+| GET | `/v1/guest-links/workspace?network=` | anyone who can open the workspace: `{share: {claimed}}` or `{share: null}` |
+| POST | `/v1/guest-links/claim` `{network}` | owner link token **and** a signed-in account |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
-| GET | `/v1/guest-links/public/{token}/messages?after=&limit=` | anyone with the link |
+| GET | `/v1/guest-links/public/{token}/messages?after= \| ?before= &limit=` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/messages` `{content, idempotency_key}` | guest session (`X-Guest-Session`) |
 
 Tables: `thread_guest_links`, `thread_guests` (migration 101, new tables only).
+
+## Try it on two devices
+
+Person A (sharer) needs Node.js and Claude Code. Person B (guest) needs only a browser, ideally on another device.
+
+1. **A:** in a Claude Code session that just did a useful review, paste: *Read `https://workspace-endpoint.openagents.org/v1/share/instructions` and follow it to share this agent with my team.* (Self-hosted: use your own API URL.)
+2. **A:** check the preview the agent shows, edit if needed, say yes. Keep the owner link; send the guest link to B.
+3. **B:** open the guest link. Read the shared excerpts. Post a plain comment with "Ask" turned off: nothing runs.
+4. **B:** turn "Ask" on and paste a public GitHub PR link. Pick a name when asked. The status line says the agent runs on A's computer; the reply arrives in the thread.
+5. **A:** open the owner link: B's messages show with a Guest badge. Sign in from the banner to keep the workspace.
+6. **A:** in the thread's share panel, copy the link again, set it to expire in 1 day, then turn it off. **B:** refresh — the page says the link was turned off.
+7. **A:** stop the launcher (`npx @openagents-org/agent-launcher stop <agent>`). **B:** with a new link, the status line says the agent is offline; posting still works.
 
 ## Known gaps / next
 

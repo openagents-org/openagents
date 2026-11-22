@@ -224,7 +224,6 @@ def publish(db: Session, body, owner) -> dict:
     owner_name = clean_name(body.owner_name, 60) or (
         (getattr(owner, "display_name", None) or owner_email.split("@")[0]) if owner_email else "Owner")
 
-    now = _now()
     workspace = Workspace(
         slug=secrets.token_hex(4),
         name=clean_name(body.workspace_name, 80) or f"{owner_name}'s shared workspace",
@@ -364,7 +363,6 @@ def channel_agents(db: Session, workspace: Workspace, channel: Channel) -> List[
         WorkspaceMember.status != "removed",
     )).scalars().all()
     from app.routers.network import effective_agent_status
-    now = _now()
     out = []
     for m in members:
         online = effective_agent_status(m, now) == "online"
@@ -535,7 +533,6 @@ def serialize_event(r: EventRecord) -> dict:
 
 def _take_budget(db: Session, model, row_id: str, per_hour: int) -> bool:
     """Count one post against a rolling hourly window; False when it's spent."""
-    now = _now()
     window_start = now - WINDOW
     reset = db.execute(update(model).where(
         model.id == row_id,
