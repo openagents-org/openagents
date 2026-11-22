@@ -37,7 +37,6 @@ from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.config import config
 from app.models import (
     Channel,
     ChannelMember,
@@ -92,7 +91,8 @@ def _sha(value: str) -> str:
 
 
 def frontend_base() -> str:
-    return (config.FRONTEND_BASE_URL or "").rstrip("/")
+    import app.config as app_config  # read at call time: settings can be reloaded
+    return (app_config.config.FRONTEND_BASE_URL or "").rstrip("/")
 
 
 def guest_url(token: str) -> str:

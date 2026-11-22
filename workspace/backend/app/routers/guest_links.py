@@ -34,7 +34,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.access import resolve_current_user, verify_workspace_access
-from app.config import config
 from app.database import get_db
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _emit_event_blocking, _resolve_workspace
@@ -76,7 +75,8 @@ def share_instructions():
     hands out its own endpoints.
     """
     text = _INSTRUCTIONS.read_text(encoding="utf-8")
-    text = text.replace("{API}", (config.PUBLIC_API_BASE or "").rstrip("/")).replace("{APP}", svc.frontend_base())
+    import app.config as app_config  # read at request time: settings can be reloaded
+    text = text.replace("{API}", (app_config.config.PUBLIC_API_BASE or "").rstrip("/")).replace("{APP}", svc.frontend_base())
     return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
                              headers={"Cache-Control": "public, max-age=300"})
 
