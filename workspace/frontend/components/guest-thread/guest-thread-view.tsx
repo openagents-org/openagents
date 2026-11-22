@@ -9,7 +9,7 @@ import { WorkingBubble } from '@/components/chat/working-bubble';
 import { filterThreadSteps, groupMessages, groupKey } from '@/components/chat/chat-message-groups';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Marker, MarkerContent } from '@/components/ui/marker';
+import { Spinner } from '@/components/ui/spinner';
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { isControlMessage } from '@/lib/control-messages';
 import { useFormatters, useT } from '@/lib/i18n';
@@ -40,6 +40,8 @@ interface GuestThreadViewProps {
   info: GuestThreadInfo;
   messages: WorkspaceMessage[];
   hasOlder: boolean;
+  olderState?: 'idle' | 'loading' | 'error';
+  onLoadOlder?: () => void;
   guest: GuestIdentity | null;
   nameRequest: { reason: 'first-post' | 'session-expired' } | null;
   sendTick: number;
@@ -49,7 +51,7 @@ interface GuestThreadViewProps {
   cancelName: () => void;
 }
 
-export function GuestThreadView({ info, messages, hasOlder, guest, nameRequest, sendTick, send, retry, join, cancelName }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, guest, nameRequest, sendTick, send, retry, join, cancelName }: GuestThreadViewProps) {
   const t = useT();
   const title = info.thread.title || info.thread.name;
   const agents = useMemo(() => toWorkspaceAgents(info.agents), [info.agents]);
@@ -133,6 +135,8 @@ export function GuestThreadView({ info, messages, hasOlder, guest, nameRequest, 
           info={info}
           messages={messages}
           hasOlder={hasOlder}
+          olderState={olderState}
+          onLoadOlder={onLoadOlder}
           agents={agents}
           agentNames={agentNames}
           agentLabels={agentLabels}
@@ -189,10 +193,12 @@ export function GuestThreadView({ info, messages, hasOlder, guest, nameRequest, 
 
 // ── Message list ──
 
-function GuestMessageList({ info, messages, hasOlder, agents, agentNames, agentLabels, currentGuestId, sendTick, onRetry }: {
+function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, currentGuestId, sendTick, onRetry }: {
   info: GuestThreadInfo;
   messages: WorkspaceMessage[];
   hasOlder: boolean;
+  olderState: 'idle' | 'loading' | 'error';
+  onLoadOlder?: () => void;
   agents: WorkspaceAgent[];
   agentNames: string[];
   agentLabels: Record<string, string>;
@@ -204,6 +210,8 @@ function GuestMessageList({ info, messages, hasOlder, agents, agentNames, agentL
   const containerRef = useRef<HTMLDivElement>(null);
   const nearBottomRef = useRef(true);
   const firstScrollRef = useRef(true);
+  /** Set just before an earlier page is requested; restores the reading position after it lands. */
+  const anchorRef = useRef<{ height: number; top: number } | null>(null);
 
   const { seed, groups } = useMemo(() => {
     const visible = messages.filter((m) => !isControlMessage(m) && m.messageType !== 'loading');
@@ -219,15 +227,32 @@ function GuestMessageList({ info, messages, hasOlder, agents, agentNames, agentL
 
   const working = useMemo(() => workingAgent(groups, info.agents), [groups, info.agents]);
   const lastKey = groups.length ? groupKey(groups[groups.length - 1]) : '';
+  const firstKey = seed[0]?.messageId ?? (groups.length ? groupKey(groups[0]) : '');
 
   useLayoutEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+    const anchor = anchorRef.current;
+    if (anchor && el.scrollHeight !== anchor.height) {
+      // Earlier messages were prepended: keep the same message under the eye.
+      el.scrollTop = el.scrollHeight - anchor.height + anchor.top;
+      anchorRef.current = null;
+      return;
+    }
     if (firstScrollRef.current || nearBottomRef.current) {
       el.scrollTop = el.scrollHeight;
       firstScrollRef.current = false;
     }
-  }, [lastKey, seed.length, working]);
+  }, [firstKey, lastKey, seed.length, working]);
+
+  const loadOlder = () => {
+    const el = containerRef.current;
+    if (!onLoadOlder || olderState === 'loading') return;
+    if (el) anchorRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    onLoadOlder();
+  };
+  // Runs after the layout effect above: once a load settles there is nothing left to restore.
+  useEffect(() => { if (olderState !== 'loading') anchorRef.current = null; }, [olderState]);
 
   useLayoutEffect(() => {
     const el = containerRef.current;
@@ -254,15 +279,21 @@ function GuestMessageList({ info, messages, hasOlder, agents, agentNames, agentL
       onScroll={(e) => {
         const el = e.currentTarget;
         nearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+        // Reaching the top loads the next earlier page (not after a failure: the button retries).
+        if (el.scrollTop < 80 && hasOlder && olderState === 'idle' && !firstScrollRef.current) loadOlder();
       }}
       className="min-h-0 flex-1 overflow-y-auto px-4 py-3 outline-none lg:px-8"
       aria-live="polite"
       aria-relevant="additions"
     >
       {hasOlder && (
-        <Marker variant="separator" className="py-2 text-xs">
-          <MarkerContent>{t('guestThread.earlierHidden')}</MarkerContent>
-        </Marker>
+        <div className="flex flex-col items-center gap-1 py-2" data-guest-load-earlier="">
+          <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={olderState === 'loading' || !onLoadOlder} onClick={loadOlder}>
+            {olderState === 'loading' && <Spinner data-icon="inline-start" />}
+            {olderState === 'loading' ? t('guestThread.loadingEarlier') : t('guestThread.loadEarlier')}
+          </Button>
+          {olderState === 'error' && <p className="text-xs text-destructive" role="alert">{t('guestThread.loadEarlierFailed')}</p>}
+        </div>
       )}
       {seed.length > 0 && (
         <section aria-label={t('guestThread.seedDividerNoAgent', { owner: info.owner.name })}>

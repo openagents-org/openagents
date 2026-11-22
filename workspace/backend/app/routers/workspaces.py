@@ -60,6 +60,9 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 PUBLIC_WORKSPACE_SETTINGS = frozenset({
     "theme", "monitorMode", "services_enabled", "browser_enabled", "slack_browser_previews",
 })
+# Shown to clients but set only by the server: "openagents_share" marks a
+# workspace made by OpenAgents Share (the owner sees a "keep it" banner).
+READ_ONLY_PUBLIC_SETTINGS = frozenset({"openagents_share"})
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -180,7 +183,8 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     settings = ws.settings or {}
     # Only documented display/behavior settings cross the API boundary.
     # Credentials and server-only settings must never ride along in this map.
-    public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
+    public_settings = {key: value for key, value in settings.items()
+                       if key in PUBLIC_WORKSPACE_SETTINGS or key in READ_ONLY_PUBLIC_SETTINGS}
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,

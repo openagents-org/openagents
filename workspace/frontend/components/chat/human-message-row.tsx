@@ -8,6 +8,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { isMyAddress, myAddress } from '@/lib/dm';
 import { humanMessageContent } from '@/lib/message-content';
+import { guestDisplayName, isGuestMessage } from '@/lib/guest-sender';
 import { ApprovalCard } from './approval-card';
 import { HumanAvatar } from './human-avatar';
 import { MarkdownContent } from './markdown-content';
@@ -47,12 +48,17 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
   const isCurrentUser = (!!message.senderId && message.senderId === currentUser.id)
     || (!!message.senderAddress && (message.sessionId || '').startsWith('dm:')
       && isMyAddress(message.senderAddress, myAddress(currentUser)));
-  const mentionEmail = [message.senderAddress?.replace(/^human:/, ''), message.senderId, message.metadata?.sender_email]
+  // A shared-thread guest has a name, not a mentionable address.
+  const guest = isGuestMessage(message);
+  const senderEmail = [message.senderAddress?.replace(/^human:/, ''), message.senderId, message.metadata?.sender_email]
     .find((value): value is string => typeof value === 'string' && EMAIL.test(value));
+  const mentionEmail = guest ? undefined : senderEmail;
   const seed = message.senderId || message.senderName || 'human';
   const displayName = isCurrentUser
     ? 'You'
-    : ((mentionEmail && humanNames[mentionEmail.toLowerCase()]) || (message.senderName && message.senderName !== 'user' ? message.senderName : 'User'));
+    : guest
+      ? guestDisplayName(message, undefined, t('chat.guestBadge'))
+      : ((mentionEmail && humanNames[mentionEmail.toLowerCase()]) || (message.senderName && message.senderName !== 'user' ? message.senderName : 'User'));
   const humanContent = humanMessageContent(message.content, attachments);
   const recalled = !!message.metadata.recalled;
   const canRecall = isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
@@ -63,7 +69,7 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
   return (
     <Message className="gap-3 py-1.5">
       <MessageAvatar className="self-start">
-        <HumanAvatar email={mentionEmail || (isCurrentUser ? currentUser.id : seed)} className="size-8" />
+        <HumanAvatar email={senderEmail || (isCurrentUser ? currentUser.id : seed)} className="size-8" />
       </MessageAvatar>
       <MessageContent className="gap-0.5">
         <MessageHeader className="flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -75,6 +81,7 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
               </Button>
             </WithTooltip>
           ) : <span className="text-sm font-semibold text-foreground">{displayName}</span>}
+          {guest && <Badge variant="secondary" data-guest-badge="">{t('chat.guestBadge')}</Badge>}
           {timestamp && <span className="font-normal">{timestamp}</span>}
           {/* v1.1 M5 — information vs execution in directed threads */}
           {message.metadata?.informational === true && (

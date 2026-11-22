@@ -2,6 +2,7 @@ import { normalizePolicyRequirements } from './approvals';
 import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
+import type { GuestLink } from './guest-links';
 import type {
   AgentCatalogDetail,
   PublicShareKind,
@@ -2875,6 +2876,37 @@ class WorkspaceApi {
 
   async getThreadLink(sessionId: string): Promise<{ id: string; session_id: string }> {
     return this.request('/v1/thread-links', { method: 'POST', body: JSON.stringify({ network: this.requireWorkspace(), session_id: sessionId }) });
+  }
+
+  // ── OpenAgents Share: guest links into one thread (owner/admin only) ──
+
+  async listGuestLinks(channel: string): Promise<GuestLink[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ links?: GuestLink[] }>(`/v1/guest-links?${params}`);
+    return data?.links || [];
+  }
+
+  async createGuestLink(channel: string, expiresAt: string | null): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>('/v1/guest-links', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), channel, expires_at: expiresAt }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkExpiry(id: string, expiresAt: string | null): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ expires_at: expiresAt }),
+    });
+    return data.link;
+  }
+
+  async revokeGuestLink(id: string): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'DELETE',
+    });
+    return data.link;
   }
 
   async resolveThreadLink(id: string): Promise<{ id: string; session_id: string }> {

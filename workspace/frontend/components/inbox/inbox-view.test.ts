@@ -54,3 +54,9 @@ it.each(['high', 'normal', 'low'] as const)('hides the dot once a %s notificatio
   expect(cls).toContain('invisible');
   expect(cls).not.toMatch(/bg-(red|blue)-500/);
 });
+
+it('names a shared-thread guest sender as a guest, never by their internal address', async () => {
+  await dotFor({ createdBy: 'human:guest-7f3a@guest.invalid' });
+  expect(document.body.textContent).toContain('chat.guestBadge');
+  expect(document.body.innerHTML).not.toContain('guest.invalid');
+});

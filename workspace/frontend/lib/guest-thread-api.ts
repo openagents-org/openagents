@@ -1,6 +1,6 @@
 /**
  * Client for the public, token-scoped guest thread API
- * (`/v1/thread-links/public/{token}/…`).
+ * (`/v1/guest-links/public/{token}/…`).
  *
  * A guest has no workspace account: nothing here sends workspace auth, and
  * nothing calls workspace-scoped endpoints (`/v1/events`, `/v1/workspaces/…`).
@@ -107,7 +107,7 @@ export interface GuestApiOptions {
 }
 
 function linkUrl(token: string, path = '', baseUrl = getApiBaseUrl()): string {
-  return `${baseUrl}/v1/thread-links/public/${encodeURIComponent(token)}${path}`;
+  return `${baseUrl}/v1/guest-links/public/${encodeURIComponent(token)}${path}`;
 }
 
 async function request<T>(url: string, init: RequestInit, options: GuestApiOptions = {}): Promise<T> {
@@ -149,6 +149,12 @@ export function joinAsGuest(token: string, name: string, options: GuestApiOption
 export function fetchGuestMessages(token: string, after?: string | null, options: GuestApiOptions & { limit?: number } = {}): Promise<GuestMessagesPage> {
   const params = new URLSearchParams({ limit: String(options.limit ?? 100) });
   if (after) params.set('after', after);
+  return request<GuestMessagesPage>(linkUrl(token, `/messages?${params}`, options.baseUrl), { method: 'GET' }, options);
+}
+
+/** Messages older than `before` (ascending), for "Load earlier messages". */
+export function fetchEarlierGuestMessages(token: string, before: string, options: GuestApiOptions & { limit?: number } = {}): Promise<GuestMessagesPage> {
+  const params = new URLSearchParams({ limit: String(options.limit ?? 100), before });
   return request<GuestMessagesPage>(linkUrl(token, `/messages?${params}`, options.baseUrl), { method: 'GET' }, options);
 }
 

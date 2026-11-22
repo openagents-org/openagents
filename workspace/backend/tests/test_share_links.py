@@ -443,3 +443,14 @@ def test_agent_output_does_not_name_the_owners_home_folder(client, db, no_push):
     db.commit()
     last = _messages(client, _token(data))[-1]
     assert last["payload"]["content"] == "Read › ~/.openagents/shared/pr-reviewer/CLAUDE.md"
+
+
+def test_clients_can_tell_a_share_workspace_but_cannot_set_the_flag(client, workspace, no_push):
+    data = _published(client)
+    ws = client.get(f"/v1/workspaces/{data['workspaceId']}", headers={"X-Workspace-Token": data["token"]})
+    assert ws.status_code == 200, ws.text
+    body = ws.json()["data"]
+    assert body["settings"].get("openagents_share") and body["creatorEmail"] is None
+    r = client.patch(f"/v1/workspaces/{workspace['id']}", json={"settings": {"openagents_share": {"version": 1}}},
+                     headers={"X-Workspace-Token": workspace["token"]})
+    assert r.status_code >= 400, "only the server marks a workspace as shared"

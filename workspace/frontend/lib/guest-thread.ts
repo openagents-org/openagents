@@ -145,8 +145,9 @@ export function nextCursor(current: string | null, page: ONMEvent[]): string | n
 
 /**
  * Merge a page of polled events into the list. Deduped by id; an optimistic
- * message whose idempotency key matches an arrived event is replaced by it,
- * so a send that the poll sees before the POST resolves shows once.
+ * message whose send key matches an arrived event's `metadata.client_key`
+ * (the server's echo of the idempotency key) is replaced by it, so a send
+ * that the poll sees before the POST resolves shows once.
  */
 export function mergeEvents(prev: WorkspaceMessage[], events: ONMEvent[]): WorkspaceMessage[] {
   if (events.length === 0) return prev;
@@ -160,15 +161,38 @@ export function isOptimistic(message: Pick<WorkspaceMessage, 'messageId'>): bool
   return message.messageId.startsWith(OPTIMISTIC_PREFIX);
 }
 
-function idempotencyKeyOf(message: WorkspaceMessage): string {
-  const key = message.metadata?.idempotency_key;
+/** The send key: `client_key` as echoed by the server, or our own copy on an optimistic row. */
+export function idempotencyKeyOf(message: Pick<WorkspaceMessage, 'metadata'>): string {
+  const key = message.metadata?.client_key ?? message.metadata?.idempotency_key;
   return typeof key === 'string' ? key : '';
+}
+
+/** Has the server already stored the send with this key (seen by a poll)? */
+export function isDelivered(messages: WorkspaceMessage[], key: string): boolean {
+  return !!key && messages.some((m) => !isOptimistic(m) && idempotencyKeyOf(m) === key);
 }
 
 /** Swap the optimistic copy of a send for the stored event. */
 export function reconcileSent(prev: WorkspaceMessage[], optimisticId: string, event: ONMEvent): WorkspaceMessage[] {
   const without = prev.filter((m) => m.messageId !== optimisticId);
   return mergeMessages(without, [guestEventToMessage(event)]);
+}
+
+/**
+ * Mark a send as failed — unless a poll already brought the stored message
+ * (the POST failed after the server kept it), which then stays as the only copy.
+ */
+export function markSendFailed(prev: WorkspaceMessage[], failed: WorkspaceMessage): WorkspaceMessage[] {
+  const key = idempotencyKeyOf(failed);
+  if (isDelivered(prev, key)) return removeMessage(prev, failed.messageId);
+  return upsertMessage(prev, failed);
+}
+
+// ── Earlier messages ──
+
+/** Oldest server id in an ascending page — the next `before` cursor. */
+export function olderCursor(current: string | null, page: ONMEvent[]): string | null {
+  return page.length > 0 ? page[0].id : current;
 }
 
 // ── Composer ──

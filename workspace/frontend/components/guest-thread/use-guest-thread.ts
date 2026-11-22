@@ -5,6 +5,7 @@ import type { WorkspaceMessage } from '@/lib/types';
 import {
   GuestThreadError,
   clearGuestSession,
+  fetchEarlierGuestMessages,
   fetchGuestMessages,
   fetchThreadLink,
   isTerminalLinkError,
@@ -16,9 +17,12 @@ import {
   type GuestThreadInfo,
 } from '@/lib/guest-thread-api';
 import {
+  isDelivered,
+  markSendFailed,
   mergeEvents,
   nextCursor,
   nextPollDelay,
+  olderCursor,
   optimisticMessage,
   reconcileSent,
   sendPending,
@@ -41,13 +45,14 @@ function isHidden(): boolean {
  * State for one shared thread seen by a guest: the link info, the merged
  * message list (initial page + ~3s polling), the guest identity, and sends
  * with optimistic rows and idempotent retries. Only talks to the public
- * `/v1/thread-links/public/{token}` API.
+ * `/v1/guest-links/public/{token}` API.
  */
 export function useGuestThread(token: string) {
   const [status, setStatus] = useState<GuestThreadStatus>('loading');
   const [info, setInfo] = useState<GuestThreadInfo | null>(null);
   const [messages, setMessages] = useState<WorkspaceMessage[]>([]);
   const [hasOlder, setHasOlder] = useState(false);
+  const [olderState, setOlderState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [guest, setGuest] = useState<GuestIdentity | null>(null);
   const [nameRequest, setNameRequest] = useState<{ reason: 'first-post' | 'session-expired' } | null>(null);
   /** Bumped on every own send so the list scrolls to the bottom. */
@@ -56,6 +61,9 @@ export function useGuestThread(token: string) {
   const sessionRef = useRef<string | null>(null);
   const guestRef = useRef<GuestIdentity | null>(null);
   const cursorRef = useRef<string | null>(null);
+  /** Oldest loaded server id — the `before` cursor for earlier pages. */
+  const oldestRef = useRef<string | null>(null);
+  const loadingOlderRef = useRef(false);
   const queuedRef = useRef<PendingSend | null>(null);
   const failedRef = useRef(new Map<string, PendingSend>());
 
@@ -92,10 +100,12 @@ export function useGuestThread(token: string) {
       }
       const page = await fetchGuestMessages(token, null);
       cursorRef.current = nextCursor(null, page.messages);
+      oldestRef.current = olderCursor(null, page.messages);
       setIdentity(session ? linkInfo.guest : null, session);
       setInfo(linkInfo);
       setMessages(mergeEvents([], page.messages));
-      setHasOlder(page.hasMore);
+      setHasOlder(page.hasMore && !!oldestRef.current);
+      setOlderState('idle');
       setStatus('ready');
     } catch (error) {
       if (!endWith(error)) setStatus('error');
@@ -103,6 +113,25 @@ export function useGuestThread(token: string) {
   }, [token, endWith, setIdentity]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // ── Earlier messages ──
+  const loadOlder = useCallback(async () => {
+    const before = oldestRef.current;
+    if (!before || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+    setOlderState('loading');
+    try {
+      const page = await fetchEarlierGuestMessages(token, before);
+      oldestRef.current = olderCursor(before, page.messages);
+      if (page.messages.length) setMessages((prev) => mergeEvents(prev, page.messages));
+      setHasOlder(page.hasMore && page.messages.length > 0);
+      setOlderState('idle');
+    } catch (error) {
+      if (!endWith(error)) setOlderState('error');
+    } finally {
+      loadingOlderRef.current = false;
+    }
+  }, [token, endWith]);
 
   // ── Polling ──
   useEffect(() => {
@@ -173,7 +202,8 @@ export function useGuestThread(token: string) {
       return;
     }
     failedRef.current.delete(pending.localId);
-    setMessages((prev) => upsertMessage(prev, optimisticMessage(pending, currentGuest)));
+    // A retry of a send a poll already brought back adds no second copy.
+    setMessages((prev) => (isDelivered(prev, pending.idempotencyKey) ? prev : upsertMessage(prev, optimisticMessage(pending, currentGuest))));
     setSendTick((n) => n + 1);
     try {
       const event = await sendPending(pending, (content, key) => postGuestMessage(token, session, content, key));
@@ -186,7 +216,7 @@ export function useGuestThread(token: string) {
         clearGuestSession(token);
         setIdentity(null, null);
         failedRef.current.set(pending.localId, pending);
-        setMessages((prev) => upsertMessage(prev, optimisticMessage(pending, currentGuest, 'failed', 'session')));
+        setMessages((prev) => markSendFailed(prev, optimisticMessage(pending, currentGuest, 'failed', 'session')));
         queuedRef.current = pending;
         setNameRequest({ reason: 'session-expired' });
         return;
@@ -194,7 +224,7 @@ export function useGuestThread(token: string) {
       failedRef.current.set(pending.localId, pending);
       const kind = error instanceof GuestThreadError ? error.kind : null;
       const reason = kind === 'rate_limited' || kind === 'forbidden' ? kind : 'failed';
-      setMessages((prev) => upsertMessage(prev, optimisticMessage(pending, currentGuest, 'failed', reason)));
+      setMessages((prev) => markSendFailed(prev, optimisticMessage(pending, currentGuest, 'failed', reason)));
     }
   }, [token, endWith, setIdentity]);
 
@@ -233,5 +263,5 @@ export function useGuestThread(token: string) {
     setNameRequest(null);
   }, []);
 
-  return { status, info, messages, hasOlder, guest, nameRequest, sendTick, reload: load, send, retry, join, cancelName, endWith };
+  return { status, info, messages, hasOlder, olderState, loadOlder, guest, nameRequest, sendTick, reload: load, send, retry, join, cancelName, endWith };
 }

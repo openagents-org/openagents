@@ -6,11 +6,14 @@ import {
   composeOutgoing,
   defaultAskAgent,
   guestEventToMessage,
+  isDelivered,
+  markSendFailed,
   mergeEvents,
   newPendingSend,
   nextCursor,
   nextPollDelay,
   normalizeGuestName,
+  olderCursor,
   optimisticMessage,
   randomId,
   reconcileSent,
@@ -111,7 +114,8 @@ describe('poll merge', () => {
     const guest = { id: 'g-1', name: 'Maya' };
     const pending = newPendingSend('@claude-code review', (() => { let n = 0; return () => `id-${++n}`; })());
     const optimistic = optimisticMessage(pending, guest);
-    const real = event({ id: 'srv-1', source: 'guest:g-1', payload: { content: '@claude-code review' }, metadata: { guest, idempotency_key: pending.idempotencyKey } });
+    // The server echoes the send's idempotency key as metadata.client_key.
+    const real = event({ id: 'srv-1', source: 'guest:g-1', payload: { content: '@claude-code review' }, metadata: { guest, client_key: pending.idempotencyKey } });
 
     // POST resolves first, then the poll repeats the event.
     let list = upsertMessage([], optimistic);
@@ -119,12 +123,60 @@ describe('poll merge', () => {
     list = mergeEvents(list, [real]);
     expect(list.map((m) => m.messageId)).toEqual(['srv-1']);
 
-    // Poll sees it first (matched by idempotency key), then the POST resolves.
+    // Poll sees it first (matched by client_key), then the POST resolves.
     let other = upsertMessage([], optimistic);
     other = mergeEvents(other, [real]);
     expect(other.map((m) => m.messageId)).toEqual(['srv-1']);
     other = reconcileSent(other, pending.localId, real);
     expect(other.map((m) => m.messageId)).toEqual(['srv-1']);
+  });
+
+  it('keeps a different send with the same text (keys differ)', () => {
+    const guest = { id: 'g-1', name: 'Maya' };
+    const first = newPendingSend('same'); const second = newPendingSend('same');
+    const real = event({ id: 'srv-1', payload: { content: 'same' }, metadata: { guest, client_key: first.idempotencyKey } });
+    let list = upsertMessage(upsertMessage([], optimisticMessage(first, guest)), optimisticMessage(second, guest));
+    list = mergeEvents(list, [real]);
+    expect(list.map((m) => m.messageId).sort()).toEqual([second.localId, 'srv-1'].sort());
+  });
+
+  it('does not resurrect a failed copy of a send the poll already brought back', () => {
+    const guest = { id: 'g-1', name: 'Maya' };
+    const pending = newPendingSend('hello');
+    const real = event({ id: 'srv-1', payload: { content: 'hello' }, metadata: { guest, client_key: pending.idempotencyKey } });
+    let list = upsertMessage([], optimisticMessage(pending, guest));
+    list = mergeEvents(list, [real]);
+    expect(isDelivered(list, pending.idempotencyKey)).toBe(true);
+    list = markSendFailed(list, optimisticMessage(pending, guest, 'failed', 'failed'));
+    expect(list.map((m) => m.messageId)).toEqual(['srv-1']);
+    // Not delivered: the failed row stays for a retry.
+    const other = newPendingSend('again');
+    const failed = markSendFailed(list, optimisticMessage(other, guest, 'failed', 'failed'));
+    expect(failed.map((m) => m.messageId)).toEqual(['srv-1', other.localId]);
+    expect(failed[1].metadata.send_status).toBe('failed');
+  });
+
+  it('pages back with the oldest id and prepends in order', () => {
+    const latest = [event({ id: 'c' }), event({ id: 'd' })];
+    clock -= 10_000;
+    const older = [event({ id: 'a' }), event({ id: 'b' })];
+    expect(olderCursor(null, latest)).toBe('c');
+    expect(olderCursor('c', older)).toBe('a');
+    expect(olderCursor('a', [])).toBe('a');
+    const list = mergeEvents(mergeEvents([], latest), older);
+    expect(list.map((m) => m.messageId)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('keeps the shared excerpts together at the top once earlier pages bring them in', () => {
+    clock += 100_000;
+    const latest = [event({ id: 'l2' }), event({ id: 'l3' })];
+    clock -= 50_000;
+    const older = [event({ id: 's1', metadata: { share_seed: true } }), event({ id: 's2', metadata: { share_seed: true } }), event({ id: 'l1' })];
+    const before = splitSeed(mergeEvents([], latest));
+    expect(before.seed).toEqual([]);
+    const after = splitSeed(mergeEvents(mergeEvents([], latest), older));
+    expect(after.seed.map((m) => m.messageId)).toEqual(['s1', 's2']);
+    expect(after.rest.map((m) => m.messageId)).toEqual(['l1', 'l2', 'l3']);
   });
 
   it('backs off when hidden and on repeated errors', () => {

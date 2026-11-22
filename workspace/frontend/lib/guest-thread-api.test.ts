@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   GuestThreadError,
   clearGuestSession,
+  fetchEarlierGuestMessages,
   fetchGuestMessages,
   fetchThreadLink,
   guestSessionKey,
@@ -52,19 +53,27 @@ describe('requests', () => {
     await fetchGuestMessages('a/b', 'evt-9', { baseUrl: BASE, fetchImpl });
     await fetchGuestMessages('a/b', null, { baseUrl: BASE, fetchImpl });
     const calls = fetchImpl.mock.calls as unknown as [string, RequestInit][];
-    expect(calls[0][0]).toBe(`${BASE}/v1/thread-links/public/a%2Fb/messages?limit=100&after=evt-9`);
-    expect(calls[1][0]).toBe(`${BASE}/v1/thread-links/public/a%2Fb/messages?limit=100`);
+    expect(calls[0][0]).toBe(`${BASE}/v1/guest-links/public/a%2Fb/messages?limit=100&after=evt-9`);
+    expect(calls[1][0]).toBe(`${BASE}/v1/guest-links/public/a%2Fb/messages?limit=100`);
     expect(calls[0][1].credentials).toBe('omit');
     for (const [url] of calls) {
       expect(url).not.toMatch(/\/v1\/events|\/v1\/workspaces/);
     }
   });
 
+  it('asks for earlier messages with a before cursor', async () => {
+    const fetchImpl = respond(200, { code: 0, message: 'ok', data: { messages: [], hasMore: true } });
+    await expect(fetchEarlierGuestMessages('tok', 'evt-1', { baseUrl: BASE, fetchImpl })).resolves.toEqual({ messages: [], hasMore: true });
+    const [url, init] = (fetchImpl.mock.calls as unknown as [string, RequestInit][])[0];
+    expect(url).toBe(`${BASE}/v1/guest-links/public/tok/messages?limit=100&before=evt-1`);
+    expect(init.credentials).toBe('omit');
+  });
+
   it('sends the guest session header and idempotency key when posting', async () => {
     const fetchImpl = respond(200, { code: 0, message: 'ok', data: { id: 'e1' } });
     await postGuestMessage('tok', 'secret', 'hello', 'key-1', { baseUrl: BASE, fetchImpl });
     const [url, init] = (fetchImpl.mock.calls as unknown as [string, RequestInit][])[0];
-    expect(url).toBe(`${BASE}/v1/thread-links/public/tok/messages`);
+    expect(url).toBe(`${BASE}/v1/guest-links/public/tok/messages`);
     expect(init.method).toBe('POST');
     expect((init.headers as Record<string, string>)['X-Guest-Session']).toBe('secret');
     expect(JSON.parse(init.body as string)).toEqual({ content: 'hello', idempotency_key: 'key-1' });

@@ -80,9 +80,9 @@ it('renders the thread for a guest without any workspace context', async () => {
   const chip = host.querySelector('[data-slot="toggle"]');
   expect(chip?.getAttribute('data-state')).toBe('on');
   // The stored session went along with the info request.
-  const infoCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/v1/thread-links/public/tok'));
+  const infoCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/v1/guest-links/public/tok'));
   expect((infoCall?.[1] as RequestInit).headers).toEqual({ 'X-Guest-Session': 'secret' });
-  for (const url of urls()) expect(url).toMatch(/^https:\/\/api\.test\/v1\/thread-links\/public\/tok/);
+  for (const url of urls()) expect(url).toMatch(/^https:\/\/api\.test\/v1\/guest-links\/public\/tok/);
 });
 
 it.each([
@@ -119,7 +119,7 @@ it('sends with the @agent prefix, the guest session and an idempotency key', asy
   });
   for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
   const post = fetchMock.mock.calls.find((call) => (call[1] as RequestInit | undefined)?.method === 'POST');
-  expect(post?.[0]).toBe('https://api.test/v1/thread-links/public/tok/messages');
+  expect(post?.[0]).toBe('https://api.test/v1/guest-links/public/tok/messages');
   const init = post?.[1] as RequestInit;
   expect((init.headers as Record<string, string>)['X-Guest-Session']).toBe('secret');
   const body = JSON.parse(String(init.body));
@@ -130,4 +130,112 @@ it('sends with the @agent prefix, the guest session and an idempotency key', asy
   // Reconciled: the stored event replaces the optimistic row, shown once.
   expect(host.querySelectorAll('[data-guest-message="e9"]').length).toBe(1);
   expect(host.querySelector('[data-guest-message^="optimistic-"]')).toBeNull();
+});
+
+function msg(id: string, timestamp: number, extra: Record<string, unknown> = {}) {
+  return { id, type: 'workspace.message', source: 'human:alex@example.com', target: 'channel/channel-1', payload: { content: `message ${id}`, sender_name: 'Alex' }, metadata: {}, timestamp, visibility: 'channel', ...extra };
+}
+
+/** jsdom has no layout: give the list a height of 100px per message row. */
+function fakeLayout() {
+  const list = host.querySelector<HTMLDivElement>('[aria-live="polite"]')!;
+  let top = 0;
+  Object.defineProperty(list, 'scrollHeight', { configurable: true, get: () => list.querySelectorAll('[data-guest-message]').length * 100 });
+  Object.defineProperty(list, 'clientHeight', { configurable: true, get: () => 300 });
+  Object.defineProperty(list, 'scrollTop', { configurable: true, get: () => top, set: (v: number) => { top = v; } });
+  return list;
+}
+
+async function settle() {
+  for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+}
+
+it('loads earlier messages on request, keeps the reading position, and keeps the excerpts together', async () => {
+  const latest = [msg('l2', 200), msg('l3', 300)];
+  const older = [
+    msg('s1', 10, { metadata: { share_seed: true } }),
+    msg('s2', 20, { source: 'openagents:claude-code', payload: { content: 'Found one issue' }, metadata: { share_seed: true } }),
+    msg('l1', 100),
+  ];
+  serve((url) => {
+    if (url.includes('before=')) return ok({ messages: older, hasMore: false });
+    if (url.includes('/messages')) return ok({ messages: url.includes('after=') ? [] : latest, hasMore: !url.includes('after=') });
+    return ok(INFO);
+  });
+  await open();
+  expect(host.querySelector('[data-guest-load-earlier]')).not.toBeNull();
+  expect(host.textContent).not.toContain('guestThread.seedDivider');
+  const list = fakeLayout();
+  list.scrollTop = 40;
+
+  const loadButton = [...host.querySelectorAll('button')].find((b) => b.textContent === 'guestThread.loadEarlier')!;
+  await act(async () => loadButton.click());
+  await settle();
+
+  const earlier = fetchMock.mock.calls.map((c) => String(c[0])).find((u) => u.includes('before='));
+  expect(earlier).toBe('https://api.test/v1/guest-links/public/tok/messages?limit=100&before=l2');
+  // 2 rows (200px) became 5 rows (500px): the same message stays in view.
+  expect(list.scrollTop).toBe(500 - 200 + 40);
+  // Everything is loaded: no button, no "more" note.
+  expect(host.querySelector('[data-guest-load-earlier]')).toBeNull();
+  // The excerpts sit together under their divider, above the live thread.
+  const seedSection = host.querySelector('section')!;
+  expect(seedSection.textContent).toContain('guestThread.seedDivider');
+  expect([...seedSection.querySelectorAll('[data-guest-message]')].map((el) => el.getAttribute('data-guest-message'))).toEqual(['s1', 's2']);
+  const order = [...host.querySelectorAll('[data-guest-message]')].map((el) => el.getAttribute('data-guest-message'));
+  expect(order).toEqual(['s1', 's2', 'l1', 'l2', 'l3']);
+});
+
+it('keeps the button and offers a retry when loading earlier messages fails', async () => {
+  serve((url) => {
+    if (url.includes('before=')) return new Response(JSON.stringify({ code: 500, message: 'x' }), { status: 500 });
+    if (url.includes('/messages')) return ok({ messages: url.includes('after=') ? [] : [msg('l2', 200)], hasMore: !url.includes('after=') });
+    return ok(INFO);
+  });
+  await open();
+  const loadButton = [...host.querySelectorAll('button')].find((b) => b.textContent === 'guestThread.loadEarlier')!;
+  await act(async () => loadButton.click());
+  await settle();
+  expect(host.textContent).toContain('guestThread.loadEarlierFailed');
+  expect([...host.querySelectorAll('button')].some((b) => b.textContent === 'guestThread.loadEarlier')).toBe(true);
+});
+
+it('shows a send once when the poll returns it before the POST does', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  let sentKey = '';
+  let sentContent = '';
+  let finishPost!: () => void;
+  const stored = () => ({ id: 'e9', type: 'workspace.message', source: 'human:guest-g-1@guest.invalid', target: 'channel/channel-1', payload: { content: sentContent, sender_name: 'Maya' }, metadata: { guest: INFO.guest, client_key: sentKey }, timestamp: 9, visibility: 'channel' });
+  serve((url, init) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      sentKey = body.idempotency_key; sentContent = body.content;
+      return new Promise<Response>((resolve) => { finishPost = () => resolve(ok(stored())); });
+    }
+    if (url.includes('after=')) return ok({ messages: sentKey ? [stored()] : [], hasMore: false });
+    return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO);
+  });
+  await open();
+  const textarea = host.querySelector('textarea')!;
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(textarea, 'hello there');
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await settle();
+  expect(host.querySelectorAll('[data-guest-message^="optimistic-"]').length).toBe(1);
+
+  // The poll lands first and carries the send's key back as client_key.
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  await settle();
+  expect(host.querySelectorAll('[data-guest-message="e9"]').length).toBe(1);
+  expect(host.querySelector('[data-guest-message^="optimistic-"]')).toBeNull();
+
+  // Then the POST resolves: still one copy.
+  await act(async () => finishPost());
+  await settle();
+  expect(host.querySelectorAll('[data-guest-message="e9"]').length).toBe(1);
+  expect(host.querySelector('[data-guest-message^="optimistic-"]')).toBeNull();
+  expect([...host.querySelectorAll('[data-guest-message]')].filter((el) => el.textContent?.includes('hello there')).length).toBe(1);
 });

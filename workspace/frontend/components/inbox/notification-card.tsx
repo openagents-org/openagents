@@ -9,6 +9,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { agentLabel } from '@/lib/helpers';
 import { humanColor } from '@/lib/human-color';
+import { isGuestAddress } from '@/lib/guest-sender';
 import { useFormatters, useT } from '@/lib/i18n';
 import { inboxActionKind } from '@/lib/inbox';
 import type { NotificationItem } from '@/lib/types';
@@ -80,6 +81,8 @@ export function NotificationCard({
   const senderAgent = agents.find((a) => a.agentName === agentName);
   const senderLabel = senderAgent
     ? agentLabel(senderAgent)
+    // A shared-thread guest's address is an internal handle, not a name.
+    : isGuestAddress(agentName) ? t('chat.guestBadge')
     : (fromPerson ? (humanNames[agentName.toLowerCase()] ?? agentName) : agentName);
   resolved = resolved || Boolean(notification.approvalStatus && notification.approvalStatus !== 'pending');
   const actionKind = inboxActionKind(notification);

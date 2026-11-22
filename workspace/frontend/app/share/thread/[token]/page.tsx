@@ -22,6 +22,8 @@ export default function SharedThreadPage({ params }: { params: Promise<{ token: 
       info={thread.info}
       messages={thread.messages}
       hasOlder={thread.hasOlder}
+      olderState={thread.olderState}
+      onLoadOlder={thread.loadOlder}
       guest={thread.guest}
       nameRequest={thread.nameRequest}
       sendTick={thread.sendTick}
