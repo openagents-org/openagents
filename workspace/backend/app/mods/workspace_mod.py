@@ -158,8 +158,13 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
     # next heartbeats or posts, which tells it to stop.
     new_session_id = _uuid.uuid4().hex
 
+    raw_caps = (event.payload or {}).get("capabilities")
+    capabilities = sorted({c for c in raw_caps if isinstance(c, str)})[:16] if isinstance(raw_caps, list) else []
     if existing:
         prior_session = existing.session_id
+        # Replaced on every join: a client downgraded to an older launcher
+        # must stop being handed what only the newer one can do.
+        existing.capabilities = capabilities
         existing.status = "online"
         existing.last_heartbeat = now
         existing.session_id = new_session_id
@@ -210,6 +215,7 @@ async def _handle_agent_join(event: Event, ctx: PipelineContext) -> Optional[Eve
             workspace_id=workspace.id,
             agent_name=agent_name,
             role=role,
+            capabilities=capabilities,
             agent_type=agent_type,
             server_host=server_host,
             working_dir=working_dir,
@@ -2329,7 +2335,12 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     mentions = _extract_mentions(content, known_agents)
 
     # Auto-name channel from first human message if title is default/empty
-    if event.source.startswith("human:") and channel:
+    from app.services.thread_links import is_guest_source as _is_guest
+    if event.source.startswith("human:") and channel and _is_guest(event.source):
+        # A guest is never added to the workspace roster or the thread's
+        # people: they hold a link to this thread, not a membership.
+        pass
+    elif event.source.startswith("human:") and channel:
         _auto_title_channel(channel, content, db)
         # First post from a human → make sure they're in the workspace
         # roster so @-mention pushes can find their device tokens later.

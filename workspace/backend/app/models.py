@@ -162,6 +162,10 @@ class WorkspaceMember(Base):
     status = Column(Text, default="offline")         # online | offline
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     joined_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    # What the connected client says it can do, refreshed on every join, e.g.
+    # ["guest_turns"]: it runs a shared-thread guest's turn read-only. A client
+    # that never says so is never handed a guest's request.
+    capabilities = Column(JSONB, nullable=True)
     # Opaque token assigned on each /v1/join. Subsequent heartbeats and
     # message posts must carry this id; a newer join rotates it so any
     # stale client (e.g. ghost adapter, second daemon on same config)
@@ -712,6 +716,67 @@ class PublicShare(Base):
             postgresql_where=text("revoked_at IS NULL"),
             sqlite_where=text("revoked_at IS NULL"),
         ),
+    )
+
+
+class ThreadGuestLink(Base):
+    """A link that lets anyone holding it into ONE thread as a guest.
+
+    Made by OpenAgents Share: a person shares an agent from their own coding
+    session, and the people they send the link to read that thread and post
+    in it without an account. A guest sees nothing else in the workspace.
+
+    ``token`` is the secret in the URL (/share/thread/<token>). It is kept so
+    the owner can copy the link again. ``expires_at`` NULL means the link never
+    expires (the owner's choice, and the default); revoking stamps
+    ``revoked_at`` and is final. ``publish_key_hash`` makes a retried publish
+    return the same workspace, thread and link instead of a second copy.
+    ``post_window_*`` is a coarse per-link posting budget, so a leaked link
+    cannot flood the owner's agent.
+    """
+    __tablename__ = "thread_guest_links"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False)
+    token = Column(Text, unique=True, nullable=False)
+    created_by = Column(Text, nullable=False)          # "human:<email>" or "share:anonymous"
+    owner_name = Column(Text, nullable=True)           # how guests see the person who shared
+    can_post = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
+    publish_key_hash = Column(Text, unique=True, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_started_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_thread_guest_links_channel", "workspace_id", "channel_name"),
+    )
+
+
+class ThreadGuest(Base):
+    """One person who opened a thread link and chose a display name.
+
+    The browser keeps ``session`` (returned once); only its SHA-256 is stored.
+    A guest posts as ``human:guest-<id>@guest.invalid`` — an address that can
+    never belong to a real account — and every message carries
+    ``metadata.guest``, so nothing mistakes a guest for a member.
+    """
+    __tablename__ = "thread_guests"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
+    display_name = Column(Text, nullable=False)
+    session_hash = Column(Text, unique=True, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_started_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_thread_guests_link", "link_id"),
     )
 
 

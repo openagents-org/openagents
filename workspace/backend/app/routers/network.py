@@ -42,6 +42,9 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 # Request models
 # ---------------------------------------------------------------------------
 
+KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns"})
+
+
 class JoinRequest(BaseModel):
     agent_name: str
     token: str                         # workspace token
@@ -49,6 +52,7 @@ class JoinRequest(BaseModel):
     agent_type: Optional[str] = None   # "claude", "openclaw", etc.
     server_host: Optional[str] = None  # hostname/IP where agent runs
     working_dir: Optional[str] = None  # working directory on the server
+    capabilities: Optional[List[str]] = None  # what the client can do, e.g. ["guest_turns"]
 
 class LeaveRequest(BaseModel):
     agent_name: str
@@ -257,6 +261,8 @@ def join_network(
         payload["server_host"] = body.server_host
     if body.working_dir:
         payload["working_dir"] = body.working_dir
+    # Only capabilities this server knows; anything else is dropped.
+    payload["capabilities"] = sorted({c for c in (body.capabilities or []) if c in KNOWN_AGENT_CAPABILITIES})
     # A join authenticated with a node token is attributable to a device —
     # stamp it so "which machine runs this agent" is a column, not a guess.
     if body.token:

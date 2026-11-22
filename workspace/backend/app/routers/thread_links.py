@@ -1,0 +1,258 @@
+# -*- coding: utf-8 -*-
+"""OpenAgents Share — guest links into one thread (app/services/thread_links.py).
+
+  GET    /v1/share/instructions                         the markdown an agent follows to share itself
+  POST   /v1/share/publish                              an agent publishes, on its person's say-so
+  GET    /v1/thread-links?network=&channel=             owner: the links of a workspace / thread
+  PATCH  /v1/thread-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
+  DELETE /v1/thread-links/{id}?network=                 owner: turn a link off for good
+
+  GET    /v1/thread-links/public/{token}                thread, agents, owner name; no auth
+  POST   /v1/thread-links/public/{token}/guests         {name} → a guest session
+  GET    /v1/thread-links/public/{token}/messages       ?after=&limit= — the thread's messages
+  POST   /v1/thread-links/public/{token}/messages       X-Guest-Session; {content, idempotency_key}
+
+Publishing needs no account. With a signed-in bearer the new workspace belongs
+to that account; without one it is anonymous and the returned workspace token
+is the creator's credential, as for any CLI-created workspace.
+
+Every public response carries no-referrer so the token in the page URL never
+leaks through a Referer header.
+"""
+
+import logging
+from pathlib import Path
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse, PlainTextResponse
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+
+from app.access import resolve_current_user, verify_workspace_access
+from app.config import config
+from app.database import get_db
+from app.response import ResponseCode, json_response, success_response
+from app.routers.network import _emit_event_blocking, _resolve_workspace
+from app.services import thread_links as svc
+from openagents.core.onm_events import Event
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/v1", tags=["share"])
+
+_PRIVATE = {"Referrer-Policy": "no-referrer", "Cache-Control": "no-store"}
+
+
+def _ok(data):
+    return JSONResponse(jsonable_encoder(success_response(data)), headers=_PRIVATE)
+
+
+def _fail(err: svc.LinkError):
+    resp = json_response(err.status, err.message)
+    for k, v in _PRIVATE.items():
+        resp.headers[k] = v
+    return resp
+
+
+# ---------------------------------------------------------------------------
+# Instructions an agent follows to share itself (the copy-paste entry point)
+# ---------------------------------------------------------------------------
+
+_INSTRUCTIONS = Path(__file__).resolve().parent.parent / "services" / "share_instructions.md"
+
+
+@router.get("/share/instructions")
+def share_instructions():
+    """Markdown an agent reads when its person says "share this agent".
+
+    The person pastes one line into Claude Code (or any agent):
+    "Read {API}/v1/share/instructions and follow it to share this agent with my team."
+    URLs come from this server's own settings, so a self-hosted workspace
+    hands out its own endpoints.
+    """
+    text = _INSTRUCTIONS.read_text(encoding="utf-8")
+    text = text.replace("{API}", (config.PUBLIC_API_BASE or "").rstrip("/")).replace("{APP}", svc.frontend_base())
+    return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
+                             headers={"Cache-Control": "public, max-age=300"})
+
+
+# ---------------------------------------------------------------------------
+# Publish
+# ---------------------------------------------------------------------------
+
+class Excerpt(BaseModel):
+    author: str                     # "owner" | "agent"
+    text: str
+
+
+class PublishRequest(BaseModel):
+    idempotency_key: str
+    title: str
+    agent_name: str
+    agent_type: Optional[str] = None
+    agent_display_name: Optional[str] = None
+    owner_name: Optional[str] = None
+    workspace_name: Optional[str] = None
+    excerpts: List[Excerpt] = Field(default_factory=list)
+    intro: Optional[str] = None
+    link_expires_at: Optional[str] = None   # ISO-8601; null / omitted = never
+
+
+@router.post("/share/publish")
+def publish(body: PublishRequest, db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
+    owner = resolve_current_user(db, authorization) if authorization else None
+    if authorization and owner is None:
+        # A stale sign-in must not silently publish an anonymous workspace the
+        # person believes is in their account.
+        return json_response(ResponseCode.UNAUTHORIZED, "Your sign-in expired. Sign in again, or publish without an account.")
+    try:
+        return _ok(svc.publish(db, body, owner))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+# ---------------------------------------------------------------------------
+# Owner management
+# ---------------------------------------------------------------------------
+
+def _owner_workspace(db: Session, network: str, token: Optional[str], authorization: Optional[str]):
+    workspace = _resolve_workspace(db, network) if network else None
+    if workspace is None:
+        return None, json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not verify_workspace_access(workspace, token, authorization, db, min_role="admin"):
+        return None, json_response(ResponseCode.FORBIDDEN, "Only the workspace owner or an admin can manage guest links")
+    return workspace, None
+
+
+class LinkPatch(BaseModel):
+    expires_at: Optional[str] = None
+
+
+@router.get("/thread-links")
+def list_links(network: str, channel: Optional[str] = None, db: Session = Depends(get_db),
+               x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    return _ok({"links": [svc.serialize_link(l) for l in svc.links_for(db, str(workspace.id), channel)]})
+
+
+@router.patch("/thread-links/{link_id}")
+def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depends(get_db),
+               x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"link": svc.serialize_link(svc.set_expiry(db, str(workspace.id), link_id, body.expires_at))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/thread-links/{link_id}")
+def revoke_link(link_id: str, network: str, db: Session = Depends(get_db),
+                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"link": svc.serialize_link(svc.revoke(db, str(workspace.id), link_id))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+# ---------------------------------------------------------------------------
+# Public (guest) side
+# ---------------------------------------------------------------------------
+
+class GuestCreate(BaseModel):
+    name: str
+
+
+class GuestMessage(BaseModel):
+    content: str
+    idempotency_key: Optional[str] = None
+
+
+@router.get("/thread-links/public/{token}")
+def describe_link(token: str, db: Session = Depends(get_db), x_guest_session: Optional[str] = Header(None)):
+    try:
+        return _ok(svc.describe(db, token, x_guest_session))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/thread-links/public/{token}/guests")
+def create_guest(token: str, body: GuestCreate, db: Session = Depends(get_db)):
+    try:
+        return _ok(svc.create_guest(db, token, body.name))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/thread-links/public/{token}/messages")
+def guest_messages(token: str, after: Optional[str] = Query(None), limit: int = Query(100),
+                   db: Session = Depends(get_db)):
+    try:
+        return _ok(svc.list_messages(db, token, after, limit))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/thread-links/public/{token}/messages")
+def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks,
+               db: Session = Depends(get_db, scope="function"), x_guest_session: Optional[str] = Header(None)):
+    try:
+        link, workspace, channel, guest, content = svc.prepare_guest_post(db, token, x_guest_session, body.content)
+    except svc.LinkError as e:
+        return _fail(e)
+
+    address = svc.guest_address(guest.id)
+    event = Event(
+        type="workspace.message.posted",
+        source=f"human:{address}",
+        target=f"channel/{channel.name}",
+        payload={"content": content, "message_type": "chat", "sender_type": "human",
+                 "sender_name": guest.display_name, "sender_display_name": f"{guest.display_name} (guest)",
+                 "sender_email": address},
+        metadata={"sender_email": address, "guest": {"id": guest.id, "name": guest.display_name},
+                  "guest_link_id": link.id},
+        visibility="channel",
+        network=str(workspace.id),
+    )
+    key = (body.idempotency_key or "").strip()
+    if key:
+        if len(key) > 128:
+            return _fail(svc.LinkError(400, "idempotency_key is too long"))
+        from app.services.message_delivery import prepare_delivery
+        try:
+            receipt = prepare_delivery(db, event, key)
+        except ValueError as exc:
+            db.rollback()
+            return _fail(svc.LinkError(409, str(exc)))
+        if receipt is not None:
+            # A retry of a message already delivered: same message, no second run, no charge.
+            db.rollback()
+            return _ok(svc.serialize_event(receipt))
+    try:
+        svc.charge_post(db, link, guest)
+    except svc.LinkError as e:
+        return _fail(e)
+
+    posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+    if posted is None:
+        db.rollback()
+        return _fail(svc.LinkError(502, "Your message couldn't be delivered. Try again."))
+    from app.routers.sharing import _after_message_hooks
+    _after_message_hooks(background_tasks, str(workspace.id), posted)
+
+    from app.models import EventRecord
+    record = db.get(EventRecord, posted.id)
+    if record is not None:
+        return _ok(svc.serialize_event(record))
+    return _ok({"id": posted.id, "type": posted.type, "source": posted.source, "target": posted.target,
+                "payload": {"content": content, "sender_name": guest.display_name, "message_type": "chat"},
+                "metadata": {"guest": {"id": guest.id, "name": guest.display_name}},
+                "timestamp": posted.timestamp})
