@@ -1877,12 +1877,15 @@ class OpenCodeAdapter extends BaseAdapter {
       // as a bad model or a rejected key.
       category = 'config_invalid';
     } else if (status === '426'
-      || has(/\b\d+\.\d+(?:\.\d+)? or newer is required\b|\bupgrade required\b|\bclient version (?:is )?(?:unsupported|not supported|too old)\b/)) {
+      || (!status && has(/\bopencode \d+\.\d+(?:\.\d+)? or newer is required\b|\bclient version (?:is )?(?:unsupported|not supported|too old)\b/))) {
       // The provider refused this client's version: OpenCode's free tier
       // answers 1.17 with 426 "OpenCode 1.18.0 or newer is required to use
       // the free tier" (daily errors dashboard, 2026-11-21), which read as
       // "failed for an undetermined reason". 426 counts only as the HTTP
-      // status: as text it turns up in request ids and model names.
+      // status: as text it turns up in request ids and model names. The words
+      // count only without a status, and only OpenCode's own: a 401 saying
+      // "upgrade required to use this API key" is an auth failure, and
+      // "Python 3.11 or newer is required" is not about OpenCode.
       category = 'client_outdated';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a

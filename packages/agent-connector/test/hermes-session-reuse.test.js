@@ -541,6 +541,31 @@ describe('Hermes: what a run reports', () => {
       assert.equal((await a._runHermes(cjk, CHANNEL, null)).text, `stdin:${cjk.length}`);
     });
 
+    // Review of 526889bc3: the WSL bridge forwards only what differs from
+    // this process's own environment.
+    it('hands a WSL hermes PYTHONIOENCODING through WSLENV even when Windows already sets it', () => {
+      const { a } = makeHermes({ script: null, env: { PYTHONIOENCODING: 'utf-8', WSLENV: 'USERPROFILE/p' } });
+      a._hermesBin = 'wsl:/home/u/.local/bin/hermes';
+      const env = a._childEnv({ viaStdin: true });
+      assert.equal(env.PYTHONIOENCODING, 'utf-8');
+      assert.equal(env.WSLENV, 'USERPROFILE/p:PYTHONIOENCODING');
+      // Listed once, and not at all off the stdin route or for a native hermes.
+      a.agentEnv.WSLENV = 'PYTHONIOENCODING';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'PYTHONIOENCODING');
+      a.agentEnv.WSLENV = 'USERPROFILE/p';
+      assert.equal(a._childEnv({ viaStdin: false }).WSLENV, 'USERPROFILE/p');
+      a._hermesBin = '/usr/bin/hermes';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'USERPROFILE/p');
+    });
+
+    it('sizes a hermes.exe started from inside WSL by the Windows command line', () => {
+      const { a } = makeHermes({ script: null });
+      a._hermesBin = '/mnt/c/Users/u/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe';
+      assert.equal(a._argvPlatform(), 'win32');
+      a._hermesBin = '/home/u/.local/bin/hermes';
+      assert.equal(a._argvPlatform(), process.platform);
+    });
+
     it('tells a Hermes too old for `--query-file` to update, not "exit 2"', async () => {
       const { a } = routed('old');
       await assert.rejects(a._runHermes(long, CHANNEL, null), (e) => {

@@ -626,6 +626,36 @@ class HermesAdapter extends BaseAdapter {
     return args;
   }
 
+  /** Whose command-line rules apply to the hermes this run starts. */
+  _argvPlatform() {
+    return /\.exe$/i.test(String(this._hermesBin || '')) ? 'win32' : process.platform;
+  }
+
+  /** The environment one `hermes chat` run gets. */
+  _childEnv({ prefillFile = null, endpoint = null, viaStdin = false } = {}) {
+    const env = { ...(this.agentEnv || process.env) };
+    if (prefillFile) env[PREFILL_ENV] = prefillFile;
+    if (endpoint) env[PROVIDER_KEY_ENV] = endpoint.apiKey;
+    // Hermes reconfigures stdout and stderr to UTF-8 at start but not stdin
+    // (hermes_cli/__init__.py), and on Windows Python reads a pipe in the
+    // system code page: a Chinese prompt came through garbled on CP1252 and
+    // failed to decode on CP936. Set only on this route, so the encoding of
+    // whatever Hermes itself starts is otherwise left as it was.
+    if (viaStdin) {
+      env.PYTHONIOENCODING = 'utf-8';
+      // The WSL bridge forwards only what differs from this process's own
+      // environment, so a Windows that already sets PYTHONIOENCODING=utf-8
+      // would leave it behind and the distro would read in its own locale.
+      if (isWslBinary(this._hermesBin)) {
+        const listed = String(env.WSLENV || '').split(':').filter(Boolean);
+        if (!listed.some((n) => n.split('/')[0] === 'PYTHONIOENCODING')) {
+          env.WSLENV = [...listed, 'PYTHONIOENCODING'].join(':');
+        }
+      }
+    }
+    return env;
+  }
+
   /**
    * This agent's own endpoint, or null for one on Hermes's own sign-in.
    *
@@ -745,21 +775,15 @@ class HermesAdapter extends BaseAdapter {
 
     const endpoint = this._endpoint();
     if (endpoint) await this._ensureProvider(endpoint);
-    // Measured on the platform the command line is built on: a WSL hermes is
-    // still started through wsl.exe's Windows command line.
-    const viaStdin = !promptFitsArgv(prompt);
+    // Measured by the rules of the command line that is built: a WSL hermes
+    // is still started through wsl.exe's Windows command line, and a
+    // hermes.exe started from inside WSL gets a Windows one through interop,
+    // whatever process.platform says.
+    const viaStdin = !promptFitsArgv(prompt, this._argvPlatform());
     const args = this._buildHermesCmd(prompt, resumeId, { viaStdin });
     this._log(`Running hermes (profile=${this.hermesProfile}, channel=${channelName}, resume=${!!resumeId}${endpoint ? `, provider=${endpoint.provider}` : ''}${viaStdin ? `, prompt on stdin (${prompt.length} chars)` : ''})`);
 
-    const env = { ...(this.agentEnv || process.env) };
-    if (prefillFile) env[PREFILL_ENV] = prefillFile;
-    if (endpoint) env[PROVIDER_KEY_ENV] = endpoint.apiKey;
-    // Hermes reconfigures stdout and stderr to UTF-8 at start but not stdin
-    // (hermes_cli/__init__.py), and on Windows Python reads a pipe in the
-    // system code page: a Chinese prompt came through garbled on CP1252 and
-    // failed to decode on CP936. Set only on this route, so the encoding of
-    // whatever Hermes itself starts is otherwise left as it was.
-    if (viaStdin) env.PYTHONIOENCODING = 'utf-8';
+    const env = this._childEnv({ prefillFile, endpoint, viaStdin });
 
     // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
     // the bridge in ../wsl (which also forces detached off, there being no
