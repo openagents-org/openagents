@@ -643,14 +643,18 @@ class HermesAdapter extends BaseAdapter {
     // whatever Hermes itself starts is otherwise left as it was.
     if (viaStdin) {
       env.PYTHONIOENCODING = 'utf-8';
-      // The WSL bridge forwards only what differs from this process's own
-      // environment, so a Windows that already sets PYTHONIOENCODING=utf-8
-      // would leave it behind and the distro would read in its own locale.
-      if (isWslBinary(this._hermesBin)) {
-        const listed = String(env.WSLENV || '').split(':').filter(Boolean);
-        if (!listed.some((n) => n.split('/')[0] === 'PYTHONIOENCODING')) {
-          env.WSLENV = [...listed, 'PYTHONIOENCODING'].join(':');
-        }
+      // Across the WSL boundary only what WSLENV lists arrives, in either
+      // direction: a Windows daemon starting a WSL hermes (whose bridge
+      // forwards only what differs from this process, so a Windows that
+      // already set utf-8 left it behind), and a daemon inside WSL starting
+      // hermes.exe. Listed without flags, which is both directions: an entry
+      // of its own marked /w or /u would carry it one way only.
+      const crossesWsl = isWslBinary(this._hermesBin)
+        || (process.platform !== 'win32' && this._argvPlatform() === 'win32');
+      if (crossesWsl) {
+        const listed = String(env.WSLENV || '').split(':').filter(Boolean)
+          .filter((n) => n.split('/')[0] !== 'PYTHONIOENCODING');
+        env.WSLENV = [...listed, 'PYTHONIOENCODING'].join(':');
       }
     }
     return env;

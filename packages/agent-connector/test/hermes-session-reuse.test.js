@@ -558,6 +558,23 @@ describe('Hermes: what a run reports', () => {
       assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'USERPROFILE/p');
     });
 
+    // Review of a05fc2b9f: the other direction, and an entry that carries the
+    // variable one way only.
+    it('hands a hermes.exe started from inside WSL PYTHONIOENCODING, both ways, once', () => {
+      const { a } = makeHermes({ script: null, env: { WSLENV: 'PYTHONIOENCODING/w:USERPROFILE/p' } });
+      a._hermesBin = '/mnt/c/Users/u/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe';
+      const env = a._childEnv({ viaStdin: true });
+      if (process.platform === 'win32') return; // a native Windows daemon has no WSL boundary here
+      assert.equal(env.PYTHONIOENCODING, 'utf-8');
+      assert.equal(env.WSLENV, 'USERPROFILE/p:PYTHONIOENCODING');
+    });
+
+    it('turns a one-way PYTHONIOENCODING entry into a two-way one for a WSL hermes', () => {
+      const { a } = makeHermes({ script: null, env: { WSLENV: 'PYTHONIOENCODING/u' } });
+      a._hermesBin = 'wsl:/home/u/.local/bin/hermes';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'PYTHONIOENCODING');
+    });
+
     it('sizes a hermes.exe started from inside WSL by the Windows command line', () => {
       const { a } = makeHermes({ script: null });
       a._hermesBin = '/mnt/c/Users/u/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe';
