@@ -454,3 +454,16 @@ def test_clients_can_tell_a_share_workspace_but_cannot_set_the_flag(client, work
     r = client.patch(f"/v1/workspaces/{workspace['id']}", json={"settings": {"openagents_share": {"version": 1}}},
                      headers={"X-Workspace-Token": workspace["token"]})
     assert r.status_code >= 400, "only the server marks a workspace as shared"
+
+
+def test_guests_do_not_see_agent_cli_errors(client, db, no_push):
+    data = _published(client)
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=data["workspaceId"], type="workspace.message.posted",
+                       source="openagents:pr-reviewer", target=f"channel/{data['channel']['name']}",
+                       payload={"content": "Here is part of it.\nAPI Error: safeguards flagged this session.\nRequest ID: req_1",
+                                "message_type": "chat"},
+                       metadata_={}, timestamp=int(datetime.now(timezone.utc).timestamp() * 1000) + 10,
+                       visibility="channel"))
+    db.commit()
+    last = _messages(client, _token(data))[-1]
+    assert last["payload"]["content"] == "Here is part of it."

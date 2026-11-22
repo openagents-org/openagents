@@ -127,3 +127,18 @@ describe('guest messages', () => {
     }
   });
 });
+
+describe('guest turn errors', () => {
+  it("never posts the CLI's raw error text into a guest's thread", async () => {
+    const adapter = mkClaude();
+    const errors = [];
+    adapter.sendError = async (ch, text) => { errors.push(text); };
+    adapter._guestChannels.add('share-abc');
+    const raw = 'API Error: safeguards flagged this session. Request ID: req_123';
+    await adapter._postTurnOutcome({ lastErrorText: raw, responseModel: null }, 'share-abc', `Partial answer.\n${raw}`);
+    assert.deepEqual(adapter.responses, ['Partial answer.']);
+    assert.equal(errors.length, 1);
+    assert.doesNotMatch(errors[0], /req_123|safeguards/);
+    adapter._guestChannels.delete('share-abc');
+  });
+});

@@ -503,6 +503,9 @@ _PUBLIC_PAYLOAD = ("content", "message_type", "sender_name", "sender_display_nam
 _HOME_PATH = re.compile(r"(?:/home/|/Users/|[A-Za-z]:\\Users\\)[^/\\\s`'\")]+")
 
 
+_CLI_ERROR = re.compile(r"(?m)^\s*(?:API Error:|Claude error:|Error processing message:)")
+
+
 def _redact_home(text):
     return _HOME_PATH.sub("~", text) if isinstance(text, str) else text
 
@@ -516,7 +519,12 @@ def serialize_event(r: EventRecord) -> dict:
         source = "human:member"
     public_payload = {k: payload[k] for k in _PUBLIC_PAYLOAD if k in payload}
     if source.startswith("openagents:") and "content" in public_payload:
-        public_payload["content"] = _redact_home(public_payload["content"])
+        content = _redact_home(public_payload["content"])
+        if isinstance(content, str) and _CLI_ERROR.search(content):
+            # An agent CLI's own error (account, model, request ids) is for the
+            # owner's eyes; the guest learns only that the run failed.
+            content = _CLI_ERROR.split(content)[0].rstrip() or "The agent couldn't finish this request."
+        public_payload["content"] = content
     return {
         "id": r.id,
         "type": r.type,

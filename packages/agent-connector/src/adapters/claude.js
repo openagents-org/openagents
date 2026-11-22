@@ -35,6 +35,7 @@ const IS_WINDOWS = process.platform === 'win32';
 // own folder and the web, never run commands or change files. The CLI runs
 // headless, so a tool outside the allowed list is refused, not prompted.
 const GUEST_ALLOWED_TOOLS = ['Read', 'Glob', 'Grep', 'WebFetch', 'WebSearch'];
+const GUEST_ERROR_TEXT = 'I couldn\'t finish this request. The person who shared me can see why on their computer.';
 const GUEST_DISALLOWED_TOOLS = ['Bash', 'Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'KillShell', 'BashOutput', 'Task'];
 
 class ClaudeAdapter extends BaseAdapter {
@@ -1263,6 +1264,16 @@ class ClaudeAdapter extends BaseAdapter {
    * the UI never hangs on "thinking…".
    */
   async _postTurnOutcome(pp, msgChannel, finalResponse) {
+    if (pp.lastErrorText && this._effectiveMode(msgChannel) === 'guest') {
+      // A guest sees the thread, not this computer: the CLI's own error text
+      // (account, model and request details) stays in the owner's log.
+      const answer = String(finalResponse || '').split(pp.lastErrorText).join('').trim();
+      if (answer) {
+        try { await this.sendResponse(msgChannel, answer, { statusKind: 'error', model: pp.responseModel }); } catch {}
+      }
+      try { await this.sendError(msgChannel, GUEST_ERROR_TEXT); } catch {}
+      return;
+    }
     if (finalResponse) {
       try { await this.sendResponse(msgChannel, finalResponse, { statusKind: pp.lastErrorText ? 'error' : 'completed', model: pp.responseModel }); } catch {}
     } else if (pp.lastErrorText) {
