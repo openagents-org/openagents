@@ -1827,10 +1827,14 @@ class OpenCodeAdapter extends BaseAdapter {
       const data = (c.data && typeof c.data === 'object') ? c.data : {};
       const message = pick(c.message, c.error, c.detail, c.reason, data.message);
       const name = pick(c.name, c.type);
+      // OpenCode's own APIError keeps the HTTP status in data.statusCode
+      // (opencode-ai 1.19.6, session/message-v2.ts); the others are the
+      // shapes other providers' errors take.
       const statusRaw = c.status != null ? c.status
         : (c.statusCode != null ? c.statusCode
           : (data.status != null ? data.status
-            : (typeof c.code === 'number' ? c.code : null)));
+            : (data.statusCode != null ? data.statusCode
+              : (typeof c.code === 'number' ? c.code : null))));
       if (message || name || statusRaw != null) {
         return {
           message: String(message || ''),
@@ -1872,11 +1876,13 @@ class OpenCodeAdapter extends BaseAdapter {
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
-    } else if (has(/\b\d+\.\d+(?:\.\d+)? or newer is required\b|\bupgrade required\b|\b426\b/)) {
+    } else if (status === '426'
+      || has(/\b\d+\.\d+(?:\.\d+)? or newer is required\b|\bupgrade required\b|\bclient version (?:is )?(?:unsupported|not supported|too old)\b/)) {
       // The provider refused this client's version: OpenCode's free tier
       // answers 1.17 with 426 "OpenCode 1.18.0 or newer is required to use
       // the free tier" (daily errors dashboard, 2026-11-21), which read as
-      // "failed for an undetermined reason".
+      // "failed for an undetermined reason". 426 counts only as the HTTP
+      // status: as text it turns up in request ids and model names.
       category = 'client_outdated';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a

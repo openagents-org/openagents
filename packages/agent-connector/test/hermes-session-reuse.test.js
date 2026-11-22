@@ -437,6 +437,7 @@ describe('Hermes: what a run reports', () => {
         // [stub, 'echo', how]: by which route the prompt came, and how much.
         if (process.argv[3] === 'stdin') {
           let input = '';
+          process.stdin.setEncoding('utf8');
           process.stdin.on('data', (d) => { input += d; });
           process.stdin.on('end', () => {
             process.stdout.write('stdin:' + input.length);
@@ -446,6 +447,12 @@ describe('Hermes: what a run reports', () => {
           process.stdout.write('argv:0');
           process.stderr.write('\\nsession_id: S1\\n');
         }
+      } else if (mode === 'encoding') {
+        process.stdin.resume();
+        process.stdin.on('end', () => {
+          process.stdout.write(String(process.env.PYTHONIOENCODING));
+          process.stderr.write('\\nsession_id: S1\\n');
+        });
       } else if (mode === 'old') {
         process.stderr.write('usage: hermes [-h] ...\\nhermes: error: unrecognized arguments: --query-file -\\n');
         process.exit(2);
@@ -517,6 +524,21 @@ describe('Hermes: what a run reports', () => {
       assert.ok(!args.includes(long));
       assert.ok(!args.includes('-q'));
       assert.deepEqual(a._buildHermesCmd('hi', null).slice(0, 3), ['chat', '-q', 'hi']);
+    });
+
+    // Review of 4dfe9bf9a: Python reads a pipe in the Windows code page, and
+    // Hermes only makes stdout and stderr UTF-8.
+    it('reads the prompt on stdin as UTF-8, and only on that route', async () => {
+      const { a } = routed('encoding');
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, 'utf-8');
+      a.agentEnv.PYTHONIOENCODING = 'cp1252';
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, 'utf-8');
+    });
+
+    it('a CJK prompt reaches it whole over stdin', async () => {
+      const { a } = routed('echo');
+      const cjk = '汉'.repeat(40000);
+      assert.equal((await a._runHermes(cjk, CHANNEL, null)).text, `stdin:${cjk.length}`);
     });
 
     it('tells a Hermes too old for `--query-file` to update, not "exit 2"', async () => {

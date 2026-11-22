@@ -296,6 +296,19 @@ describe('OpenCode — failure classification (8.3)', () => {
     assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid or revoked API key.')).category, 'auth_failed');
   });
 
+  // Review of 4dfe9bf9a: 426 is a status, not a word to look for in the text.
+  it('takes 426 from the HTTP status, never from the text around it', () => {
+    const apiError = (message, statusCode) => ({
+      code: 1,
+      stdout: JSON.stringify({ type: 'error', error: { name: 'APIError', data: { message, statusCode, isRetryable: false } } }),
+      stderr: '',
+    });
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Client version unsupported', 426)).category, 'client_outdated');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Unauthorized (request id req_426a91)', 401)).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Too many requests, retry in 426 ms', 429)).category, 'rate_limited');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('The model `vendor/model-426b` does not exist', 404)).category, 'model_not_found');
+  });
+
   // Field reports (core 0.2.223) that all read "failed for an undetermined
   // reason" while the provider had said exactly why.
   it('names a spent account, a revoked key, an oversized request and a busy provider', () => {

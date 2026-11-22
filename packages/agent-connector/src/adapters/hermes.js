@@ -754,6 +754,12 @@ class HermesAdapter extends BaseAdapter {
     const env = { ...(this.agentEnv || process.env) };
     if (prefillFile) env[PREFILL_ENV] = prefillFile;
     if (endpoint) env[PROVIDER_KEY_ENV] = endpoint.apiKey;
+    // Hermes reconfigures stdout and stderr to UTF-8 at start but not stdin
+    // (hermes_cli/__init__.py), and on Windows Python reads a pipe in the
+    // system code page: a Chinese prompt came through garbled on CP1252 and
+    // failed to decode on CP936. Set only on this route, so the encoding of
+    // whatever Hermes itself starts is otherwise left as it was.
+    if (viaStdin) env.PYTHONIOENCODING = 'utf-8';
 
     // A hermes that lives inside WSL is rewritten to `wsl.exe -e <path> …` by
     // the bridge in ../wsl (which also forces detached off, there being no

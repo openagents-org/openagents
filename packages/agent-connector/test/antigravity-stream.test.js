@@ -64,6 +64,17 @@ describe('long prompts', () => {
     assert.equal(agyPromptFitsArgv('x'.repeat(200000), 'linux'), false);
   });
 
+  // Review of 4dfe9bf9a: measured by characters alone, two command lines
+  // still went over.
+  it('counts the escaping Windows adds and the bytes Linux counts', () => {
+    // Node doubles each `"` and the backslashes before it on Windows.
+    assert.equal(agyPromptFitsArgv('"\\'.repeat(9000), 'win32'), false);
+    assert.equal(agyPromptFitsArgv('x'.repeat(18000), 'win32'), true);
+    // Linux caps an argument in bytes: a CJK character is three.
+    assert.equal(agyPromptFitsArgv('汉'.repeat(44000), 'linux'), false);
+    assert.equal(agyPromptFitsArgv('汉'.repeat(30000), 'linux'), true);
+  });
+
   it('writes the prompt as one stream-json user event line', () => {
     const line = agyStdinMessage('第一行\n"quoted"');
     assert.ok(line.endsWith('\n'));
