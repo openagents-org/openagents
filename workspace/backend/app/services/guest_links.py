@@ -432,9 +432,12 @@ def guest_blocked_text(db: Session, workspace: Workspace, channel: Channel, memb
 def describe(db: Session, token: str, session: Optional[str]) -> dict:
     link, workspace, channel = live_link(db, token)
     guest = guest_for_session(db, link, session)
+    # A conversation moved into someone's team workspace shouldn't tell guests
+    # that workspace's name; the small Share workspace's own name is fine.
+    is_share_ws = bool((workspace.settings or {}).get("openagents_share"))
     return {
         "thread": {"name": channel.name, "title": channel.title},
-        "workspace": {"name": workspace.name},
+        "workspace": {"name": workspace.name if is_share_ws else f"Shared by {link.owner_name or 'the owner'}"},
         "owner": {"name": link.owner_name or "Owner"},
         "agents": channel_agents(db, workspace, channel),
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,

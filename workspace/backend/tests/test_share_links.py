@@ -561,6 +561,7 @@ def test_adding_the_conversation_to_an_existing_workspace(client, db, monkeypatc
     # The guest link keeps its URL and guests, and now opens the new thread.
     info = client.get(f"/v1/guest-links/public/{_token(data)}").json()["data"]
     assert info["thread"]["name"] == new_channel
+    assert info["workspace"]["name"] == "Shared by Alex", "guests don't learn the team workspace's name"
     assert _post(client, _token(data), g["session"], "still here after the move").status_code == 200
 
     # The launcher is told to move, and collects its new connection once.
