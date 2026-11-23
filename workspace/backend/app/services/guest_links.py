@@ -571,6 +571,25 @@ def _take_budget(db: Session, model, row_id: str, per_hour: int) -> bool:
 _MENTION = re.compile(r"(?<![\w@.])@([\w-]+)")
 
 
+def address_agents_by_name(db: Session, workspace: Workspace, channel: Channel, content: str) -> str:
+    """Turn "@Claude Code …" into "@pr-reviewer …" for this thread's agents.
+
+    People address an agent by the name they see; routing matches the agent's
+    handle. Longest names first, so "@Claude Code Pro" never half-matches.
+    """
+    names = {}
+    for m in db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace.id,
+        WorkspaceMember.agent_name.in_([p.agent_name for p in (channel.participants or [])]),
+    )).scalars():
+        if m.display_name and m.display_name != m.agent_name:
+            names[m.display_name] = m.agent_name
+    for display in sorted(names, key=len, reverse=True):
+        content = re.sub(r"(?<![\w@.])@" + re.escape(display) + r"(?![\w-])", "@" + names[display],
+                         content, flags=re.IGNORECASE)
+    return content
+
+
 def check_mentions(db: Session, workspace: Workspace, channel: Channel, content: str) -> None:
     """A guest may address only the agents in this thread."""
     names = set(_MENTION.findall(content))
@@ -598,6 +617,7 @@ def prepare_guest_post(db: Session, token: str, session: Optional[str], content:
         raise LinkError(400, "Message is empty")
     if len(text) > MAX_GUEST_MESSAGE_CHARS:
         raise LinkError(400, f"Messages are limited to {MAX_GUEST_MESSAGE_CHARS} characters")
+    text = address_agents_by_name(db, workspace, channel, text)
     check_mentions(db, workspace, channel, text)
     return link, workspace, channel, guest, text
 

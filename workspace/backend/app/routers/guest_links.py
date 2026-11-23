@@ -371,6 +371,7 @@ def owner_room_post(network: str, body: GuestMessage, background_tasks: Backgrou
     if not content or len(content) > svc.MAX_GUEST_MESSAGE_CHARS:
         return _fail(svc.LinkError(400, "Message is empty or too long"))
     name = svc.owner_name_for(db, workspace, channel)
+    content = svc.address_agents_by_name(db, workspace, channel, content)
     event = Event(
         type="workspace.message.posted", source="human:owner", target=f"channel/{channel.name}",
         payload={"content": content, "message_type": "chat", "sender_type": "human",

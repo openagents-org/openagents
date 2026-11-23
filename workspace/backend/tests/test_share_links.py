@@ -598,3 +598,16 @@ def test_moving_needs_the_agent_running_on_an_updated_launcher(client, db, monke
     _join(client, data, ["guest_turns"])
     r = _import(client, data, team["workspaceId"])
     assert r.status_code == 409 and "Update" in r.json()["message"]
+
+
+def test_addressing_the_agent_by_the_name_people_see_runs_it(client, db, no_push):
+    """Found in testing: a guest typed "@Claude Code hi" and nothing ran."""
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    g = _guest(client, _token(data))
+    r = _post(client, _token(data), g["session"], "@Claude Code hi")
+    stored = db.get(EventRecord, r.json()["data"]["id"])
+    assert stored.payload["content"] == "@pr-reviewer hi"
+    assert stored.metadata_.get("target_agents") == ["pr-reviewer"]
+    r = _post(client, _token(data), g["session"], "thanks @claude code, and cc me@claude.code")
+    assert db.get(EventRecord, r.json()["data"]["id"]).payload["content"] == "thanks @pr-reviewer, and cc me@claude.code"
