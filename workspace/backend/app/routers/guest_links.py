@@ -7,6 +7,11 @@
   POST   /v1/guest-links  {network, channel, expires_at}  owner: a new link for a shared thread
   GET    /v1/guest-links/workspace?network=             is this a Share workspace, and is it kept yet
   POST   /v1/guest-links/claim  {network}               owner link token + sign-in: keep the workspace
+  GET    /v1/guest-links/room?network=                  the owner's light room (owner link token)
+  GET    /v1/guest-links/room/messages?network=         ?after= | ?before= — its messages
+  POST   /v1/guest-links/room/messages?network=         {content, idempotency_key} — post as the owner
+  POST   /v1/guest-links/import  {network, target}      owner token + sign-in: move it into one of their workspaces
+  POST   /v1/guest-links/relocation/accept              the launcher collects its new connection, once
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
   DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
 
@@ -52,7 +57,7 @@ def _ok(data):
 
 
 def _fail(err: svc.LinkError):
-    resp = json_response(err.status, err.message)
+    resp = json_response(err.status, err.message, data=getattr(err, "data", None))
     for k, v in _PRIVATE.items():
         resp.headers[k] = v
     return resp
@@ -317,3 +322,111 @@ def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks
                 "payload": {"content": content, "sender_name": guest.display_name, "message_type": "chat"},
                 "metadata": {"guest": {"id": guest.id, "name": guest.display_name}},
                 "timestamp": posted.timestamp})
+
+
+# ---------------------------------------------------------------------------
+# The owner's light room (owner link = the workspace token)
+# ---------------------------------------------------------------------------
+
+class ImportRequest(BaseModel):
+    network: str
+    target: str
+
+
+class RelocationAccept(BaseModel):
+    network: str
+    agent_name: str
+    relocation_id: str
+    session_id: Optional[str] = None
+
+
+@router.get("/guest-links/room")
+def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok(svc.describe_room(db, workspace, channel))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/room/messages")
+def owner_room_messages(network: str, after: Optional[str] = Query(None), before: Optional[str] = Query(None),
+                        limit: int = Query(100), db: Session = Depends(get_db),
+                        x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok(svc.channel_messages(db, workspace, channel, after, limit, before))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/room/messages")
+def owner_room_post(network: str, body: GuestMessage, background_tasks: BackgroundTasks,
+                    db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+    except svc.LinkError as e:
+        return _fail(e)
+    content = (body.content or "").strip()
+    if not content or len(content) > svc.MAX_GUEST_MESSAGE_CHARS:
+        return _fail(svc.LinkError(400, "Message is empty or too long"))
+    name = svc.owner_name_for(db, workspace, channel)
+    event = Event(
+        type="workspace.message.posted", source="human:owner", target=f"channel/{channel.name}",
+        payload={"content": content, "message_type": "chat", "sender_type": "human",
+                 "sender_name": name, "sender_display_name": name},
+        metadata={"share_owner": True}, visibility="channel", network=str(workspace.id),
+    )
+    key = (body.idempotency_key or "").strip()
+    if key:
+        if len(key) > 128:
+            return _fail(svc.LinkError(400, "idempotency_key is too long"))
+        event.metadata["client_key"] = key
+        from app.services.message_delivery import prepare_delivery
+        try:
+            receipt = prepare_delivery(db, event, key)
+        except ValueError as exc:
+            db.rollback()
+            return _fail(svc.LinkError(409, str(exc)))
+        if receipt is not None:
+            db.rollback()
+            return _ok(svc.serialize_event(receipt))
+    posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+    if posted is None:
+        db.rollback()
+        return _fail(svc.LinkError(502, "Your message couldn't be delivered. Try again."))
+    from app.routers.sharing import _after_message_hooks
+    _after_message_hooks(background_tasks, str(workspace.id), posted)
+    from app.models import EventRecord
+    record = db.get(EventRecord, posted.id)
+    return _ok(svc.serialize_event(record) if record is not None else {"id": posted.id})
+
+
+@router.post("/guest-links/import")
+def import_conversation(body: ImportRequest, db: Session = Depends(get_db),
+                        x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Add the shared conversation (thread, history, agent, guest link) to one of the person's workspaces."""
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to add this conversation to a workspace")
+    source = _resolve_workspace(db, body.network) if body.network else None
+    if source is None:
+        return json_response(ResponseCode.NOT_FOUND, "This owner link isn't valid")
+    try:
+        return _ok(svc.import_into(db, source, x_workspace_token, user, body.target))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/relocation/accept")
+def accept_relocation(body: RelocationAccept, db: Session = Depends(get_db),
+                      x_workspace_token: Optional[str] = Header(None)):
+    """Called by the launcher after a ``relocate`` control action: its new connection, once."""
+    source = _resolve_workspace(db, body.network) if body.network else None
+    if source is None:
+        return json_response(ResponseCode.NOT_FOUND, "Unknown workspace")
+    try:
+        return _ok(svc.accept_relocation(db, source, x_workspace_token, body.agent_name,
+                                         body.relocation_id, body.session_id))
+    except svc.LinkError as e:
+        return _fail(e)

@@ -475,3 +475,126 @@ def test_instructions_can_install_a_test_build_of_the_launcher(client, monkeypat
     monkeypatch.setenv("SHARE_LAUNCHER_PACKAGE", "https://preview.example.test/launcher.tgz")
     text = client.get("/v1/share/instructions").text
     assert "npx -y https://preview.example.test/launcher.tgz create" in text and "{LAUNCHER}" not in text
+
+
+# --- the owner's light room, keeping and moving the conversation -----------
+
+def _room(client, data, token=None):
+    return client.get(f"/v1/guest-links/room?network={data['slug']}",
+                      headers={"X-Workspace-Token": token or data["token"]})
+
+
+def test_owner_link_opens_the_light_room(client, no_push):
+    data = _published(client)
+    assert "/share/own/" in data["ownerUrl"] and data["token"] in data["ownerUrl"]
+    r = _room(client, data)
+    assert r.status_code == 200, r.text
+    room = r.json()["data"]
+    assert room["thread"]["name"] == data["channel"]["name"]
+    assert room["owner"]["name"] == "Alex"
+    assert room["link"]["id"] == data["link"]["id"]
+    assert room["share"] == {"claimed": False, "movedTo": None}
+    assert _room(client, data, token=_token(data)).status_code == 404, "the guest token is not the owner link"
+    msgs = client.get(f"/v1/guest-links/room/messages?network={data['slug']}",
+                      headers={"X-Workspace-Token": data["token"]}).json()["data"]["messages"]
+    assert msgs[0]["metadata"].get("share_owner") is True, "the owner's excerpts are recognisable as theirs"
+
+
+def test_owner_posts_in_the_room_and_can_ask_the_agent(client, db, no_push):
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    h = {"X-Workspace-Token": data["token"]}
+    r = client.post(f"/v1/guest-links/room/messages?network={data['slug']}", headers=h,
+                    json={"content": "@pr-reviewer check PR 7", "idempotency_key": "owner-key-1"})
+    assert r.status_code == 200, r.text
+    msg = r.json()["data"]
+    assert msg["metadata"]["share_owner"] is True and msg["metadata"]["client_key"] == "owner-key-1"
+    assert db.get(EventRecord, msg["id"]).metadata_.get("target_agents") == ["pr-reviewer"]
+    plain = client.post(f"/v1/guest-links/room/messages?network={data['slug']}", headers=h,
+                        json={"content": "note to self"})
+    assert db.get(EventRecord, plain.json()["data"]["id"]).metadata_.get("target_agents") in (None, ["__no_response__"])
+
+
+def _import(client, data, target, who="Bearer alex"):
+    return client.post("/v1/guest-links/import", json={"network": data["slug"], "target": target},
+                       headers={"X-Workspace-Token": data["token"], "Authorization": who})
+
+
+def _team(client, db, owner="alex"):
+    from app.models import WorkspaceMembership
+    ws = client.post("/v1/workspaces", json={"name": "Team"}).json()["data"]
+    user = db.query(User).filter(User.email == f"{owner}@acme.test").one()
+    db.add(WorkspaceMembership(workspace_id=ws["workspaceId"], user_id=user.id, role="owner"))
+    db.commit()
+    return ws
+
+
+def test_adding_the_conversation_to_an_existing_workspace(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex", "eve")
+    data = _published(client)
+    join = client.post("/v1/join", json={"agent_name": "pr-reviewer", "token": data["token"],
+                                         "network": data["workspaceId"], "agent_type": "claude",
+                                         "capabilities": ["guest_turns", "relocate"]})
+    session_id = join.json()["data"].get("session_id")
+    g = _guest(client, _token(data))
+    _post(client, _token(data), g["session"], "a comment before the move")
+    team = _team(client, db)
+
+    assert _import(client, data, team["workspaceId"], who="Bearer eve").status_code == 403, "eve isn't in that workspace"
+    r = _import(client, data, team["workspaceId"])
+    assert r.status_code == 200, r.text
+    moved = r.json()["data"]
+    assert moved["workspace"]["slug"] == team["slug"]
+    new_channel = moved["channel"]["name"]
+
+    # History came along, the owner's own messages now carry their account.
+    copied = db.query(EventRecord).filter(EventRecord.target == f"channel/{new_channel}").all()
+    assert len(copied) == 4
+    assert any(e.source == "human:alex@acme.test" for e in copied)
+    ch = db.query(Channel).filter(Channel.name == new_channel).one()
+    assert ch.workspace_id == team["workspaceId"] and ch.owner_email == "alex@acme.test"
+    assert [p.agent_name for p in ch.participants] == ["pr-reviewer"]
+
+    # The guest link keeps its URL and guests, and now opens the new thread.
+    info = client.get(f"/v1/guest-links/public/{_token(data)}").json()["data"]
+    assert info["thread"]["name"] == new_channel
+    assert _post(client, _token(data), g["session"], "still here after the move").status_code == 200
+
+    # The launcher is told to move, and collects its new connection once.
+    ctrl = db.query(EventRecord).filter(EventRecord.type == "workspace.agent.control",
+                                        EventRecord.target == "openagents:pr-reviewer").all()
+    reloc = [c.payload for c in ctrl if c.payload.get("action") == "relocate"][-1]
+    assert reloc["workspace_id"] == team["workspaceId"] and "token" not in reloc
+    body = {"network": data["workspaceId"], "agent_name": "pr-reviewer", "relocation_id": reloc["relocation_id"]}
+    owner = {"X-Workspace-Token": data["token"]}
+    assert client.post("/v1/guest-links/relocation/accept", json={**body, "session_id": "wrong"},
+                       headers=owner).status_code == 403, "only the running agent"
+    ok = client.post("/v1/guest-links/relocation/accept", json={**body, "session_id": session_id}, headers=owner)
+    assert ok.status_code == 200, ok.text
+    node_token = ok.json()["data"]["token"]
+    assert client.post("/v1/guest-links/relocation/accept", json={**body, "session_id": session_id},
+                       headers=owner).status_code in (403, 404), "once"
+
+    # The agent joins the team workspace with its new connection; guests reach it there.
+    j2 = client.post("/v1/join", json={"agent_name": "pr-reviewer", "token": node_token,
+                                       "network": team["workspaceId"], "agent_type": "claude",
+                                       "capabilities": ["guest_turns", "relocate"]})
+    assert j2.status_code == 200, j2.text
+    asked = _post(client, _token(data), g["session"], "@pr-reviewer review https://github.com/a/b/pull/1")
+    assert db.get(EventRecord, asked.json()["data"]["id"]).metadata_.get("target_agents") == ["pr-reviewer"]
+
+    # The old owner link now says where the conversation went.
+    gone = _room(client, data)
+    assert gone.status_code == 410
+    assert gone.json()["data"]["movedTo"] == {"slug": team["slug"], "channel": new_channel}
+
+
+def test_moving_needs_the_agent_running_on_an_updated_launcher(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex")
+    data = _published(client)
+    team = _team(client, db)
+    r = _import(client, data, team["workspaceId"])
+    assert r.status_code == 409 and "Start" in r.json()["message"]
+    _join(client, data, ["guest_turns"])
+    r = _import(client, data, team["workspaceId"])
+    assert r.status_code == 409 and "Update" in r.json()["message"]

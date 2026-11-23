@@ -70,10 +70,11 @@ WINDOW = timedelta(hours=1)
 class LinkError(Exception):
     """A refusal to show the caller, with its HTTP status."""
 
-    def __init__(self, status: int, message: str):
+    def __init__(self, status: int, message: str, data=None):
         super().__init__(message)
         self.status = status
         self.message = message
+        self.data = data
 
 
 def _now() -> datetime:
@@ -100,7 +101,11 @@ def guest_url(token: str) -> str:
 
 
 def owner_url(workspace: Workspace, channel_name: str) -> str:
-    return f"{frontend_base()}/{workspace.slug}/threads/{channel_name}?token={workspace.password_hash}"
+    """The owner's light room: just this conversation, its link and "keep it".
+
+    The full workspace UI comes only once the person keeps the conversation.
+    """
+    return f"{frontend_base()}/share/own/{workspace.slug}?token={workspace.password_hash}"
 
 
 def guest_address(guest_id: str) -> str:
@@ -197,7 +202,8 @@ def _seed(db: Session, workspace_id: str, channel_name: str, source: str, sender
         source=source,
         target=f"channel/{channel_name}",
         payload=payload,
-        metadata_={"share_seed": True, "share_seed_kind": kind},
+        metadata_={"share_seed": True, "share_seed_kind": kind,
+                   **({"share_owner": True} if source.startswith("human:") else {})},
         timestamp=ts,
         visibility="channel",
     ))
@@ -453,6 +459,12 @@ def create_guest(db: Session, token: str, name: Optional[str]) -> dict:
 
 def list_messages(db: Session, token: str, after: Optional[str], limit: int, before: Optional[str] = None) -> dict:
     link, workspace, channel = live_link(db, token)
+    return channel_messages(db, workspace, channel, after, limit, before)
+
+
+def channel_messages(db: Session, workspace: Workspace, channel: Channel, after: Optional[str], limit: int,
+                     before: Optional[str] = None) -> dict:
+    """One page of a thread's messages, in the shape guests (and the owner room) read."""
     limit = max(1, min(int(limit or 100), 200))
     base = select(EventRecord).where(
         EventRecord.network_id == str(workspace.id),
@@ -492,7 +504,7 @@ def list_messages(db: Session, token: str, after: Optional[str], limit: int, bef
 
 # Metadata a guest may see. Everything else (routing traces, delivery
 # fingerprints, who an agent acted for) stays inside the workspace.
-_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "guest", "client_key", "reply_to", "in_reply_to",
+_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "share_owner", "guest", "client_key", "reply_to", "in_reply_to",
                     "message_kind", "attachments", "task_id", "run_id")
 _PUBLIC_PAYLOAD = ("content", "message_type", "sender_name", "sender_display_name", "sender_type", "attachments",
                    "reply_to", "quote", "status", "progress", "title")
@@ -708,3 +720,201 @@ def set_expiry(db: Session, workspace_id: str, link_id: str, raw: Optional[str])
     link.expires_at = _parse_expiry(raw)
     db.commit()
     return link
+
+
+# ---------------------------------------------------------------------------
+# The owner's light room
+# ---------------------------------------------------------------------------
+
+def share_thread(db: Session, workspace: Workspace) -> Optional[Channel]:
+    """The one conversation a Share workspace was made for."""
+    link = db.execute(select(ThreadGuestLink).where(ThreadGuestLink.workspace_id == str(workspace.id))
+                      .order_by(ThreadGuestLink.created_at).limit(1)).scalar_one_or_none()
+    name = link.channel_name if link else None
+    if name is None:
+        return None
+    return db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id),
+                                            Channel.name == name)).scalar_one_or_none()
+
+
+def owner_room(db: Session, network: str, token: Optional[str]):
+    """(workspace, channel) for the owner link, or a LinkError (410 says where it went)."""
+    from app.routers.network import _resolve_workspace
+    workspace = _resolve_workspace(db, network) if network else None
+    share = (workspace.settings or {}).get("openagents_share") if workspace else None
+    if workspace is None or not isinstance(share, dict) or not token:
+        raise LinkError(404, "This owner link isn't valid")
+    current = secrets.compare_digest(str(token), str(workspace.password_hash or ""))
+    retired = share.get("retired_token_hash") and secrets.compare_digest(
+        _sha("owner:" + str(token)), str(share.get("retired_token_hash")))
+    if not (current or retired):
+        raise LinkError(404, "This owner link isn't valid")
+    moved = share.get("moved_to")
+    if moved:
+        err = LinkError(410, "This conversation moved to another workspace")
+        err.data = {"movedTo": {"slug": moved.get("slug"), "channel": moved.get("channel")}}
+        raise err
+    if workspace.status == "deleted":
+        raise LinkError(404, "This owner link isn't valid")
+    channel = share_thread(db, workspace)
+    if channel is None:
+        raise LinkError(404, "This owner link isn't valid")
+    return workspace, channel
+
+
+def describe_room(db: Session, workspace: Workspace, channel: Channel) -> dict:
+    links = links_for(db, str(workspace.id), channel.name)
+    owner_name = next((l.owner_name for l in reversed(links) if l.owner_name), None) or "Owner"
+    return {
+        "workspace": {"id": str(workspace.id), "slug": workspace.slug, "name": workspace.name},
+        "thread": {"name": channel.name, "title": channel.title},
+        "owner": {"name": owner_name},
+        "agents": channel_agents(db, workspace, channel),
+        "link": serialize_link(links[0]) if links else None,
+        "share": {"claimed": bool(workspace.creator_email), "movedTo": None},
+    }
+
+
+def owner_name_for(db: Session, workspace: Workspace, channel: Channel) -> str:
+    links = links_for(db, str(workspace.id), channel.name)
+    return next((l.owner_name for l in links if l.owner_name), None) or "Owner"
+
+
+# ---------------------------------------------------------------------------
+# Adding a shared conversation to an existing workspace
+# ---------------------------------------------------------------------------
+
+RELOCATE_CAPABILITY = "relocate"
+
+
+def import_into(db: Session, source: Workspace, token: Optional[str], user, target_id: str) -> dict:
+    """Move the shared conversation into one of the person's workspaces.
+
+    The thread (with its history), the agent and the guest link move; the guest
+    link keeps its URL and its guests. The agent's launcher is told where it
+    now lives (a ``relocate`` control action) and fetches a connection token
+    for the target once, with its session id (``accept_relocation``); after
+    that the old Share workspace is closed, so its owner link stops working.
+    """
+    from app.access import _role_for_email
+    from app.models import ChannelHumanMember, Node
+    from app.routers.network import _resolve_workspace, effective_agent_status
+    from app.routers.workspaces import _emit_agent_control_event
+
+    workspace, channel = owner_room(db, str(source.id), token)
+    target = _resolve_workspace(db, target_id) if target_id else None
+    if target is None or target.status == "deleted" or str(target.id) == str(workspace.id):
+        raise LinkError(404, "Workspace not found")
+    email = user.email.strip().lower()
+    role = _role_for_email(db, target, email)
+    if role not in ("member", "admin", "owner"):
+        raise LinkError(403, "You can add conversations only to workspaces where you're a member")
+
+    agents = [m for m in db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == str(workspace.id), WorkspaceMember.status != "removed",
+    )).scalars().all() if any(p.agent_name == m.agent_name for p in (channel.participants or []))]
+    for m in agents:
+        if effective_agent_status(m) != "online":
+            raise LinkError(409, f"Start {m.display_name or m.agent_name} on your computer first, then try again.")
+        if RELOCATE_CAPABILITY not in (m.capabilities or []):
+            raise LinkError(409, "Update the OpenAgents launcher on your computer first, then try again.")
+        clash = db.get(WorkspaceMember, (str(target.id), m.agent_name))
+        if clash is not None and clash.status != "removed":
+            raise LinkError(409, f"That workspace already has an agent named {m.agent_name}.")
+
+    now_name = f"share-{secrets.token_hex(6)}"
+    new_channel = Channel(
+        workspace_id=str(target.id), name=now_name, title=channel.title, created_by=email,
+        master_agent=channel.master_agent, response_mode="passive", visibility="private",
+        owner_email=email, status="active", last_event_at=channel.last_event_at,
+    )
+    db.add(new_channel)
+    db.flush()
+    db.add(ChannelHumanMember(channel_id=new_channel.id, user_email=email))
+    relocations = []
+    for m in agents:
+        db.add(WorkspaceMember(
+            workspace_id=str(target.id), agent_name=m.agent_name, display_name=m.display_name,
+            owner_email=email, role="member", agent_type=m.agent_type, status="offline",
+        ))
+        db.add(ChannelMember(channel_id=new_channel.id, agent_name=m.agent_name))
+        node = Node(workspace_id=str(target.id), node_key=f"share-relocate-{secrets.token_hex(8)}",
+                    owner_email=email, name=f"{m.display_name or m.agent_name} (shared)",
+                    token=secrets.token_urlsafe(32))
+        db.add(node)
+        db.flush()
+        relocations.append({"id": secrets.token_urlsafe(16), "agent": m.agent_name, "node_id": str(node.id),
+                            "session_id": m.session_id})
+
+    # History: the same messages, now in the new thread.
+    records = db.execute(select(EventRecord).where(
+        EventRecord.network_id == str(workspace.id), EventRecord.target == f"channel/{channel.name}",
+        EventRecord.type == "workspace.message.posted",
+    ).order_by(EventRecord.timestamp, EventRecord.id)).scalars().all()
+    for r in records:
+        meta = dict(r.metadata_ or {})
+        meta["imported_from_event_id"] = r.id
+        meta.pop("_delivery_hash", None)
+        db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(target.id), type=r.type,
+                           source=f"human:{email}" if (meta.get("share_owner") or r.source == "human:owner") else r.source,
+                           target=f"channel/{now_name}", payload=dict(r.payload or {}), metadata_=meta,
+                           timestamp=r.timestamp, visibility=r.visibility))
+
+    # The guest link follows the conversation: same URL, same guests.
+    for link in links_for(db, str(workspace.id), channel.name):
+        link.workspace_id = str(target.id)
+        link.channel_name = now_name
+
+    settings = dict(workspace.settings or {})
+    share = dict(settings.get("openagents_share") or {})
+    share["moved_to"] = {"slug": target.slug, "channel": now_name, "workspaceId": str(target.id)}
+    share["relocations"] = relocations
+    settings["openagents_share"] = share
+    workspace.settings = settings
+
+    for rel in relocations:
+        _emit_agent_control_event(db, workspace, rel["agent"], "relocate", {
+            "relocation_id": rel["id"],
+            "workspace_id": str(target.id),
+            "slug": target.slug,
+            "name": target.name,
+        })
+    db.commit()
+    logger.info("share: conversation moved from %s to %s (%d agents)", workspace.id, target.id, len(relocations))
+    return {"workspace": {"id": str(target.id), "slug": target.slug, "name": target.name},
+            "channel": {"name": now_name, "title": new_channel.title}}
+
+
+def accept_relocation(db: Session, source: Workspace, token: Optional[str], agent_name: str,
+                      relocation_id: str, session_id: Optional[str]) -> dict:
+    """The launcher, still holding the old token, collects its new connection — once."""
+    from app.models import Node
+    if not token or not secrets.compare_digest(str(token), str(source.password_hash or "")):
+        raise LinkError(403, "Not allowed")
+    share = dict((source.settings or {}).get("openagents_share") or {})
+    rels = list(share.get("relocations") or [])
+    rel = next((r for r in rels if r.get("id") == relocation_id and r.get("agent") == agent_name), None)
+    if rel is None or rel.get("accepted"):
+        raise LinkError(404, "Unknown or already used relocation")
+    if rel.get("session_id") and rel.get("session_id") != session_id:
+        raise LinkError(403, "Only the running agent can accept this")
+    node = db.get(Node, rel["node_id"])
+    moved = share.get("moved_to") or {}
+    if node is None:
+        raise LinkError(404, "Unknown relocation")
+    rel["accepted"] = True
+    share["relocations"] = rels
+    settings = dict(source.settings or {})
+    settings["openagents_share"] = share
+    source.settings = settings
+    if all(r.get("accepted") for r in rels):
+        # Every agent has its new connection: retire the old workspace and its
+        # owner link (the link now answers 410 "moved" in the owner room).
+        share["retired_token_hash"] = _sha("owner:" + str(source.password_hash))
+        settings["openagents_share"] = share
+        source.settings = settings
+        source.status = "deleted"
+        source.password_hash = secrets.token_urlsafe(32)
+    db.commit()
+    return {"workspace_id": moved.get("workspaceId"), "slug": moved.get("slug"), "token": node.token,
+            "agent_name": agent_name}

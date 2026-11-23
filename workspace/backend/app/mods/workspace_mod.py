@@ -2281,7 +2281,11 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     # v1.1: a person may not post into a private thread they are not in.
     # (The REST layer already refuses identified callers; this catches the
     # pipeline path and token-only clients that still identify the sender.)
-    if channel is not None and (personal_channel or (channel.visibility or "workspace") == "private") and event.source.startswith("human:"):
+    from app.services.guest_links import is_guest_source as _guest_src
+    # A guest's post arrives only through its guest link, which already
+    # checked that the link opens exactly this thread.
+    if channel is not None and (personal_channel or (channel.visibility or "workspace") == "private") and event.source.startswith("human:") \
+            and not _guest_src(event.source):
         from app.services.visibility import Viewer as _Viewer, can_view_channel as _cvc
         if not _cvc(db, str(workspace.id), _Viewer(False, _sender_email), channel):
             logger.info("workspace_mod: refused post to private thread %s by %s", channel.name, _sender_email)

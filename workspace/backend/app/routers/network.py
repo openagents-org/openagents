@@ -42,7 +42,7 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 # Request models
 # ---------------------------------------------------------------------------
 
-KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns"})
+KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns", "relocate"})
 
 
 class JoinRequest(BaseModel):
