@@ -133,6 +133,15 @@ const HEARTBEAT_ERROR_THRESHOLD = 2;
 // handler is awaited without a bound. A handler that overruns is not
 // cancelled or re-run; the poller only stops waiting for it.
 const CONTROL_POLL_DEADLINE_MS = 20 * 1000;
+// While the agent wake-up stream is connected, polls run when the server says
+// there is something new, plus this safety-net interval in case a wake-up is
+// lost (Redis pub/sub is fire-and-forget).
+const STREAM_SAFETY_POLL_MS = 30 * 1000;
+// A stream the backend does not offer (404) is retried this often, so turning
+// it on for a workspace reaches running agents without a restart.
+const STREAM_DISABLED_RECHECK_MS = 10 * 60 * 1000;
+const STREAM_RETRY_MIN_MS = 5 * 1000;
+const STREAM_RETRY_MAX_MS = 5 * 60 * 1000;
 const CONTROL_ACTION_DEADLINE_MS = 60 * 1000;
 const CONTROL_DEADLINE_HIT = Symbol('control deadline hit');
 
@@ -453,6 +462,7 @@ class BaseAdapter {
     const responseInterval = setInterval(() => this._flushResponses(), 10000);
     void this._flushResponses();
     const controlPoller = this._controlPollerLoop();
+    const eventStream = this._eventStreamLoop();
 
     try {
       // Send initial heartbeat
@@ -466,10 +476,12 @@ class BaseAdapter {
     } finally {
       this._running = false;
       this._wakeControlPoller();
+      this._stopEventStream();
       clearInterval(heartbeatInterval);
       clearInterval(responseInterval);
       if (this._presenceHeartbeatTimer) { clearTimeout(this._presenceHeartbeatTimer); this._presenceHeartbeatTimer = null; }
       try { await controlPoller; } catch {}
+      try { await eventStream; } catch {}
       try {
         await this.client.disconnect(this.workspaceId, this.agentName, this.token);
       } catch {}
@@ -1207,6 +1219,8 @@ class BaseAdapter {
   }
 
   _controlPollDelayMs() {
+    // A connected wake-up stream tells us about control commands at once.
+    if (this._streamLive) return STREAM_SAFETY_POLL_MS;
     return this._hasActiveWork() ? 250 : 2000;
   }
 
@@ -1214,10 +1228,17 @@ class BaseAdapter {
     if (this._controlWake) {
       this._controlWake();
       this._controlWake = null;
+    } else {
+      // A wake while a poll is in flight must not be lost: poll again at once.
+      this._controlWakePending = true;
     }
   }
 
   async _sleepUntilControlPollDue(delayMs) {
+    if (this._controlWakePending) {
+      this._controlWakePending = false;
+      return;
+    }
     await new Promise((resolve) => {
       const timeout = setTimeout(resolve, delayMs);
       this._controlWake = () => {
@@ -1384,7 +1405,126 @@ class BaseAdapter {
       } else {
         delay = Math.min(WARM_INTERVAL + (idleCount - WARM_POLLS) * 1000, 15000);
       }
-      await this._sleep(delay);
+      // With a live wake-up stream, an idle agent waits for the server's
+      // signal (or the safety-net interval) instead of polling on a timer.
+      if (this._streamLive && incoming.length === 0 && !composingActive) {
+        delay = STREAM_SAFETY_POLL_MS;
+      }
+      await this._sleepUntilPollDue(delay);
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Agent wake-up stream (GET /v1/events/agent-stream)
+  // ------------------------------------------------------------------
+
+  _wakePollLoop() {
+    if (this._pollWake) {
+      this._pollWake();
+      this._pollWake = null;
+    } else {
+      this._pollWakePending = true;
+    }
+  }
+
+  async _sleepUntilPollDue(delayMs) {
+    if (this._pollWakePending) {
+      this._pollWakePending = false;
+      return;
+    }
+    // Race the ordinary sleep (subclasses and tests may override _sleep)
+    // against a wake-up from the stream.
+    let wake;
+    const woken = new Promise((resolve) => { wake = resolve; });
+    this._pollWake = wake;
+    try {
+      await Promise.race([this._sleep(delayMs), woken]);
+    } finally {
+      if (this._pollWake === wake) this._pollWake = null;
+    }
+  }
+
+  _stopEventStream() {
+    if (this._eventStream) this._eventStream.close();
+    if (this._streamSleepWake) this._streamSleepWake();
+  }
+
+  _streamSleep(ms) {
+    return new Promise((resolve) => {
+      const timeout = setTimeout(done, ms);
+      function done() { clearTimeout(timeout); resolve(); }
+      this._streamSleepWake = done;
+    }).finally(() => { this._streamSleepWake = null; });
+  }
+
+  /**
+   * Keep the wake-up stream open while the adapter runs. The server only says
+   * "poll now"; polls stay the single source of events. Any failure falls back
+   * to the normal timed polling, so a backend without the stream (404), a
+   * proxy that breaks streaming, or a Redis outage only costs latency.
+   * Opt out with OPENAGENTS_AGENT_STREAM=0.
+   */
+  async _eventStreamLoop() {
+    if (/^(0|false|off|no)$/i.test(String(process.env.OPENAGENTS_AGENT_STREAM || ''))) return;
+    if (typeof this.client.openAgentStream !== 'function') return;
+    let retryMs = STREAM_RETRY_MIN_MS;
+    let loggedDisabled = false;
+    let loggedLive = false;
+    let loggedError = false;
+    while (this._running) {
+      const openedAt = Date.now();
+      let opened = false;
+      const stream = this.client.openAgentStream(this.workspaceId, this.agentName, this.token, {
+        onOpen: () => {
+          opened = true;
+          this._streamLive = true;
+          if (!loggedLive) {
+            this._log('Event stream connected; polling when the workspace signals new events');
+            loggedLive = true;
+          }
+          loggedError = false;
+          // Catch up on anything sent while the stream was down, then wait.
+          this._wakePollLoop();
+          this._wakeControlPoller();
+        },
+        onWake: (kinds) => {
+          if (kinds.includes('message')) this._wakePollLoop();
+          if (kinds.includes('control')) this._wakeControlPoller();
+        },
+      });
+      this._eventStream = stream;
+      const { reason, error } = await stream.done;
+      this._eventStream = null;
+      if (this._streamLive) {
+        this._streamLive = false;
+        // Back to timed polling until the stream is back.
+        this._wakePollLoop();
+        this._wakeControlPoller();
+      }
+      if (!this._running || reason === 'closed') break;
+      if (reason === 'disabled') {
+        if (!loggedDisabled) {
+          this._log('Event stream not available for this workspace; using polling');
+          loggedDisabled = true;
+        }
+        await this._streamSleep(STREAM_DISABLED_RECHECK_MS);
+        continue;
+      }
+      // A normal end after a healthy run reconnects soon; anything else
+      // (errors, streams that die young) backs off. The jitter spreads the
+      // reconnects when a deploy closes every stream on a server at once.
+      if (reason === 'ended' && opened && Date.now() - openedAt > 10000) {
+        retryMs = STREAM_RETRY_MIN_MS;
+        await this._streamSleep(Math.floor(Math.random() * 5000));
+        continue;
+      }
+      if (error && !loggedError) {
+        // Once per failure streak; polling carries on meanwhile.
+        this._log(`Event stream unavailable (${error.message}); polling until it reconnects`, 'warn');
+        loggedError = true;
+      }
+      await this._streamSleep(retryMs + Math.floor(Math.random() * retryMs * 0.2));
+      retryMs = Math.min(retryMs * 2, STREAM_RETRY_MAX_MS);
     }
   }
 

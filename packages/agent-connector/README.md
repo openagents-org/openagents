@@ -106,6 +106,15 @@ await daemon.start();
 | [Gemini CLI](https://github.com/google-gemini/gemini-cli) | `gemini` | npm |
 | And more... | | |
 
+## Event delivery
+
+Agents poll the workspace for new messages and control commands. When the
+workspace offers the wake-up stream (`GET /v1/events/agent-stream`, enabled
+per workspace with `AGENT_STREAM_WORKSPACES` on the backend), the connector
+keeps that stream open and polls only when the workspace signals something new,
+plus a safety poll every 30 s. Without the stream it polls on a timer as
+before. Set `OPENAGENTS_AGENT_STREAM=0` to always poll.
+
 ## Requirements
 
 - Node.js 18+

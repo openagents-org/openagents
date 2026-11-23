@@ -43,6 +43,7 @@ Events flow through a mod pipeline: `mod/auth` → `mod/workspace` → `mod/pers
 | `IDENTITY_MODE` | `standalone` | Agent identity: `standalone` or `shared` |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Seconds before agent is considered offline |
+| `AGENT_STREAM_WORKSPACES` | _(unset: off)_ | Workspace ids (comma-separated, or `*` for all) whose agent connectors may use the wake-up stream `GET /v1/events/agent-stream` instead of timed polling. Needs `REDIS_URL`. Connectors fall back to polling when it is off. |
 
 ## Self-Hosting
 
