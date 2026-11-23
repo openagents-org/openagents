@@ -9,7 +9,7 @@ name: Publish Workspace Desktop Bundle
 # launcher checks, the way the same push deploys the web app on Vercel:
 #
 #   https://dl.openagents.org/workspace-bundle/desktop/latest.json
-#   https://dl.openagents.org/workspace-bundle/desktop/<version>/workspace-<version>.tar.gz
+#   https://dl.openagents.org/workspace-bundle/desktop/<version>/workspace-<hash>.tar.gz
 #
 # Not chained to the backend deploy: most pushes change only one side, and a
 # front-end fix should not wait on (or fail with) an unrelated backend rollout.
@@ -25,9 +25,26 @@ name: Publish Workspace Desktop Bundle
 # Lives on develop like every workflow here (.github is the same on both
 # branches); it only ever builds and publishes openagents-release.
 #
-# Needs WORKSPACE_BUNDLE_SIGNING_KEY (ed25519 PKCS#8 PEM; its public half is in
-# packages/launcher/src/main/bundle-ota/manifest.ts) and the R2 secrets the
-# launcher release uses. Without them the build still runs, and nothing is
+# Two jobs, because the signing key cannot be revoked from launchers already
+# installed, and a page it signs gets the launcher's bridge (pairing the
+# computer, starting agents):
+#
+#   build    installs the front end's dependencies and builds it, with no
+#            secrets and no repository token. Any step can write $GITHUB_ENV
+#            or $GITHUB_PATH and so control the steps after it in the same
+#            job, and an install runs third-party code; here there is nothing
+#            for it to reach. The bundle leaves as an artifact.
+#   publish  installs nothing and runs no package code: it checks out only the
+#            pack script (node built-ins only), packs and signs the artifact,
+#            and uploads it. Each secret is in the env of the one step that
+#            uses it.
+#
+# WORKSPACE_BUNDLE_SIGNING_KEY (ed25519 PKCS#8 PEM; its public half is in
+# packages/launcher/src/main/bundle-ota/manifest.ts) must be a secret of the
+# `workspace-bundle-publish` environment, not of the repository, and that
+# environment restricted to the openagents-release branch, so that no other
+# branch's workflow can read it. The R2 secrets are the ones the launcher
+# release uses. Without the key the build still runs, and nothing is
 # published.
 
 on:
@@ -52,7 +69,8 @@ permissions:
 
 # One publish at a time, in push order. Launchers ignore a feed that goes
 # backwards anyway; this, and the ancestor check below, keep the feed itself
-# from doing so — a re-run of an old push included.
+# from doing so — a re-run of an old push included. The whole run, build and
+# publish, holds the group, so a newer build cannot publish in between.
 concurrency:
   group: workspace-bundle-publish
   cancel-in-progress: false
@@ -61,20 +79,27 @@ env:
   FEED_URL: https://dl.openagents.org/workspace-bundle/desktop/latest.json
 
 jobs:
-  publish:
+  build:
     # The hosted feed carries the hosted front end only. A dispatch from any
     # other branch would publish a build without the hosted layer to everyone.
     if: github.ref == 'refs/heads/openagents-release'
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # No secrets in this job, ever: see the header.
+    permissions:
+      contents: read
     env:
       RELEASE_SHA: ${{ github.sha }}
+    outputs:
+      publish: ${{ steps.changed.outputs.publish }}
+      version: ${{ steps.info.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           # The whole history, to compare with the published build's commit.
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Decide whether to publish
         id: changed
@@ -104,9 +129,20 @@ jobs:
         with:
           node-version: 22
 
+      # `npm ci`, not the shared workspace-frontend-deps action's `npm install`:
+      # exactly the lockfile, never a newer release of some dependency that
+      # appeared since. The lockfile carries the linux-x64 native packages.
       - name: Install Workspace frontend dependencies
         if: steps.changed.outputs.publish == 'true'
-        uses: ./.github/actions/workspace-frontend-deps
+        working-directory: workspace/frontend
+        run: |
+          for i in 1 2 3; do
+            npm ci --no-audit --no-fund && exit 0
+            echo "::warning::workspace/frontend npm ci attempt $i failed; retrying in 15s…"
+            sleep 15
+          done
+          echo "workspace/frontend dependency install failed after 3 attempts." >&2
+          exit 1
 
       - name: Build desktop bundle
         if: steps.changed.outputs.publish == 'true'
@@ -117,12 +153,56 @@ jobs:
 
       - name: Verify bundle
         if: steps.changed.outputs.publish == 'true'
+        id: info
         run: |
+          set -euo pipefail
           node packages/launcher/scripts/check-workspace-bundle.mjs
           cat workspace/frontend/dist-desktop/bundle-info.json
+          echo "version=$(node -p 'require("./workspace/frontend/dist-desktop/bundle-info.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Upload bundle
+        if: steps.changed.outputs.publish == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: workspace-desktop-bundle
+          path: workspace/frontend/dist-desktop
+          # The bundle has a .well-known/ folder, which is left out otherwise.
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build
+    if: github.ref == 'refs/heads/openagents-release' && needs.build.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Holds WORKSPACE_BUNDLE_SIGNING_KEY; restricted to openagents-release.
+    environment: workspace-bundle-publish
+    permissions:
+      contents: read
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      # The pack script only, and nothing from npm: no package code runs in
+      # the job that holds the key.
+      - name: Checkout pack script
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          sparse-checkout: packages/launcher/scripts
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: workspace-desktop-bundle
+          path: dist-desktop
 
       - name: Pack and sign
-        if: steps.changed.outputs.publish == 'true'
         id: pack
         env:
           WORKSPACE_BUNDLE_SIGNING_KEY: ${{ secrets.WORKSPACE_BUNDLE_SIGNING_KEY }}
@@ -133,9 +213,15 @@ jobs:
             echo "signed=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          node packages/launcher/scripts/pack-workspace-bundle.mjs --out bundle-out
+          node packages/launcher/scripts/pack-workspace-bundle.mjs --dir dist-desktop --out bundle-out
+          # What was signed, not what the build job said: it names the folder
+          # uploaded below, and the pack script has checked it.
+          signed=$(node -p 'JSON.parse(require("./bundle-out/latest.json").payload).version')
+          if [ "$signed" != "$VERSION" ]; then
+            echo "::error::Built ${VERSION} but packed ${signed}."
+            exit 1
+          fi
           echo "signed=true" >> "$GITHUB_OUTPUT"
-          echo "version=$(node -p 'require("./workspace/frontend/dist-desktop/bundle-info.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Publish to Cloudflare R2
         if: steps.pack.outputs.signed == 'true'
@@ -145,7 +231,6 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           AWS_DEFAULT_REGION: auto
-          VERSION: ${{ steps.pack.outputs.version }}
         run: |
           set -euo pipefail
           if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${R2_S3_ENDPOINT:-}" ] || [ -z "${R2_BUCKET:-}" ]; then
@@ -153,9 +238,10 @@ jobs:
             exit 0
           fi
           base="s3://${R2_BUCKET}/workspace-bundle/desktop"
-          # The archive first, under a name no other build uses; the manifest
-          # that points at it last, so no client can read a manifest whose
-          # archive is not there yet (the CDN would cache that 404 for hours).
+          # The archive first, under a name no other build uses (it carries
+          # the archive's hash); the manifest that points at it last, so no
+          # client can read a manifest whose archive is not there yet (the CDN
+          # would cache that 404 for hours).
           aws s3 cp "bundle-out/${VERSION}/" "${base}/${VERSION}/" --recursive \
             --cache-control "public, max-age=31536000, immutable" \
             --no-progress --endpoint-url "$R2_S3_ENDPOINT"
@@ -186,9 +272,9 @@ jobs:
         if: steps.pack.outputs.signed == 'true'
         run: |
           {
-            echo "## Workspace desktop bundle ${{ steps.pack.outputs.version }}"
+            echo "## Workspace desktop bundle ${VERSION}"
             echo ""
             echo '```json'
-            cat workspace/frontend/dist-desktop/bundle-info.json
+            node -p 'JSON.stringify(JSON.parse(require("./bundle-out/latest.json").payload), null, 2)'
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
