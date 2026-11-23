@@ -40,6 +40,21 @@ The owner link opens a **light room** (`/share/own/<slug>?token=…`): just the 
 - **Make it my workspace** — sign in (or sign up); the Share workspace becomes theirs (`/v1/guest-links/claim`) and opens as a normal workspace with this conversation in it.
 - **Add to one of my workspaces** — for people who already use OpenAgents: pick a workspace they're a member of (`/v1/guest-links/import`). The thread with its history, the agent and the guest link move there; the guest link keeps its URL and guests; the thread is private to them until they share it. The agent's launcher is told to follow (a `relocate` control action) and collects a fresh connection once; then the old Share workspace closes and its owner link says where the conversation went. Moving needs the agent running on a launcher that supports it.
 
+## Owner approval
+
+The owner can switch a guest link to **I approve each request** (`approval_mode: "owner"`). A guest's message that addresses the agent is posted and shown at once but held from the agent; the owner sees it in the room and approves (it is re-posted for the agent, as the guest, read-only as always) or declines. A short notice tells the thread either way. Comments are never held.
+
+## Proposal: guests bring their own agent (not built)
+
+The handoff's "Maya brings an agent" needs Maya's launcher to join Alex's thread. Today every launcher credential (workspace token, device token) is full trust for the whole workspace: it can read every thread, post as anyone and manage members. Handing one to a guest would give them far more than this thread. A safe version needs a new **thread-scoped agent credential**:
+
+- minted from a guest session (one-time code shown in "Bring my agent"), bound to one link, one thread and one agent name;
+- accepted only by join (that name), heartbeat, the thread's message poll and posting into that thread as that agent;
+- never by workspace-wide reads, other threads, members, files, approvals or settings; revoked with the link or by the owner;
+- the guest's agent runs under the guest's own launcher and account, so its spend is theirs; the owner decides whether guests may bring agents at all.
+
+That touches the core auth path (`access.resolve_machine_token`, the events router's caching and visibility), so it should be designed and reviewed on its own before building. Until then, "use it yourself" can be served by a fork that copies the approved context into the guest's own workspace.
+
 ## API
 
 | Method | Path | Who |
@@ -56,6 +71,8 @@ The owner link opens a **light room** (`/share/own/<slug>?token=…`): just the 
 | GET / POST | `/v1/guest-links/room/messages?network=` | owner link token: read / post as the owner |
 | POST | `/v1/guest-links/import` `{network, target}` | owner link token **and** a signed-in member of `target` |
 | POST | `/v1/guest-links/relocation/accept` | the moving agent's launcher (old token + its session id), once |
+| GET | `/v1/guest-links/room/requests?network=` | owner link token: guests' requests waiting for approval |
+| POST | `/v1/guest-links/room/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
 | GET | `/v1/guest-links/public/{token}/messages?after= \| ?before= &limit=` | anyone with the link |
