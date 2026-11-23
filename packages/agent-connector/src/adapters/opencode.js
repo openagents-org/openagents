@@ -22,7 +22,7 @@ const { spawn } = require('../wsl');
 const { opencodeTranscript } = require('../host-agent');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets, stripAnsi, CREDIT_EXHAUSTED } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
@@ -1870,17 +1870,21 @@ class OpenCodeAdapter extends BaseAdapter {
       // as "produced output this version could not parse", which said nothing
       // about reinstalling.
       category = 'unsupported_version';
+    } else if (has(CREDIT_EXHAUSTED) || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
+      // A spent account, not a busy one: waiting does not fix it. Seen in the
+      // field as "Insufficient balance" under "undetermined reason", and as a
+      // plan's "Your Pass allowance for this period is used up, and your
+      // account is set not to…" with no status code in the run's error.
+      // Ahead of the 401/403 rule: "Forbidden: Insufficient account balance"
+      // came out as rejected credentials (daily errors dashboard, 2026-11-23).
+      category = 'quota_exhausted';
     } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|api[ _-]?key.{0,20}expired|authentication|auth(entication)? failed|forbidden|invalid token|invalid credentials?\b|no api key|missing api key|permission denied/)) {
       // "Invalid credential" and "This API key has expired. Create a new API
       // key in OpenCode Console" both came out as "failed for an undetermined
       // reason" (daily errors dashboard, 2026-11-19).
       category = 'auth_failed';
-    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)
-      || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
-      // A spent account, not a busy one: waiting does not fix it. Seen in the
-      // field as "Insufficient balance" under "undetermined reason", and as a
-      // plan's "Your Pass allowance for this period is used up, and your
-      // account is set not to…" with no status code in the run's error.
+    } else if (has(/\b402\b/)) {
+      // After the 401/403 rule: three digits can sit in a path or an id.
       category = 'quota_exhausted';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';
