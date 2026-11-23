@@ -751,3 +751,60 @@ def test_a_waiting_request_lands_in_the_keepers_inbox(client, db, monkeypatch, n
     _post(client, _token(data), g["session"], "@pr-reviewer please look")
     notes = db.query(NotificationRecord).filter(NotificationRecord.workspace_id == data["workspaceId"]).all()
     assert any(n.title == "Maya is waiting for your approval" for n in notes)
+
+
+# --- thread resources on the share pages --------------------------------------
+
+def test_guests_see_the_threads_artifacts_and_routines(client, db, no_push):
+    from app.models import BrowserTab, RoutineRecord
+    data = _published(client)
+    h = {"X-Workspace-Token": data["token"]}
+    ch = data["channel"]["name"]
+    up = client.post("/v1/files", files={"file": ("report.md", b"# Review\nok", "text/markdown")},
+                     data={"network": data["workspaceId"], "channel_name": ch, "source": "openagents:pr-reviewer"}, headers=h)
+    assert up.status_code == 200, up.text
+    fid = up.json()["data"]["id"]
+    other = client.post("/v1/files", files={"file": ("secret.txt", b"nope", "text/plain")},
+                        data={"network": data["workspaceId"]}, headers=h).json()["data"]["id"]
+    db.add(RoutineRecord(workspace_id=data["workspaceId"], channel_name=f"routine:{ch}", source_channel_name=ch,
+                         created_by="openagents:pr-reviewer", name="Daily PR sweep", message="sweep",
+                         context="private setup notes", schedule_hour=9, schedule_minute=0,
+                         next_fires_at=datetime.now(timezone.utc) + timedelta(hours=1), status="active"))
+    db.add(BrowserTab(id="tab-1", workspace_id=data["workspaceId"], url="https://example.com", title="Example",
+                      created_by="openagents:pr-reviewer", artifact_channels=[ch]))
+    db.add(BrowserTab(id="tab-2", workspace_id=data["workspaceId"], url="https://intranet.example", title="Other",
+                      created_by="openagents:pr-reviewer", artifact_channels=[]))
+    db.commit()
+
+    token = _token(data)
+    res = client.get(f"/v1/guest-links/public/{token}/resources").json()["data"]
+    assert [f["name"].endswith("report.md") for f in res["files"]] == [True]
+    assert [b["id"] for b in res["browsers"]] == ["tab-1"]
+    assert [r["name"] for r in res["routines"]] == ["Daily PR sweep"]
+    assert "context" not in res["routines"][0] and "message" not in res["routines"][0]
+
+    f = client.get(f"/v1/guest-links/public/{token}/files/{fid}")
+    assert f.status_code == 200 and f.content == b"# Review\nok"
+    assert f.headers["x-content-type-options"] == "nosniff"
+    assert f.headers["content-disposition"].startswith("attachment")
+    assert "sandbox" in f.headers["content-security-policy"]
+    assert client.get(f"/v1/guest-links/public/{token}/files/{other}").status_code == 404, "only the thread's files"
+    assert client.get(f"/v1/guest-links/public/{token}/browsers/tab-2/screenshot").status_code == 404
+
+    # A file attached to a message in the thread opens too.
+    g = _guest(client, token)
+    db.add(EventRecord(id=str(uuid.uuid4()), network_id=data["workspaceId"], type="workspace.message.posted",
+                       source="openagents:pr-reviewer", target=f"channel/{ch}",
+                       payload={"content": "see attached", "attachments": [{"fileId": other, "filename": "secret.txt"}]},
+                       metadata_={}, timestamp=int(datetime.now(timezone.utc).timestamp() * 1000), visibility="channel"))
+    db.commit()
+    assert client.get(f"/v1/guest-links/public/{token}/files/{other}").status_code == 200
+
+    # The owner room sees the same.
+    room = client.get(f"/v1/guest-links/room/resources?network={data['slug']}", headers=h).json()["data"]
+    assert [f["name"].endswith("report.md") for f in room["files"]] == [True]
+    assert client.get(f"/v1/guest-links/room/files/{fid}?network={data['slug']}", headers=h).status_code == 200
+    # Turned off: nothing.
+    client.delete(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", headers=h)
+    assert client.get(f"/v1/guest-links/public/{token}/resources").status_code == 404
+    assert client.get(f"/v1/guest-links/public/{token}/files/{fid}").status_code == 404

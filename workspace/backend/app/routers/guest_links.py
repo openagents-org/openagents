@@ -16,6 +16,9 @@
   GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
   POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
   GET    /v1/guest-links/requests?network=&channel=     the same, from the full workspace (owner/admin)
+  GET    /v1/guest-links/{public/{token}|room}/resources               the thread's artifacts and routines
+  GET    /v1/guest-links/{public/{token}|room}/files/{id}              a file the thread shows (artifact or attachment)
+  GET    /v1/guest-links/{public/{token}|room}/browsers/{id}/screenshot  a browser session the thread shows
   POST   /v1/guest-links/requests/{id}?network=&channel={decision}
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
   DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
@@ -39,7 +42,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from fastapi.encoders import jsonable_encoder
-from fastapi.responses import JSONResponse, PlainTextResponse
+from fastapi.responses import JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -565,3 +568,84 @@ def _release(db, workspace, req, release, background_tasks):
         db.commit()
         from app.routers.sharing import _after_message_hooks
         _after_message_hooks(background_tasks, str(workspace.id), posted)
+
+
+
+# ---------------------------------------------------------------------------
+# Thread resources for the share pages (guest link or owner link)
+# ---------------------------------------------------------------------------
+
+def _file_response(record, data: bytes) -> Response:
+    """A thread file for the share pages: never rendered by the API origin itself."""
+    from urllib.parse import quote as _q
+    name = record.filename.rsplit("/", 1)[-1]
+    return Response(content=data, media_type=record.content_type or "application/octet-stream", headers={
+        **_PRIVATE,
+        "Content-Disposition": f"attachment; filename*=UTF-8''{_q(name)}",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "sandbox; default-src 'none'",
+    })
+
+
+async def _screenshot(db: Session, workspace, tab):
+    from app.routers import browser as browser_router
+    return await browser_router.get_screenshot(
+        tab.id, quality="sd", source=None, channel=None,
+        x_workspace_token=workspace.password_hash, authorization=None, db=db)
+
+
+@router.get("/guest-links/public/{token}/resources")
+def guest_resources(token: str, db: Session = Depends(get_db)):
+    try:
+        _link, workspace, channel = svc.live_link(db, token)
+        return _ok(svc.thread_resources(db, workspace, channel))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/public/{token}/files/{file_id}")
+def guest_file(token: str, file_id: str, db: Session = Depends(get_db)):
+    try:
+        _link, workspace, channel = svc.live_link(db, token)
+        return _file_response(*svc.thread_file(db, workspace, channel, file_id))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/public/{token}/browsers/{tab_id}/screenshot")
+async def guest_browser_screenshot(token: str, tab_id: str, db: Session = Depends(get_db)):
+    try:
+        _link, workspace, channel = svc.live_link(db, token)
+        tab = svc.thread_browser(db, workspace, channel, tab_id)
+    except svc.LinkError as e:
+        return _fail(e)
+    return await _screenshot(db, workspace, tab)
+
+
+@router.get("/guest-links/room/resources")
+def room_resources(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok(svc.thread_resources(db, workspace, channel))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/room/files/{file_id}")
+def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _file_response(*svc.thread_file(db, workspace, channel, file_id))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/room/browsers/{tab_id}/screenshot")
+async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depends(get_db),
+                                  x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        tab = svc.thread_browser(db, workspace, channel, tab_id)
+    except svc.LinkError as e:
+        return _fail(e)
+    return await _screenshot(db, workspace, tab)

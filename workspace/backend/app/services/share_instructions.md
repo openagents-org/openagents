@@ -22,6 +22,7 @@ Prepare all of the following, then show it to the person exactly as it will be p
 - **Role**: one paragraph saying what you do, for whom, what input you expect (e.g. "a link to a public GitHub pull request"), and what you return. This stays on this computer, in your instructions file; it is not posted.
 - **Introduction**: 1–3 sentences you post first in the thread, telling guests what to send you and that they should mention you.
 - **Excerpts**: the few messages from this session that show the work (usually 2–6). Copy them verbatim or trim them; label each as the person's or yours. Never include secrets, tokens, passwords, private keys, internal hostnames, personal data, customer data or anything the person didn't clearly mean to share. If unsure, leave it out.
+- **Files** (optional): outputs of this session worth showing — a report, a web page, a screenshot, a generated image or document. List each by path with one line on what it is. Never config files, `.env`, keys, databases, logs or anything outside what the work produced.
 - **Link expiry**: never (default), 1 day, 7 days or 30 days.
 
 Ask: "Publish this?" Let them edit anything. **Do not publish until they clearly say yes.**
@@ -54,6 +55,15 @@ curl -sS -X POST "{API}/v1/share/publish" -H "Content-Type: application/json" -d
 ```
 
 `link_expires_at` is an ISO-8601 time, or `null` for never. The response's `data` has `guestUrl` (for teammates), `ownerUrl` (private: full control of the workspace), `token` (the workspace credential) and `agentName`.
+
+### Add the approved files
+
+For each approved file (skip this if there are none), upload it into the thread; it appears in the thread's Artifacts for everyone with the link:
+
+```sh
+curl -sS -X POST "{API}/v1/files" -H "X-Workspace-Token: <token>" \
+  -F "file=@<path>" -F "network=<workspaceId>" -F "channel_name=<channel.name>" -F "source=openagents:<agentName>"
+```
 
 ## 4. Start the shared agent on this computer
 

@@ -1150,3 +1150,90 @@ def notify_owner_of_request(db: Session, workspace: Workspace, channel: Channel,
                reason="share_request", recipient_email=owner, kind="share_request")
     except Exception:
         logger.warning("share: could not notify the owner of a guest request", exc_info=True)
+
+
+# ---------------------------------------------------------------------------
+# Thread resources: what a Workspace thread shows above its messages
+# ---------------------------------------------------------------------------
+
+def _thread_files(db: Session, workspace: Workspace, channel: Channel) -> list:
+    from app.models import FileRecord
+    rows = db.execute(select(FileRecord).where(
+        FileRecord.workspace_id == str(workspace.id), FileRecord.channel_name == channel.name,
+        FileRecord.status == "active",
+    ).order_by(FileRecord.created_at.desc())).scalars().all()
+    return [f for f in rows if not f.filename.endswith("/.keep")]
+
+
+def _thread_browsers(db: Session, workspace: Workspace, channel: Channel) -> list:
+    from app.models import BrowserTab
+    rows = db.execute(select(BrowserTab).where(
+        BrowserTab.workspace_id == str(workspace.id), BrowserTab.status == "active",
+    )).scalars().all()
+    return [t for t in rows if channel.name in (t.artifact_channels or [])]
+
+
+def thread_resources(db: Session, workspace: Workspace, channel: Channel) -> dict:
+    """The thread's artifacts (files, browser sessions) and routines, for its share pages.
+
+    Only what the Workspace thread itself shows. Routine instructions stay out:
+    their runs are visible as messages, their setup is the owner's business.
+    """
+    from app.models import RoutineRecord
+
+    def _iso(dt):
+        return _aware(dt).isoformat() if dt else None
+
+    files = [{
+        "id": f.id,
+        "name": f.filename.rsplit("/", 1)[-1],
+        "path": f.filename,
+        "contentType": f.content_type,
+        "size": f.size,
+        "createdAt": _iso(f.created_at),
+        "uploadedBy": f.uploaded_by if (f.uploaded_by or "").startswith("openagents:") else "human",
+    } for f in _thread_files(db, workspace, channel)]
+    browsers = [{
+        "id": t.id, "title": t.title or t.url, "url": t.url,
+    } for t in _thread_browsers(db, workspace, channel)]
+    routines = [{
+        "id": r.id, "name": r.name, "status": r.status,
+        "scheduleHour": r.schedule_hour, "scheduleMinute": r.schedule_minute,
+        "scheduleDays": r.schedule_days, "scheduleIntervalMinutes": r.schedule_interval_minutes,
+        "timezone": r.timezone, "nextFiresAt": _iso(r.next_fires_at), "lastFiredAt": _iso(r.last_fired_at),
+    } for r in db.execute(select(RoutineRecord).where(
+        RoutineRecord.workspace_id == str(workspace.id), RoutineRecord.status != "cancelled",
+        RoutineRecord.source_channel_name == channel.name,
+    ).order_by(RoutineRecord.created_at)).scalars().all()]
+    return {"files": files, "browsers": browsers, "routines": routines}
+
+
+def thread_file(db: Session, workspace: Workspace, channel: Channel, file_id: str):
+    """(record, bytes) for a file this thread shows — as an artifact or a message attachment."""
+    from app.models import FileRecord
+    from app.storage import get_file_store
+    f = db.get(FileRecord, file_id)
+    if f is None or str(f.workspace_id) != str(workspace.id) or f.status != "active":
+        raise LinkError(404, "File not found")
+    if f.channel_name != channel.name:
+        attached = False
+        for (payload,) in db.execute(select(EventRecord.payload).where(
+            EventRecord.network_id == str(workspace.id), EventRecord.target == f"channel/{channel.name}",
+            EventRecord.type == "workspace.message.posted",
+        )).all():
+            for a in (payload or {}).get("attachments") or []:
+                if isinstance(a, dict) and str(a.get("fileId") or a.get("file_id") or a.get("id")) == f.id:
+                    attached = True
+                    break
+            if attached:
+                break
+        if not attached:
+            raise LinkError(404, "File not found")
+    return f, get_file_store().read(f.storage_key)
+
+
+def thread_browser(db: Session, workspace: Workspace, channel: Channel, tab_id: str):
+    tab = next((t for t in _thread_browsers(db, workspace, channel) if t.id == tab_id), None)
+    if tab is None:
+        raise LinkError(404, "Browser not found")
+    return tab
