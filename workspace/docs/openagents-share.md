@@ -42,7 +42,11 @@ The owner link opens a **light room** (`/share/own/<slug>?token=…`): just the 
 
 ## Owner approval
 
-The owner can switch a guest link to **I approve each request** (`approval_mode: "owner"`). A guest's message that addresses the agent is posted and shown at once but held from the agent; the owner sees it in the room and approves (it is re-posted for the agent, as the guest, read-only as always) or declines. A short notice tells the thread either way. Comments are never held.
+The owner can switch a guest link to **I approve each request** (`approval_mode: "owner"`). A guest's message that addresses the agent is posted and shown at once but held from the agent; the owner sees it in the room and approves (it is re-posted for the agent, as the guest, read-only as always) or declines. A short notice tells the thread either way. Comments are never held. After the conversation is kept or moved, owners and admins decide from the full Workspace (a banner on the thread), and a waiting request also lands in the keeper's inbox.
+
+## Guests continue in their own workspace
+
+A signed-in guest can take a private copy of the conversation (the messages they can see, no agent, no link back) into a new or existing workspace of theirs and continue there with their own agents. The original is untouched.
 
 ## Proposal: guests bring their own agent (not built)
 
@@ -72,6 +76,8 @@ That touches the core auth path (`access.resolve_machine_token`, the events rout
 | POST | `/v1/guest-links/import` `{network, target}` | owner link token **and** a signed-in member of `target` |
 | POST | `/v1/guest-links/relocation/accept` | the moving agent's launcher (old token + its session id), once |
 | GET | `/v1/guest-links/room/requests?network=` | owner link token: guests' requests waiting for approval |
+| GET / POST | `/v1/guest-links/requests[/{id}]?network=&channel=` | workspace owner/admin: the same after keeping or moving |
+| POST | `/v1/guest-links/public/{token}/fork` `{target?}` | signed-in guest: a private copy in their workspace |
 | POST | `/v1/guest-links/room/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
