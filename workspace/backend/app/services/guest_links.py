@@ -1129,3 +1129,21 @@ def fork_for_guest(db: Session, token: str, user, target_id: Optional[str]) -> d
     logger.info("share: guest copied a shared thread into workspace %s", target.id)
     return {"workspace": {"id": str(target.id), "slug": target.slug, "name": target.name},
             "channel": {"name": name, "title": copy_channel.title}}
+
+
+def notify_owner_of_request(db: Session, workspace: Workspace, channel: Channel, guest_name: str, content: str) -> None:
+    """Tell the person who kept the workspace that a guest request waits (inbox + push).
+
+    An anonymous owner has no inbox; they see the request in their room.
+    """
+    owner = (workspace.creator_email or "").strip().lower()
+    if not owner:
+        return
+    try:
+        from app.services.notify import notify
+        notify(db, str(workspace.id), source="system:share",
+               title=f"{guest_name} is waiting for your approval",
+               message=(content or "")[:200], priority="high", channel_name=channel.name,
+               reason="share_request", recipient_email=owner, kind="share_request")
+    except Exception:
+        logger.warning("share: could not notify the owner of a guest request", exc_info=True)

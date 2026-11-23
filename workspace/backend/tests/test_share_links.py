@@ -736,3 +736,17 @@ def test_requests_can_be_decided_from_the_full_workspace_after_keeping(client, d
     assert r.status_code == 200, r.text
     note = [m for m in _messages(client, _token(data)) if m["metadata"].get("share_request_update")][-1]
     assert note["payload"]["content"].startswith("Alex approved")
+
+
+def test_a_waiting_request_lands_in_the_keepers_inbox(client, db, monkeypatch, no_push):
+    from app.models import NotificationRecord
+    _people(db, monkeypatch, "alex")
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    client.patch(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", json={"approval_mode": "owner"}, headers=owner)
+    client.post("/v1/guest-links/claim", json={"network": data["slug"]}, headers={**owner, "Authorization": "Bearer alex"})
+    g = _guest(client, _token(data))
+    _post(client, _token(data), g["session"], "@pr-reviewer please look")
+    notes = db.query(NotificationRecord).filter(NotificationRecord.workspace_id == data["workspaceId"]).all()
+    assert any(n.title == "Maya is waiting for your approval" for n in notes)

@@ -338,6 +338,7 @@ def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks
     if hold_id:
         from app.models import ThreadGuestRequest
         db.add(ThreadGuestRequest(id=hold_id, link_id=link.id, guest_id=guest.id, event_id=posted.id))
+        svc.notify_owner_of_request(db, workspace, channel, guest.display_name, content)
         db.commit()
     from app.routers.sharing import _after_message_hooks
     _after_message_hooks(background_tasks, str(workspace.id), posted)
