@@ -66,9 +66,9 @@ class EventRecord(Base):
 
     __table_args__ = (
         Index("idx_events_network_type", "network_id", "type"),
+        # JSON ->> expression is PostgreSQL-only; SQLite (tests) skips this index.
         Index("idx_events_routine_history", "network_id", payload["routine_id"].astext, timestamp.desc(),
-              postgresql_where=text("source = 'system:routine'"),
-              sqlite_where=text("source = 'system:routine'")),
+              postgresql_where=text("source = 'system:routine'")).ddl_if(dialect="postgresql"),
         Index("idx_events_network_target", "network_id", "target"),
         Index("idx_events_network_timestamp", "network_id", "timestamp"),
         Index("idx_events_network_type_target_ts", "network_id", "type", "target", "timestamp"),
@@ -1811,6 +1811,19 @@ class DirectThreadPreference(Base):
     user_email = Column(Text, primary_key=True)
     pinned = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
+
+
+class PersonalSetting(Base):
+    """One person's own settings in a workspace, shared by all their devices
+    (web, desktop app, phone). ``key`` names the setting — "thread_projects"
+    is their projects and which threads are in each — and ``value`` is its
+    JSON. Nobody else reads or writes it."""
+    __tablename__ = 'personal_settings'
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey('workspaces.id', ondelete='CASCADE'), primary_key=True)
+    user_email = Column(Text, primary_key=True)
+    key = Column(Text, primary_key=True)
+    value = Column(JSONB, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=_now, onupdate=_now, server_default=text("NOW()"))
 
 
 class ReadMarker(Base):

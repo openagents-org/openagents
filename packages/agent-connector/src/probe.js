@@ -36,7 +36,7 @@ const path = require('path');
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
-const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, stripCliNoise, redactSecrets } = require('./adapters/utils');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, CREDIT_EXHAUSTED, stripCliNoise, redactSecrets } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
@@ -147,7 +147,8 @@ function classifyOutputText(text) {
   // Relays word this their own way and answer 403 rather than 402, so the
   // English-and-402 pattern alone read "out of credit" as "bad credentials"
   // — the one misreading that sends a user to re-authenticate a working key.
-  if (/credit balance|insufficient[_ ]?(quota|credits|funds)|payment required|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额|欠费|余额不足/.test(text)) return CODE.OUT_OF_CREDIT;
+  // new-api relays say "Insufficient user quota" (see CREDIT_EXHAUSTED).
+  if (CREDIT_EXHAUSTED.test(text) || /credit balance|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
   // "error sending request for url (…)" is how Codex (Rust) says the host
   // was unreachable; a Codex that could not reach chatgpt.com ran out the
@@ -188,15 +189,20 @@ function classifyFailure(output, { timedOut = false, spawnError = null } = {}) {
   // sign-in ends between …, run claude auth login before then" read as
   // "not logged in" on a sign-in that still worked.
   const text = withoutProbeNotices(output).toLowerCase();
+  // Codex retrying its model stream says only "ERROR: Reconnecting... 5/5":
+  // the connection to the model kept dropping, not a prompt waiting for input
+  // or an unknown CLI error. Only when nothing else is named, so a reason it
+  // gives wins.
+  const reconnecting = /reconnecting\.{3} \d+\/\d+/.test(text);
   if (timedOut) {
     // A CLI that retries a hard API error (bad key, unknown model, quota)
     // until the probe clock runs out is NOT "waiting for interactive input" —
     // the collected output already names the real problem. Only an output
     // with no recognizable error is a genuine timeout.
-    return (text && classifyOutputText(text)) || CODE.TIMEOUT;
+    return (text && classifyOutputText(text)) || (reconnecting ? CODE.NETWORK : CODE.TIMEOUT);
   }
   if (!text && spawnError) return CODE.CLI_ERROR;
-  return classifyOutputText(text) || CODE.CLI_ERROR;
+  return classifyOutputText(text) || (reconnecting ? CODE.NETWORK : CODE.CLI_ERROR);
 }
 
 /** Human next-steps for a code. Plain strings, no markup, no secrets. */
@@ -510,6 +516,9 @@ const PROBE_NOISE = new RegExp([
   /is overriding the same skill from/,
   /^Ignoring \d+ permissions\.\w+ entries/,
   /^Warning: this sign-in ends between/,
+  // Newer Claude Code: "this sign-in can end at any time from now until
+  // 2026-11-25 … Run claude auth login now" (daily errors dashboard, 2026-11-23).
+  /^Warning: this sign-in can end at any time\b/,
 ].map((r) => r.source).join('|'), 'i');
 
 /**
@@ -933,6 +942,12 @@ async function probeAgentType(connector, type, opts = {}) {
       apiEnv = { LLM_API_KEY: route.apiKey, LLM_BASE_URL: route.baseURL, LLM_MODEL: route.model };
       apiModel = route.model;
       apiBaseUrl = route.baseURL;
+    }
+    // Aider's model names its provider ("deepseek/deepseek-flash"), which
+    // LiteLLM takes off before the call; sent whole, DeepSeek refused a model
+    // it serves as "deepseek-flash" (daily errors dashboard, 2026-11-23).
+    if (type === 'aider' && apiModel) {
+      apiModel = require('./adapters/aider').aiderWireModel(agentEnv, apiModel) || apiModel;
     }
     const res = await callLLM(apiEnv, apiModel, apiBaseUrl, protocol);
     if (res && res.success) {

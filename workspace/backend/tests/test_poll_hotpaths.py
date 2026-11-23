@@ -169,3 +169,21 @@ def test_cursor_polls_return_exactly_the_newer_events(client, db, workspace):
     db.commit()
     assert poll_type(client, workspace, 'workspace.message', after='a-tie') == ['same-ms-after', 'newer-1', 'newer-2']
     assert poll_type(client, workspace, 'workspace.message', before='d', sort='desc') == ['same-ms-after', 'cursor', 'older']
+
+
+def test_multi_type_prefix_keeps_the_prefix_filter(client, db, workspace):
+    import app.routers.events as events_mod
+    for i, kind in enumerate(['workspace.message.posted', 'workspace.message.status']):
+        db.add(EventRecord(id=f'mt-{i}', network_id=workspace['id'], source='openagents:a', target='channel/general',
+                           timestamp=now_ms() + i, type=kind, visibility='channel', payload={'content': kind}))
+    db.commit()
+    seen = []
+    from sqlalchemy import event as sa_event
+    capture = lambda conn, cursor, statement, *a: seen.append(statement) if 'FROM events' in statement and 'ORDER BY' in statement else None
+    sa_event.listen(db.bind, 'before_cursor_execute', capture)
+    try:
+        got = poll_type(client, workspace, 'workspace.message', channel='general', sort='desc')
+    finally:
+        sa_event.remove(db.bind, 'before_cursor_execute', capture)
+    assert got == ['workspace.message.status', 'workspace.message.posted']
+    assert any('LIKE' in q for q in seen) and not any(' IN (' in q.split('ORDER BY')[0].split('events.type')[-1][:12] for q in seen)

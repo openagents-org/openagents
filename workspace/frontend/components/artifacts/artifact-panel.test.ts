@@ -3,7 +3,7 @@ import React,{act} from 'react';
 import {createRoot,type Root} from 'react-dom/client';
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 const mocks=vi.hoisted(()=>({get:vi.fn(),pin:vi.fn(),share:vi.fn(),selected:{kind:'file',id:'dashboard'} as any}));
-vi.mock('@/lib/api',()=>({workspaceApi:{getThreadArtifact:mocks.get,pinThreadArtifact:mocks.pin,getPublicShare:mocks.share}}));
+vi.mock('@/lib/api',()=>({workspaceApi:{isConfigured:()=>true,currentWorkspaceId:()=>'ws',getThreadArtifact:mocks.get,pinThreadArtifact:mocks.pin,getPublicShare:mocks.share}}));
 vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>({currentSessionId:'general',workspace:{slug:'acme'},files:[{id:'dashboard',filename:'dashboard.html',contentType:'text/html',channelName:'general',canManage:true},{id:'report',filename:'reports/q3.csv',contentType:'text/csv',channelName:'general',canManage:true},{id:'elsewhere',filename:'other.md',contentType:'text/markdown',channelName:'other'}],knowledge:[],browserTabs:[],refreshFiles:vi.fn(),refreshKnowledge:vi.fn(),refreshBrowserTabs:vi.fn()})}));
 vi.mock('@/components/layout/layout-context',()=>({useLayout:()=>({selectedArtifact:mocks.selected,setSelectedArtifact:vi.fn(),setShowBrowserPreview:vi.fn()})}));
 vi.mock('@/lib/i18n',()=>({useT:()=>(key:string)=>key,useFormatters:()=>({formatDate:()=>'',formatDateTime:()=>''})}));

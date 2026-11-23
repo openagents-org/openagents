@@ -6,8 +6,9 @@ import { useT } from '@/lib/i18n';
 import { Button } from '@/components/ui/button';
 
 /** First-contact DM welcome shares the same location choices as the seeded thread. */
-export function YumiDmIntro({ agentLabel, onQuick }: {
+export function YumiDmIntro({ agentLabel, showSetup, onQuick }: {
   agentLabel: string;
+  showSetup: boolean;
   onQuick: (text: string) => void;
 }) {
   const t = useT();
@@ -18,16 +19,16 @@ export function YumiDmIntro({ agentLabel, onQuick }: {
           <img src="/yumi-avatar.png" alt="" className="size-8 shrink-0 rounded-full object-cover mt-0.5" draggable={false} />
           <div className="min-w-0 flex-1">
             <div className="text-sm font-semibold leading-tight">{agentLabel}</div>
-            <p className="mt-1.5 text-sm leading-relaxed">{t('yumiOnboarding.greeting')}</p>
-            <YumiAgentLocation />
+            <p className="mt-1.5 text-sm leading-relaxed">{t(showSetup ? 'yumiOnboarding.greeting' : 'yumiDmIntro.greeting')}</p>
+            {showSetup && <YumiAgentLocation />}
             <div className="mt-3 flex flex-wrap gap-1.5">
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => onQuick(t('yumiDmIntro.quickWhat'))}
+                onClick={() => onQuick(t(showSetup ? 'yumiOnboarding.tourPrompt' : 'yumiDmIntro.quickWhat'))}
                 className="rounded-full text-muted-foreground"
               >
-                <MessageSquare data-icon="inline-start" />{t('yumiDmIntro.quickWhat')}
+                <MessageSquare data-icon="inline-start" />{t(showSetup ? 'yumiOnboarding.tourAction' : 'yumiDmIntro.quickWhat')}
               </Button>
             </div>
           </div>

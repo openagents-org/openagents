@@ -3,7 +3,7 @@
 import { useMemo } from 'react';
 import { useT } from '@/lib/i18n';
 
-const MAX_SHEET_ROWS = 500;
+export const MAX_SHEET_ROWS = 500;
 
 /** CSV/TSV are the only spreadsheets we can render without a parser library. */
 export function delimiterFor(contentType: string, filename: string): string | null {
@@ -54,33 +54,38 @@ export function parseDelimited(text: string, delimiter: string): string[][] {
   return rows;
 }
 
-/** CSV/TSV as a real table — the first row reads as a header, because in
- *  practice it always is one, and a sticky one at that. */
+/** CSV/TSV as a real table. */
 export function SheetStage({ content, delimiter }: { content: string; delimiter: string }) {
-  const t = useT();
   const rows = useMemo(() => parseDelimited(content, delimiter), [content, delimiter]);
-  const truncated = rows.length > MAX_SHEET_ROWS;
-  const visible = truncated ? rows.slice(0, MAX_SHEET_ROWS) : rows;
+  return <SheetTable rows={rows.slice(0, MAX_SHEET_ROWS)} total={rows.length} />;
+}
 
-  if (visible.length === 0) {
+/** A grid of cells — the first row reads as a header, because in practice it
+ *  always is one, and a sticky one at that. `total` counts the rows left out. */
+export function SheetTable({ rows, total }: { rows: string[][]; total: number }) {
+  const t = useT();
+  const width = useMemo(() => rows.reduce((max, row) => Math.max(max, row.length), 0), [rows]);
+
+  if (rows.length === 0 || width === 0) {
     return <p className="p-6 text-sm text-muted-foreground">{t('files.fileEmpty')}</p>;
   }
 
-  const [header, ...body] = visible;
+  const [header, ...body] = rows;
+  const columns = Array.from({ length: width }, (_, c) => c);
 
   return (
     <div className="p-4">
-      <div className="overflow-hidden rounded-lg border">
+      <div className="w-fit min-w-full overflow-clip rounded-lg border">
         <table className="w-full border-collapse text-xs">
           <thead className="sticky top-0 bg-muted/70 backdrop-blur">
             <tr>
               <th className="w-10 border-b px-2 py-1.5 text-right font-normal text-muted-foreground/60 tabular-nums" />
-              {header.map((cell, i) => (
+              {columns.map((c) => (
                 <th
-                  key={i}
+                  key={c}
                   className="border-b border-l px-2.5 py-1.5 text-left font-semibold whitespace-nowrap"
                 >
-                  {cell}
+                  {header[c] || ''}
                 </th>
               ))}
             </tr>
@@ -91,7 +96,7 @@ export function SheetStage({ content, delimiter }: { content: string; delimiter:
                 <td className="border-b border-border/60 px-2 py-1.5 text-right text-muted-foreground/50 tabular-nums select-none">
                   {r + 1}
                 </td>
-                {header.map((_, c) => (
+                {columns.map((c) => (
                   <td
                     key={c}
                     className="max-w-70 truncate border-b border-l border-border/60 px-2.5 py-1.5"
@@ -105,9 +110,9 @@ export function SheetStage({ content, delimiter }: { content: string; delimiter:
           </tbody>
         </table>
       </div>
-      {truncated && (
+      {total > rows.length && (
         <p className="px-1 pt-2 text-xs text-muted-foreground">
-          {t('files.rowsTruncated', { shown: MAX_SHEET_ROWS, total: rows.length })}
+          {t('files.rowsTruncated', { shown: rows.length, total })}
         </p>
       )}
     </div>

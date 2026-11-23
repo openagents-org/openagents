@@ -4,22 +4,24 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { ConnectAgentView } from './connect-agent-view';
 import { FirstRunOnboarding } from './first-run-onboarding';
-import type { WorkspaceNode } from '@/lib/types';
+import type { ConnectSetupRequest } from '@/components/layout/layout-context';
+import type { WorkspaceAgent, WorkspaceNode } from '@/lib/types';
 
 const api = vi.hoisted(() => ({
   getAgentCatalog: vi.fn(), getCloudProviders: vi.fn(), listCloudAgents: vi.fn(),
   getHostedProviders: vi.fn(() => Promise.resolve([])), listHostedAgents: vi.fn(() => Promise.resolve([])),
   listMyAcentaAgents: vi.fn(() => Promise.resolve([])), getMyAcentaUsage: vi.fn(() => Promise.resolve(null)),
-  listNodes: vi.fn(), createPairingCode: vi.fn(), sendSetupEmail: vi.fn(),
+  listNodes: vi.fn(), createPairingCode: vi.fn(), getPairingCodeStatus: vi.fn(), sendSetupEmail: vi.fn(),
+  isConfigured: () => false,
   listNodeCommands: vi.fn(() => Promise.resolve([])),
 }));
-const fixture = vi.hoisted(() => ({ connectSetupRequest: null as null | { method: 'desktop' | 'terminal' }, needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn(), cloudAgentsPending: false, consumeCloudAgents: vi.fn(), desktop: null as null | Record<string, unknown> }));
+const fixture = vi.hoisted(() => ({ connectSetupRequest: null as ConnectSetupRequest | null, agents: [] as WorkspaceAgent[], requestFirstThread: vi.fn(), needsFirstDevice: false, mobile: false, idToken: null as string | null, openView: vi.fn(), openMobileDetail: vi.fn(), cloudAgentsPending: false, consumeCloudAgents: vi.fn(), desktop: null as null | Record<string, unknown> }));
 vi.mock('@/lib/account-api', () => ({ sendSetupEmail: api.sendSetupEmail }));
 vi.mock('@/lib/api', () => ({ workspaceApi: api }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: [], refreshWorkspace: vi.fn(),
+  workspace: { workspaceId: 'test-workspace', slug: 'test-workspace', needsFirstDevice: fixture.needsFirstDevice }, token: 'test-token', agents: fixture.agents, refreshWorkspace: vi.fn(), requestFirstThread: fixture.requestFirstThread,
 }) }));
-vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, connectSetupRequest: fixture.connectSetupRequest, cloudAgentsPending: fixture.cloudAgentsPending, consumeCloudAgents: fixture.consumeCloudAgents, isMobile: false }) }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => ({ openView: fixture.openView, openMobileDetail: fixture.openMobileDetail, connectSetupRequest: fixture.connectSetupRequest, cloudAgentsPending: fixture.cloudAgentsPending, consumeCloudAgents: fixture.consumeCloudAgents, isMobile: false }) }));
 vi.mock('@/components/layout/app-header', () => ({ DetailHeader: () => React.createElement('header', null, 'Connect Agent title bar') }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ idToken: fixture.idToken }) }));
 vi.mock('@/lib/desktop-host', () => ({ desktopHost: () => fixture.desktop }));
@@ -54,6 +56,8 @@ beforeEach(() => {
     removeItem: (key: string) => { storage.delete(key); },
   });
   fixture.needsFirstDevice = false;
+  fixture.agents = [];
+  api.getPairingCodeStatus.mockResolvedValue({ redeemed: false });
   fixture.connectSetupRequest = null;
   fixture.mobile = false;
   fixture.idToken = null;
@@ -294,4 +298,38 @@ it('opens on Cloud Agents when asked to', async () => {
   await render([device('existing')]);
   expect(button('connect.tabCloud').getAttribute('aria-selected')).toBe('true');
   expect(fixture.consumeCloudAgents).toHaveBeenCalled();
+});
+
+
+it('waits for the newly joined agent, even when pairing reuses a device with another agent', async () => {
+  fixture.connectSetupRequest = { method: 'agent' };
+  fixture.agents = [{ agentName: 'already-here', status: 'online' } as WorkspaceAgent];
+  const existing = { ...device('existing'), agents: [{ name: 'already-here' }] } as WorkspaceNode;
+  await render([existing]);
+  expect(container.querySelector('[data-testid="guided-pairing"]')?.getAttribute('data-method')).toBe('agent');
+
+  api.getPairingCodeStatus.mockResolvedValue({ redeemed: true, nodeId: 'existing' });
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(container.textContent).toContain('connect.agentJoinPairedHint');
+  expect(fixture.requestFirstThread).not.toHaveBeenCalled();
+
+  fixture.agents = [...fixture.agents, { agentName: 'new-codex', status: 'online' } as WorkspaceAgent];
+  api.listNodes.mockResolvedValue([{
+    ...existing, agents: [...(existing.agents ?? []), { name: 'new-codex' }],
+  } as WorkspaceNode]);
+  await act(async () => { await vi.advanceTimersByTimeAsync(3000); });
+  expect(fixture.requestFirstThread).toHaveBeenCalledExactlyOnceWith('new-codex', expect.any(Function));
+  expect(fixture.openView).not.toHaveBeenCalled();
+  fixture.requestFirstThread.mock.calls[0][1]();
+  expect(fixture.openView).toHaveBeenCalledWith('threads');
+  expect(fixture.openMobileDetail).toHaveBeenCalledOnce();
+});
+
+it('opens Yumi’s cloud route without requesting a device pairing code', async () => {
+  fixture.needsFirstDevice = true;
+  fixture.connectSetupRequest = { method: 'cloud' };
+  fixture.desktop = {};
+  await render([]);
+  expect(button('connect.tabCloud').getAttribute('aria-selected')).toBe('true');
+  expect(api.createPairingCode).not.toHaveBeenCalled();
 });

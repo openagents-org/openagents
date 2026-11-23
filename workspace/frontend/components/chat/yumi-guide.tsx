@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { YumiAgentLocation } from './yumi-agent-location';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 
@@ -16,18 +17,19 @@ const STORAGE_KEY = 'oa_yumi_guide_collapsed';
  * assistant. Explains what Yumi can do; collapsible to a one-line strip the
  * user can reopen anytime (so the guidance stays reviewable after dismissal).
  */
-export function YumiGuide() {
+export function YumiGuide({ showSetup, canStartThread }: { showSetup: boolean; canStartThread: boolean }) {
   const t = useT();
+  const { openNewThread } = useLayout();
   // Render nothing until mounted — the collapsed state lives in localStorage,
   // which the server doesn't know, and rendering a guess would flash/mismatch.
   const [mounted, setMounted] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
+  const [collapsed, setCollapsed] = useState(true);
 
   useEffect(() => {
     try {
-      setCollapsed(window.localStorage.getItem(STORAGE_KEY) === '1');
+      setCollapsed(window.localStorage.getItem(STORAGE_KEY) !== '0');
     } catch {
-      // storage unavailable (private mode) — default to expanded
+      // storage unavailable (private mode) — keep the guide collapsed
     }
     setMounted(true);
   }, []);
@@ -54,27 +56,23 @@ export function YumiGuide() {
       )}
       <CollapsibleContent>
         <div className="mx-auto w-full max-w-3xl px-4 py-3 lg:px-8 xl:max-w-4xl 2xl:max-w-6xl">
-          <Alert role="note" className="flex items-start gap-3">
-            <img src="/yumi-avatar.png" alt="Yumi" className="mt-0.5 size-8 shrink-0 rounded-full object-cover" draggable={false} />
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              <AlertTitle>{t('yumiGuide.title')}</AlertTitle>
-              <AlertDescription className="text-xs">
-                <ul className="flex list-disc flex-col gap-0.5 pl-4">
-                  <li>{t('yumiGuide.itemConnect')}</li>
-                  <li>{t('yumiGuide.itemAgents')}</li>
-                  <li>{t('yumiGuide.itemManage')}</li>
-                  <li>{t('yumiGuide.itemDebug')}</li>
-                </ul>
-                <p className="mt-1.5 italic">{t('yumiGuide.hint')}</p>
-              </AlertDescription>
-            </div>
+          <div className="flex items-center gap-2">
+            <img src="/yumi-avatar.png" alt="" className="size-5 rounded-full object-cover" draggable={false} />
+            <p className="min-w-0 flex-1 text-sm font-medium">{t('yumiGuide.title')}</p>
             <CollapsibleTrigger asChild>
               <Button variant="ghost" size="xs" className="shrink-0 text-muted-foreground">
                 {t('yumiGuide.minimize')}
                 <ChevronUp data-icon="inline-end" />
               </Button>
             </CollapsibleTrigger>
-          </Alert>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('yumiGuide.hint')}</p>
+          {showSetup && <YumiAgentLocation />}
+          {canStartThread && (
+            <Button variant="outline" size="sm" className="mt-2" onClick={openNewThread}>
+              {t('chat.newThread')}
+            </Button>
+          )}
         </div>
       </CollapsibleContent>
     </Collapsible>

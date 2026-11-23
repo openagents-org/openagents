@@ -7,7 +7,7 @@
 // has not joined shows a Join button (POST /channels/{name}/join). Legacy
 // 'workspace' visibility reads as Public (permission-model-v1.md §2).
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Globe, Lock, LogIn } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ import { useMe } from '@/hooks/use-me';
 import { useThreadAccess } from '@/hooks/use-thread-access';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { workspaceApi } from '@/lib/api';
+import { loadChannelParticipants } from '@/lib/channel-participants-store';
 import { apiErrorStatus, displayNameFromEmail } from '@/lib/collab';
 import {
   canManageThread,
@@ -34,7 +35,6 @@ import {
   type ThreadVisibility,
 } from '@/lib/access-ui';
 import { useT } from '@/lib/i18n';
-import type { ChannelParticipants } from '@/lib/types';
 
 /** DMs and routine runs have no ACL of their own — only real channels do. */
 export function threadPrivacyApplies(channelName: string | null | undefined): boolean {
@@ -51,34 +51,20 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
   const hasSession = !!session;
   const visibility: ThreadVisibility = normalizeThreadVisibility(session?.visibility);
 
-  const [participants, setParticipants] = useState<ChannelParticipants | null>(null);
+  // The shared roster (useThreadAccess) also drives the owner's display name
+  // and the "have I joined?" check.
+  const participants = access;
   const [busy, setBusy] = useState(false);
   const [joining, setJoining] = useState(false);
 
-  // Participants drive the owner's display name and the
-  // "have I joined?" check; fetched when the thread or its visibility
-  // changes, never on every discovery poll.
-  const loadParticipants = useCallback(async () => {
-    try {
-      const p = await workspaceApi.getChannelParticipants(channelName);
-      setParticipants(p);
-    } catch {
-      /* Keep the last known participant details when refreshing fails. */
-    }
-  }, [channelName]);
-
+  // Re-read it when the thread's visibility flips, not on every discovery poll.
+  const seenVisibility = useRef<string | null>(null);
   useEffect(() => {
-    setParticipants(null);
-    if (!hasSession) return;
-    let cancelled = false;
-    workspaceApi.getChannelParticipants(channelName)
-      .then((p) => {
-        if (cancelled) return;
-        setParticipants(p);
-      })
-      .catch(() => { /* see loadParticipants */ });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const seen = `${channelName}|${visibility}`;
+    if (hasSession && seenVisibility.current?.startsWith(`${channelName}|`) && seenVisibility.current !== seen) {
+      loadChannelParticipants(channelName, { force: true }).catch(() => {});
+    }
+    seenVisibility.current = seen;
   }, [channelName, visibility, hasSession]);
 
   if (!hasSession || !threadPrivacyApplies(channelName)) return null;
@@ -113,7 +99,7 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
     try {
       await workspaceApi.joinChannel(channelName);
       toast.success(t('threadAccess.joined'));
-      await loadParticipants();
+      // Re-reads the shared roster, so the Join button goes everywhere at once.
       window.dispatchEvent(new CustomEvent(THREAD_PARTICIPANTS_CHANGED, { detail: channelName }));
       refreshAgents().catch(() => {});
     } catch {

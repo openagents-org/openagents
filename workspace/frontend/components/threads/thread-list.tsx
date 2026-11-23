@@ -27,6 +27,8 @@ import { useThreadProjectActions } from './use-thread-project-actions';
 import { MoveToProjectMenu, ProjectPersonalHint, startThreadDrag, ThreadProjectBar, ThreadProjectGroup, ThreadProjectLayoutToggle } from './thread-projects';
 import { useThreadSearch, useThreadShortcuts } from './use-thread-list-input';
 import { TABS, dmDedupKey, dmDisplayTitle, dmRowId, highlightMatch, type FilterTab, type SortOrder } from './thread-list-utils';
+import { threadPrivacyApplies } from '@/components/chat/thread-privacy-control';
+import { prefetchChannelParticipants } from '@/lib/channel-participants-store';
 
 export function ThreadList() {
   const {
@@ -144,7 +146,8 @@ export function ThreadList() {
       const { node, isStatus } = buildThreadPreview(session.sessionId, previewContext);
       const activityMs = session.lastEventAt;
       return (
-        <div key={session.sessionId} draggable onDragStart={event => startThreadDrag(event, session.sessionId)}>
+        // Hovering a thread reads its roster, so the header opens complete.
+        <div key={session.sessionId} draggable onDragStart={event => startThreadDrag(event, session.sessionId)} onPointerEnter={() => { if (threadPrivacyApplies(session.sessionId)) prefetchChannelParticipants(session.sessionId); }}>
         <ThreadRow
           session={session}
           agents={agents}

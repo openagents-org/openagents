@@ -37,13 +37,13 @@ export function parseStepContent(content: string): ParsedStep {
 
   // Claude adapter: **Using tool:** `ToolName`\n```\n{args}\n```
   const toolMatch = content.match(
-    /\*\*Using tool:\*\*\s*`([^`]+)`\s*```([\s\S]*?)```/
+    /^\*\*Using tool:\*\*\s*`([^`]+)`(?:\s*(`{3,})\n([\s\S]*?)\n\2\s*$)?/
   );
   if (toolMatch) {
     const rawTool = toolMatch[1];
-    const args = toolMatch[2].trim();
+    const args = toolMatch[3]?.trim();
     const toolDisplay = cleanToolName(rawTool);
-    const summary = extractToolSummary(toolDisplay, args);
+    const summary = args ? extractToolSummary(toolDisplay, args) : undefined;
     return { type: 'tool_call', tool: rawTool, toolDisplay, args, summary };
   }
 

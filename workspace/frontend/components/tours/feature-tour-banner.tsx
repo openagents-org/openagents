@@ -23,7 +23,7 @@ const hiddenThisSession = new Set<TourFeature>();
  * own dismissal flag and renders the tour overlay itself. `compact` stacks
  * the layout for narrow list panels (e.g. the routines rail).
  */
-export function FeatureTourBanner({ feature, compact = false }: { feature: TourFeature; compact?: boolean }) {
+export function FeatureTourBanner({ feature, compact = false, subtle = false }: { feature: TourFeature; compact?: boolean; subtle?: boolean }) {
   const t = useT();
   const [mounted, setMounted] = useState(false);
   const [dismissed, setDismissed] = useState(true);
@@ -62,7 +62,7 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
     </span>
   );
   const watchButton = (
-    <Button size="xs" onClick={watch} className={cn('shrink-0', compact ? 'self-start' : 'ml-1 rounded-full')}>
+    <Button size="xs" variant={subtle ? "ghost" : "default"} onClick={watch} className={cn('shrink-0', compact ? 'self-start' : 'ml-1 rounded-full')}>
       <Play data-icon="inline-start" className="fill-current" />{t('featureTours.watch')}
     </Button>
   );
@@ -84,9 +84,9 @@ export function FeatureTourBanner({ feature, compact = false }: { feature: TourF
       ) : (
         // The X sits outside the flow so the copy centres on the full width;
         // px-12 keeps long copy clear of it.
-        <div className={cn('relative flex shrink-0 items-center justify-center gap-2.5 border-b px-12 py-2 text-sm', SURFACE)}>
-          {icon}
-          <span className="min-w-0 truncate text-foreground">{t(`featureTours.${feature}Banner`)}</span>
+        <div className={cn('relative flex shrink-0 items-center justify-center gap-2.5 border-b px-12 py-2 text-sm', SURFACE, subtle && 'justify-start gap-2 border-b-0 bg-background px-4 pr-12 py-2 text-xs')}>
+          {!subtle && icon}
+          <span className={cn("min-w-0 truncate text-foreground", subtle && "text-muted-foreground")}>{t(`featureTours.${feature}Banner`)}</span>
           {watchButton}
           <TourDismissButton onDismiss={dismiss} className="absolute right-3" />
         </div>

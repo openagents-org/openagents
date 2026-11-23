@@ -40,16 +40,20 @@ export function useChatSend({ currentSessionId, currentSession, currentUser, age
   const t = useT();
   const { isDM, counterpart: dmCounterpart, myAddr } = dm;
   return useCallback(
-    async (content: string, mentions: string[] = [], files: PendingFile[] = [], mentionedHumans: string[] = []) => {
+    async (content: string, mentions: string[] = [], files: PendingFile[] = [], mentionedHumans: string[] = [],
+      options: { replyTo?: WorkspaceMessage } = {}) => {
       if (!currentSessionId) return;
       if (!currentUser.id || !currentUser.name.trim()) return;
 
-      const replyingTo = replyTarget;
+      // A message sent from a button (not the composer) carries its own quote
+      // and leaves the composer's reply and draft alone.
+      const fromComposer = !options.replyTo;
+      const replyingTo = options.replyTo ?? replyTarget;
       if (replyingTo?.senderType === 'agent') {
         const recipient = normalizeAgentAddress(replyingTo.senderAddress || replyingTo.senderName);
         if (recipient) mentions = [...new Set([...mentions, recipient])];
       }
-      setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }));
+      if (fromComposer) setReplyTargets(previous => ({ ...previous, [currentSessionId]: undefined }));
       // Create optimistic messages for instant feedback
       const timestamp = Date.now();
       const userContent = content || (files.length > 0 ? files.map((f) => f.file.name).join(', ') : '');
@@ -175,7 +179,7 @@ export function useChatSend({ currentSessionId, currentSession, currentUser, age
         setOptimisticMessages(prev => acknowledgeMessage(prev, userOptimisticMsg.messageId, loadingOptimisticMsg.messageId, sent, queuedNow ? undefined : loadingOptimisticMsg));
         forceRefresh();
       } catch (err) {
-        if (replyingTo) setReplyTargets(previous => ({ ...previous, [currentSessionId]: previous[currentSessionId] || replyingTo }));
+        if (replyingTo && fromComposer) setReplyTargets(previous => ({ ...previous, [currentSessionId]: previous[currentSessionId] || replyingTo }));
         setPendingQueue((prev) => prev.filter((p) => p.id !== `pending-${timestamp}`));
         // Remove optimistic messages on error
         setOptimisticMessages((prev) =>
@@ -199,7 +203,7 @@ export function useChatSend({ currentSessionId, currentSession, currentUser, age
         }
         // Restore the typed text as this thread's draft, unless the user has
         // already started a new draft in the meantime.
-        if (content && !draftStore[currentSessionId]) {
+        if (fromComposer && content && !draftStore[currentSessionId]) {
           draftStore[currentSessionId] = content;
           if (prevSessionIdRef.current === currentSessionId) setCurrentDraft(content);
         }

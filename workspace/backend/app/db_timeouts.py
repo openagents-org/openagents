@@ -15,13 +15,23 @@ LOCK_TIMEOUT_MS = _positive_ms("DB_LOCK_TIMEOUT_MS", 3000)
 IDLE_TRANSACTION_TIMEOUT_MS = _positive_ms("DB_IDLE_TRANSACTION_TIMEOUT_MS", 60000)
 
 
+# One statement instead of three SET LOCALs: this listener runs at the start of
+# every ORM transaction (hundreds per second on each production node), so each extra statement is
+# a database round trip. set_config(..., true) is exactly SET LOCAL: the value
+# lasts until commit/rollback, which also keeps it safe under PgBouncer
+# transaction pooling. Values are parsed integers, never raw env text.
+def transaction_timeouts_sql() -> str:
+    """Build the statement from the current values (tests may override them)."""
+    return (
+        "SELECT "
+        f"set_config('statement_timeout', '{int(STATEMENT_TIMEOUT_MS)}', true), "
+        f"set_config('lock_timeout', '{int(LOCK_TIMEOUT_MS)}', true), "
+        "set_config('idle_in_transaction_session_timeout', "
+        f"'{int(IDLE_TRANSACTION_TIMEOUT_MS)}', true)"
+    )
+
+
 def apply_transaction_timeouts(session, transaction, connection) -> None:
     if connection.dialect.name != "postgresql":
         return
-    # Values are parsed as positive integers, never interpolated raw env text.
-    for setting, value in (
-        ("statement_timeout", STATEMENT_TIMEOUT_MS),
-        ("lock_timeout", LOCK_TIMEOUT_MS),
-        ("idle_in_transaction_session_timeout", IDLE_TRANSACTION_TIMEOUT_MS),
-    ):
-        connection.exec_driver_sql(f"SET LOCAL {setting} = {value}")
+    connection.exec_driver_sql(transaction_timeouts_sql()).close()

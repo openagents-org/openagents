@@ -24,10 +24,11 @@ interface ChatMessageProps {
   onSuggestion?: (text: string) => void;
   onMentionPerson?: (email: string) => void;
   onReply?: (message: WorkspaceMessage) => void;
+  onSaveKnowledge?: (message: WorkspaceMessage) => void;
   onRecall?: (message: WorkspaceMessage) => Promise<void>;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onRecall }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, onRecall }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
@@ -88,6 +89,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
       isLast={isLast}
       onSuggestion={onSuggestion}
       onReply={onReply}
+      onSaveKnowledge={onSaveKnowledge}
     />
   );
 });

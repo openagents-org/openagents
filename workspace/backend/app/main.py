@@ -24,7 +24,7 @@ from app.services.routine_backoff import ROUTINE_STUCK_MS
 # Registers the commit hooks that invalidate cached permission results; it must
 # load before any request can write permission rows.
 import app.services.permission_cache  # noqa: E402,F401
-from app.routers import hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
+from app.routers import personal_settings, hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -730,6 +730,7 @@ app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
 app.include_router(public_shares.router)
+app.include_router(personal_settings.router)
 app.include_router(web_projects.router)
 app.include_router(integrations.router)
 app.include_router(invites.router)
@@ -809,3 +810,10 @@ async def network_manifest():
         "capabilities": ["channels", "files", "events", "presence"],
         "mods": ["messaging", "file_storage", "browser"],
     }
+
+
+# Keep last: exact-path routing shortcut (see app/route_index.py). Routes added
+# later are picked up automatically; behaviour matches Starlette's own matching.
+from app.route_index import install_static_route_index  # noqa: E402
+
+install_static_route_index(app)

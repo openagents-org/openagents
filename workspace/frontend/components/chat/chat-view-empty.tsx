@@ -53,7 +53,7 @@ export function ThreadEmpty({ dm, agents, hasConnectedAgent, onQuick }: {
   onQuick: (text: string) => void;
 }) {
   const dmBuiltin = dm.isDM ? agents.find((a) => a.builtin && `openagents:${a.agentName}` === dm.counterpart) : undefined;
-  if (dmBuiltin) return <YumiDmIntro agentLabel={agentLabel(dmBuiltin)} onQuick={onQuick} />;
+  if (dmBuiltin) return <YumiDmIntro agentLabel={agentLabel(dmBuiltin)} showSetup={!agents.some((agent) => !agent.builtin)} onQuick={onQuick} />;
   if (dm.isDM) return <EmptyConversation name={dm.title || undefined} human={dm.withPerson} self={dm.self} />;
   return <EmptyConversation human={!hasConnectedAgent} />;
 }

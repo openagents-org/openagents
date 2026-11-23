@@ -120,7 +120,8 @@ export const RAIL_WIDTH_EXPANDED = 208;
 
 /** On mobile, which pane is showing: the list or the detail */
 export type MobilePane = 'list' | 'detail';
-export type ConnectSetupRequest = { method: 'desktop' | 'terminal' };
+export type DeviceSetupMethod = 'desktop' | 'terminal' | 'agent';
+export type ConnectSetupRequest = { method: DeviceSetupMethod | 'cloud' };
 
 /** Which device agent's full settings to open, and the device it is on. */
 export interface EditAgentRequest {
