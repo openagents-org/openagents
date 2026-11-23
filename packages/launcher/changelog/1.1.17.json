@@ -14,6 +14,17 @@
       }
     },
     {
+      "type": "feature",
+      "title": {
+        "en": "Workspace updates without a launcher update",
+        "zh": "工作区无需更新启动器即可更新"
+      },
+      "description": {
+        "en": "The Workspace inside the launcher downloads newer versions by itself, and goes back to the previous one if an update fails to start.",
+        "zh": "启动器内的工作区会自动下载新版本；若新版本无法启动，会自动退回到上一个版本。"
+      }
+    },
+    {
       "type": "improvement",
       "title": {
         "en": "Edit an agent's folder, API key and endpoint from its profile",

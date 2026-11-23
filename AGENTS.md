@@ -43,7 +43,7 @@ Self-hosters build the frontend from source with `workspace/docker-compose.prod.
 
 - Launcher installers: tag `launcher-v*` / `desktop-v*` → `desktop-build.yml`. Tag a commit on `openagents-release` (promote first), not `develop`: the installer carries the hosted layer, and its built-in Workspace bundle is what the bundle feed above is compared against.
 - Agent connector (`@openagents-org/agent-launcher` on npm): version bump merged to `develop` → `agent-connector.yml`.
-- Workspace desktop bundle (the front end inside the launcher): part of step 4 above, not a separate release. A push to `openagents-release` that touches `workspace/frontend` → `workspace-bundle-publish.yml` signs it and publishes it to the R2 feed installed launchers update from (checked every 30 minutes), without a launcher release. A bundle that needs a newer launcher bridge (`workspace/frontend/desktop/host-api.ts`) waits for a launcher release that provides it.
+- Workspace desktop bundle (the front end inside the launcher): part of step 4 above, not a separate release. A push to `openagents-release` that touches `workspace/frontend` → `workspace-bundle-publish.yml` signs it and publishes it to the R2 feed installed launchers update from (checked every 30 minutes), without a launcher release. A bundle that needs a newer launcher bridge (`workspace/frontend/desktop/host-api.ts`) waits for a launcher release that provides it. To pull a bad bundle, revert the change on `openagents-release` (via `develop` and a promote, or a PR into `openagents-release`): the revert's publish supersedes it, and launchers pick that up within ~30 minutes.
 
 ## Repo conventions
 
