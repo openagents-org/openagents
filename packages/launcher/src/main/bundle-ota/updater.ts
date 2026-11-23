@@ -4,6 +4,7 @@ import path from "path"
 import { WORKSPACE_HOST_API, type WorkspaceBundleUpdate } from "../../shared/workspace-bundle"
 import { toBundleInfo, verifyManifest, type BundleInfo, type BundleManifest } from "./manifest"
 import { BundleStore, committedAtOf, type BundleChoice } from "./store"
+import { BundleContentError } from "./tar"
 
 /**
  * Keeps the Workspace bundle current without a launcher release.
@@ -21,7 +22,9 @@ import { BundleStore, committedAtOf, type BundleChoice } from "./store"
  * session — given up on for good after a second failed start — and every page
  * goes back to the download that was working before it, or else to the bundle
  * that shipped with the launcher. A bad publish costs a reload rather than a
- * launcher nobody can use.
+ * launcher nobody can use. Probation is kept on disk too: quitting before the
+ * build reported counts as a failed start at the next launch, so a build that
+ * never gets to run long enough for the timeout is still given up on.
  */
 
 /** What the updater needs from whatever shows the bundle (WorkspaceHost). */
@@ -43,8 +46,11 @@ export interface BundleUpdaterOptions {
   /** The launcher's "update automatically" setting. Stops downloads, not serving. */
   autoUpdate: () => boolean
   fetchText: (url: string) => Promise<string | null>
-  /** Download to `dest`, rejecting unless the file's SHA-256 is `sha256`. */
-  download: (url: string, dest: string, sha256: string) => Promise<void>
+  /**
+   * Download to `dest`, rejecting unless the file's SHA-256 is `sha256`, and
+   * as soon as more than `size` bytes arrive.
+   */
+  download: (url: string, dest: string, expected: { sha256: string; size: number }) => Promise<void>
   hostApi?: number
   log?: (message: string) => void
   bootTimeoutMs?: number
@@ -72,6 +78,11 @@ export class WorkspaceBundleUpdater {
     this._hostApi = _o.hostApi ?? WORKSPACE_HOST_API
     this._log = _o.log ?? (() => {})
     this._builtin = { ..._o.builtin, source: "builtin" }
+    const unproven = _o.store.takeUnproven()
+    if (unproven) {
+      const givenUp = _o.store.recordFailedStart(unproven)
+      this._log(`[bundle-ota] bundle ${unproven} did not report a start last session — ${givenUp ? "giving up on it" : "trying it once more"}`)
+    }
     // With no feed this install runs only what it shipped with — and leaves
     // earlier downloads alone, for when the feed is turned back on.
     if (_o.feedUrl() === null) {
@@ -153,6 +164,7 @@ export class WorkspaceBundleUpdater {
     }
     if (this._served.source !== "downloaded") return
     this._log("[bundle-ota] endpoint has no bundle feed — back to the built-in bundle")
+    if (!this._proven) this._o.store.clearStarting()
     this._clearProbation()
     this._served = this._builtin
     this._proven = false
@@ -161,7 +173,9 @@ export class WorkspaceBundleUpdater {
 
   /** A page began loading the served bundle. */
   pageStarted(id: number): void {
-    if (this._served.source !== "downloaded" || this._proven || this._probation.has(id)) return
+    if (this._served.source !== "downloaded" || this._proven) return
+    if (this._served.info) this._o.store.recordStarting(this._served.info.version)
+    if (this._probation.has(id)) return
     const timeout = this._o.bootTimeoutMs ?? 45_000
     const timer = setTimeout(() => this._failed(`no start signal within ${timeout / 1000}s`), timeout)
     timer.unref?.()
@@ -251,11 +265,13 @@ export class WorkspaceBundleUpdater {
     let dir: string
     try {
       this._log(`[bundle-ota] downloading ${manifest.version}`)
-      // A failed download is worth retrying on the next check; an archive that
-      // arrived intact but does not hold what its manifest says never will be.
-      await this._o.download(url.toString(), archive, manifest.sha256)
+      // A failed download is worth retrying on the next check, and so is an
+      // install that the machine got in the way of (a full disk, a folder held
+      // open by a virus scan). An archive that arrived intact but does not
+      // hold what its manifest says never will be.
+      await this._o.download(url.toString(), archive, { sha256: manifest.sha256, size: manifest.size })
       dir = await store.install(manifest, archive).catch((err: Error) => {
-        store.reject(manifest!.version)
+        if (err instanceof BundleContentError) store.reject(manifest!.version)
         throw err
       })
     } finally {

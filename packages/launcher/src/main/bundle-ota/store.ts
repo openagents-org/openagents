@@ -3,13 +3,13 @@ import path from "path"
 
 import { writeJsonAtomic } from "../atomic-json"
 import { parseBundleInfo, readBundleInfo, sameBuild, toBundleInfo, type BundleInfo, type BundleManifest } from "./manifest"
-import { extractTarGz } from "./tar"
+import { BundleContentError, extractTarGz } from "./tar"
 
 /**
  * Downloaded Workspace bundles, on disk under userData/workspace-bundles:
  *
- *   state.json   the active download, the one before it, and the builds
- *                that failed to start
+ *   state.json   the active download, the one before it, the builds that
+ *                failed to start, and the one started but not yet proven
  *   <version>/   an unpacked bundle, exactly as the archive held it
  *
  * The one before is kept so a new download that fails to start falls back to
@@ -31,6 +31,12 @@ interface StoreState {
   previous: BundleInfo | null
   rejected: string[]
   failures: Record<string, number>
+  /**
+   * A build a page started that has not reported back yet. Still set at the
+   * next launch, it means the app was quit (or crashed) before the build
+   * proved itself, which counts as a failed start.
+   */
+  unproven: string | null
 }
 
 export interface BundleChoice {
@@ -65,9 +71,10 @@ export class BundleStore {
         previous: parseBundleInfo(doc.previous),
         rejected: Array.isArray(doc.rejected) ? doc.rejected.filter((v): v is string => typeof v === "string") : [],
         failures,
+        unproven: typeof doc.unproven === "string" ? doc.unproven : null,
       }
     } catch {
-      return { active: null, previous: null, rejected: [], failures: {} }
+      return { active: null, previous: null, rejected: [], failures: {}, unproven: null }
     }
   }
 
@@ -133,8 +140,8 @@ export class BundleStore {
     try {
       const files = await extractTarGz(archive, staging)
       const info = readBundleInfo(staging)
-      if (!info || !sameBuild(info, manifest)) throw new Error("bundle-info.json does not match the manifest")
-      if (!fs.existsSync(path.join(staging, "index.html"))) throw new Error("archive has no index.html")
+      if (!info || !sameBuild(info, manifest)) throw new BundleContentError("bundle-info.json does not match the manifest")
+      if (!fs.existsSync(path.join(staging, "index.html"))) throw new BundleContentError("archive has no index.html")
       await fs.promises.rm(final, { recursive: true, force: true })
       await fs.promises.rename(staging, final)
       this.log(`[bundle-ota] unpacked ${manifest.version} (${files} files)`)
@@ -156,6 +163,29 @@ export class BundleStore {
     this.write({ ...state, active: next, previous })
   }
 
+  /** A page began starting `version`; it is unproven until `recordStart`. */
+  recordStarting(version: string): void {
+    const state = this.read()
+    if (state.unproven !== version) this.write({ ...state, unproven: version })
+  }
+
+  /** Forget an unproven start without counting it: the page left that build. */
+  clearStarting(): void {
+    const state = this.read()
+    if (state.unproven !== null) this.write({ ...state, unproven: null })
+  }
+
+  /**
+   * At launch: the build the last session started and never heard back from,
+   * if any. The marker is cleared, so each one is reported once.
+   */
+  takeUnproven(): string | null {
+    const state = this.read()
+    if (state.unproven === null) return null
+    this.write({ ...state, unproven: null })
+    return state.unproven
+  }
+
   /**
    * A build failed to start. Returns true once it has failed often enough to
    * be given up on for good (see MAX_FAILED_STARTS).
@@ -167,17 +197,19 @@ export class BundleStore {
       this.reject(version)
       return true
     }
-    this.write({ ...state, failures: { ...state.failures, [version]: count } })
+    const unproven = state.unproven === version ? null : state.unproven
+    this.write({ ...state, failures: { ...state.failures, [version]: count }, unproven })
     return false
   }
 
   /** A build started: forget its earlier failed starts. */
   recordStart(version: string): void {
     const state = this.read()
-    if (!(version in state.failures)) return
+    const unproven = state.unproven === version ? null : state.unproven
+    if (!(version in state.failures) && unproven === state.unproven) return
     const failures = { ...state.failures }
     delete failures[version]
-    this.write({ ...state, failures })
+    this.write({ ...state, failures, unproven })
   }
 
   /** Never serve or install `version` again; the one before it takes over. */
@@ -188,7 +220,8 @@ export class BundleStore {
     delete failures[version]
     const active = state.active?.version === version ? state.previous : state.active
     const previous = state.active?.version === version || state.previous?.version === version ? null : state.previous
-    this.write({ active, previous, rejected, failures })
+    const unproven = state.unproven === version ? null : state.unproven
+    this.write({ active, previous, rejected, failures, unproven })
   }
 
   /**

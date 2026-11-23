@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { buildRelease } from "../../../scripts/pack-workspace-bundle.mjs"
 import { readBundleInfo, type BundleInfo } from "./manifest"
 import { BundleStore } from "./store"
-import { WorkspaceBundleUpdater, type BundlePages } from "./updater"
+import { WorkspaceBundleUpdater, type BundlePages, type BundleUpdaterOptions } from "./updater"
 
 const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519")
 const KEY = publicKey.export({ type: "spki", format: "der" }).toString("base64")
@@ -44,7 +44,7 @@ function pages(open = true) {
   } satisfies BundlePages
 }
 
-function updater(opts: { feed?: string | null; hostApi?: number; download?: (url: string, dest: string, sha: string) => Promise<void> } = {}) {
+function updater(opts: { feed?: string | null; hostApi?: number; download?: BundleUpdaterOptions["download"] } = {}) {
   const local = (url: string) => path.join(feedDir, new URL(url).pathname.replace(/^\/desktop\//, ""))
   return new WorkspaceBundleUpdater({
     store: new BundleStore(path.join(tmp, "userData", "workspace-bundles")),
@@ -54,10 +54,10 @@ function updater(opts: { feed?: string | null; hostApi?: number; download?: (url
     autoUpdate: () => true,
     hostApi: opts.hostApi ?? 1,
     fetchText: async (url) => (fs.existsSync(local(url)) ? fs.readFileSync(local(url), "utf-8") : null),
-    download: opts.download ?? (async (url, dest, sha) => {
+    download: opts.download ?? (async (url, dest, { sha256 }) => {
       fs.copyFileSync(local(url), dest)
       const actual = crypto.createHash("sha256").update(fs.readFileSync(dest)).digest("hex")
-      if (actual !== sha) throw new Error("sha mismatch")
+      if (actual !== sha256) throw new Error("sha mismatch")
     }),
     bootTimeoutMs: 1000,
   })
@@ -147,6 +147,85 @@ describe("workspace bundle updates", () => {
     expect(u.served().source).toBe("builtin")
     await u.check()
     expect(download).toHaveBeenCalledTimes(2)
+  })
+
+  it("downloads from a hash-named archive, capped at the signed size", async () => {
+    publish({ committedAt: 2000 })
+    const { payload } = JSON.parse(fs.readFileSync(path.join(feedDir, "latest.json"), "utf-8"))
+    const manifest = JSON.parse(payload)
+    expect(manifest.archive).toBe(`v2000/workspace-${manifest.sha256.slice(0, 16)}.tar.gz`)
+    const seen: Array<[string, { sha256: string; size: number }]> = []
+    const u = updater({
+      download: async (url, dest, expected) => {
+        seen.push([url, expected])
+        fs.copyFileSync(path.join(feedDir, manifest.archive), dest)
+      },
+    })
+    u.attach(pages(false))
+    await u.check()
+    expect(seen).toEqual([[`https://feed.test/desktop/${manifest.archive}`, { sha256: manifest.sha256, size: manifest.size }]])
+    expect(u.served().info?.version).toBe("v2000")
+  })
+
+  it("gives up on an archive that does not unpack to its build", async () => {
+    publish({ committedAt: 2000 })
+    // Passed the download checks, as an archive signed by mistake would.
+    const download = vi.fn(async (_url: string, dest: string) => fs.writeFileSync(dest, "not a tarball"))
+    const u = updater({ download })
+    u.attach(pages(false))
+    await u.check()
+    expect(u.served().source).toBe("builtin")
+    expect(new BundleStore(path.join(tmp, "userData", "workspace-bundles")).isRejected("v2000")).toBe(true)
+    await updater({ download }).check()
+    expect(download).toHaveBeenCalledOnce()
+  })
+
+  it("tries again later when the machine, not the archive, made the install fail", async () => {
+    publish({ committedAt: 2000 })
+    const install = vi.spyOn(BundleStore.prototype, "install").mockRejectedValueOnce(
+      Object.assign(new Error("ENOSPC: no space left on device"), { code: "ENOSPC" }),
+    )
+    const u = updater()
+    u.attach(pages(false))
+    await u.check()
+    expect(u.served().source).toBe("builtin")
+    expect(new BundleStore(path.join(tmp, "userData", "workspace-bundles")).isRejected("v2000")).toBe(false)
+    await u.check()
+    expect(install).toHaveBeenCalledTimes(2)
+    expect(u.served().info?.version).toBe("v2000")
+    install.mockRestore()
+  })
+
+  it("counts quitting before the build reported as a failed start", async () => {
+    publish({ committedAt: 2000 })
+    const u = updater()
+    u.attach(pages(false))
+    await u.check()
+    // Quit well inside the boot timeout, twice.
+    u.pageStarted(7)
+    const second = updater()
+    expect(second.served().info?.version).toBe("v2000")
+    second.pageStarted(8)
+    const third = updater()
+    expect(third.served().source).toBe("builtin")
+    await third.check()
+    expect(third.served().source).toBe("builtin")
+  })
+
+  it("does not hold a quick quit against a build that reported it started", async () => {
+    publish({ committedAt: 2000 })
+    const u = updater()
+    u.attach(pages(false))
+    await u.check()
+    u.pageStarted(7)
+    u.pageReady(7)
+    // Each launch re-proves the build; one quick quit is not two strikes.
+    const second = updater()
+    second.pageStarted(8)
+    second.pageReady(8)
+    const third = updater()
+    third.pageStarted(9)
+    expect(updater().served().info?.version).toBe("v2000")
   })
 
   it("rolls back when a download never starts, retries it once on the next launch, then gives up on it", async () => {

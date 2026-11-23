@@ -12,6 +12,12 @@ export type { BundlePages } from "./updater"
 export { WorkspaceBundleUpdater }
 
 /**
+ * Long enough for the few MB of a bundle on a slow line; short enough that a
+ * stalled download frees the updater for the next check.
+ */
+const DOWNLOAD_TIMEOUT_MS = 10 * 60_000
+
+/**
  * The updater, wired to Electron and to the protocol handler. Must run after
  * `app.whenReady()` (userData) and before the bundle is first served, so the
  * first page already comes from the right folder.
@@ -28,8 +34,8 @@ export function createWorkspaceBundleUpdater(opts: {
     keys: trustedKeys(),
     autoUpdate: opts.autoUpdate,
     fetchText: (url) => fetchTextRacing([url], { log: slog }),
-    download: async (url, dest, sha256) => {
-      await downloadToFile([url], dest, { expectedSha: sha256, log: slog })
+    download: async (url, dest, { sha256, size }) => {
+      await downloadToFile([url], dest, { expectedSha: sha256, maxBytes: size, timeoutMs: DOWNLOAD_TIMEOUT_MS, log: slog })
     },
     log: slog,
   })

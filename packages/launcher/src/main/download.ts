@@ -306,6 +306,17 @@ export interface DownloadOptions {
   expectedIntegrity?: string | null
   onProgress?: ProgressFn | null
   log?: LogFn
+  /**
+   * Fail, without trying another source, once more bytes than this arrive —
+   * for a file whose exact size is known in advance.
+   */
+  maxBytes?: number | null
+  /**
+   * Fail once the whole download, retries included, has taken this long. The
+   * slow-source watchdog only switches between several sources, so without
+   * this a single source that stalls mid-body holds the download forever.
+   */
+  timeoutMs?: number | null
 }
 
 export interface DownloadResult {
@@ -329,9 +340,18 @@ export async function downloadToFile(
     expectedSha = null,
     expectedIntegrity = null,
     onProgress = null,
+    maxBytes = null,
+    timeoutMs = null,
   } = opts
   const log: LogFn = opts.log || (() => {})
   const tmpPath = `${destPath}.part`
+  const deadline = timeoutMs ? Date.now() + timeoutMs : Infinity
+  const timedOut = (): Error => new Error(`download did not finish within ${Math.round(timeoutMs! / 1000)}s`)
+  const discard = (): void => {
+    try {
+      fs.unlinkSync(tmpPath)
+    } catch {}
+  }
   try {
     fs.unlinkSync(tmpPath)
   } catch {}
@@ -359,6 +379,10 @@ export async function downloadToFile(
     // Resume from what's actually on disk — not from a byte counter, which
     // would over-count anything the aborted writer never flushed.
     const startAt = fileSize(tmpPath)
+    if (Date.now() >= deadline) {
+      discard()
+      throw timedOut()
+    }
     let opened: Opened
     try {
       opened = await raceOpen(liveCandidates(), startAt, useNet, log)
@@ -384,6 +408,19 @@ export async function downloadToFile(
     let lastPaint = 0
     let rate = 0
     let abandoned = false
+    // Set when the download must end here rather than move to another source.
+    let fatal: Error | null = null
+    const stop = (err: Error): void => {
+      if (fatal) return
+      fatal = err
+      opened.abort()
+      opened.stream.destroy(err)
+    }
+    const tooBig = (): Error => new Error(`larger than the expected ${maxBytes} bytes`)
+    if (maxBytes != null && total > maxBytes) stop(tooBig())
+    const overall = Number.isFinite(deadline)
+      ? setTimeout(() => stop(timedOut()), Math.max(0, deadline - Date.now()))
+      : null
 
     if (resumed) log(`resuming from ${fmtMB(startAt)} at ${hostOf(opened.url)}`)
     else
@@ -409,6 +446,7 @@ export async function downloadToFile(
     opened.stream.on("data", (chunk: Buffer) => {
       done += chunk.length
       windowBytes += chunk.length
+      if (maxBytes != null && done > maxBytes) stop(tooBig())
       if (!onProgress) return
       const now = Date.now()
       if (now - lastPaint < TUNABLES.progressThrottleMs) return
@@ -431,6 +469,11 @@ export async function downloadToFile(
       transferErr = e as Error
     } finally {
       clearInterval(watchdog)
+      if (overall) clearTimeout(overall)
+    }
+    if (fatal) {
+      discard()
+      throw fatal
     }
 
     const onDisk = fileSize(tmpPath)

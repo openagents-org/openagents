@@ -166,7 +166,7 @@ export function serveWorkspaceBundle(): void {
     // Nothing outside the bundle may be read, whatever the path claims —
     // including a sibling folder whose name merely starts with the root's.
     const inside = path.relative(root, target)
-    if (inside.startsWith("..") || path.isAbsolute(inside)) {
+    if (inside === ".." || inside.startsWith(`..${path.sep}`) || path.isAbsolute(inside)) {
       slog(`[workspace-bundle] refusing path outside the bundle: ${relative}`)
       return new Response("Not found", { status: 404 })
     }

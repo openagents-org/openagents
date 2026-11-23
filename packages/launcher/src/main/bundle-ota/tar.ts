@@ -23,6 +23,15 @@ const BLOCK = 512
 const MAX_ENTRIES = 20_000
 const MAX_BYTES = 256 * 1024 * 1024
 
+/**
+ * The archive itself is wrong — it will not unpack, or does not hold the build
+ * its manifest describes — as opposed to the machine failing to write it out.
+ * Only this gives up on a build for good.
+ */
+export class BundleContentError extends Error {
+  name = "BundleContentError"
+}
+
 export interface TarEntry {
   /** Forward-slash relative path, already checked by safeRelative. */
   name: string
@@ -89,8 +98,13 @@ export function readTar(buffer: Buffer): TarEntry[] {
 
 /** Unpack a .tar.gz into `dest`, which should be empty. Returns the file count. */
 export async function extractTarGz(archive: string, dest: string): Promise<number> {
-  const tar = await gunzip(await fs.promises.readFile(archive), { maxOutputLength: MAX_BYTES + 64 * BLOCK })
-  const entries = readTar(tar)
+  const gz = await fs.promises.readFile(archive)
+  let entries: TarEntry[]
+  try {
+    entries = readTar(await gunzip(gz, { maxOutputLength: MAX_BYTES + 64 * BLOCK }))
+  } catch (err) {
+    throw new BundleContentError((err as Error).message)
+  }
   for (const entry of entries) {
     const target = path.join(dest, ...entry.name.split("/"))
     await fs.promises.mkdir(path.dirname(target), { recursive: true })
