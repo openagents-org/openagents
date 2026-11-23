@@ -193,10 +193,11 @@ def _publish_result(db: Session, link: ThreadGuestLink, created: bool) -> dict:
 
 def _seed(db: Session, workspace_id: str, channel_name: str, source: str, sender_name: str,
           content: str, ts: int, kind: str) -> None:
-    payload = {"content": content, "message_type": "chat", "sender_name": sender_name,
-               "sender_display_name": sender_name}
+    payload = {"content": content, "message_type": "chat"}
     if source.startswith("human:"):
-        payload["sender_type"] = "human"
+        payload.update({"sender_type": "human", "sender_name": sender_name, "sender_display_name": sender_name})
+    # An agent's excerpt carries no name of its own: clients name and draw it
+    # from the agent (as they do its live replies), so both look the same.
     db.add(EventRecord(
         id=str(uuid.uuid4()),
         network_id=workspace_id,

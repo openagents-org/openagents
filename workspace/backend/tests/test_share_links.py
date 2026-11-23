@@ -82,7 +82,8 @@ def test_publish_makes_one_passive_thread_with_the_chosen_excerpts(client, db, n
     assert ws.creator_email is None and ws.require_login is True
 
     msgs = _messages(client, _token(data))
-    assert [m["payload"]["sender_name"] for m in msgs] == ["Alex", "Claude Code", "Claude Code"]
+    assert [m["payload"].get("sender_name") for m in msgs] == ["Alex", None, None]
+    assert [m["source"] for m in msgs][1:] == ["openagents:pr-reviewer"] * 2, "excerpts look like the agent's live replies"
     assert all(m["metadata"]["share_seed"] for m in msgs)
     assert msgs[-1]["metadata"]["share_seed_kind"] == "intro"
     assert msgs[1]["source"] == "openagents:pr-reviewer"
