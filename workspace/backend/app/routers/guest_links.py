@@ -15,6 +15,8 @@
   POST   /v1/guest-links/public/{token}/fork  {target?}  signed-in guest: a private copy in their workspace
   GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
   POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
+  GET    /v1/guest-links/requests?network=&channel=     the same, from the full workspace (owner/admin)
+  POST   /v1/guest-links/requests/{id}?network=&channel={decision}
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
   DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
 
@@ -39,6 +41,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.access import resolve_current_user, verify_workspace_access
@@ -481,18 +484,7 @@ def owner_room_decide(network: str, request_id: str, body: RequestDecision, back
                                           svc.owner_name_for(db, workspace, channel))
     except svc.LinkError as e:
         return _fail(e)
-    if release:
-        event = Event(type="workspace.message.posted", source=release["source"], target=release["target"],
-                      payload=release["payload"], metadata=release["metadata"], visibility="channel",
-                      network=str(workspace.id))
-        posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
-        if posted is not None:
-            from app.models import ThreadGuestRequest
-            row = db.get(ThreadGuestRequest, req.id)
-            row.released_event_id = posted.id
-            db.commit()
-            from app.routers.sharing import _after_message_hooks
-            _after_message_hooks(background_tasks, str(workspace.id), posted)
+    _release(db, workspace, req, release, background_tasks)
     return _ok({"request": svc.serialize_request(db, req)})
 
 
@@ -511,3 +503,64 @@ def fork_shared_thread(token: str, body: ForkRequest, db: Session = Depends(get_
         return _ok(svc.fork_for_guest(db, token, user, body.target))
     except svc.LinkError as e:
         return _fail(e)
+
+
+
+# The same decisions from the full workspace (after the conversation was kept
+# or moved): the workspace's owners/admins, or its token.
+
+def _workspace_channel(db: Session, workspace, channel_name: str):
+    from app.models import Channel
+    channel = db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id),
+                                               Channel.name == channel_name)).scalar_one_or_none()
+    if channel is None:
+        raise svc.LinkError(404, "Thread not found")
+    return channel
+
+
+@router.get("/guest-links/requests")
+def workspace_requests(network: str, channel: str, db: Session = Depends(get_db),
+                       x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"requests": svc.pending_requests(db, workspace, _workspace_channel(db, workspace, channel))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/requests/{request_id}")
+def workspace_decide(request_id: str, network: str, channel: str, body: RequestDecision,
+                     background_tasks: BackgroundTasks, db: Session = Depends(get_db, scope="function"),
+                     x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    user = resolve_current_user(db, authorization) if authorization else None
+    try:
+        ch = _workspace_channel(db, workspace, channel)
+        label = (getattr(user, "display_name", None) or (user.email.split("@")[0] if user else None)
+                 or svc.owner_name_for(db, workspace, ch))
+        req, release = svc.decide_request(db, workspace, ch, request_id, body.decision,
+                                          f"human:{user.email.lower()}" if user else "owner", label)
+    except svc.LinkError as e:
+        return _fail(e)
+    _release(db, workspace, req, release, background_tasks)
+    return _ok({"request": svc.serialize_request(db, req)})
+
+
+def _release(db, workspace, req, release, background_tasks):
+    if not release:
+        return
+    event = Event(type="workspace.message.posted", source=release["source"], target=release["target"],
+                  payload=release["payload"], metadata=release["metadata"], visibility="channel",
+                  network=str(workspace.id))
+    posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+    if posted is not None:
+        from app.models import ThreadGuestRequest
+        row = db.get(ThreadGuestRequest, req.id)
+        row.released_event_id = posted.id
+        db.commit()
+        from app.routers.sharing import _after_message_hooks
+        _after_message_hooks(background_tasks, str(workspace.id), posted)

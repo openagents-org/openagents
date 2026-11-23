@@ -714,3 +714,23 @@ def test_a_signed_in_guest_can_copy_the_conversation_into_their_workspace(client
     team = client.post("/v1/workspaces", json={"name": "Not hers"}).json()["data"]
     assert client.post(f"/v1/guest-links/public/{token}/fork", json={"target": team["workspaceId"]},
                        headers={"Authorization": "Bearer maya"}).status_code == 403
+
+
+def test_requests_can_be_decided_from_the_full_workspace_after_keeping(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex", "eve")
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    client.patch(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", json={"approval_mode": "owner"}, headers=owner)
+    client.post("/v1/guest-links/claim", json={"network": data["slug"]}, headers={**owner, "Authorization": "Bearer alex"})
+    g = _guest(client, _token(data))
+    _post(client, _token(data), g["session"], "@pr-reviewer please")
+    q = f"network={data['workspaceId']}&channel={data['channel']['name']}"
+    assert client.get(f"/v1/guest-links/requests?{q}", headers={"Authorization": "Bearer eve"}).status_code == 403
+    reqs = client.get(f"/v1/guest-links/requests?{q}", headers={"Authorization": "Bearer alex"}).json()["data"]["requests"]
+    assert len(reqs) == 1
+    r = client.post(f"/v1/guest-links/requests/{reqs[0]['id']}?{q}", json={"decision": "approve"},
+                    headers={"Authorization": "Bearer alex"})
+    assert r.status_code == 200, r.text
+    note = [m for m in _messages(client, _token(data)) if m["metadata"].get("share_request_update")][-1]
+    assert note["payload"]["content"].startswith("Alex approved")
