@@ -5,7 +5,7 @@ type: "simple"
 
 config:
   agent_id: "gemini-assistant-001"
-  model_name: "gemini-1.5-pro"
+  model_name: "gemini-3.8-flash"
   
   # Specify Gemini provider
   provider: "gemini"
