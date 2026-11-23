@@ -332,3 +332,16 @@ it('says a held request waits for the owner, then shows the decision and hides t
   expect(held.querySelector('[data-share-request]')?.getAttribute('data-share-request')).toBe('approved');
   expect(host.querySelector('[data-guest-message="e7"]')).toBeNull();
 });
+
+it('shows the agent working when it is mentioned anywhere in the newest message, not while it waits for approval', async () => {
+  const recent = (metadata: Record<string, unknown> = {}) => ({ id: 'e8', type: 'workspace.message', source: 'guest:g-1', target: 'channel/channel-1', payload: { content: 'thanks — @claude-code can you check #43?', sender_name: 'Maya' }, metadata: { guest: { id: 'g-1', name: 'Maya' }, ...metadata }, timestamp: Date.now(), visibility: 'channel' });
+  serve((url) => (url.includes('/messages') ? ok({ messages: [...MESSAGES, recent()], hasMore: false }) : ok(INFO)));
+  await open();
+  expect(host.querySelector('.working-bubble')).not.toBeNull();
+  expect(host.querySelector('[data-guest-message="e8"] [data-message-audience="agent"]')).not.toBeNull();
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  serve((url) => (url.includes('/messages') ? ok({ messages: [...MESSAGES, recent({ share_request: { id: 'r9', status: 'pending' } })], hasMore: false }) : ok({ ...INFO, approvalMode: 'owner' })));
+  await open();
+  expect(host.querySelector('.working-bubble')).toBeNull();
+});

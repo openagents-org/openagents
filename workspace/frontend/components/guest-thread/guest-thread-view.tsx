@@ -45,7 +45,7 @@ import {
   isOptimistic,
   newPendingSend,
   splitSeed,
-  startsWithMention,
+  mentionsAgent,
   threadPeople,
   toWorkspaceAgents,
   type ThreadPerson,
@@ -55,6 +55,7 @@ import { GuestComposer } from './guest-composer';
 import { GuestMessageRow, PersonAvatar } from './guest-message-row';
 import { GuestNameDialog } from './guest-name-dialog';
 import type { DecideRequest } from './share-request-status';
+import { GuestRequestsBanner, type PendingGuestRequest } from '@/components/share/guest-requests-banner';
 import { isReleasedCopy, isShareNotice, requestDecisions, requestStatus, shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
 import type { SendResult } from './use-guest-thread';
 
@@ -78,8 +79,8 @@ interface GuestThreadViewProps {
   cancelName?: () => void;
   /** Buttons at the end of the thread header (owner: guest link, "Keep this conversation"; guest: "Continue in my workspace"). */
   headerActions?: ReactNode;
-  /** A strip under the status banner (owner: guest requests waiting). */
-  banner?: ReactNode;
+  /** Owner room: guests' requests waiting (a strip under the status banner). */
+  requests?: PendingGuestRequest[];
   /** Owner room: decisions recorded here, before the thread's notice arrives. */
   decisions?: Record<string, ShareRequestStatus>;
   /** Owner room: approve or decline a held guest request. */
@@ -91,7 +92,7 @@ interface GuestThreadViewProps {
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, banner, decisions, onDecide }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -118,6 +119,11 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
   const statusAgent = info.agents.find((a) => a.name === askAgent) ?? info.agents[0] ?? null;
   const needsApproval = info.approvalMode === 'owner';
+  // On a phone the waiting-requests strip carries the agent's state too, so
+  // two strips don't stack: an offline agent shows as its lead, all-well hides.
+  const waiting = onDecide && requests && requests.length > 0 ? requests : null;
+  const offline = !!statusAgent && !statusAgent.online;
+  const statusFolds = !!waiting && (!!statusAgent && (offline || statusAgent.acceptsGuests !== false));
   const identity = isOwner
     ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareRoom.ownerYou') }
     : guest ? { name: guest.name, seed: guestAvatarSeed(guest.id), role: t('guestThread.guestBadge') } : null;
@@ -185,8 +191,14 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             )}
           </header>
 
-          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} needsApproval={needsApproval} />}
-          {banner}
+          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} needsApproval={needsApproval} className={statusFolds ? 'max-sm:hidden' : undefined} />}
+          {waiting && onDecide && (
+            <GuestRequestsBanner
+              requests={waiting}
+              onDecide={onDecide}
+              lead={statusFolds && offline && statusAgent ? `${agentDisplayName(statusAgent)} · ${t('guestThread.offline')}` : null}
+            />
+          )}
 
           <GuestMessageList
             info={info}
@@ -435,7 +447,7 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
  * Where the agent runs and what this viewer can do, as a workspace thread
  * banner: a quiet strip while all is well, a warning when the agent can't answer.
  */
-function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean; needsApproval: boolean }) {
+function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval, className }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean; needsApproval: boolean; className?: string }) {
   const t = useT();
   const params = { agent: agentDisplayName(agent), owner: ownerName };
   const warning = !agent.online || agent.acceptsGuests === false;
@@ -445,17 +457,20 @@ function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval }
   const notice = isOwner
     ? (needsApproval ? t('shareRoom.ownerApprovalNotice') : t('shareRoom.ownerNotice'))
     : !canPost ? null : needsApproval ? t('guestThread.approvalNotice', params) : t('guestThread.guestNotice');
+  const approvalFirst = needsApproval && !warning && !!notice;
   return (
     <Alert
       role="status"
       data-agent-status={warning ? 'warning' : 'ok'}
-      className={cn(BANNER_STRIP, warning ? 'border-warning/30 bg-warning/10 text-warning' : 'bg-muted/30 text-muted-foreground')}
+      className={cn(BANNER_STRIP, warning ? 'border-warning/30 bg-warning/10 text-warning' : 'bg-muted/30 text-muted-foreground', className)}
     >
       {warning ? <AlertTriangle /> : <Laptop />}
       <AlertDescription className={cn('flex flex-wrap items-center gap-x-1.5 text-xs', warning ? 'text-warning' : 'text-muted-foreground')}>
-        <span className={cn('font-medium', !warning && 'text-foreground/80')}>{status}</span>
-        {/* On a phone the strip stays one line; the sidebar sheet repeats the notice. */}
-        {notice && <><span aria-hidden="true" className="hidden sm:inline">·</span><span className="hidden sm:inline">{notice}</span></>}
+        {/* On a phone the strip stays one line: the approval rule when all is
+            well (it changes what a request does), else the agent's state; the
+            sidebar sheet repeats the notice. */}
+        <span className={cn('font-medium', !warning && 'text-foreground/80', approvalFirst && 'max-sm:hidden')}>{status}</span>
+        {notice && <><span aria-hidden="true" className="hidden sm:inline">·</span><span className={approvalFirst ? undefined : 'hidden sm:inline'}>{notice}</span></>}
       </AlertDescription>
     </Alert>
   );
@@ -634,6 +649,6 @@ function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThr
   const held = statusOf(m);
   if (held && held !== 'approved') return null;
   if (!isOptimistic(m) && m.createdAt && Date.now() - new Date(m.createdAt).getTime() > WORKING_WINDOW_MS) return null;
-  const agent = agents.find((a) => startsWithMention(m.content, a.name));
+  const agent = agents.find((a) => mentionsAgent(m.content, a.name));
   return agent && agent.online ? agent.name : null;
 }

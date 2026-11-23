@@ -26,9 +26,11 @@ export interface PendingGuestRequest {
  * "N guest requests waiting" as a thread banner strip, with Review opening the
  * list to approve or decline each one. Hidden while nothing waits.
  */
-export function GuestRequestsBanner({ requests, onDecide, className }: {
+export function GuestRequestsBanner({ requests, onDecide, lead, className }: {
   requests: PendingGuestRequest[];
   onDecide: DecideRequest;
+  /** Phone only: a short note before the count (the agent's state, when its own strip is folded in). */
+  lead?: string | null;
   className?: string;
 }) {
   const t = useT();
@@ -38,6 +40,7 @@ export function GuestRequestsBanner({ requests, onDecide, className }: {
     <Alert role="status" className={cn(STRIP, 'border-warning/30 bg-warning/10 text-warning', className)} data-guest-requests={requests.length}>
       <Clock />
       <AlertDescription className="text-xs font-medium text-warning">
+        {lead && <span className="sm:hidden" data-guest-requests-lead="">{lead} · </span>}
         {t('share.guestRequestsWaiting', { count: requests.length })}
       </AlertDescription>
       <AlertAction>
@@ -68,15 +71,15 @@ function RequestRow({ request, onDecide }: { request: PendingGuestRequest; onDec
     setOutcome(result);
   };
   return (
-    <Item size="xs" className="items-start px-1" data-guest-request={request.id}>
+    <Item size="xs" className="flex-wrap items-start px-1" data-guest-request={request.id}>
       <ItemMedia><HumanAvatarFace seed={guestAvatarSeed(request.guest.id)} /></ItemMedia>
-      <ItemContent className="min-w-0">
+      <ItemContent className="min-w-40">
         <ItemTitle className="truncate">{t('share.requestFrom', { guest: request.guest.name })}</ItemTitle>
         <ItemDescription className="line-clamp-2 wrap-break-word" title={request.content}>{request.content}</ItemDescription>
         {outcome === 'conflict' && <p className="text-xs text-muted-foreground" role="status">{t('share.requestAlreadyDecided')}</p>}
         {outcome === 'failed' && <p className="text-xs text-destructive" role="alert">{t('share.requestFailed')}</p>}
       </ItemContent>
-      <ItemActions className="gap-1">
+      <ItemActions className="ms-auto gap-1">
         <Button size="xs" variant="outline" disabled={busy !== null} onClick={() => void decide('decline')} aria-label={`${t('share.decline')} · ${request.guest.name}`} data-guest-request-decide="decline">
           {busy === 'decline' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}{t('share.decline')}
         </Button>

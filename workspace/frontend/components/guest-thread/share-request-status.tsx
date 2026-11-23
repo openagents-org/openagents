@@ -18,7 +18,7 @@ export type DecideRequest = (requestId: string, decision: 'approve' | 'decline')
  * the workspace approval card (Decline / Approve) while it waits; everyone
  * else, and the owner once decided, a quiet status badge.
  */
-export function ShareRequestStatusView({ requestId, status, guestName, agentName, ownerName, onDecide }: {
+export function ShareRequestStatusView({ requestId, status, guestName, agentName, ownerName, onDecide, pendingLabel }: {
   requestId: string;
   status: ShareRequestStatus;
   guestName: string;
@@ -26,6 +26,8 @@ export function ShareRequestStatusView({ requestId, status, guestName, agentName
   ownerName: string;
   /** Owner only: record a decision. */
   onDecide?: DecideRequest;
+  /** Replaces "Waiting for <owner>'s approval" (e.g. in the owner's own workspace). */
+  pendingLabel?: string;
 }) {
   const t = useT();
   const [busy, setBusy] = useState<null | 'approve' | 'decline'>(null);
@@ -59,7 +61,7 @@ export function ShareRequestStatusView({ requestId, status, guestName, agentName
     );
   }
 
-  const label = status === 'pending' ? t('guestThread.waitingApproval', { owner: ownerName })
+  const label = status === 'pending' ? (pendingLabel ?? t('guestThread.waitingApproval', { owner: ownerName }))
     : status === 'approved' ? t('guestThread.requestApproved') : t('guestThread.requestDeclined');
   const Icon = status === 'pending' ? Clock : status === 'approved' ? Check : X;
   return (

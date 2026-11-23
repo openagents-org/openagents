@@ -18,6 +18,8 @@ import { MessageReactions } from './message-reactions';
 import { ReplyCitation, type ReplyCitationData } from './reply-citation';
 import { Button } from '@/components/ui/button';
 import { WithTooltip } from '@/components/ui/with-tooltip';
+import { ShareRequestStatusView } from '@/components/guest-thread/share-request-status';
+import { shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -34,13 +36,15 @@ export interface HumanMessageRowProps {
   onMentionPerson?: (email: string) => void;
   onReply?: (message: WorkspaceMessage) => void;
   onRecall?: (message: WorkspaceMessage) => Promise<void>;
+  /** OpenAgents Share: where this guest's held request stands. */
+  shareRequestStatus?: ShareRequestStatus;
 }
 
 // Everyone reads the same way: avatar + name + time on the left, like the
 // agent turns. A shared workspace has several people in it, so your own turns
 // stay in the same column as theirs rather than becoming right-aligned
 // bubbles — the thread reads as one transcript.
-export function HumanMessageRow({ message, agents, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, onMentionPerson, onReply, onRecall }: HumanMessageRowProps) {
+export function HumanMessageRow({ message, agents, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, onMentionPerson, onReply, onRecall, shareRequestStatus }: HumanMessageRowProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   // In DMs the sender address identifies the viewer too — including legacy
@@ -60,6 +64,9 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
       ? guestDisplayName(message, undefined, t('chat.guestBadge'))
       : ((mentionEmail && humanNames[mentionEmail.toLowerCase()]) || (message.senderName && message.senderName !== 'user' ? message.senderName : 'User'));
   const humanContent = humanMessageContent(message.content, attachments);
+  const held = guest ? shareRequestOf(message) : null;
+  const heldAgent = held ? agents.find((a) => message.content.includes(`@${a.agentName}`)) : undefined;
+  const heldAgentLabel = heldAgent ? (heldAgent.displayName || heldAgent.agentName) : '';
   const recalled = !!message.metadata.recalled;
   const canRecall = isCurrentUser && onRecall && !message.messageId.startsWith('optimistic-')
     && message.targetAgents?.length === 1 && message.targetAgents[0] === '__no_response__'
@@ -100,7 +107,17 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
             </>}
           </BubbleContent>
         </Bubble>
-        {!approval && !recalled && <MessageAudience message={message} isSender={isCurrentUser} agents={agents} />}
+        {/* A guest's request held for the owner: its status instead of the routing badge. */}
+        {held && !recalled ? (
+          <ShareRequestStatusView
+            requestId={held.id}
+            status={shareRequestStatus ?? held.status}
+            guestName={displayName}
+            agentName={heldAgentLabel}
+            ownerName=""
+            pendingLabel={t('share.requestWaiting')}
+          />
+        ) : !approval && !recalled && <MessageAudience message={message} isSender={isCurrentUser} agents={agents} />}
         {!approval && !recalled && <MessageReactions messageId={message.messageId}
           onReply={onReply ? () => onReply(message) : undefined}
           onRecall={canRecall ? () => onRecall(message) : undefined} />}

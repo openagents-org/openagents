@@ -236,6 +236,15 @@ export function startsWithMention(text: string, agentName: string): boolean {
 }
 
 /**
+ * Does the text address this agent anywhere (`… @agent …`)? The server routes
+ * any such mention to the agent (not only a leading one); an email-like
+ * `me@agent` doesn't count.
+ */
+export function mentionsAgent(text: string, agentName: string): boolean {
+  return new RegExp(`(?<![\\w@.])@${escapeRegExp(agentName)}(?![\\w-])`).test(text);
+}
+
+/**
  * What actually gets posted. The thread is passive: only a message that starts
  * with `@<agent> ` runs the agent; anything else is a comment. With "Ask" on
  * the prefix is added (never doubled); with it off the text goes as typed.
@@ -251,7 +260,7 @@ export function composeOutgoing(text: string, askAgent: boolean, agentName: stri
 /** Will this send run an agent? (Ask on, or the guest typed the mention.) */
 export function willRunAgent(text: string, askAgent: boolean, agentName: string | null, agents: GuestThreadAgent[]): boolean {
   if (askAgent && agentName) return true;
-  return agents.some((a) => startsWithMention(text, a.name));
+  return agents.some((a) => mentionsAgent(text, a.name));
 }
 
 /** Trimmed display name, or null when empty or longer than 40 characters. */

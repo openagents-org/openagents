@@ -14,7 +14,6 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { roomGuestLinksClient, roomToThreadInfo, threadPath } from '@/lib/share-room-api';
 import { liveLink } from '@/lib/guest-links';
 import { GuestLinkDialog } from './guest-link-dialog';
-import { GuestRequestsBanner } from './guest-requests-banner';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
 /**
@@ -97,7 +96,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         send={room.send}
         retry={room.retry}
         headerActions={headerActions}
-        banner={<GuestRequestsBanner requests={room.requests} onDecide={room.decide} />}
+        requests={room.requests}
         decisions={room.decisions}
         onDecide={room.decide}
       />

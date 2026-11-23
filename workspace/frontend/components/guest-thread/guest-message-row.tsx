@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/components/ui/message';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { isOptimistic, senderIdentity, startsWithMention, type ThreadViewer } from '@/lib/guest-thread';
+import { isOptimistic, mentionsAgent, senderIdentity, type ThreadViewer } from '@/lib/guest-thread';
 import { shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
 import { ShareRequestStatusView, type DecideRequest } from './share-request-status';
 
@@ -58,9 +58,9 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
   const sendStatus = message.metadata?.send_status as 'sending' | 'failed' | undefined;
   const sendError = message.metadata?.send_error as string | undefined;
   const pending = isOptimistic(message);
-  const askedAgent = !isAgent ? agents.find((a) => startsWithMention(message.content, a.agentName)) : undefined;
+  const askedAgent = !isAgent ? agents.find((a) => mentionsAgent(message.content, a.agentName)) : undefined;
   const held = !isAgent ? shareRequestOf(message) : null;
-  const heldAgent = held ? (askedAgent ?? agents.find((a) => message.content.includes(`@${a.agentName}`)) ?? agents[0]) : undefined;
+  const heldAgent = held ? (askedAgent ?? agents[0]) : undefined;
 
   return (
     <Message className={cn('gap-3', isAgent ? 'py-2' : 'py-1.5', sendStatus === 'sending' && 'opacity-70')} data-guest-message={message.messageId}>

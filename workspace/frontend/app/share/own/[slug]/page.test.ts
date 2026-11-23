@@ -251,3 +251,14 @@ it('switches guests’ requests to need the owner’s approval from the link dia
   // The room follows the new mode.
   expect(host.textContent).toContain('shareRoom.ownerApprovalNotice');
 });
+
+it('folds an offline agent into the waiting-requests strip on a phone', async () => {
+  const server = approvalServer();
+  serve((url, init) => {
+    if (url.includes('/v1/guest-links/room?')) return ok({ ...ROOM, agents: [{ ...ROOM.agents[0], online: false }], link: { ...LINK, approvalMode: 'owner' } });
+    return server.handler(url, init);
+  });
+  await open();
+  expect(host.querySelector('[data-guest-requests-lead]')?.textContent).toBe('Claude Code · guestThread.offline · ');
+  expect(host.querySelector('[data-agent-status="warning"]')?.className).toContain('max-sm:hidden');
+});

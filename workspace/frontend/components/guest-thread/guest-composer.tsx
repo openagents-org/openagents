@@ -11,7 +11,7 @@ import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { WorkspaceAgent } from '@/lib/types';
 import type { GuestThreadAgent } from '@/lib/guest-thread-api';
-import { agentDisplayName, startsWithMention, toWorkspaceAgents, willRunAgent } from '@/lib/guest-thread';
+import { agentDisplayName, mentionsAgent, toWorkspaceAgents, willRunAgent } from '@/lib/guest-thread';
 
 const MAX_TEXTAREA_HEIGHT = 200;
 
@@ -59,7 +59,7 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
   const target = agents.find((a) => a.name === askAgent) ?? null;
   const runsAgent = willRunAgent(draft, !!target, target?.name ?? null, agents);
   // Who the hint names: the chip's agent, else one the guest @mentioned.
-  const hintAgent = target ?? agents.find((a) => startsWithMention(draft, a.name)) ?? agents[0] ?? null;
+  const hintAgent = target ?? agents.find((a) => mentionsAgent(draft, a.name)) ?? agents[0] ?? null;
   const canSend = draft.trim().length > 0;
   const options = mention ? matchingAgents(workspaceAgents, mention.query) : [];
   const pickerOpen = options.length > 0;

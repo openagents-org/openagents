@@ -7,7 +7,7 @@ vi.mock('@/hooks/use-team-roster', () => ({ useHumanNames: () => ({}), useTeamRo
 vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ formatTime: () => '' }) }));
 vi.mock('./markdown-content', () => ({ MarkdownContent: ({ content }: { content: string }) => React.createElement('div', null, content) }));
 vi.mock('./message-reactions', () => ({ MessageReactions: () => null }));
-vi.mock('./message-audience', () => ({ MessageAudience: () => null }));
+vi.mock('./message-audience', () => ({ MessageAudience: () => React.createElement('span', { 'data-audience': '' }) }));
 import { ChatMessage } from './chat-message';
 import { citationFor } from './reply-citation';
 import { eventToMessage, type ONMEvent } from '@/lib/types';
@@ -96,6 +96,7 @@ describe('a guest message in the owner’s thread', () => {
     await act(async () => root.render(React.createElement(ChatMessage, { message })));
     expect(host.querySelector('[data-guest-badge]')).toBeNull();
     expect(host.textContent).toContain('Sam');
+    expect(host.querySelector('[data-audience]')).not.toBeNull();
   });
 
   it('renders a Share decision notice as a system line', async () => {
@@ -106,6 +107,16 @@ describe('a guest message in the owner’s thread', () => {
     expect(host.querySelector('[data-share-notice="n1"]')?.textContent).toBe('Alex approved Maya’s request.');
     expect(host.querySelector('[data-guest-badge]')).toBeNull();
     expect(host.textContent).not.toContain('OpenAgents');
+  });
+
+  it('shows a held guest request’s status instead of the routing badge', async () => {
+    const held = eventToMessage(guestEvent({ metadata: { sender_email: ADDRESS, guest: { id: '7f3a', name: 'Maya' }, share_request: { id: 'r1', status: 'pending' }, target_agents: ['__no_response__'] } }));
+    await act(async () => root.render(React.createElement(ChatMessage, { message: held })));
+    expect(host.querySelector('[data-share-request="pending"]')?.textContent).toBe('share.requestWaiting');
+    expect(host.querySelector('[data-audience]')).toBeNull();
+    await act(async () => root.render(React.createElement(ChatMessage, { message: held, shareRequestStatus: 'approved' })));
+    expect(host.querySelector('[data-share-request]')?.getAttribute('data-share-request')).toBe('approved');
+    expect(host.querySelector('[data-share-request]')?.textContent).toBe('guestThread.requestApproved');
   });
 
   it('cites a guest by name when replying', () => {

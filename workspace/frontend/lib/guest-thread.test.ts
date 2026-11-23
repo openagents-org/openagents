@@ -24,6 +24,7 @@ import {
   toWorkspaceAgents,
   upsertMessage,
   willRunAgent,
+  mentionsAgent,
 } from './guest-thread';
 
 let clock = 1_700_000_000_000;
@@ -207,6 +208,16 @@ describe('Ask agent prefix', () => {
     expect(willRunAgent('hello', false, null, AGENTS)).toBe(false);
     expect(willRunAgent('@claude-code hello', false, null, AGENTS)).toBe(true);
     expect(willRunAgent('email me@claude-code', false, null, AGENTS)).toBe(false);
+    // The server routes a mention anywhere in the message, not only a leading one.
+    expect(willRunAgent('hey @claude-code, review this', false, null, AGENTS)).toBe(true);
+  });
+
+  it('finds an agent mention anywhere, but not inside an email or a longer name', () => {
+    expect(mentionsAgent('please @claude-code look', 'claude-code')).toBe(true);
+    expect(mentionsAgent('(@claude-code)', 'claude-code')).toBe(true);
+    expect(mentionsAgent('me@claude-code', 'claude-code')).toBe(false);
+    expect(mentionsAgent('@claude-codex hi', 'claude-code')).toBe(false);
+    expect(mentionsAgent('a.@claude-code', 'claude-code')).toBe(false);
   });
 });
 
