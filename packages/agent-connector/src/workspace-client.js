@@ -250,6 +250,17 @@ class WorkspaceClient {
   }
 
   /**
+   * Upload a local CLI session the device owner picked for import via
+   * POST /v1/nodes/{nodeId}/imported-sessions (node credential). The first
+   * call (no `channel`) creates the thread and returns {channel, title}; later
+   * calls with `channel` append more of the conversation to it.
+   */
+  async importSession(nodeId, token, body) {
+    const resp = await this._post(`/v1/nodes/${encodeURIComponent(nodeId)}/imported-sessions`, body, this._wsHeaders(token));
+    return resp.data || resp;
+  }
+
+  /**
    * Report the outcome of a remote node command via
    * POST /v1/nodes/commands/{id}/result (authenticated by the workspace token).
    */

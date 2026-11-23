@@ -711,6 +711,46 @@ class Daemon {
    * A missing network never matches (guards against undefined === undefined
    * leaking local-only agents when a node field is also unset).
    */
+  /**
+   * import_local_session: upload one of the owner's local CLI sessions as a
+   * workspace thread, in batches (the first creates the thread), and, when
+   * `agent` is an agent of the same tool on this device, record the import so
+   * the agent continues the real session on that thread from a copy.
+   * Returns {channel, title, resumable}.
+   */
+  async _importLocalSession(n, args) {
+    const { readLocalSession } = require('./local-sessions');
+    const type = String(args.type || '');
+    const session = readLocalSession(type, String(args.id || ''));
+    if (!session) throw new Error('That session is no longer on this device');
+    const agentName = String(args.agent || '').trim();
+    const client = this._nodeClientFor(n);
+    const BATCH = Daemon.IMPORT_BATCH;
+    const head = {
+      type, session_id: session.id, title: session.title, cwd: session.cwd,
+      agent: agentName || null, truncated: session.truncated, total: session.total,
+    };
+    const first = await client.importSession(n.node_id, n.token, { ...head, messages: session.messages.slice(0, BATCH) });
+    const channel = first && first.channel;
+    if (!channel) throw new Error('The workspace did not create a thread for the import');
+    for (let i = BATCH; i < session.messages.length; i += BATCH) {
+      await client.importSession(n.node_id, n.token, { ...head, channel, messages: session.messages.slice(i, i + BATCH) });
+    }
+    // Native continuation: Claude Code forks the session, Codex resumes a
+    // copy under a new id. OpenCode gets the full transcript as context on the
+    // first turn (forking its sessions breaks Anthropic models' thinking
+    // blocks). Hermes can only resume by writing into the original session,
+    // so it works from the thread's history instead.
+    let resumable = false;
+    const agentCfg = agentName ? this.config.getAgent(agentName) : null;
+    if (agentCfg && this._agentOnNodeWorkspace(agentCfg, n) && (agentCfg.type || 'openclaw') === type
+        && Daemon.RESUMABLE_IMPORTS.has(type)) {
+      require('./session-imports').recordImport(n.workspace_id, agentName, channel, { type, session_id: session.id, file: session.file });
+      resumable = true;
+    }
+    return { channel, title: (first && first.title) || session.title, resumable };
+  }
+
   _agentOnNodeWorkspace(a, node) {
     if (!a || !a.network || !node) return false;
     if (a.network !== node.workspace_slug && a.network !== node.workspace_id) return false;
@@ -1334,13 +1374,17 @@ async _runNodeCommand(n, cmd) {
         ok = true;
         message = `Listed ${data.dirs.length} folder(s)`;
       } else if (action === 'list_local_sessions') {
-        // The owner's own past Claude Code / Codex sessions, for the
-        // workspace's import picker (src/local-sessions.js). Titles only.
+        // The owner's own past CLI sessions, for the workspace's import
+        // picker (src/local-sessions.js). Titles only.
         const { listLocalSessions } = require('./local-sessions');
         const sessions = listLocalSessions(args.type, { limit: Number(args.limit) || 200 });
         data = { type: args.type, sessions };
         ok = true;
         message = `Found ${sessions.length} session(s)`;
+      } else if (action === 'import_local_session') {
+        data = await this._importLocalSession(n, args);
+        ok = true;
+        message = `Imported "${data.title}"`;
       } else {
         message = `Unknown action '${action}'`;
       }
@@ -2634,5 +2678,9 @@ async _runNodeCommand(n, cmd) {
     return pids;
   }
 }
+
+Daemon.IMPORT_BATCH = 50;
+// Tools whose imported sessions the same tool's agent continues (see _importLocalSession).
+Daemon.RESUMABLE_IMPORTS = new Set(['claude', 'codex', 'opencode']);
 
 module.exports = { Daemon, filesystemRoots };

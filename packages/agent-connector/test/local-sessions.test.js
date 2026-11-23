@@ -107,4 +107,87 @@ describe('local sessions', () => {
     const out = maskSecrets('-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY----- and ghp_abcdefghijklmnopqrstuvwxyz0123');
     assert.ok(!out.includes('abc\n') && !out.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'));
   });
+
+  it('lists and reads OpenCode sessions through its CLI, leaving out agent folders', () => {
+    const calls = [];
+    const run = (args) => {
+      calls.push(args.join(' '));
+      if (args[0] === 'session') {
+        return JSON.stringify([
+          { id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', time: { updated: 1762000000000 } },
+          { id: 'ses_new', title: 'Write the README', directory: '/work/docs', time: { updated: 1763000000000 } },
+          { id: 'ses_oa', title: 'Agent run', directory: path.join(env.OPENAGENTS_HOME, 'agents', 'oc'), time: { updated: 1764000000000 } },
+        ]);
+      }
+      return 'some log line\n' + JSON.stringify({
+        info: { id: 'ses_new', title: 'Write the README', directory: '/work/docs' },
+        messages: [
+          { info: { role: 'user', time: { created: 1763000000000 } }, parts: [{ type: 'text', text: 'Draft a README' }, { type: 'text', text: 'injected', synthetic: true }] },
+          { info: { role: 'assistant', time: { created: 1763000005000 } }, parts: [
+            { type: 'reasoning', text: 'thinking' },
+            { type: 'tool', tool: 'write', state: { input: { filePath: 'README.md' }, output: 'FILE BODY' } },
+            { type: 'text', text: 'Written.' },
+          ] },
+        ],
+      });
+    };
+    const list = listLocalSessions('opencode', { env, run });
+    assert.deepEqual(list.map((x) => x.id), ['ses_new', 'ses_old']);
+    assert.equal(list[0].cwd, '/work/docs');
+    assert.equal(list[0].messageCount, null);
+    const s = readLocalSession('opencode', 'ses_new', { env, run });
+    assert.deepEqual(s.messages.map((m) => [m.role, m.text]), [
+      ['user', 'Draft a README'], ['tool', 'Used write'], ['assistant', 'Written.'],
+    ]);
+    assert.equal(s.title, 'Write the README');
+    assert.ok(calls.includes('export ses_new'));
+    assert.equal(readLocalSession('opencode', 'bad id;rm', { env, run }), null);
+    // No CLI: nothing to import, no error.
+    assert.deepEqual(listLocalSessions('opencode', { env, run: () => null }), []);
+  });
+
+  it('lists and reads Hermes sessions from its SQLite store, skipping the workspace\'s own runs', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { t.skip('node:sqlite unavailable'); return; }
+    const hermesHome = path.join(home, 'hermes');
+    fs.mkdirSync(path.join(hermesHome, 'profiles', 'work'), { recursive: true });
+    const make = (file, rows) => {
+      const db = new DatabaseSync(file);
+      db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT NOT NULL, title TEXT, cwd TEXT, started_at REAL NOT NULL, message_count INTEGER DEFAULT 0);
+        CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL, content TEXT,
+          tool_calls TEXT, tool_name TEXT, timestamp REAL NOT NULL, active INTEGER NOT NULL DEFAULT 1);`);
+      for (const r of rows.sessions) db.prepare('INSERT INTO sessions VALUES (?,?,?,?,?,?)').run(...r);
+      for (const r of rows.messages) db.prepare('INSERT INTO messages (session_id, role, content, tool_calls, tool_name, timestamp, active) VALUES (?,?,?,?,?,?,?)').run(...r);
+      db.close();
+    };
+    make(path.join(hermesHome, 'state.db'), {
+      sessions: [['20261101_cli1', 'cli', null, '/work/research', 1762000000, 3], ['20261102_tool', 'tool', 'ws run', '/x', 1762100000, 2]],
+      messages: [
+        ['20261101_cli1', 'system', 'SYSTEM PROMPT', null, null, 1762000000, 1],
+        ['20261101_cli1', 'user', 'Summarise the paper', null, null, 1762000001, 1],
+        ['20261101_cli1', 'assistant', '', JSON.stringify([{ function: { name: 'terminal', arguments: JSON.stringify({ command: 'pdftotext paper.pdf' }) } }]), null, 1762000002, 1],
+        ['20261101_cli1', 'tool', 'TOOL OUTPUT', null, 'terminal', 1762000003, 1],
+        ['20261101_cli1', 'assistant', 'It argues X.', null, null, 1762000004, 1],
+        ['20261101_cli1', 'user', 'compacted away', null, null, 1762000005, 0],
+        ['20261102_tool', 'user', 'from the workspace', null, null, 1762100001, 1],
+      ],
+    });
+    make(path.join(hermesHome, 'profiles', 'work', 'state.db'), {
+      sessions: [['20261105_prof', 'telegram', 'Trip plan', '/home/u', 1762300000, 1]],
+      messages: [['20261105_prof', 'user', 'Plan a trip', null, null, 1762300001, 1]],
+    });
+    const henv = { ...env, HERMES_HOME: hermesHome };
+    const list = listLocalSessions('hermes', { env: henv });
+    assert.deepEqual(list.map((x) => x.id), ['20261105_prof', '20261101_cli1']);
+    assert.equal(list[1].title, 'Summarise the paper');
+    assert.equal(list[0].title, 'Trip plan');
+    const s = readLocalSession('hermes', '20261101_cli1', { env: henv });
+    assert.deepEqual(s.messages.map((m) => [m.role, m.text]), [
+      ['user', 'Summarise the paper'], ['tool', 'Ran: pdftotext paper.pdf'], ['assistant', 'It argues X.'],
+    ]);
+    assert.equal(s.messages[0].at, new Date(1762000001 * 1000).toISOString());
+    assert.equal(readLocalSession('hermes', "x' OR '1'='1", { env: henv }), null);
+    assert.deepEqual(listLocalSessions('hermes', { env: { ...env, HERMES_HOME: path.join(home, 'none') } }), []);
+  });
 });
+
