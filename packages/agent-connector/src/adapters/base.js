@@ -1407,7 +1407,10 @@ class BaseAdapter {
       }
       // With a live wake-up stream, an idle agent waits for the server's
       // signal (or the safety-net interval) instead of polling on a timer.
-      if (this._streamLive && incoming.length === 0 && !composingActive) {
+      // `composing` is workspace-wide ("some agent is working"), so in a busy
+      // workspace it is almost always set; the reply it anticipates arrives
+      // as a wake-up anyway, so it must not keep a streaming agent on 2 s.
+      if (this._streamLive && incoming.length === 0) {
         delay = STREAM_SAFETY_POLL_MS;
       }
       await this._sleepUntilPollDue(delay);

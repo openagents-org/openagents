@@ -167,3 +167,28 @@ describe('adapter with the wake-up stream', () => {
     assert.equal(opened, false);
   });
 });
+
+describe('poll loop while streaming', () => {
+  async function delayAfterPoll({ streamLive, composing, messages = [] }) {
+    const a = makeAdapter({
+      pollPending: async () => ({ messages, cursor: 'c1', composing }),
+    });
+    a._dispatchMessage = async () => {};
+    a._streamLive = streamLive;
+    a._running = true;
+    let slept;
+    a._sleep = async (ms) => { slept = ms; a._running = false; };
+    await a._pollLoop();
+    return slept;
+  }
+
+  it('ignores workspace-wide composing once the stream is live', async () => {
+    assert.equal(await delayAfterPoll({ streamLive: true, composing: true }), 30000);
+    assert.equal(await delayAfterPoll({ streamLive: false, composing: true }), 2000);
+  });
+
+  it('keeps the short interval right after delivering messages', async () => {
+    const msg = { id: 'm1', content: 'hi', messageType: 'chat', sessionId: 'general' };
+    assert.equal(await delayAfterPoll({ streamLive: true, composing: false, messages: [msg] }), 2000);
+  });
+});
