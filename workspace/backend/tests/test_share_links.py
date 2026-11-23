@@ -421,6 +421,8 @@ def test_signing_in_from_the_owner_link_keeps_the_workspace(client, db, monkeypa
     assert ws.creator_email == "alex@acme.test"
     channel = db.query(Channel).filter(Channel.name == data["channel"]["name"]).one()
     assert channel.owner_email == "alex@acme.test"
+    from app.models import ChannelHumanMember
+    assert db.get(ChannelHumanMember, (channel.id, "alex@acme.test")) is not None, "they're in the kept conversation"
     member = db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").one()
     assert member.owner_email == "alex@acme.test"
     listed = client.get("/v1/workspaces", headers={"Authorization": "Bearer alex"}).json()["data"]

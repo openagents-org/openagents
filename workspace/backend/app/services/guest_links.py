@@ -718,9 +718,13 @@ def claim(db: Session, workspace: Workspace, token: Optional[str], user) -> dict
         db.add(WorkspaceMembership(workspace_id=str(workspace.id), user_id=user.id, role="owner"))
     else:
         exists.role = "owner"
+    from app.models import ChannelHumanMember
     for channel in db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id))).scalars():
         if not channel.owner_email:
             channel.owner_email = email
+        # They're in the conversation they kept (no "Join" button on it).
+        if db.get(ChannelHumanMember, (channel.id, email)) is None:
+            db.add(ChannelHumanMember(channel_id=channel.id, user_email=email))
     for member in db.execute(select(WorkspaceMember).where(WorkspaceMember.workspace_id == str(workspace.id))).scalars():
         if not member.owner_email:
             member.owner_email = email
