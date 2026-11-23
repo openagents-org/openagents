@@ -113,8 +113,7 @@ function DialogBody({ className, ...props }: React.HTMLAttributes<HTMLDivElement
       <div
         data-slot="dialog-body"
         className={cn(
-          // Children never shrink, as in the desktop DialogBody.
-          'no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1 pb-4 *:shrink-0',
+          'no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1 pb-4',
           className,
         )}
         {...props}
