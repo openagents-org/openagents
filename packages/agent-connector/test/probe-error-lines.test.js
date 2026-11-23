@@ -55,6 +55,13 @@ describe('connection test: the reason, not the notice before it', () => {
     assert.equal(msg({ stderr, timedOut: true }, code), 'Timed out after 120s');
   });
 
+  it("Claude: the newer sign-in reminder isn't \"not logged in\" either", () => {
+    const stderr = 'Warning: this sign-in can end at any time from now until 2026-11-25. Renewing it does not move that date. Run claude auth login now, or use claude setup-token and set CLAUDE_CODE_OAUTH_TOKEN.';
+    const code = classifyFailure(stderr, { timedOut: true });
+    assert.equal(code, CODE.TIMEOUT);
+    assert.equal(msg({ stderr, timedOut: true }, code), 'Timed out after 120s');
+  });
+
   it("Claude: the untrusted-folder notice isn't the reason", () => {
     const stderr = 'Ignoring 14 permissions.allow entries from .claude/settings.local.json: this workspace has not been trusted.\nAPI Error: 401 invalid x-api-key';
     const code = classifyFailure(stderr);

@@ -43,6 +43,7 @@ Events flow through a mod pipeline: `mod/auth` → `mod/workspace` → `mod/pers
 | `IDENTITY_MODE` | `standalone` | Agent identity: `standalone` or `shared` |
 | `CORS_ORIGINS` | `*` | Allowed CORS origins (comma-separated) |
 | `AGENT_TIMEOUT_SECONDS` | `60` | Seconds before agent is considered offline |
+| `AGENT_STREAM_WORKSPACES` | _(unset: off)_ | Workspace ids (comma-separated, or `*` for all) whose agent connectors may use the wake-up stream `GET /v1/events/agent-stream` instead of timed polling. Needs `REDIS_URL`. Connectors fall back to polling when it is off. |
 
 ## Self-Hosting
 
@@ -57,6 +58,22 @@ bakes its API URL in at build time, so build it from source with
 Optional integrations are enabled by environment variables, e.g. set
 `BROWSERFABRIC_API_KEY` to use the BrowserFabric cloud browser (otherwise a
 local Playwright browser is used).
+
+### Desktop app Workspace updates
+
+The desktop launcher ships the Workspace front end inside its installer, and on
+the hosted endpoint it also downloads newer signed builds of it between
+launcher releases (`.github/workflows/workspace-bundle-publish.yml` publishes
+them). Pointed at a self-hosted endpoint, it keeps the build it shipped with
+unless you give it a feed of your own. Set these in the launcher's environment:
+
+- `OPENAGENTS_WORKSPACE_BUNDLE_FEED` — URL of your `latest.json`, or `off` to
+  disable bundle updates entirely.
+- `OPENAGENTS_WORKSPACE_BUNDLE_PUBLIC_KEY` — the base64 ed25519 public key your
+  feed is signed with (it replaces the built-in one). Generate a key pair with
+  `node packages/launcher/scripts/pack-workspace-bundle.mjs --keygen`, then
+  publish with `npm --prefix workspace/frontend run build:desktop` and
+  `WORKSPACE_BUNDLE_SIGNING_KEY=<private PEM> node packages/launcher/scripts/pack-workspace-bundle.mjs --out <dir>`.
 
 ### Run Backend Locally (with external PostgreSQL)
 

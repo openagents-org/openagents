@@ -300,4 +300,31 @@ describe('workspace tabs', () => {
     expect(last(host).active).toBe(ids[2])
     expect(preventDefault).toHaveBeenCalledTimes(2)
   })
+  it('offers a bundle update to every page and reloads only pages on the bundle', async () => {
+    const host = makeHost()
+    host.show('a', bounds); host.show('b', bounds)
+    await settle()
+    host.announce({ version: 'v2' })
+    expect(contents(0).send).toHaveBeenCalledWith('workspace-view:bundle-update', { version: 'v2' })
+    expect(contents(1).send).toHaveBeenCalledWith('workspace-view:bundle-update', { version: 'v2' })
+    contents(1).url = 'https://openagents.org/login'
+    host.reloadAll()
+    expect(contents(0).reload).toHaveBeenCalledOnce()
+    expect(contents(1).reload).not.toHaveBeenCalled()
+    expect(host.hasPages()).toBe(true)
+  })
+  it('reports full loads of the bundle, and closed pages, to the bundle updater', () => {
+    const bundle = { pageStarted: vi.fn(), pageGone: vi.fn() }
+    const win = { webContents:{ on:vi.fn() }, contentView:{ addChildView:vi.fn(), removeChildView:vi.fn() } }
+    const host = new WorkspaceHost({ getWindow:() => win as never, endpoint:() => undefined, session:() => null, onExternalLogin:vi.fn(), bundle })
+    host.show('a', bounds)
+    const page = contents(0)
+    page.emit('did-start-navigation', { url:'openagents://workspace/index.html#/a', isMainFrame:true, isSameDocument:false })
+    page.emit('did-start-navigation', { url:'openagents://workspace/index.html#/a/x', isMainFrame:true, isSameDocument:true })
+    page.emit('did-start-navigation', { url:'https://openagents.org/login', isMainFrame:true, isSameDocument:false })
+    page.emit('did-start-navigation', { url:'openagents://workspace/frame.html', isMainFrame:false, isSameDocument:false })
+    expect(bundle.pageStarted).toHaveBeenCalledOnce()
+    page.emit('destroyed')
+    expect(bundle.pageGone).toHaveBeenCalledOnce()
+  })
 })

@@ -23,6 +23,8 @@ interface Script {
   failOpen?: string
   status?: number
   supportsRange?: boolean
+  /** Send no Content-Length, like a chunked response. */
+  noLength?: boolean
 }
 
 const fake = vi.hoisted(() => ({
@@ -118,7 +120,9 @@ function makeFakeRequest(url: string): EventEmitter & {
                 "content-length": String(payload.length),
                 "content-range": `bytes ${rangeStart}-${body.length - 1}/${body.length}`,
               }
-            : { "content-length": String(body.length) },
+            : script.noLength
+              ? {}
+              : { "content-length": String(body.length) },
         })
         req.emit("response", res)
       }, script.headerDelayMs ?? 1)
@@ -262,6 +266,53 @@ describe("downloadToFile", () => {
 
     await expect(downloadToFile([url("gone.test")], dest)).rejects.toThrow()
     expect(fs.existsSync(dest)).toBe(false)
+  })
+
+  it("stops as soon as more bytes arrive than expected", async () => {
+    fake.scripts.set("big.test", { headerDelayMs: 1, body: PAYLOAD })
+
+    await expect(
+      downloadToFile([url("big.test")], dest, { maxBytes: PAYLOAD.length - 1 }),
+    ).rejects.toThrow(/larger than/)
+    expect(fs.existsSync(dest)).toBe(false)
+    expect(fs.existsSync(`${dest}.part`)).toBe(false)
+    expect(fake.hits).toHaveLength(1)
+  })
+
+  it("stops once past the cap even when no length was sent", async () => {
+    // The cap must hold against what arrives, not what the headers promise.
+    fake.scripts.set("chunked.test", { headerDelayMs: 1, body: PAYLOAD, noLength: true })
+
+    await expect(
+      downloadToFile([url("chunked.test")], dest, { maxBytes: 50_000 }),
+    ).rejects.toThrow(/larger than/)
+    expect(fs.existsSync(dest)).toBe(false)
+  })
+
+  it("accepts a file of exactly the expected size", async () => {
+    fake.scripts.set("ok.test", { headerDelayMs: 1, body: PAYLOAD })
+
+    await downloadToFile([url("ok.test")], dest, { maxBytes: PAYLOAD.length, expectedSha: PAYLOAD_SHA })
+
+    expect(fs.readFileSync(dest).equals(PAYLOAD)).toBe(true)
+  })
+
+  it("gives up on a lone source that stalls once the overall timeout passes", async () => {
+    // One source, so the slow-source watchdog has nowhere to switch to.
+    fake.scripts.set("stall.test", {
+      headerDelayMs: 1,
+      body: PAYLOAD,
+      fastPrefixBytes: 10_000,
+      rateBytesPerSec: 1,
+    })
+
+    const started = Date.now()
+    await expect(
+      downloadToFile([url("stall.test")], dest, { timeoutMs: 300 }),
+    ).rejects.toThrow(/did not finish/)
+    expect(Date.now() - started).toBeLessThan(2_000)
+    expect(fs.existsSync(dest)).toBe(false)
+    expect(fs.existsSync(`${dest}.part`)).toBe(false)
   })
 
   it("reports progress with a byte count that reaches the full size", async () => {

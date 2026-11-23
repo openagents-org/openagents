@@ -30,6 +30,8 @@
 
 'use strict';
 
+const { stripCliNoise } = require('./utils');
+
 // Supported floor. The 2.x line is what ships the `-p --output-format
 // stream-json` headless contract this module parses; anything older has a
 // different (or no) machine-readable stream.
@@ -476,7 +478,9 @@ function classifyCodeBuddyRun({ result = null, code = null, signal = null, stder
 
   // A hard startup failure prints to stderr and still exits 0 — the failure
   // mode that has no frame to read, so this is where stderr earns its keep.
-  const err = String(stderr || '').trim();
+  // Known notices come out first: on Windows without Git every run opens with
+  // "Note: Git Bash not detected …", which would otherwise be the reason given.
+  const err = stripCliNoise(stderr).trim();
   if (err) {
     return {
       kind: 'startup_error',

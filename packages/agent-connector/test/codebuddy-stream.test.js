@@ -290,6 +290,30 @@ describe('classifyCodeBuddyRun', () => {
     assert.ok(!verdict.userMessage.includes('more detail'));
   });
 
+  // Daily errors dashboard, 2026-11-23: on Windows without Git, CodeBuddy
+  // opens every run with this notice, and it was quoted as the failure.
+  const GIT_BASH_NOTICE = [
+    '',
+    'Note: Git Bash not detected. CodeBuddy Code will use PowerShell for shell commands.',
+    'Git Bash-only features (/enter-worktree, POSIX shell snapshot) will be disabled.',
+    'To enable Git Bash features, install Git for Windows (https://git-scm.com/downloads/win)',
+    '  or set: CODEBUDDY_CODE_GIT_BASH_PATH=C:\\Program Files\\Git\\bin\\bash.exe',
+    'Suppress this notice with: CODEBUDDY_SKIP_GIT_BASH_CHECK=1',
+    '',
+  ].join('\r\n');
+
+  it('passes over the Git Bash notice to the error after it', () => {
+    const verdict = classifyCodeBuddyRun({ code: 0, result: null, stderr: `${GIT_BASH_NOTICE}Error: connect ECONNREFUSED 127.0.0.1:443` });
+    assert.equal(verdict.kind, 'startup_error');
+    assert.match(verdict.userMessage, /ECONNREFUSED/);
+    assert.doesNotMatch(verdict.userMessage, /Git Bash/);
+  });
+
+  it('does not take the Git Bash notice alone for a startup error', () => {
+    const verdict = classifyCodeBuddyRun({ code: 1, result: null, stderr: GIT_BASH_NOTICE });
+    assert.equal(verdict.kind, 'no_result');
+  });
+
   it('reports a signal kill as an interruption, not a failure to explain', () => {
     const verdict = classifyCodeBuddyRun({ code: null, signal: 'SIGINT', result: null });
     assert.equal(verdict.kind, 'interrupted');
