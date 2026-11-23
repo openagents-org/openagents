@@ -13,6 +13,8 @@ import {
 import { slog } from "./bootstrap/startup-log"
 import { crashLoopGuard } from "./responsiveness"
 import { createWorkspaceView } from "./workspace-view-factory"
+import type { BundlePages } from "./bundle-ota/updater"
+import type { WorkspaceBundleUpdate } from "../shared/workspace-bundle"
 import { duplicateOf, findTab, neighbourAfterClose, routeWorkspace, tabOrigin } from "./workspace-tabs"
 import {
   WORKSPACE_BUNDLE_MISSING,
@@ -77,6 +79,11 @@ export interface WorkspaceHostDeps {
   onExternalLogin: () => void
   /** The tab strip changed: opened, closed, switched, renamed or reloaded. */
   onTabsChanged?: (snapshot: WorkspaceTabsSnapshot) => void
+  /**
+   * Told when a page starts loading the bundle, and when a page goes, so a
+   * downloaded bundle that does not start can be caught. See bundle-ota.
+   */
+  bundle?: { pageStarted: (id: number) => void; pageGone: (id: number) => void }
 }
 
 /** A loaded page and what it is for. */
@@ -104,7 +111,7 @@ interface ViewEntry {
   shouldReload: () => boolean
 }
 
-export class WorkspaceHost {
+export class WorkspaceHost implements BundlePages {
   private _home: ViewEntry | null = null
   private _tabs: ViewEntry[] = []
   private _active: ViewEntry | null = null
@@ -170,6 +177,34 @@ export class WorkspaceHost {
     if (!home || this._attached !== home || home.state !== "ready") return false
     home.view.webContents.send("workspace-view:request-sign-out")
     return true
+  }
+
+  /** Whether any workspace page is loaded. */
+  hasPages(): boolean {
+    return this._entries.length > 0
+  }
+
+  /** Offer every page a downloaded bundle update; null withdraws it. */
+  announce(update: WorkspaceBundleUpdate | null): void {
+    for (const entry of this._entries) entry.view.webContents.send("workspace-view:bundle-update", update)
+  }
+
+  /**
+   * Reload every page onto whichever bundle is served now. A page on the
+   * bundle reloads where it is, keeping its route; one that failed starts over
+   * from its own route. A page somewhere else — the account site mid-sign-in —
+   * is left alone and reaches the new bundle when it comes back.
+   */
+  reloadAll(): void {
+    for (const entry of this._entries) {
+      if (entry.view.webContents.isDestroyed()) continue
+      if (entry.state === "failed") this._load(entry, entry.baseUrl, true)
+      else if (entry.view.webContents.getURL().startsWith(`${WORKSPACE_SCHEME}://${WORKSPACE_HOST}/`)) {
+        entry.view.webContents.reload()
+      }
+    }
+    this._attachActive()
+    this._emit()
   }
 
   /** The tab strip as the renderer draws it. */
@@ -557,6 +592,14 @@ export class WorkspaceHost {
   /** Load state, crashes and dead ends, per view. */
   private _watch(entry: ViewEntry): void {
     const contents = entry.view.webContents
+    // Every full load of the bundle — the first, a reload, a retry — not
+    // in-page route changes, which never re-run its start-up.
+    contents.on("did-start-navigation", (details: { url?: string; isMainFrame?: boolean; isSameDocument?: boolean }) => {
+      if (!details?.isMainFrame || details.isSameDocument) return
+      if (details.url?.startsWith(`${WORKSPACE_SCHEME}://${WORKSPACE_HOST}/`)) this._deps.bundle?.pageStarted(contents.id)
+    })
+    const id = contents.id
+    contents.on("destroyed", () => this._deps.bundle?.pageGone(id))
     contents.on("before-input-event", (event, input) => {
       if (this.handleTabShortcut(input)) event.preventDefault()
     })

@@ -20,18 +20,32 @@ interface LoginSession {
   expiresAt: number;
 }
 
-export function safeLoginUrl(type: string, value?: string): string | undefined {
+/** Agent types whose sign-in the device connector can relay (packages/agent-connector/src/browser-login.js). */
+export const BROWSER_LOGIN_TYPES = ['claude', 'codex', 'cursor', 'opencode'];
+
+const OPENAI_DEVICE = (url: URL) => url.hostname === 'auth.openai.com' && url.pathname === '/codex/device';
+const GITHUB_DEVICE = (url: URL) => url.hostname === 'github.com' && url.pathname === '/login/device';
+
+/** The only sign-in page each agent (and account choice) may link to. */
+export function safeLoginUrl(type: string, value?: string, method?: string): string | undefined {
   if (!value) return;
   try {
     const url = new URL(value);
     if (url.protocol !== 'https:' || url.username || url.password || url.port) return;
-    if (type === 'codex' && url.hostname === 'auth.openai.com' && url.pathname === '/codex/device') return value;
+    if (type === 'codex' && OPENAI_DEVICE(url)) return value;
     if (type === 'claude' && ['claude.ai', 'claude.com'].includes(url.hostname) && url.pathname.endsWith('/oauth/authorize')) return value;
+    if (type === 'cursor' && ['cursor.com', 'www.cursor.com'].includes(url.hostname) && url.pathname === '/loginDeepControl') return value;
+    if (type === 'opencode' && (method === 'copilot' ? GITHUB_DEVICE(url) : method === 'chatgpt' && OPENAI_DEVICE(url))) return value;
   } catch { /* A malformed device response must never become a sign-in link. */ }
 }
 
-export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = false, onSignedIn }: {
-  api: AgentSetupApi; nodeId: string; type: string; agent: string; needsInstall?: boolean; onSignedIn: () => void;
+export function BrowserAgentLogin({ api, nodeId, type, method, agent, needsInstall = false, onSignedIn, onFailed }: {
+  api: AgentSetupApi; nodeId: string; type: string;
+  /** Which account to sign in to, for an agent with a choice (OpenCode: chatgpt, copilot). */
+  method?: string;
+  agent: string; needsInstall?: boolean; onSignedIn: () => void;
+  /** Sign-in failed or expired: the host offers the manual way in. */
+  onFailed?: () => void;
 }) {
   const t = useT();
   const [session, setSession] = useState<LoginSession | null>(null);
@@ -45,6 +59,9 @@ export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = fal
   const sessionRef = useRef<LoginSession | null>(null);
   const success = useRef(onSignedIn);
   success.current = onSignedIn;
+  const failed = useRef(onFailed);
+  failed.current = onFailed;
+  useEffect(() => { if (error) failed.current?.(); }, [error]);
   useEffect(() => {
     alive.current = true;
     return () => {
@@ -114,7 +131,7 @@ export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = fal
     sessionRef.current = null;
     setSession(null);
     setBusy(true); setError(false); setCode(''); setSubmitted(false); setCopied(false); setCopyFailed(false);
-    try { receive(await command('login_start', { type })); }
+    try { receive(await command('login_start', method ? { type, method } : { type })); }
     catch { if (alive.current) setError(true); }
     finally { if (alive.current) setBusy(false); }
   };
@@ -130,7 +147,7 @@ export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = fal
     } catch { if (alive.current) { setCode(''); setError(true); } }
     finally { if (alive.current) setBusy(false); }
   };
-  const url = safeLoginUrl(type, session?.url);
+  const url = safeLoginUrl(type, session?.url, method);
   const active = !!session && ['starting', 'waiting'].includes(session.status) && !error;
 
   return <div data-testid="browser-agent-login" className="flex flex-col gap-4">
@@ -147,7 +164,7 @@ export function BrowserAgentLogin({ api, nodeId, type, agent, needsInstall = fal
             }}>{copied ? <Check /> : <Copy />}<span className="sr-only" role="status">{copied ? t('common.copied') : ''}</span></Button></WithTooltip>
       </div>
       {copyFailed && <p role="alert" className="text-xs text-destructive">{t('agentSetup.browserLoginCopyFailed')}</p>}
-      {type === 'codex' && session?.code && <div className="flex flex-col gap-2">
+      {type !== 'claude' && session?.code && <div className="flex flex-col gap-2">
         <p className="text-sm">{t('agentSetup.browserLoginDeviceCode')}</p>
         <CodeBlock className="w-fit min-w-48">
           <CodeBlockActions>

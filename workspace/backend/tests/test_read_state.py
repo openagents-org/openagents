@@ -33,7 +33,8 @@ def frozen_clock(monkeypatch):
 def published(monkeypatch):
     from app import cache
     out = []
-    monkeypatch.setattr(cache, 'publish_event', lambda ch, data: out.append((ch, json.loads(data))))
+    # Only the event feed: agent and panel wake-ups share publish_event.
+    monkeypatch.setattr(cache, 'publish_event', lambda ch, data: out.append((ch, json.loads(data))) if ch.endswith(':events') else None)
     return out
 
 

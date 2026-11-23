@@ -278,6 +278,13 @@ describe('OpenCode — failure classification (8.3)', () => {
     // Daily errors dashboard, 2026-11-19: both read "an undetermined reason".
     assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid credential')).category, 'auth_failed');
     assert.equal(OpenCodeAdapter._classifyFailure(err('This API key has expired. Create a new API key in OpenCode Console and replace it.')).category, 'auth_failed');
+    // Daily errors dashboard, 2026-11-23: a spent account refused at 403 read
+    // as rejected credentials.
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Forbidden: Insufficient account balance')).category, 'quota_exhausted');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('403 Insufficient user quota, remaining quota: $-0.000054')).category, 'quota_exhausted');
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Forbidden')).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: '401 Unauthorized\nlog: /srv/billing-service/opencode.log' }).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure(err("429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'requests per minute'")).category, 'rate_limited');
     // A plan's allowance, quoted with no status code in the run's error.
     assert.equal(OpenCodeAdapter._classifyFailure(err('Your Pass allowance for this period is used up, and your account is set not to overdraw.')).category, 'quota_exhausted');
     assert.equal(OpenCodeAdapter._classifyFailure(err('Bad Request: Failed to buffer the request body: length limit exceeded')).category, 'request_too_large');

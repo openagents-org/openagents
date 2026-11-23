@@ -4,6 +4,8 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
+import { bundleInfo } from './desktop/bundle-info';
+
 /**
  * The desktop build of the workspace.
  *
@@ -27,7 +29,8 @@ export default defineConfig(({ mode }) => ({
   // Relative, because the pages are loaded from a file: URL rather than served
   // from the root of a host.
   base: './',
-  plugins: [react(), tailwindcss()],
+  // bundle-info.json: which build this is, for the launcher's bundle updates.
+  plugins: [react(), tailwindcss(), bundleInfo()],
   resolve: {
     alias: [
       { find: /^next\/navigation$/, replacement: resolve(__dirname, 'desktop/shims/next-navigation.ts') },

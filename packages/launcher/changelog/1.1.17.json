@@ -1,0 +1,50 @@
+{
+  "version": "1.1.17",
+  "date": "2026-11-20",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "Routines are linked to the conversations that started them",
+        "zh": "定时任务与发起它的对话相关联"
+      },
+      "description": {
+        "en": "Routines are grouped by conversation, can be created and changed from within it, and show their recent runs.",
+        "zh": "定时任务按对话分组，可在对话中创建与修改，并可查看最近的运行记录。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "Workspace updates without a launcher update",
+        "zh": "工作区无需更新启动器即可更新"
+      },
+      "description": {
+        "en": "The Workspace inside the launcher downloads newer versions by itself, and goes back to the previous one if an update fails to start.",
+        "zh": "启动器内的工作区会自动下载新版本；若新版本无法启动，会自动退回到上一个版本。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Edit an agent's folder, API key and endpoint from its profile",
+        "zh": "可在智能体资料页直接修改工作目录、API 密钥与接口地址"
+      },
+      "description": {
+        "en": "Manage Agents now shows the model each agent actually uses, and changes made there take effect.",
+        "zh": "「管理智能体」显示的即为智能体实际使用的模型，在此修改后同步生效。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Unread counts are no longer repeated in the conversation list",
+        "zh": "会话列表不再重复显示未读数"
+      },
+      "description": {
+        "en": "Project groups mark unread conversations with a red dot.",
+        "zh": "项目分组改用红点提示未读。"
+      }
+    }
+  ]
+}

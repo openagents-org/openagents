@@ -77,6 +77,28 @@ export const messages = {
     "browserLoginWaiting": "Finish sign-in in the new tab. This page checks automatically.",
     "browserLoginVerifying": "Verifying sign-in on your device…",
     "browserLoginFailed": "Sign-in didn’t finish. Try again with a new sign-in link and code.",
+    "manualToggle": "Link not working? Sign in from a terminal instead",
+    "manualStepTerminal": "Open a terminal on {device}, the computer where {agent} runs.",
+    "manualStepInstall": "Add the agent first: {agent} installs on {device} when you add it. Then open a terminal on {device}.",
+    "manualStepRun": "Run this command:",
+    "manualStepFallback": "If it says “agn: command not found”, run {agent}’s own sign-in instead:",
+    "manualStepBrowser": "Follow the link it prints and sign in to {agent} in any browser. If it shows a code, enter it on that page.",
+    "manualStepCheck": "Come back here and check again. This page picks up the sign-in from the device.",
+    "manualUseKey": "Use an API key instead",
+    "manualTip": {
+      "claude": "After you approve, Claude shows an authorization code. Paste it into the terminal and press Enter.",
+      "codex": "Keep --device-auth on a server or over SSH: it gives a code you enter at auth.openai.com/codex/device from any computer, instead of waiting for a browser on the device.",
+      "cursor": "This is separate from signing in to the Cursor editor. You can also use a Cursor API key from cursor.com/dashboard → Integrations.",
+      "opencode": "Choose OpenAI → “ChatGPT Pro/Plus (headless)” for a ChatGPT plan, or GitHub Copilot for a Copilot plan, then open the link and enter the code.",
+      "hermes": "Choose Nous Portal to sign in with a Nous account, or pick another provider and paste its key when asked."
+    },
+    "loginMethodLabel": "Which account should {agent} use?",
+    "loginMethod": {
+      "chatgpt": "ChatGPT Plus/Pro",
+      "copilot": "GitHub Copilot"
+    },
+    "getKeyPrompt": "Don’t have a key?",
+    "getKeyLink": "Get one from {provider}",
 
     "optionalSettings": "Optional settings",
     "details": "Agent & model",
@@ -93,6 +115,8 @@ export const messages = {
     "authHint": "Use your subscription, add an API key, or finish authentication later.",
     "subscription": "Use my subscription",
     "subscriptionHint": "Sign in to the account you already pay for.",
+    "subscriptionPlan": "Use my ChatGPT or Copilot plan",
+    "subscriptionPlanHint": "Sign in with a ChatGPT Plus/Pro or GitHub Copilot plan you already have.",
     "key": "Use an API key",
     "keyHint": "Provide a new key for this agent.",
     "later": "Set up later",
@@ -252,6 +276,13 @@ export const messages = {
     auto: 'Auto',
     autoHint: 'Detected from your region',
     useAuto: 'Match my region',
+  },
+
+  /** The desktop app's Workspace updates, offered without a launcher release. */
+  desktopBundle: {
+    ready: 'A new version of Workspace is available',
+    readyHint: 'Refresh to start using it.',
+    refresh: 'Refresh',
   },
 
   /** View names. Shared by the sidebar, the nav rail and the app header. */
@@ -1250,6 +1281,8 @@ export const messages = {
     experimental: 'Experimental',
     monitorMode: 'Monitor Mode',
     monitorModeHint: 'Show a 2x3 grid overview of recent threads instead of the thread list.',
+    realtimeStream: 'Real-time updates (beta)',
+    realtimeStreamHint: 'Deliver messages, panel updates and agent wake-ups over one live connection instead of periodic polling. Agents need connector 0.2.235 or newer; everything falls back to polling if the connection drops.',
     notificationSound: 'Notification Sound',
     notificationSoundHint: 'Play a sound for new inbox notifications and completed agent work.',
     testSound: 'Test sound',

@@ -28,6 +28,7 @@ import SharePage from '@/app/share/[token]/page';
 
 import { DesktopRouter, type RouteTable } from './router';
 import { reportLocale, reportTheme, useHostAppearance, useHostNotices } from './host';
+import { BundleUpdates } from './bundle-update';
 import { createAppearanceSync } from './appearance-sync';
 
 /**
@@ -265,6 +266,7 @@ export default function App(): React.JSX.Element {
         </OpenAgentsAuthProvider>
         <Toaster />
         <HostNotices />
+        <BundleUpdates />
       </I18nProvider>
     </ThemeProvider>
   );

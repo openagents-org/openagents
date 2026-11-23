@@ -307,6 +307,20 @@ class WorkspaceApi {
     return `${API_URL}/v1/events/stream?${params}`;
   }
 
+  /**
+   * The workspace-level live stream (GET /v1/events/live, beta). Read with
+   * fetch rather than EventSource so credentials travel in headers and a 404
+   * ("not enabled for this workspace") is distinguishable from a network drop.
+   * Rebuilt on every (re)connect, so a refreshed ID token is picked up.
+   */
+  getLiveStreamRequest(): { url: string; headers: Record<string, string> } {
+    const headers: Record<string, string> = { Accept: 'text/event-stream' };
+    if (this.token) headers['X-Workspace-Token'] = this.token;
+    if (this.bearerToken) headers['Authorization'] = `Bearer ${this.bearerToken}`;
+    const params = new URLSearchParams({ network: this.workspaceId });
+    return { url: `${API_URL}/v1/events/live?${params}`, headers };
+  }
+
   /** Whether configure() has run with a non-empty workspace id. */
   isConfigured(): boolean {
     return this.workspaceId !== '';

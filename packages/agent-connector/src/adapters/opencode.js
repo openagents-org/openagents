@@ -22,7 +22,7 @@ const { spawn } = require('../wsl');
 const { opencodeTranscript } = require('../host-agent');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, redactSecrets, stripAnsi } = require('./utils');
+const { formatAttachmentsForPrompt, redactSecrets, stripAnsi, CREDIT_EXHAUSTED } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
 const { isPostinstallStub, isPostinstallStubOutput } = require('../postinstall-stub');
@@ -669,7 +669,7 @@ class OpenCodeAdapter extends BaseAdapter {
       const category = (e && e.category) ? e.category : this._classifyErrno(e);
       const diagnostic = this._redact((e && (e.diagnostic || e.message)) || '');
       this._log(`OpenCode failure [${category}] in ${msgChannel}: ${diagnostic.slice(0, 300)}`, 'error');
-      await this._sendClassifiedError(msgChannel, category, e && e.detail);
+      await this._sendClassifiedError(msgChannel, category, e && e.detail, !!(e && e.explained));
     }
   }
 
@@ -1265,19 +1265,19 @@ class OpenCodeAdapter extends BaseAdapter {
       const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
       const category = (cls.category === 'unknown_error' || cls.category === 'process_crashed')
         ? 'timeout' : cls.category;
-      return { error: this._failure(category, cls.diagnostic || `idle=${timeoutMs}ms`, cls.detail) };
+      return { error: this._failure(category, cls.diagnostic || `idle=${timeoutMs}ms`, cls.detail, cls.explained) };
     }
 
     if (signal) {
       this._log(`opencode killed by signal ${signal} (output: ${!!stdout})`);
       const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
-      return { error: this._failure(cls.category, cls.diagnostic || `signal=${signal}`, cls.detail) };
+      return { error: this._failure(cls.category, cls.diagnostic || `signal=${signal}`, cls.detail, cls.explained) };
     }
 
     if (code !== 0) {
       const cls = this.constructor._classifyFailure({ code, signal, stdout, stderr, stdoutErr });
       this._log(`opencode exited code ${code} → [${cls.category}]: ${this._redact(cls.diagnostic).slice(0, 300)}`);
-      return { error: this._failure(cls.category, cls.diagnostic, cls.detail) };
+      return { error: this._failure(cls.category, cls.diagnostic, cls.detail, cls.explained) };
     }
 
     // Exit 0.
@@ -1286,7 +1286,7 @@ class OpenCodeAdapter extends BaseAdapter {
     if (outcome.text) return { text: outcome.text };
     const f = outcome.failure;
     this._log(`opencode exit 0 → [${f.category}]: ${this._redact(f.diagnostic).slice(0, 300)}`);
-    return { error: this._failure(f.category, f.diagnostic, f.detail) };
+    return { error: this._failure(f.category, f.diagnostic, f.detail, f.explained) };
   }
 
   /**
@@ -1497,6 +1497,7 @@ class OpenCodeAdapter extends BaseAdapter {
             category: vague ? 'incomplete_run' : cls.category,
             diagnostic: `exit 0 after tool ${lastTool} with error event: ${cls.diagnostic || ''}`,
             detail: cls.detail || `Last tool call: \`${lastTool}\``,
+            explained: !!cls.detail && cls.explained,
           },
         };
       }
@@ -1517,7 +1518,7 @@ class OpenCodeAdapter extends BaseAdapter {
     // stream, or a genuinely empty completion. Classify rather than guess.
     if (stdoutErr) {
       const cls = this._classifyFailure({ code: 0, signal: null, stdout, stderr, stdoutErr });
-      return { failure: { category: cls.category, diagnostic: `exit 0 with error event: ${cls.diagnostic || ''}`, detail: cls.detail } };
+      return { failure: { category: cls.category, diagnostic: `exit 0 with error event: ${cls.diagnostic || ''}`, detail: cls.detail, explained: cls.explained } };
     }
     const emptyCat = OpenCodeAdapter._emptyExitCategory(stdout);
     return {
@@ -1689,11 +1690,12 @@ class OpenCodeAdapter extends BaseAdapter {
   }
 
   /** Build a categorized Error carrying diagnostic (for logs) + detail (for the user). */
-  _failure(category, diagnostic, detail) {
+  _failure(category, diagnostic, detail, explained = false) {
     const err = new Error(`opencode ${category}${detail ? `: ${detail}` : ''}`);
     err.category = category;
     err.diagnostic = diagnostic || '';
     err.detail = detail || '';
+    err.explained = !!explained;  // detail is the provider's own explanation (see _providerExplanation)
     return err;
   }
 
@@ -1709,7 +1711,7 @@ class OpenCodeAdapter extends BaseAdapter {
    * Post a user-visible, de-identified, actionable error that is clearly NOT a
    * normal reply. Carries `error_category` in metadata so the UI can route it.
    */
-  async _sendClassifiedError(channel, category, detail) {
+  async _sendClassifiedError(channel, category, detail, explained = false) {
     // A run the user stopped reads as "stopped mid-task"; it is not an error.
     if (this._isMuted(channel)) return;
     const messages = this._failureMessages();
@@ -1717,7 +1719,13 @@ class OpenCodeAdapter extends BaseAdapter {
     // The instance redaction: this agent's own secrets by value (whatever their
     // format), then the credential shapes the static pass already took.
     const safe = detail ? this._redact(detail).trim() : '';
-    const body = safe ? `${base}\n\n> ${safe}` : base;
+    // When the provider explained the failure in words (a platform's "included
+    // tokens used up until Dec 8, allow extra usage on its page"), that is the
+    // message: our generic line ("give this agent a key with credit") can be
+    // wrong for a managed gateway. Our hint still follows where it adds an action.
+    const body = safe && explained
+      ? (category === 'quota_exhausted' ? safe : `${safe}\n\n${base}`)
+      : safe ? `${base}\n\n> ${safe}` : base;
     const label = this._cliLabel();
     const headline = category === 'incomplete_run' ? `${label} stopped mid-task` : `${label} couldn't run`;
     const content = `⚠️ **${headline}** — ${body}`;
@@ -1870,17 +1878,21 @@ class OpenCodeAdapter extends BaseAdapter {
       // as "produced output this version could not parse", which said nothing
       // about reinstalling.
       category = 'unsupported_version';
+    } else if (has(CREDIT_EXHAUSTED) || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
+      // A spent account, not a busy one: waiting does not fix it. Seen in the
+      // field as "Insufficient balance" under "undetermined reason", and as a
+      // plan's "Your Pass allowance for this period is used up, and your
+      // account is set not to…" with no status code in the run's error.
+      // Ahead of the 401/403 rule: "Forbidden: Insufficient account balance"
+      // came out as rejected credentials (daily errors dashboard, 2026-11-23).
+      category = 'quota_exhausted';
     } else if (has(/\b(401|403)\b/) || has(/unauthor|invalid api key|invalid_api_key|invalid or revoked api key|api key (?:has been |was )?revoked|api[ _-]?key.{0,20}expired|authentication|auth(entication)? failed|forbidden|invalid token|invalid credentials?\b|no api key|missing api key|permission denied/)) {
       // "Invalid credential" and "This API key has expired. Create a new API
       // key in OpenCode Console" both came out as "failed for an undetermined
       // reason" (daily errors dashboard, 2026-11-19).
       category = 'auth_failed';
-    } else if (has(/\b402\b|insufficient (?:balance|credits?|funds)|insufficient_quota|out of credits?|payment required|余额不足|欠费|arrearage/)
-      || has(/allowance\b[^.]{0,60}\bused up|allowance_exhausted/)) {
-      // A spent account, not a busy one: waiting does not fix it. Seen in the
-      // field as "Insufficient balance" under "undetermined reason", and as a
-      // plan's "Your Pass allowance for this period is used up, and your
-      // account is set not to…" with no status code in the run's error.
+    } else if (has(/\b402\b/)) {
+      // After the 401/403 rule: three digits can sit in a path or an id.
       category = 'quota_exhausted';
     } else if (has(/\b429\b/) || has(/rate.?limit|too many requests|quota|overloaded/)) {
       category = 'rate_limited';
@@ -1916,10 +1928,31 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'unknown_error';
     }
 
+    const explanation = configError ? null : OpenCodeAdapter._providerExplanation(msg);
     const detail = configError
       ? OpenCodeAdapter._redact(configError).slice(0, 500)
-      : OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
-    return { category, diagnostic, detail };
+      : explanation
+        ? OpenCodeAdapter._redact(explanation).slice(0, 600)
+        : OpenCodeAdapter._redact(msg || stderr || '').slice(0, 200);
+    return { category, diagnostic, detail, explained: !!explanation };
+  }
+
+  /**
+   * The provider's own sentence from an error body such as
+   * `Payment Required: {"detail":"…"}` or `{"error":{"message":"…"}}`, or null.
+   * Gateways put their real reason there; quoted raw, the channel showed JSON
+   * cut off mid-word before the part that mattered (the date it resumes).
+   */
+  static _providerExplanation(msg) {
+    const text = String(msg || '');
+    const start = text.indexOf('{');
+    if (start < 0) return null;
+    let body;
+    try { body = JSON.parse(text.slice(start, text.lastIndexOf('}') + 1)); } catch { return null; }
+    const pick = (v) => (typeof v === 'string' && v.trim().length >= 12 ? v.trim() : null);
+    if (!body || typeof body !== 'object') return null;
+    const err = body.error;
+    return pick(body.detail) || pick(err && typeof err === 'object' ? err.message : err) || pick(body.message) || null;
   }
 
   /**

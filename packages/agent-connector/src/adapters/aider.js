@@ -232,6 +232,21 @@ function resolveAiderProvider(provider, model, apiKey, baseUrl) {
   return { env, model, error: null };
 }
 
+/**
+ * The model id LiteLLM puts on the wire for an Aider agent, or null when Aider
+ * would refuse the configuration and never call anything. The provider
+ * prefix ("deepseek/deepseek-flash", "openrouter/anthropic/…") selects the
+ * provider and is taken off before the call; on an OpenAI-compatible endpoint
+ * Aider adds "openai/" and the rest goes as is. "google/" stays on: it picks
+ * Gemini for explicitPrefixProvider, but it is not a LiteLLM provider.
+ */
+function aiderWireModel(env, model) {
+  const resolved = resolveAiderProvider(env.AIDER_PROVIDER, model, env.LLM_API_KEY,
+    env.LLM_BASE_URL || env.OPENAI_API_BASE);
+  if (resolved.error) return null;
+  return resolved.model.replace(/^(?:openai|anthropic|deepseek|gemini|openrouter|requesty)\//i, '');
+}
+
 class AiderAdapter extends BaseAdapter {
   constructor(opts) {
     super(opts);
@@ -636,3 +651,5 @@ class AiderAdapter extends BaseAdapter {
 }
 
 module.exports = AiderAdapter;
+// The connection test calls the model the way LiteLLM would (probe.js).
+module.exports.aiderWireModel = aiderWireModel;

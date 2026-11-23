@@ -1497,7 +1497,7 @@ async def agent_event_stream(
     )
     if error is not None:
         return error
-    if not agent_stream.stream_enabled(workspace_id):
+    if not await run_in_threadpool(agent_stream.workspace_stream_enabled, workspace_id):
         return json_response(
             ResponseCode.NOT_FOUND, "Agent stream is not enabled for this workspace",
             data={"reason": "agent_stream_disabled"},
@@ -1528,6 +1528,104 @@ async def agent_event_stream(
 
     return StreamingResponse(
         wakes(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /v1/events/live — one workspace-level stream per browser tab
+# ---------------------------------------------------------------------------
+
+LIVE_STREAM_KEEPALIVE_SECONDS = 15.0
+LIVE_STREAM_MAX_SECONDS = 300.0
+LIVE_STREAM_JITTER_SECONDS = 60.0
+
+
+@router.get("/events/live")
+async def live_event_stream(
+    request: Request,
+    network: str = Query(...),
+    token: Optional[str] = Query(None),
+    access_token: Optional[str] = Query(None, description="Bearer token for browsers (EventSource cannot set headers)"),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Everything a web-app tab needs live, on one connection (beta).
+
+    Enabled per workspace (setting ``realtime_stream``, or the
+    ``AGENT_STREAM_WORKSPACES`` allowlist); otherwise 404 and the web app keeps
+    its per-thread stream and timed panel refreshes. Sends:
+
+    * unnamed SSE events: every workspace event this viewer may see, with the
+      same visibility rules as ``/v1/events/stream`` (all threads; the tab
+      picks what it shows);
+    * ``event: wake`` ``{"topics": [...]}``: content-free "refetch this panel"
+      hints (``discover``, ``todos``, ``knowledge``, ``files``, ...);
+    * ``event: resync``: something may have been missed; poll to catch up;
+    * ``event: reconnect`` after 5-6 minutes, and a keepalive every 15 s.
+    """
+    import random
+
+    from app.services import agent_stream
+
+    effective_token = x_workspace_token or token
+    if not authorization and access_token:
+        authorization = f"Bearer {access_token}"
+    scope, error = await run_in_threadpool(
+        _authorize_event_stream, network, effective_token, authorization, None,
+    )
+    if error is not None:
+        return error
+    workspace_id, viewer, dm_scope, hidden = scope
+    if not await run_in_threadpool(agent_stream.workspace_stream_enabled, workspace_id):
+        return json_response(
+            ResponseCode.NOT_FOUND, "Live stream is not enabled for this workspace",
+            data={"reason": "live_stream_disabled"},
+        )
+    stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + LIVE_STREAM_MAX_SECONDS + random.uniform(0, LIVE_STREAM_JITTER_SECONDS)
+
+    async def frames():
+        sub = agent_stream.hub.subscribe_live(workspace_id)
+        try:
+            yield ": connected\n\n"
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0 or await request.is_disconnected():
+                    break
+                events, topics, resync = await sub.wait(min(LIVE_STREAM_KEEPALIVE_SECONDS, remaining))
+                if not (events or topics or resync):
+                    yield ": keepalive\n\n"
+                    continue
+                if resync:
+                    yield "event: resync\ndata: {}\n\n"
+                for data in events:
+                    try:
+                        event = _json.loads(data)
+                        if stream_filter is not None:
+                            await stream_filter.maybe_refresh(event)
+                        if not read_state_stream_allows(event, viewer):
+                            continue
+                        if stream_filter is not None and not stream_filter.allows(event):
+                            continue
+                        yield f"id: {event.get('id', '')}\ndata: {data.decode()}\n\n"
+                    except Exception:
+                        continue
+                if topics:
+                    payload = _json.dumps({"topics": sorted(topics)}, separators=(",", ":"))
+                    yield f"event: wake\ndata: {payload}\n\n"
+            yield "event: reconnect\ndata: {}\n\n"
+        finally:
+            agent_stream.hub.unsubscribe(sub)
+
+    return StreamingResponse(
+        frames(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

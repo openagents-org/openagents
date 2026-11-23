@@ -30,6 +30,16 @@ interface HostBridge {
   onAppearance: (cb: (next: HostAppearance) => void) => () => void;
   /** Optional: an older preload can briefly coexist with a newer bundle in dev. */
   onNotice?: (cb: (notice: { message: string; type: string }) => void) => () => void;
+  /** The bridge's version. Absent on launchers that cannot update the bundle. */
+  hostApi?: number;
+  bundleReady?: () => void;
+  onBundleUpdate?: (cb: (update: HostBundleUpdate | null) => void) => () => void;
+  applyBundleUpdate?: () => void;
+}
+
+/** A newer bundle the launcher has downloaded and can switch to. */
+export interface HostBundleUpdate {
+  version: string;
 }
 
 /**
@@ -54,6 +64,24 @@ function bridge(): HostBridge | null {
 /** Whether this app is running inside the desktop launcher. */
 export function isHosted(): boolean {
   return bridge() !== null;
+}
+
+/**
+ * Tell the launcher this page started. A bundle it downloaded stays on
+ * probation until it hears this, and is rolled back if it never does.
+ */
+export function reportBundleStarted(): void {
+  bridge()?.bundleReady?.();
+}
+
+/** Listen for the launcher's bundle updates; a no-op off the desktop. */
+export function onBundleUpdate(cb: (update: HostBundleUpdate | null) => void): () => void {
+  return bridge()?.onBundleUpdate?.(cb) ?? (() => {});
+}
+
+/** Switch to the downloaded bundle; the launcher reloads every page onto it. */
+export function applyBundleUpdate(): void {
+  bridge()?.applyBundleUpdate?.();
 }
 
 /** What the host wants right now, or null when there is no host. */
