@@ -32,10 +32,8 @@ export function AgentSetup(props: AgentSetupProps) {
   // ---- Selection mode: the agent marketplace --------------------------------
   const statusOf = (name: string) => runtimeStatus(runtimeByType[name]);
   const checkingOf = (name: string) => detecting && !runtimeByType[name];
-  const readyCount = catalog.filter((e) => {
-    const s = statusOf(e.name);
-    return s === 'ready' || s === 'needs_login';
-  }).length;
+  const installed = (name: string) => !!runtimeByType[name]?.installed;
+  const readyCount = catalog.filter((e) => installed(e.name)).length;
 
   const marketCats = [
     { key: 'all', label: t('connect.marketCatAll') },
@@ -46,9 +44,8 @@ export function AgentSetup(props: AgentSetupProps) {
   ];
   const q = marketQuery.trim().toLowerCase();
   const visible = catalog.filter((e) => {
-    const s = statusOf(e.name);
     const tags = e.tags || [];
-    if (marketCat === 'ready' && s !== 'ready' && s !== 'needs_login') return false;
+    if (marketCat === 'ready' && !installed(e.name)) return false;
     if (marketCat === 'open-source' && !tags.includes('open-source')) return false;
     if (marketCat === 'cli' && !(tags.includes('cli') || tags.includes('terminal'))) return false;
     if (marketCat === 'editor' && !(tags.includes('editor') || tags.includes('vscode') || tags.includes('ide-extension'))) return false;

@@ -128,7 +128,7 @@ export function ByokSection({ form, node, editAgent, extensions }: { form: Agent
       {/* Which credential the agent will run on, in words: the select
           alone did not say that "sign in on the device" means this
           CLI's own account and never a key saved on the device. */}
-      {c.signInChosen && (
+      {c.signInChosen && selectedStatus !== 'signed_in' && (
         <p data-testid="agent-setup-signin-hint" className="text-xs text-muted-foreground">
           {t('connect.byokDeviceSignInHint', { label, command: (selected && runtimeByType[selected]?.loginCommand) || c.loginCommand })}
           {isEdit && editOnKey && <> {t('connect.byokSwitchToSignInHint')}</>}

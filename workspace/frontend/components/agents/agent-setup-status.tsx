@@ -40,6 +40,15 @@ export function CatalogStateNotice({ state }: { state?: CatalogState }) {
 export function runtimeStatus(rt: import('@/lib/types').NodeRuntime | undefined, onKey = false) {
   if (!rt) return 'unknown' as const;
   if (!rt.installed) return 'not_installed' as const;
+  if (rt.type === 'codebuddy') {
+    if (rt.reason === 'version_incompatible') return 'incompatible' as const;
+    if (onKey) return 'key_configured' as const;
+    if (rt.signedIn === true) return 'signed_in' as const;
+    // Older connectors reported false for an unverifiable session, even when
+    // an agent on this device could already reply using the account.
+    if (rt.signInCheckedAt && rt.signedIn === false) return 'signed_out' as const;
+    return 'sign_in_unknown' as const;
+  }
   // `ready` also counts a key one agent of the type holds, which a new agent,
   // or one with no key of its own, never gets: the add form said a keyless
   // DeepSeek was ready, and it failed on its first message. A type with a
@@ -58,6 +67,16 @@ export type GalleryStatus = ReturnType<typeof runtimeStatus>;
 
 export function marketStatusMeta(t: ReturnType<typeof useT>, status: GalleryStatus) {
   switch (status) {
+    case 'key_configured':
+      return { label: t('connect.deviceAccountKeyConfigured'), dot: 'bg-success', text: 'text-success' };
+    case 'signed_in':
+      return { label: t('connect.deviceAccountSignedIn'), dot: 'bg-success', text: 'text-success' };
+    case 'signed_out':
+      return { label: t('connect.deviceAccountSignedOut'), dot: 'bg-warning', text: 'text-warning' };
+    case 'sign_in_unknown':
+      return { label: t('connect.deviceAccountUnknown'), dot: 'bg-muted-foreground/60', text: 'text-muted-foreground' };
+    case 'incompatible':
+      return { label: t('connect.deviceUpdateRequired'), dot: 'bg-warning', text: 'text-warning' };
     case 'ready':
       return { label: t('connect.nodeRuntimeReady'), dot: 'bg-success', text: 'text-success' };
     case 'needs_login':
