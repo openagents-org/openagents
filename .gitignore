@@ -212,7 +212,9 @@ sdk/demos/**/topics/*
 # Project management
 projects
 private_networks
-node_modules/
+# No trailing slash: a node_modules symlink (a worktree borrowing another
+# checkout's install) is a file to git, and "node_modules/" lets it through.
+node_modules
 
 # Generated during PyPI publish (copied from examples/default_network/)
 sdk/src/openagents/studio/build/
