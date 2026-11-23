@@ -2,17 +2,37 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import { Hash, Info } from 'lucide-react';
+import { AlertTriangle, Bot, Laptop, Menu, MessageSquare, Users } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { STRIP as BANNER_STRIP } from '@/components/chat/chat-view-banners';
 import { IntermediateSteps } from '@/components/chat/intermediate-steps';
+import { ROSTER_TRIGGER, RosterList } from '@/components/chat/thread-roster-list';
 import { WorkingBubble } from '@/components/chat/working-bubble';
 import { filterThreadSteps, groupMessages, groupKey } from '@/components/chat/chat-message-groups';
-import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Spinner } from '@/components/ui/spinner';
+import { Marker, MarkerContent } from '@/components/ui/marker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Separator } from '@/components/ui/separator';
 import { Sheet, SheetBody, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from '@/components/ui/sidebar';
+import { Spinner } from '@/components/ui/spinner';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { isControlMessage } from '@/lib/control-messages';
 import { useFormatters, useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import type { GuestIdentity, GuestThreadAgent, GuestThreadInfo } from '@/lib/guest-thread-api';
 import {
@@ -20,6 +40,8 @@ import {
   agentTypeLabel,
   composeOutgoing,
   defaultAskAgent,
+  guestAvatarSeed,
+  humanSeed,
   isOptimistic,
   newPendingSend,
   splitSeed,
@@ -52,13 +74,16 @@ interface GuestThreadViewProps {
   retry: (localId: string) => void;
   join?: (name: string) => Promise<unknown>;
   cancelName?: () => void;
-  /** Owner room: actions at the end of the top bar (e.g. "Keep this conversation"). */
+  /** Owner room: buttons at the end of the thread header (guest link, "Keep this conversation"). */
   headerActions?: ReactNode;
-  /** Owner room: extra panel (the guest link card) in the sidebar and details sheet. */
-  ownerPanel?: ReactNode;
 }
 
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, ownerPanel }: GuestThreadViewProps) {
+/**
+ * The shared thread in the workspace's shell: the sidebar on the app
+ * background, the conversation in the inset card (header, banners, messages,
+ * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
+ */
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -70,7 +95,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
   const agentLabels = useMemo(() => Object.fromEntries(info.agents.map((a) => [a.name, agentDisplayName(a)])), [info.agents]);
   const people = useMemo(() => threadPeople(messages, info.owner.name, guest, isOwner), [messages, info.owner.name, guest, isOwner]);
-  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [askAgent, setAskAgent] = useState<string | null>(() => (defaultAskAgent(info.agents) ? info.agents[0].name : null));
 
@@ -84,6 +109,9 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   }, [title, info.workspace.name]);
 
   const statusAgent = info.agents.find((a) => a.name === askAgent) ?? info.agents[0] ?? null;
+  const identity = isOwner
+    ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareRoom.ownerYou') }
+    : guest ? { name: guest.name, seed: guestAvatarSeed(guest.id), role: t('guestThread.guestBadge') } : null;
 
   const handleSubmit = () => {
     const content = composeOutgoing(draft, !!askAgent, askAgent);
@@ -98,124 +126,323 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
     if (delivered) setDraft('');
   };
 
+  const sidebar = (
+    <ShareSidebar
+      workspaceName={info.workspace.name}
+      subtitle={isOwner ? t('shareRoom.yourShare') : t('guestThread.guestWorkspace')}
+      title={title}
+      agents={info.agents}
+      people={people}
+      identity={identity}
+      expiresAt={isOwner ? undefined : info.expiresAt}
+      notice={isOwner ? t('shareRoom.ownerNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
+    />
+  );
+
   return (
-    <div className="flex h-dvh min-h-0 bg-background">
-      <aside className="hidden w-64 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground lg:flex" aria-label={info.workspace.name}>
-        <div className="flex items-center gap-2.5 px-4 pt-4 pb-3">
-          <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold">{info.workspace.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{isOwner ? t('shareRoom.yourShare') : t('guestThread.guestWorkspace')}</p>
+    <SidebarProvider
+      open
+      onOpenChange={() => {}}
+      className="h-dvh min-h-0 bg-background lg:bg-sidebar"
+      style={{ '--sidebar-width': '15rem' } as React.CSSProperties}
+    >
+      <Sidebar collapsible="none" className="hidden h-full shrink-0 lg:flex" aria-label={info.workspace.name}>
+        {sidebar}
+      </Sidebar>
+
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col lg:py-2 lg:pe-2">
+        {/* Phone: the workspace's mobile top bar — menu, logo, workspace name. */}
+        <div className="flex shrink-0 items-center gap-2 border-b bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur-sm lg:hidden" data-share-mobile-bar="">
+          <div className="flex h-14 min-w-0 flex-1 items-center gap-2">
+            <Button variant="ghost" size="icon-sm" className="shrink-0" onClick={() => setMenuOpen(true)} aria-label={t('guestThread.detailsTitle')}>
+              <Menu />
+            </Button>
+            <Logo size={24} />
+            <span className="min-w-0 truncate text-sm font-medium">{info.workspace.name}</span>
           </div>
+          {identity && <PersonAvatar seed={identity.seed} className="size-8" />}
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-          <SectionHeading>{t('guestThread.threads')}</SectionHeading>
-          <div aria-current="page" className="flex items-center gap-1.5 rounded-md bg-sidebar-accent px-2 py-1.5 text-sm font-medium text-sidebar-accent-foreground">
-            <Hash className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate">{title}</span>
-          </div>
-          <ThreadRoster agents={info.agents} people={people} />
-          {ownerPanel && <div className="mt-4 px-2" data-owner-panel="sidebar">{ownerPanel}</div>}
-        </div>
-        {isOwner && (
-          <div className="flex items-center gap-2.5 border-t px-4 py-3">
-            <PersonAvatar seed={`name:${info.owner.name.trim().toLowerCase()}`} className="size-8" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{info.owner.name}</p>
-              <p className="text-xs text-muted-foreground">{t('shareRoom.ownerYou')}</p>
+
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-background lg:rounded-xl lg:border">
+          <header className="flex h-12 min-w-0 shrink-0 items-center gap-1 border-b px-2 sm:gap-1.5 sm:px-4">
+            <div className="flex w-0 flex-1 items-center gap-1">
+              <h1 className="font-heading min-w-0 truncate px-1 text-base font-medium text-foreground" title={title}>{title}</h1>
+              <ThreadCounters agents={info.agents} people={people} />
             </div>
+            {headerActions && (
+              <div role="toolbar" aria-label={title} className="ml-auto flex shrink-0 items-center gap-1">
+                {headerActions}
+              </div>
+            )}
+          </header>
+
+          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} />}
+
+          <GuestMessageList
+            info={info}
+            messages={messages}
+            hasOlder={hasOlder}
+            olderState={olderState}
+            onLoadOlder={onLoadOlder}
+            agents={agents}
+            agentNames={agentNames}
+            agentLabels={agentLabels}
+            viewer={threadViewer}
+            sendTick={sendTick}
+            onRetry={retry}
+          />
+
+          {/* Same reading width as the workspace's composer at its widest. */}
+          <div className="mx-auto w-full max-w-6xl shrink-0 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:px-5 lg:pb-3">
+            {info.canPost ? (
+              <GuestComposer
+                agents={info.agents}
+                askAgent={askAgent}
+                onAskAgentChange={setAskAgent}
+                draft={draft}
+                onDraftChange={setDraft}
+                onSubmit={handleSubmit}
+              />
+            ) : (
+              <Alert role="note" className="bg-muted/40">
+                <AlertDescription>{t('guestThread.readOnlyNotice')}</AlertDescription>
+              </Alert>
+            )}
           </div>
-        )}
-        {!isOwner && guest && (
-          <div className="flex items-center gap-2.5 border-t px-4 py-3">
-            <PersonAvatar seed={`guest:${guest.id}`} className="size-8" />
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold">{guest.name}</p>
-              <p className="text-xs text-muted-foreground">{t('guestThread.guestBadge')}</p>
-            </div>
-          </div>
-        )}
-      </aside>
+        </main>
+      </div>
 
-      <main className="flex min-w-0 flex-1 flex-col">
-        <header className="flex shrink-0 items-center gap-3 border-b px-4 py-2.5 pt-[max(0.625rem,env(safe-area-inset-top))] lg:px-6">
-          <Image src="/logo-icon.png" alt="OpenAgents" width={22} height={22} className="lg:hidden" />
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs text-muted-foreground">{info.workspace.name} / {t('guestThread.threads')}</p>
-            <h1 className="flex min-w-0 items-center gap-1 text-base font-semibold">
-              <Hash className="size-4 shrink-0 text-muted-foreground" />
-              <span className="truncate">{title}</span>
-            </h1>
-          </div>
-          <Button variant="outline" size="sm" onClick={() => setDetailsOpen(true)} aria-label={t('guestThread.details')}>
-            <AvatarStack agents={info.agents} people={people} />
-            <span className="hidden sm:inline">{t('guestThread.details')}</span>
-            <Info className="sm:hidden" />
-          </Button>
-          {headerActions}
-        </header>
-
-        <GuestMessageList
-          info={info}
-          messages={messages}
-          hasOlder={hasOlder}
-          olderState={olderState}
-          onLoadOlder={onLoadOlder}
-          agents={agents}
-          agentNames={agentNames}
-          agentLabels={agentLabels}
-          viewer={threadViewer}
-          sendTick={sendTick}
-          onRetry={retry}
-        />
-
-        <div className="mx-auto w-full max-w-3xl shrink-0 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:px-5 lg:pb-3 xl:max-w-4xl">
-          {info.canPost ? (
-            <GuestComposer
-              agents={info.agents}
-              askAgent={askAgent}
-              onAskAgentChange={setAskAgent}
-              draft={draft}
-              onDraftChange={setDraft}
-              onSubmit={handleSubmit}
-            />
-          ) : (
-            <p className="rounded-lg border bg-muted/40 px-3 py-2.5 text-sm text-muted-foreground">{t('guestThread.readOnlyNotice')}</p>
-          )}
-          {statusAgent && (
-            <p className="mt-1.5 truncate px-1 text-xs text-muted-foreground" role="status">
-              <span className={statusAgent.online ? 'mr-1.5 inline-block size-1.5 rounded-full bg-success align-middle' : 'mr-1.5 inline-block size-1.5 rounded-full bg-muted-foreground/40 align-middle'} aria-hidden="true" />
-              <AgentStatusText agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} />
-            </p>
-          )}
-          {info.canPost && <p className="mt-0.5 truncate px-1 text-[11px] text-muted-foreground/80">{isOwner ? t('shareRoom.ownerNotice') : t('guestThread.guestNotice')}</p>}
-        </div>
-      </main>
-
-      <Sheet open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <SheetContent side="right" className="w-80 max-w-[85vw]">
-          <SheetHeader>
+      <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
+        <SheetContent side="left" showCloseButton={false} className="w-70 gap-0 bg-sidebar p-0 pt-[env(safe-area-inset-top)] text-sidebar-foreground">
+          <SheetHeader className="sr-only">
             <SheetTitle>{t('guestThread.detailsTitle')}</SheetTitle>
             <SheetDescription>{info.workspace.name} / {title}</SheetDescription>
           </SheetHeader>
-          <SheetBody className="flex flex-col gap-1">
-            <ThreadRoster agents={info.agents} people={people} />
-            {isOwner ? (
-              ownerPanel && <div className="mt-4 px-2" data-owner-panel="sheet">{ownerPanel}</div>
-            ) : (
-              <>
-                <ExpiryLine expiresAt={info.expiresAt} />
-                <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">{info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}</p>
-              </>
-            )}
-          </SheetBody>
+          <SheetBody className="flex min-h-0 flex-1 flex-col p-0">{sidebar}</SheetBody>
         </SheetContent>
       </Sheet>
 
       {!isOwner && cancelName && (
         <GuestNameDialog open={!!nameRequest} reason={nameRequest?.reason ?? null} onJoin={handleJoin} onCancel={cancelName} />
       )}
+    </SidebarProvider>
+  );
+}
+
+function Logo({ size }: { size: number }) {
+  return (
+    <span className="flex shrink-0 items-center justify-center overflow-hidden" style={{ width: size, height: size }}>
+      <Image src="/logo-black.png" alt="OpenAgents" width={size} height={size} className="size-full object-contain dark:hidden" />
+      <Image src="/logo-white.png" alt="" width={size} height={size} className="hidden size-full object-contain dark:block" />
+    </span>
+  );
+}
+
+// ── Sidebar ──
+
+/** The workspace sidebar, cut down to this one thread: brand, the thread,
+ * its agents and people, and who you are. */
+function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity, expiresAt, notice }: {
+  workspaceName: string;
+  subtitle: string;
+  title: string;
+  agents: GuestThreadAgent[];
+  people: ThreadPerson[];
+  identity: { name: string; seed: string; role: string } | null;
+  /** Guests: when the link stops working (null = never). */
+  expiresAt?: string | null;
+  /** What this viewer can do here. */
+  notice: string;
+}) {
+  const t = useT();
+  const { formatDateTime } = useFormatters();
+  const online = agents.filter((a) => a.online).length;
+  // Rows aren't links here: no hover highlight.
+  const row = 'cursor-default hover:bg-transparent active:bg-transparent';
+  return (
+    <div className="flex h-full min-h-0 w-full flex-col" data-share-sidebar="">
+      <SidebarHeader className="px-1.5 pt-3 pb-0">
+        <div className="flex h-8 w-full items-center gap-2 p-1.5">
+          <Logo size={20} />
+          <span className="min-w-0 flex-1 truncate text-base font-semibold" title={workspaceName}>{workspaceName}</span>
+        </div>
+        <p className="truncate px-2 text-xs text-muted-foreground">{subtitle}</p>
+      </SidebarHeader>
+
+      <SidebarContent>
+        <SidebarGroup className="px-1.5">
+          <SidebarGroupLabel className="px-2">{t('guestThread.threads')}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0.5">
+              <SidebarMenuItem>
+                <SidebarMenuButton asChild isActive className="cursor-default">
+                  <div aria-current="page">
+                    <MessageSquare />
+                    <span className="truncate">{title}</span>
+                  </div>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="px-3"><Separator /></div>
+        <SidebarGroup className="px-1.5">
+          <SidebarGroupLabel className="px-2">{t('nav.agentsWithCount', { online, total: agents.length })}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0.5">
+              {agents.map((agent) => (
+                <SidebarMenuItem key={agent.name}>
+                  <SidebarMenuButton asChild className={row}>
+                    <div title={agent.online ? t('guestThread.online') : t('guestThread.offline')}>
+                      <AgentAvatar name={agent.name} size={20} showStatus status={agent.online ? 'online' : 'offline'} className="[&_svg]:size-full!" />
+                      <span className="truncate">{agentDisplayName(agent)}</span>
+                      {!agent.online && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('guestThread.offline')}</span>}
+                    </div>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <div className="px-3"><Separator /></div>
+        <SidebarGroup className="px-1.5">
+          <SidebarGroupLabel className="px-2">{t('guestThread.membersHeading', { count: people.length })}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu className="gap-0.5">
+              {people.map((person) => (
+                <SidebarMenuItem key={person.key}>
+                  <SidebarMenuButton asChild className={row}>
+                    <div>
+                      <PersonAvatar seed={person.avatarSeed} />
+                      <span className="flex min-w-0 items-center gap-1">
+                        <span className="truncate">{person.name}</span>
+                        {person.isSelf && <span className="shrink-0 text-xs text-muted-foreground">({t('guestThread.you')})</span>}
+                      </span>
+                      {person.role !== 'member' && (
+                        <span className="ml-auto shrink-0 text-xs text-muted-foreground">
+                          {person.role === 'owner' ? t('guestThread.ownerBadge') : t('guestThread.guestBadge')}
+                        </span>
+                      )}
+                    </div>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+
+      <SidebarFooter className="gap-1 px-1.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        <p className="px-2 text-xs text-muted-foreground lg:hidden" data-share-notice="">{notice}</p>
+        {expiresAt !== undefined && (
+          <p className="px-2 text-xs text-muted-foreground" data-guest-link-expiry="">
+            {expiresAt ? t('guestThread.expiresOn', { date: formatDateTime(expiresAt) }) : t('guestThread.noExpiry')}
+          </p>
+        )}
+        {identity && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton asChild size="lg" className={row}>
+                <div data-share-identity="">
+                  <PersonAvatar seed={identity.seed} className="size-8" />
+                  <span className="grid min-w-0 flex-1 leading-tight">
+                    <span className="truncate font-medium">{identity.name}</span>
+                    <span className="truncate text-xs text-muted-foreground">{identity.role}</span>
+                  </span>
+                </div>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
+      </SidebarFooter>
     </div>
+  );
+}
+
+// ── Header ──
+
+/** The workspace thread header's people / agents counters, each opening its list. */
+function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people: ThreadPerson[] }) {
+  const t = useT();
+  return (
+    <span className="inline-flex shrink-0 items-center gap-0.5" data-thread-counters="">
+      <Popover>
+        <WithTooltip label={t('header.viewPeople', { count: people.length })}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className={ROSTER_TRIGGER} aria-label={t('header.viewPeople', { count: people.length })}>
+              <Users aria-hidden="true" />
+              <span>{people.length}</span>
+            </Button>
+          </PopoverTrigger>
+        </WithTooltip>
+        <PopoverContent align="start" aria-label={t('header.threadPeople')}>
+          <RosterList
+            title={t('header.threadPeople')}
+            empty={t('header.noThreadPeople')}
+            items={people.map((person) => ({
+              key: person.key,
+              media: <PersonAvatar seed={person.avatarSeed} />,
+              title: person.isSelf ? `${person.name} (${t('guestThread.you')})` : person.name,
+              description: person.role === 'owner' ? t('guestThread.ownerBadge') : person.role === 'guest' ? t('guestThread.guestBadge') : undefined,
+            }))}
+            add={null}
+          />
+        </PopoverContent>
+      </Popover>
+      <Popover>
+        <WithTooltip label={t('header.viewAgents', { count: agents.length })}>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="sm" className={ROSTER_TRIGGER} aria-label={t('header.viewAgents', { count: agents.length })}>
+              <Bot aria-hidden="true" />
+              <span>{agents.length}</span>
+            </Button>
+          </PopoverTrigger>
+        </WithTooltip>
+        <PopoverContent align="start" aria-label={t('header.threadAgents')}>
+          <RosterList
+            title={t('header.threadAgents')}
+            empty={t('header.noThreadAgents')}
+            items={agents.map((agent) => ({
+              key: agent.name,
+              media: <AgentAvatar name={agent.name} size={28} showStatus status={agent.online ? 'online' : 'offline'} />,
+              title: agentDisplayName(agent),
+              description: agent.online ? t('guestThread.online') : t('guestThread.offline'),
+            }))}
+            add={null}
+          />
+        </PopoverContent>
+      </Popover>
+    </span>
+  );
+}
+
+/**
+ * Where the agent runs and what this viewer can do, as a workspace thread
+ * banner: a quiet strip while all is well, a warning when the agent can't answer.
+ */
+function AgentStatusBanner({ agent, ownerName, isOwner, canPost }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean }) {
+  const t = useT();
+  const params = { agent: agentDisplayName(agent), owner: ownerName };
+  const warning = !agent.online || agent.acceptsGuests === false;
+  const status = isOwner
+    ? !agent.online ? t('shareRoom.offlineNotice', params) : agent.acceptsGuests === false ? t('shareRoom.noGuestRuns', params) : t('shareRoom.runsOn', params)
+    : !agent.online ? t('guestThread.offlineNotice', params) : agent.acceptsGuests === false ? t('guestThread.noGuestRuns', params) : t('guestThread.runsOn', params);
+  const notice = isOwner ? t('shareRoom.ownerNotice') : canPost ? t('guestThread.guestNotice') : null;
+  return (
+    <Alert
+      role="status"
+      data-agent-status={warning ? 'warning' : 'ok'}
+      className={cn(BANNER_STRIP, warning ? 'border-warning/30 bg-warning/10 text-warning' : 'bg-muted/30 text-muted-foreground')}
+    >
+      {warning ? <AlertTriangle /> : <Laptop />}
+      <AlertDescription className={cn('flex flex-wrap items-center gap-x-1.5 text-xs', warning ? 'text-warning' : 'text-muted-foreground')}>
+        <span className={cn('font-medium', !warning && 'text-foreground/80')}>{status}</span>
+        {/* On a phone the strip stays one line; the sidebar sheet repeats the notice. */}
+        {notice && <><span aria-hidden="true" className="hidden sm:inline">·</span><span className="hidden sm:inline">{notice}</span></>}
+      </AlertDescription>
+    </Alert>
   );
 }
 
@@ -287,7 +514,7 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
     if (el && sendTick > 0) el.scrollTop = el.scrollHeight;
   }, [sendTick]);
 
-  const row = (message: WorkspaceMessage, showTime: boolean) => (
+  const row = (message: WorkspaceMessage, live: boolean) => (
     <GuestMessageRow
       key={message.messageId}
       message={message}
@@ -296,7 +523,8 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
       agentLabels={agentLabels}
       currentGuestId={viewer.guestId}
       viewer={viewer}
-      showTime={showTime}
+      showTime={live}
+      showAudience={live}
       onRetry={onRetry}
     />
   );
@@ -315,36 +543,38 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
       aria-live="polite"
       aria-relevant="additions"
     >
-      {hasOlder && (
-        <div className="flex flex-col items-center gap-1 py-2" data-guest-load-earlier="">
-          <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={olderState === 'loading' || !onLoadOlder} onClick={loadOlder}>
-            {olderState === 'loading' && <Spinner data-icon="inline-start" />}
-            {olderState === 'loading' ? t('guestThread.loadingEarlier') : t('guestThread.loadEarlier')}
-          </Button>
-          {olderState === 'error' && <p className="text-xs text-destructive" role="alert">{t('guestThread.loadEarlierFailed')}</p>}
-        </div>
-      )}
-      {seed.length > 0 && (
-        <section aria-label={t('guestThread.seedDividerNoAgent', { owner: info.owner.name })}>
-          <div className="flex items-center gap-3 py-2 text-xs text-muted-foreground">
-            <span className="shrink-0">
-              {seedAgentType
-                ? t('guestThread.seedDivider', { owner: info.owner.name, agent: seedAgentType })
-                : t('guestThread.seedDividerNoAgent', { owner: info.owner.name })}
-            </span>
-            <span className="h-px flex-1 bg-border" />
+      <div className="mx-auto w-full max-w-6xl">
+        {hasOlder && (
+          <div className="flex flex-col items-center gap-1 py-2" data-guest-load-earlier="">
+            <Button variant="ghost" size="sm" className="text-muted-foreground" disabled={olderState === 'loading' || !onLoadOlder} onClick={loadOlder}>
+              {olderState === 'loading' && <Spinner data-icon="inline-start" />}
+              {olderState === 'loading' ? t('guestThread.loadingEarlier') : t('guestThread.loadEarlier')}
+            </Button>
+            {olderState === 'error' && <p className="text-xs text-destructive" role="alert">{t('guestThread.loadEarlierFailed')}</p>}
           </div>
-          {seed.map((m) => row(m, false))}
-        </section>
-      )}
-      {seed.length > 0 && groups.length > 0 && <div className="my-2 h-px bg-border/60" aria-hidden="true" />}
-      {groups.length === 0 && seed.length === 0 && (
-        <p className="py-10 text-center text-sm text-muted-foreground">{t('guestThread.emptyThread')}</p>
-      )}
-      {groups.map((group, index) => group.type === 'chat'
-        ? row(group.message, true)
-        : <IntermediateSteps key={groupKey(group)} steps={group.messages} agents={agents} isActive={index === groups.length - 1} />)}
-      {working && <WorkingBubble agentName={working} agents={agents} />}
+        )}
+        {seed.length > 0 && (
+          <section aria-label={t('guestThread.seedDividerNoAgent', { owner: info.owner.name })}>
+            {/* A system divider, as the workspace marks thread events. */}
+            <Marker variant="separator" className="py-2">
+              <MarkerContent className="text-xs">
+                {seedAgentType
+                  ? t('guestThread.seedDivider', { owner: info.owner.name, agent: seedAgentType })
+                  : t('guestThread.seedDividerNoAgent', { owner: info.owner.name })}
+              </MarkerContent>
+            </Marker>
+            {seed.map((m) => row(m, false))}
+          </section>
+        )}
+        {seed.length > 0 && groups.length > 0 && <div className="my-2 h-px bg-border/60" aria-hidden="true" />}
+        {groups.length === 0 && seed.length === 0 && (
+          <p className="py-10 text-center text-sm text-muted-foreground">{t('guestThread.emptyThread')}</p>
+        )}
+        {groups.map((group, index) => group.type === 'chat'
+          ? row(group.message, true)
+          : <IntermediateSteps key={groupKey(group)} steps={group.messages} agents={agents} isActive={index === groups.length - 1} />)}
+        {working && <WorkingBubble agentName={working} agents={agents} />}
+      </div>
     </div>
   );
 }
@@ -362,70 +592,4 @@ function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThr
   if (!isOptimistic(m) && m.createdAt && Date.now() - new Date(m.createdAt).getTime() > WORKING_WINDOW_MS) return null;
   const agent = agents.find((a) => startsWithMention(m.content, a.name));
   return agent && agent.online ? agent.name : null;
-}
-
-function AgentStatusText({ agent, ownerName, isOwner }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean }) {
-  const t = useT();
-  const params = { agent: agentDisplayName(agent), owner: ownerName };
-  if (isOwner) {
-    if (!agent.online) return <>{t('shareRoom.offlineNotice', params)}</>;
-    if (agent.acceptsGuests === false) return <>{t('shareRoom.noGuestRuns', params)}</>;
-    return <>{t('shareRoom.runsOn', params)}</>;
-  }
-  if (!agent.online) return <>{t('guestThread.offlineNotice', params)}</>;
-  if (agent.acceptsGuests === false) return <>{t('guestThread.noGuestRuns', params)}</>;
-  return <>{t('guestThread.runsOn', params)}</>;
-}
-
-// ── Roster ──
-
-function SectionHeading({ children }: { children: React.ReactNode }) {
-  return <p className="mt-4 mb-1.5 px-2 text-xs font-medium text-muted-foreground first:mt-0">{children}</p>;
-}
-
-function ThreadRoster({ agents, people }: { agents: GuestThreadAgent[]; people: ThreadPerson[] }) {
-  const t = useT();
-  return (
-    <>
-      <SectionHeading>{t('guestThread.agentsHeading', { count: agents.length })}</SectionHeading>
-      <ul className="flex flex-col gap-0.5">
-        {agents.map((agent) => (
-          <li key={agent.name} className="flex items-center gap-2 px-2 py-1 text-sm">
-            <AgentAvatar name={agent.name} size={20} showStatus status={agent.online ? 'online' : 'offline'} />
-            <span className="min-w-0 flex-1 truncate">{agentDisplayName(agent)}</span>
-            <span className="text-xs text-muted-foreground">{agent.online ? t('guestThread.online') : t('guestThread.offline')}</span>
-          </li>
-        ))}
-      </ul>
-      <SectionHeading>{t('guestThread.membersHeading', { count: people.length })}</SectionHeading>
-      <ul className="flex flex-col gap-0.5">
-        {people.map((person) => (
-          <li key={person.key} className="flex items-center gap-2 px-2 py-1 text-sm">
-            <PersonAvatar seed={person.avatarSeed} className="size-5" />
-            <span className="min-w-0 flex-1 truncate">{person.isSelf ? `${person.name} (${t('guestThread.you')})` : person.name}</span>
-            {person.role === 'owner' && <Badge variant="secondary">{t('guestThread.ownerBadge')}</Badge>}
-            {person.role === 'guest' && <Badge variant="outline">{t('guestThread.guestBadge')}</Badge>}
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-function AvatarStack({ agents, people }: { agents: GuestThreadAgent[]; people: ThreadPerson[] }) {
-  const shown = [
-    ...people.slice(0, 2).map((p) => <PersonAvatar key={p.key} seed={p.avatarSeed} className="size-5 ring-2 ring-background" />),
-    ...agents.slice(0, 1).map((a) => <AgentAvatar key={a.name} name={a.name} size={20} className="rounded-full ring-2 ring-background" />),
-  ];
-  return <span className="flex -space-x-1.5" aria-hidden="true">{shown}</span>;
-}
-
-function ExpiryLine({ expiresAt }: { expiresAt: string | null }) {
-  const t = useT();
-  const { formatDateTime } = useFormatters();
-  return (
-    <p className="mt-4 px-2 text-xs text-muted-foreground">
-      {expiresAt ? t('guestThread.expiresOn', { date: formatDateTime(expiresAt) }) : t('guestThread.noExpiry')}
-    </p>
-  );
 }

@@ -239,3 +239,64 @@ it('shows a send once when the poll returns it before the POST does', async () =
   expect(host.querySelector('[data-guest-message^="optimistic-"]')).toBeNull();
   expect([...host.querySelectorAll('[data-guest-message]')].filter((el) => el.textContent?.includes('hello there')).length).toBe(1);
 });
+
+async function typeInto(textarea: HTMLTextAreaElement, value: string) {
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!;
+    setter.call(textarea, value);
+    textarea.setSelectionRange(value.length, value.length);
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+it('offers the thread agent when the guest types "@", and Enter picks it without sending', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  serve((url) => (url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO)));
+  await open();
+  const textarea = host.querySelector('textarea')!;
+  await typeInto(textarea, 'hey @cl');
+  const option = [...host.querySelectorAll('[data-slot="item"]')].find((el) => el.textContent?.includes('Claude Code'));
+  expect(option).toBeTruthy();
+  expect(option!.textContent).toContain('@claude-code');
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await settle();
+  expect(textarea.value).toBe('hey @claude-code ');
+  expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+  // Escape closes the picker.
+  await typeInto(textarea, 'hey @claude-code @');
+  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('@claude-code'))).toBe(true);
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
+  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('@claude-code'))).toBe(false);
+});
+
+it('copies an agent message from its Copy action', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  serve((url) => (url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO)));
+  await open();
+  const agentRow = host.querySelector('[data-guest-message="e2"]')!;
+  const copy = agentRow.querySelector<HTMLButtonElement>('[data-copy-message]')!;
+  expect(copy).not.toBeNull();
+  // People's messages have no Copy action, as in the workspace.
+  expect(host.querySelector('[data-guest-message="e1"] [data-copy-message]')).toBeNull();
+  await act(async () => { copy.click(); });
+  expect(writeText).toHaveBeenCalledWith('Found one issue');
+  expect(copy.textContent).toBe('common.copied');
+});
+
+it('shows who a live message went to, and the guest’s colour seed matches the workspace', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  const asked = { id: 'e4', type: 'workspace.message', source: 'guest:g-1', target: 'channel/channel-1', payload: { content: '@claude-code check #42', sender_name: 'Maya' }, metadata: { guest: { id: 'g-1', name: 'Maya' } }, timestamp: 4, visibility: 'channel' };
+  serve((url) => (url.includes('/messages') ? ok({ messages: [...MESSAGES, asked], hasMore: false }) : ok(INFO)));
+  await open();
+  expect(host.querySelector('[data-guest-message="e3"] [data-message-audience="human"]')).not.toBeNull();
+  expect(host.querySelector('[data-guest-message="e4"] [data-message-audience="agent"]')?.textContent).toContain('Claude Code');
+  // Excerpts carry no routing line.
+  expect(host.querySelector('[data-guest-message="e1"] [data-message-audience]')).toBeNull();
+  // The workspace seeds a guest's avatar with their posting address.
+  const { humanColor } = await import('@/lib/human-color');
+  const avatar = host.querySelector<HTMLElement>('[data-guest-message="e3"] [aria-hidden="true"][style]')!;
+  const probe = document.createElement('span');
+  probe.style.backgroundColor = humanColor('guest-g-1@guest.invalid');
+  expect(avatar.style.backgroundColor).toBe(probe.style.backgroundColor);
+});

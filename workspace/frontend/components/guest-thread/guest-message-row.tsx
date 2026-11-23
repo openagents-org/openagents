@@ -1,27 +1,25 @@
 'use client';
 
 import { memo } from 'react';
-import { AlertCircle, User } from 'lucide-react';
+import { AlertCircle } from 'lucide-react';
 import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
+import { CopyMessageButton } from '@/components/chat/copy-message-button';
+import { HumanAvatarFace } from '@/components/chat/human-avatar-face';
 import { MarkdownContent } from '@/components/chat/markdown-content';
+import { ConversationBadge, RoutedAgentBadge } from '@/components/chat/routing-badge';
 import { Badge } from '@/components/ui/badge';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Button } from '@/components/ui/button';
 import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/components/ui/message';
-import { humanColor } from '@/lib/human-color';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { senderIdentity, type ThreadViewer } from '@/lib/guest-thread';
+import { isOptimistic, senderIdentity, startsWithMention, type ThreadViewer } from '@/lib/guest-thread';
 
-/** Same markup as the workspace HumanAvatar, without the team roster lookup
- * (a guest can't read the workspace roster). */
+/** The workspace's person avatar (same seed → same colour), without the team
+ * roster lookup a guest can't make. */
 export function PersonAvatar({ seed, className }: { seed: string; className?: string }) {
-  return (
-    <span className={cn('flex size-7 shrink-0 items-center justify-center overflow-hidden rounded-full', className)} style={{ backgroundColor: humanColor(seed) }} aria-hidden="true">
-      <User className="size-3.5 text-foreground" />
-    </span>
-  );
+  return <HumanAvatarFace seed={seed} className={className} />;
 }
 
 interface GuestMessageRowProps {
@@ -33,6 +31,8 @@ interface GuestMessageRowProps {
   /** Who is looking; overrides `currentGuestId` (the owner room passes this). */
   viewer?: ThreadViewer;
   showTime?: boolean;
+  /** Show who a person's message went to ("→ Claude Code" / "→ Conversation"). */
+  showAudience?: boolean;
   onRetry?: (localId: string) => void;
 }
 
@@ -41,7 +41,7 @@ interface GuestMessageRowProps {
  * workspace's HumanMessageRow / AgentMessageRow (which need the workspace
  * context, reactions and roster a guest doesn't have).
  */
-export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, onRetry }: GuestMessageRowProps) {
+export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, showAudience = false, onRetry }: GuestMessageRowProps) {
   const t = useT();
   const { formatTime } = useFormatters();
   const who = senderIdentity(message, agents, viewer ?? currentGuestId);
@@ -49,6 +49,8 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
   const timestamp = showTime && message.createdAt ? formatTime(message.createdAt) : null;
   const sendStatus = message.metadata?.send_status as 'sending' | 'failed' | undefined;
   const sendError = message.metadata?.send_error as string | undefined;
+  const pending = isOptimistic(message);
+  const askedAgent = !isAgent ? agents.find((a) => startsWithMention(message.content, a.agentName)) : undefined;
 
   return (
     <Message className={cn('gap-3', isAgent ? 'py-2' : 'py-1.5', sendStatus === 'sending' && 'opacity-70')} data-guest-message={message.messageId}>
@@ -60,8 +62,8 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
       <MessageContent className="gap-0.5">
         <MessageHeader className="flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="truncate text-sm font-semibold text-foreground">{who.isSelf ? t('guestThread.you') : who.name}</span>
-          {isAgent && <Badge variant="secondary">{t('guestThread.agentBadge')}</Badge>}
-          {who.kind === 'guest' && <Badge variant="outline">{t('guestThread.guestBadge')}</Badge>}
+          {isAgent && <Badge variant="secondary">{viewer?.isOwner ? t('messageAgentAccess.yours') : t('guestThread.agentBadge')}</Badge>}
+          {who.kind === 'guest' && <Badge variant="secondary" data-guest-badge="">{t('guestThread.guestBadge')}</Badge>}
           {timestamp && <span className="font-normal">{timestamp}</span>}
         </MessageHeader>
         <Bubble variant="ghost" className="w-full">
@@ -69,8 +71,19 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
             {/* textOnlyImages: inline workspace-file images would need the
                 owner's workspace credentials; a guest gets the alt text. */}
             <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} textOnlyImages />
+            {/* Action bar — revealed on hover, as on the workspace's agent turns. */}
+            {isAgent && !pending && message.content.trim() && (
+              <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                <CopyMessageButton text={message.content} />
+              </div>
+            )}
           </BubbleContent>
         </Bubble>
+        {showAudience && !isAgent && !pending && (
+          <div className="mt-2" data-message-audience={askedAgent ? 'agent' : 'human'}>
+            {askedAgent ? <RoutedAgentBadge names={[askedAgent.agentName]} agents={agents} /> : <ConversationBadge />}
+          </div>
+        )}
         {sendStatus === 'sending' && <span className="text-xs text-muted-foreground" role="status">{t('guestThread.sending')}</span>}
         {sendStatus === 'failed' && (
           <div className="flex flex-wrap items-center gap-2 text-xs text-destructive" role="alert">

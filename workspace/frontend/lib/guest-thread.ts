@@ -5,6 +5,7 @@
  */
 import { eventToMessage, type ONMEvent, type WorkspaceAgent, type WorkspaceMessage } from '@/lib/types';
 import { mergeMessages } from '@/lib/message-merge';
+import { GUEST_EMAIL_DOMAIN } from '@/lib/guest-sender';
 import type { GuestIdentity, GuestThreadAgent } from '@/lib/guest-thread-api';
 
 export const GUEST_NAME_MAX = 40;
@@ -130,7 +131,7 @@ export function senderIdentity(message: WorkspaceMessage, agents: WorkspaceAgent
       kind: 'guest',
       name: guest.name || message.senderName || 'Guest',
       isSelf: !!currentGuestId && guest.id === currentGuestId,
-      avatarSeed: `guest:${guest.id}`,
+      avatarSeed: guestAvatarSeed(guest.id),
     };
   }
   if (message.senderType === 'agent') {
@@ -354,6 +355,12 @@ export function humanSeed(name: string): string {
   return `name:${name.trim().toLowerCase()}`;
 }
 
+/** A guest's avatar seed: their posting address, as the workspace seeds it,
+ * so a guest has the same colour here and in the owner's workspace. */
+export function guestAvatarSeed(guestId: string): string {
+  return `guest-${guestId}@${GUEST_EMAIL_DOMAIN}`;
+}
+
 export interface ThreadPerson {
   key: string;
   name: string;
@@ -375,7 +382,7 @@ export function threadPeople(messages: WorkspaceMessage[], ownerName: string, cu
     const guest = guestOf(m);
     if (guest) {
       const key = `guest:${guest.id}`;
-      if (!people.has(key)) people.set(key, { key, name: guest.name || m.senderName, role: 'guest', isSelf: guest.id === currentGuest?.id, avatarSeed: key });
+      if (!people.has(key)) people.set(key, { key, name: guest.name || m.senderName, role: 'guest', isSelf: guest.id === currentGuest?.id, avatarSeed: guestAvatarSeed(guest.id) });
     } else if (m.senderType === 'human') {
       const key = `name:${m.senderName.trim().toLowerCase()}`;
       if (!people.has(key)) people.set(key, { key, name: m.senderName, role: 'member', isSelf: false, avatarSeed: humanSeed(m.senderName) });
@@ -383,7 +390,7 @@ export function threadPeople(messages: WorkspaceMessage[], ownerName: string, cu
   }
   if (currentGuest && !people.has(`guest:${currentGuest.id}`)) {
     const key = `guest:${currentGuest.id}`;
-    people.set(key, { key, name: currentGuest.name, role: 'guest', isSelf: true, avatarSeed: key });
+    people.set(key, { key, name: currentGuest.name, role: 'guest', isSelf: true, avatarSeed: guestAvatarSeed(currentGuest.id) });
   }
   return [...people.values()];
 }

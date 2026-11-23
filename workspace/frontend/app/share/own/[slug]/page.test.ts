@@ -88,7 +88,7 @@ async function open(token: string | null = 'ws-token', slug = 'alex-share') {
   for (let i = 0; i < 6; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 }
 
-it('shows the room with the owner as "You", guests badged, and the guest link inline', async () => {
+it('shows the room with the owner as "You", guests badged, and the guest link behind the header button', async () => {
   serve(roomServer());
   await open();
   const text = host.textContent || '';
@@ -101,7 +101,10 @@ it('shows the room with the owner as "You", guests badged, and the guest link in
   expect(text).toContain('shareRoom.runsOn:{"agent":"Claude Code","owner":"Alex"}');
   expect(text).not.toContain('guestThread.guestNotice');
   expect(host.querySelector('[data-owner-keep]')).not.toBeNull();
-  // Guest link card, loaded with the owner token.
+  // The guest link controls live behind the header's share button, not in the sidebar.
+  expect(host.querySelector('[data-owner-guest-link]')).toBeNull();
+  await act(async () => { (host.querySelector('[data-owner-link-button]') as HTMLElement).click(); });
+  // Loaded with the owner token.
   const card = host.querySelector('[data-owner-guest-link]')!;
   expect((card.querySelector('input') as HTMLInputElement).value).toBe(LINK.url);
   expect(card.querySelector('[data-expiry-choice="7d"]')).not.toBeNull();

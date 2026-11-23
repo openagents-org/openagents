@@ -1,16 +1,18 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { BookmarkPlus, ExternalLink } from 'lucide-react';
-import { GuestLinkPanel, useGuestLinks } from '@/components/chat/guest-link-panel';
+import { BookmarkPlus, ExternalLink, Share2 } from 'lucide-react';
+import { useGuestLinks } from '@/components/chat/guest-link-panel';
 import { GuestLinkState } from '@/components/guest-thread/guest-link-state';
 import { GuestThreadView } from '@/components/guest-thread/guest-thread-view';
 import { useOwnerRoom } from '@/components/guest-thread/use-owner-room';
 import { Button } from '@/components/ui/button';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { agentDisplayName } from '@/lib/guest-thread';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { roomGuestLinksClient, roomToThreadInfo, threadPath } from '@/lib/share-room-api';
+import { GuestLinkDialog } from './guest-link-dialog';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
 /**
@@ -23,6 +25,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   const room = useOwnerRoom(slug, token);
   const { user, idToken, loading } = useOpenAgentsAuth();
   const [keepOpen, setKeepOpen] = useState(false);
+  const [linkOpen, setLinkOpen] = useState(false);
 
   const data = room.room;
   const threadName = data?.thread.name ?? '';
@@ -46,7 +49,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   }
 
   const firstAgent = data.agents[0] ?? null;
-  const headerActions = claimed ? (
+  const primary = claimed ? (
     <Button size="sm" asChild data-owner-open="">
       <a href={threadPath(slug, threadName)}>
         <ExternalLink data-icon="inline-start" />
@@ -61,20 +64,16 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
       <span className="sm:hidden">{t('shareRoom.keepShort')}</span>
     </Button>
   );
-
-  const linkPanel = (
-    <section className="flex flex-col gap-2" aria-label={t('shareRoom.guestLinkHeading')} data-owner-guest-link="">
-      <p className="text-xs font-medium text-muted-foreground">{t('shareRoom.guestLinkHeading')}</p>
-      <GuestLinkPanel
-        channel={threadName}
-        agentName={firstAgent ? agentDisplayName(firstAgent) : null}
-        links={guestLinks.links}
-        error={guestLinks.error}
-        setLinks={guestLinks.setLinks}
-        client={linksClient}
-        compact
-      />
-    </section>
+  // The workspace thread header's share button, opening the guest link controls.
+  const headerActions = (
+    <>
+      <WithTooltip label={t('shareRoom.guestLinkButton')}>
+        <Button variant="ghost" size="icon-sm" onClick={() => setLinkOpen(true)} aria-label={t('shareRoom.guestLinkButton')} data-owner-link-button="">
+          <Share2 />
+        </Button>
+      </WithTooltip>
+      {primary}
+    </>
   );
 
   return (
@@ -90,7 +89,16 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         send={room.send}
         retry={room.retry}
         headerActions={headerActions}
-        ownerPanel={linkPanel}
+      />
+      <GuestLinkDialog
+        open={linkOpen}
+        onOpenChange={setLinkOpen}
+        channel={threadName}
+        agentName={firstAgent ? agentDisplayName(firstAgent) : null}
+        links={guestLinks.links}
+        error={guestLinks.error}
+        setLinks={guestLinks.setLinks}
+        client={linksClient}
       />
       {!claimed && (
         <KeepConversationDialog

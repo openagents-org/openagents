@@ -1,8 +1,6 @@
 'use client';
 
-import { useState } from 'react';
-import { BookmarkPlus, Check, Copy, Reply } from 'lucide-react';
-import { toast } from 'sonner';
+import { BookmarkPlus, Reply } from 'lucide-react';
 import type { ApprovalRequest, WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import type { HandoffRecord } from '@/lib/handoff';
 import { useT } from '@/lib/i18n';
@@ -14,6 +12,7 @@ import { Bubble, BubbleContent } from '@/components/ui/bubble';
 import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/components/ui/message';
 import { AgentOwnershipBadge, AgentSharingAction } from './agent-message-access';
 import { ApprovalCard } from './approval-card';
+import { CopyMessageButton } from './copy-message-button';
 import { CopyMessageLink } from './copy-message-link';
 import { HandoffCard } from './handoff-card';
 import { MarkdownContent } from './markdown-content';
@@ -48,21 +47,10 @@ export interface AgentMessageRowProps {
 // a thread can have several agents, so the author still has to be readable.
 export function AgentMessageRow({ message, agents, agent, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, handoff, displayContent, yumiWelcome, isLast, onSuggestion, onReply, onSaveKnowledge }: AgentMessageRowProps) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const attachedIds = attachments.map(item => item.fileId);
   const suggestions = isLast && !yumiWelcome && onSuggestion && Array.isArray(message.metadata?.suggestions)
     ? (message.metadata.suggestions as string[]).slice(0, 4) : [];
-
-  const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(displayContent);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      toast.error(t('chat.copyFailed'));
-    }
-  };
 
   return (
     <Message className="gap-3 py-2">
@@ -140,10 +128,7 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
               )}
               <AgentSharingAction agentName={message.senderName} />
               <CopyMessageLink messageId={message.messageId} />
-              <Button variant="ghost" size="xs" className="text-muted-foreground" onClick={handleCopy} aria-label={t('chat.copyMessage')}>
-                {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}
-                {copied ? t('common.copied') : t('common.copy')}
-              </Button>
+              <CopyMessageButton text={displayContent} />
             </div>
           </BubbleContent>
         </Bubble>
