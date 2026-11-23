@@ -28,6 +28,9 @@ const LOGIN_METHOD_LABELS: Record<string, MessageKey> = {
   copilot: 'agentSetup.loginMethod.copilot',
 };
 
+/** Agents usually run on a key, whose sign-in is only another product's plan. */
+const KEY_FIRST = new Set(['opencode']);
+
 /** Name first, then authenticate; optional model discovery never gates progress. */
 export function AgentSetupWizard({ form, props, entry, onSubmit }: {
   form: AgentSetupForm; props: AgentSetupProps; entry: AgentCatalogEntry; onSubmit: () => void;
@@ -56,12 +59,18 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
     && (loginMethods.length > 0 || !runtime?.browserLoginMethods);
   const method = loginMethods.length ? (loginMethod && loginMethods.includes(loginMethod) ? loginMethod : loginMethods[0]) : undefined;
   const canSignIn = !!form.creds.deviceLoginCommand;
-  const choice = form.setupAuth ?? (signedIn && canSignIn ? 'subscription' : null);
+  // OpenCode has no account of its own: most people give it a key, and its
+  // sign-in only reuses another product's plan. So the key comes first.
+  const keyFirst = KEY_FIRST.has(entry.name);
+  const choice = form.setupAuth ?? (signedIn && canSignIn ? 'subscription' : keyFirst ? 'key' : null);
   const loginCommand = form.creds.deviceLoginCommand;
   const installLater = runtime?.installed === false;
+  const subscription: AuthOption[] = canSignIn ? [{ id: 'subscription' as const, icon: LogIn,
+    title: t(keyFirst ? 'agentSetup.subscriptionPlan' : 'agentSetup.subscription'),
+    description: t(keyFirst ? 'agentSetup.subscriptionPlanHint' : 'agentSetup.subscriptionHint') }] : [];
+  const key: AuthOption = { id: 'key', icon: KeyRound, title: t('agentSetup.key'), description: t('agentSetup.keyHint') };
   const options: AuthOption[] = [
-    ...(canSignIn ? [{ id: 'subscription' as const, icon: LogIn, title: t('agentSetup.subscription'), description: t('agentSetup.subscriptionHint') }] : []),
-    { id: 'key', icon: KeyRound, title: t('agentSetup.key'), description: t('agentSetup.keyHint') },
+    ...(keyFirst ? [key, ...subscription] : [...subscription, key]),
     { id: 'later', icon: Timer, title: t('agentSetup.later'), description: t('agentSetup.laterHint') },
   ];
   const choose = (next: AuthChoice) => {

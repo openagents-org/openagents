@@ -324,3 +324,21 @@ it('points DeepSeek, which has no sign-in, to where its keys come from', async (
   await choose('key');
   expect(host.querySelector('[data-testid="agent-setup-key-link"] a')?.getAttribute('href')).toBe('https://platform.deepseek.com/api_keys');
 });
+
+it('puts the API key first for OpenCode and names its sign-in as another product\'s plan', async () => {
+  await open({ type: 'opencode', browserLogin: true, loginCommand: 'agn login opencode', browserLoginMethods: ['chatgpt', 'copilot'] });
+  await next();
+  const ids = [...host.querySelectorAll('[data-testid^="agent-setup-auth-"]')].map((el) => el.getAttribute('data-testid')).filter((id) => /-(key|subscription|later)$/.test(id!));
+  expect(ids).toEqual(['agent-setup-auth-key', 'agent-setup-auth-subscription', 'agent-setup-auth-later']);
+  expect(host.querySelector('#setup-api-key')).toBeTruthy();
+  expect(host.textContent).toContain(messages.agentSetup.subscriptionPlan);
+  expect(host.textContent).not.toContain(messages.agentSetup.subscriptionHint);
+});
+
+it('keeps the subscription first for Codex', async () => {
+  await open();
+  await next();
+  const ids = [...host.querySelectorAll('[data-testid^="agent-setup-auth-"]')].map((el) => el.getAttribute('data-testid')).filter((id) => /-(key|subscription|later)$/.test(id!));
+  expect(ids[0]).toBe('agent-setup-auth-subscription');
+  expect(host.querySelector('#setup-api-key')).toBeNull();
+});

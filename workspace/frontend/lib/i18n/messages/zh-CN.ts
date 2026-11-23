@@ -109,6 +109,8 @@ export const messages: Messages = {
     "authHint": "使用订阅账号、添加 API 密钥，或稍后完成验证。",
     "subscription": "使用我的订阅",
     "subscriptionHint": "登录你已订阅的账号。",
+    "subscriptionPlan": "使用我的 ChatGPT 或 Copilot 套餐",
+    "subscriptionPlanHint": "用你已有的 ChatGPT Plus/Pro 或 GitHub Copilot 套餐登录。",
     "key": "使用 API 密钥",
     "keyHint": "为此智能体提供一个新密钥。",
     "later": "稍后设置",

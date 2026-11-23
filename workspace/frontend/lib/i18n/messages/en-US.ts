@@ -115,6 +115,8 @@ export const messages = {
     "authHint": "Use your subscription, add an API key, or finish authentication later.",
     "subscription": "Use my subscription",
     "subscriptionHint": "Sign in to the account you already pay for.",
+    "subscriptionPlan": "Use my ChatGPT or Copilot plan",
+    "subscriptionPlanHint": "Sign in with a ChatGPT Plus/Pro or GitHub Copilot plan you already have.",
     "key": "Use an API key",
     "keyHint": "Provide a new key for this agent.",
     "later": "Set up later",
