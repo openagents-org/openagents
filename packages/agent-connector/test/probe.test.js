@@ -1100,3 +1100,113 @@ describe('a direct test of a Pi agent speaks the API format Pi uses', () => {
     });
   });
 });
+
+// Daily errors dashboard, 2026-11-23.
+describe('a spent relay account is out of credit, not a rejected key', () => {
+  it('reads new-api\'s "Insufficient user quota" at 403', () => {
+    assert.equal(
+      classifyFailure('HTTP 403: {"error":{"message":"Insufficient user quota, remaining quota: ＄-0.000054 (request id: 2026112302)","type":"new_api_error"}}'),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(
+      classifyFailure('Failed to authenticate. API Error: 403 Insufficient user quota, remaining quota: ＄-0.000054'),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(classifyFailure('Forbidden: Insufficient account balance'), CODE.OUT_OF_CREDIT);
+  });
+
+  it('still reads a bare 403 as a rejected key', () => {
+    assert.equal(classifyFailure('HTTP 403: {"error":{"message":"Forbidden"}}'), CODE.INVALID_API_KEY);
+  });
+});
+
+describe('Codex retrying its stream until the clock ran out', () => {
+  it('is a network problem, not a prompt waiting for input', () => {
+    assert.equal(classifyFailure('ERROR: Reconnecting... 5/5', { timedOut: true }), CODE.NETWORK);
+    assert.equal(classifyFailure('', { timedOut: true }), CODE.TIMEOUT);
+    // Gave up and exited before the clock: the same dropped connection.
+    assert.equal(classifyFailure('ERROR: Reconnecting... 5/5'), CODE.NETWORK);
+  });
+
+  it('lets a reason the output names win', () => {
+    assert.equal(
+      classifyFailure('ERROR: Reconnecting... 1/5\nunexpected status 401 Unauthorized: Incorrect API key provided', { timedOut: true }),
+      CODE.INVALID_API_KEY,
+    );
+  });
+});
+
+describe('CodeBuddy\'s Git Bash notice is not the reason a test failed', () => {
+  const NOTICE = [
+    '',
+    'Note: Git Bash not detected. CodeBuddy Code will use PowerShell for shell commands.',
+    'Git Bash-only features (/enter-worktree, POSIX shell snapshot) will be disabled.',
+    'To enable Git Bash features, install Git for Windows (https://git-scm.com/downloads/win)',
+    '  or set: CODEBUDDY_CODE_GIT_BASH_PATH=C:\\Program Files\\Git\\bin\\bash.exe',
+    'Suppress this notice with: CODEBUDDY_SKIP_GIT_BASH_CHECK=1',
+    '',
+  ].join('\r\n');
+
+  it('quotes what came after it', () => {
+    const msg = failureMessage({ stdout: 'Session not found, please run /login', stderr: NOTICE, code: 1 }, CODE.CLI_ERROR, 120000);
+    assert.doesNotMatch(msg, /Git Bash/);
+    assert.match(msg, /please run \/login/);
+  });
+
+  it('says only the exit code when nothing else was said', () => {
+    assert.equal(failureMessage({ stdout: '', stderr: NOTICE, code: 1 }, CODE.CLI_ERROR, 120000), 'Exited with code 1');
+  });
+});
+
+describe('an Aider direct test sends the model LiteLLM would', () => {
+  const AIDER = { name: 'aider', label: 'Aider', env_config: [{ name: 'AIDER_MODEL' }, { name: 'LLM_API_KEY', password: true }] };
+  const connector = fakeConnector({ entry: AIDER, health: { installed: true, ready: true } });
+
+  function withLLM(run) {
+    const path = require.resolve('../src/utils');
+    const original = require.cache[path];
+    const seen = [];
+    require.cache[path] = {
+      id: path, filename: path, loaded: true,
+      exports: { testLLMConnection: async (env, opts) => { seen.push({ env, opts }); return { success: true, response: 'hi' }; } },
+    };
+    return run(seen).finally(() => {
+      if (original) require.cache[path] = original;
+      else delete require.cache[path];
+    });
+  }
+
+  it('takes the provider prefix off', async () => {
+    // DeepSeek refused "deepseek/deepseek-flash", a model it serves as
+    // "deepseek-flash", and the test failed an agent that works.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'aider', { agentEnv: {
+        LLM_API_KEY: 'sk-test-123456', LLM_BASE_URL: 'https://api.deepseek.com', AIDER_MODEL: 'deepseek/deepseek-flash',
+      } });
+      assert.equal(seen[0].opts.model, 'deepseek-flash');
+    });
+  });
+
+  it('leaves a configuration Aider would refuse as it is', async () => {
+    // openrouter with an anthropic/ model is a conflict Aider will not start
+    // on; the test must not invent a model name for it.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'aider', { agentEnv: {
+        LLM_API_KEY: 'sk-test-123456', AIDER_PROVIDER: 'openrouter', AIDER_MODEL: 'anthropic/claude-x',
+      } });
+      assert.equal(seen[0].opts.model, 'anthropic/claude-x');
+    });
+  });
+
+  it('keeps a slash the endpoint itself expects', async () => {
+    // On an OpenAI-compatible endpoint Aider sends "openai/<model>" and
+    // LiteLLM passes "<model>" on whole.
+    await withLLM(async (seen) => {
+      await probeAgentType(connector, 'aider', { agentEnv: {
+        LLM_API_KEY: 'sk-test-123456', LLM_BASE_URL: 'https://relay.example/v1',
+        AIDER_PROVIDER: 'openai-compatible', AIDER_MODEL: 'meta/llama-4',
+      } });
+      assert.equal(seen[0].opts.model, 'meta/llama-4');
+    });
+  });
+});
