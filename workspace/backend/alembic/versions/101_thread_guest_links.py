@@ -25,6 +25,7 @@ def upgrade():
         sa.Column('created_by', sa.Text(), nullable=False),
         sa.Column('owner_name', sa.Text(), nullable=True),
         sa.Column('can_post', sa.Boolean(), nullable=False, server_default=sa.text('TRUE')),
+        sa.Column('approval_mode', sa.Text(), nullable=False, server_default=sa.text("'none'")),
         sa.Column('publish_key_hash', sa.Text(), nullable=True, unique=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('revoked_at', sa.DateTime(timezone=True), nullable=True),
@@ -46,11 +47,26 @@ def upgrade():
         sa.Column('last_seen_at', sa.DateTime(timezone=True), nullable=True),
     )
     op.create_index('idx_thread_guests_link', 'thread_guests', ['link_id'])
+    op.create_table(
+        'thread_guest_requests',
+        sa.Column('id', sa.Text(), primary_key=True),
+        sa.Column('link_id', sa.Text(), sa.ForeignKey('thread_guest_links.id', ondelete='CASCADE'), nullable=False),
+        sa.Column('guest_id', sa.Text(), nullable=False),
+        sa.Column('event_id', sa.Text(), nullable=False),
+        sa.Column('status', sa.Text(), nullable=False, server_default=sa.text("'pending'")),
+        sa.Column('decided_by', sa.Text(), nullable=True),
+        sa.Column('decided_at', sa.DateTime(timezone=True), nullable=True),
+        sa.Column('released_event_id', sa.Text(), nullable=True),
+        sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()')),
+    )
+    op.create_index('idx_thread_guest_requests_link', 'thread_guest_requests', ['link_id', 'status'])
     op.add_column('workspace_members', sa.Column('capabilities', JSONB(), nullable=True))
 
 
 def downgrade():
     op.drop_column('workspace_members', 'capabilities')
+    op.drop_index('idx_thread_guest_requests_link', table_name='thread_guest_requests')
+    op.drop_table('thread_guest_requests')
     op.drop_index('idx_thread_guests_link', table_name='thread_guests')
     op.drop_table('thread_guests')
     op.drop_index('idx_thread_guest_links_channel', table_name='thread_guest_links')

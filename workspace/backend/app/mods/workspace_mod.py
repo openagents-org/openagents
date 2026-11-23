@@ -2240,6 +2240,14 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if message_type in ("thinking", "status", "todos", "approval", "artifact"):
         return event
 
+    # A guest's request waiting for the owner's approval (OpenAgents Share):
+    # stored and shown now, run only when approved (it is re-posted then).
+    if (event.metadata or {}).get("share_hold"):
+        from app.services.guest_links import is_guest_source as _held_guest
+        if _held_guest(event.source):
+            event.metadata["target_agents"] = ["__no_response__"]
+            return event
+
     # An agent's failure report ends its turn; it is never a request. Routed
     # like a reply it reached another agent, whose answer @-ing the failed one
     # ran it again — with nothing counting hops, a Codex on a 429 posted an

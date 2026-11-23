@@ -12,6 +12,8 @@
   POST   /v1/guest-links/room/messages?network=         {content, idempotency_key} — post as the owner
   POST   /v1/guest-links/import  {network, target}      owner token + sign-in: move it into one of their workspaces
   POST   /v1/guest-links/relocation/accept              the launcher collects its new connection, once
+  GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
+  POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
   DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
 
@@ -141,6 +143,7 @@ def _owner_workspace(db: Session, network: str, token: Optional[str], authorizat
 
 class LinkPatch(BaseModel):
     expires_at: Optional[str] = None
+    approval_mode: Optional[str] = None
 
 
 class ClaimRequest(BaseModel):
@@ -209,7 +212,15 @@ def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depend
     if err:
         return err
     try:
-        return _ok({"link": svc.serialize_link(svc.set_expiry(db, str(workspace.id), link_id, body.expires_at))})
+        link = None
+        # Only the fields sent change: {"approval_mode": "owner"} keeps the expiry.
+        if "expires_at" in body.model_fields_set:
+            link = svc.set_expiry(db, str(workspace.id), link_id, body.expires_at)
+        if "approval_mode" in body.model_fields_set:
+            link = svc.set_approval_mode(db, str(workspace.id), link_id, body.approval_mode or "")
+        if link is None:
+            return _fail(svc.LinkError(400, "Nothing to change"))
+        return _ok({"link": svc.serialize_link(link)})
     except svc.LinkError as e:
         return _fail(e)
 
@@ -307,10 +318,23 @@ def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks
     except svc.LinkError as e:
         return _fail(e)
 
+    # The owner approves each request: the message is posted (and seen) now,
+    # but held from the agent until they decide.
+    hold_id = None
+    if svc.needs_approval(link, channel, content):
+        import uuid as _uuid
+        hold_id = str(_uuid.uuid4())
+        event.metadata["share_hold"] = hold_id
+        event.metadata["share_request"] = {"id": hold_id, "status": "pending"}
+
     posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
     if posted is None:
         db.rollback()
         return _fail(svc.LinkError(502, "Your message couldn't be delivered. Try again."))
+    if hold_id:
+        from app.models import ThreadGuestRequest
+        db.add(ThreadGuestRequest(id=hold_id, link_id=link.id, guest_id=guest.id, event_id=posted.id))
+        db.commit()
     from app.routers.sharing import _after_message_hooks
     _after_message_hooks(background_tasks, str(workspace.id), posted)
 
@@ -431,3 +455,41 @@ def accept_relocation(body: RelocationAccept, db: Session = Depends(get_db),
                                          body.relocation_id, body.session_id))
     except svc.LinkError as e:
         return _fail(e)
+
+
+class RequestDecision(BaseModel):
+    decision: str   # "approve" | "decline"
+
+
+@router.get("/guest-links/room/requests")
+def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+    """Guests' requests waiting for the owner's decision."""
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok({"requests": svc.pending_requests(db, workspace, channel)})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/room/requests/{request_id}")
+def owner_room_decide(network: str, request_id: str, body: RequestDecision, background_tasks: BackgroundTasks,
+                      db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        req, release = svc.decide_request(db, workspace, channel, request_id, body.decision, "owner",
+                                          svc.owner_name_for(db, workspace, channel))
+    except svc.LinkError as e:
+        return _fail(e)
+    if release:
+        event = Event(type="workspace.message.posted", source=release["source"], target=release["target"],
+                      payload=release["payload"], metadata=release["metadata"], visibility="channel",
+                      network=str(workspace.id))
+        posted = _emit_event_blocking(event, workspace, db, token=workspace.password_hash)
+        if posted is not None:
+            from app.models import ThreadGuestRequest
+            row = db.get(ThreadGuestRequest, req.id)
+            row.released_event_id = posted.id
+            db.commit()
+            from app.routers.sharing import _after_message_hooks
+            _after_message_hooks(background_tasks, str(workspace.id), posted)
+    return _ok({"request": svc.serialize_request(db, req)})

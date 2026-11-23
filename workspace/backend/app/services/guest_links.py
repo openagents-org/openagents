@@ -43,6 +43,7 @@ from app.models import (
     EventRecord,
     ThreadGuest,
     ThreadGuestLink,
+    ThreadGuestRequest,
     Workspace,
     WorkspaceMember,
     WorkspaceMembership,
@@ -320,6 +321,7 @@ def serialize_link(link: ThreadGuestLink) -> dict:
         "channel": link.channel_name,
         "url": guest_url(link.token),
         "canPost": bool(link.can_post),
+        "approvalMode": link.approval_mode or "none",
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "revokedAt": _aware(link.revoked_at).isoformat() if link.revoked_at else None,
         "createdAt": _aware(link.created_at).isoformat() if link.created_at else None,
@@ -435,6 +437,7 @@ def describe(db: Session, token: str, session: Optional[str]) -> dict:
         "agents": channel_agents(db, workspace, channel),
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "canPost": bool(link.can_post),
+        "approvalMode": link.approval_mode or "none",
         "guest": {"id": guest.id, "name": guest.display_name} if guest else None,
     }
 
@@ -504,7 +507,8 @@ def channel_messages(db: Session, workspace: Workspace, channel: Channel, after:
 
 # Metadata a guest may see. Everything else (routing traces, delivery
 # fingerprints, who an agent acted for) stays inside the workspace.
-_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "share_owner", "guest", "client_key", "reply_to", "in_reply_to",
+_PUBLIC_METADATA = ("share_seed", "share_seed_kind", "share_owner", "share_request", "share_request_update",
+                    "share_released_from", "guest", "client_key", "reply_to", "in_reply_to",
                     "message_kind", "attachments", "task_id", "run_id")
 _PUBLIC_PAYLOAD = ("content", "message_type", "sender_name", "sender_display_name", "sender_type", "attachments",
                    "reply_to", "quote", "status", "progress", "title")
@@ -733,6 +737,20 @@ def revoke(db: Session, workspace_id: str, link_id: str) -> ThreadGuestLink:
     return link
 
 
+APPROVAL_MODES = ("none", "owner")
+
+
+def set_approval_mode(db: Session, workspace_id: str, link_id: str, mode: str) -> ThreadGuestLink:
+    if mode not in APPROVAL_MODES:
+        raise LinkError(400, "approval_mode must be 'none' or 'owner'")
+    link = db.get(ThreadGuestLink, link_id)
+    if link is None or str(link.workspace_id) != str(workspace_id) or link.revoked_at is not None:
+        raise LinkError(404, "Link not found")
+    link.approval_mode = mode
+    db.commit()
+    return link
+
+
 def set_expiry(db: Session, workspace_id: str, link_id: str, raw: Optional[str]) -> ThreadGuestLink:
     link = db.get(ThreadGuestLink, link_id)
     if link is None or str(link.workspace_id) != str(workspace_id) or link.revoked_at is not None:
@@ -938,3 +956,89 @@ def accept_relocation(db: Session, source: Workspace, token: Optional[str], agen
     db.commit()
     return {"workspace_id": moved.get("workspaceId"), "slug": moved.get("slug"), "token": node.token,
             "agent_name": agent_name}
+
+
+# ---------------------------------------------------------------------------
+# Owner approval of guests' requests
+# ---------------------------------------------------------------------------
+
+def addressed_agents(channel: Channel, content: str) -> List[str]:
+    """The thread's agents a message addresses (@handle anywhere)."""
+    names = set(_MENTION.findall(content or ""))
+    return [p.agent_name for p in (channel.participants or []) if p.agent_name in names]
+
+
+def needs_approval(link: ThreadGuestLink, channel: Channel, content: str) -> bool:
+    return (link.approval_mode or "none") == "owner" and bool(addressed_agents(channel, content))
+
+
+def _notice(db: Session, workspace: Workspace, channel: Channel, content: str, metadata: dict) -> EventRecord:
+    """A small system line in the thread (an approval decision)."""
+    ts = int(time.time() * 1000)
+    rec = EventRecord(
+        id=str(uuid.uuid4()), network_id=str(workspace.id), type="workspace.message.posted",
+        source="system:share", target=f"channel/{channel.name}",
+        payload={"content": content, "message_type": "notice", "sender_name": "OpenAgents"},
+        metadata_={"target_agents": ["__no_response__"], **metadata}, timestamp=ts, visibility="channel",
+    )
+    db.add(rec)
+    channel.last_event_at = ts
+    return rec
+
+
+def serialize_request(db: Session, req: ThreadGuestRequest) -> dict:
+    guest = db.get(ThreadGuest, req.guest_id)
+    event = db.get(EventRecord, req.event_id)
+    return {
+        "id": req.id,
+        "status": req.status,
+        "guest": {"id": req.guest_id, "name": guest.display_name if guest else "Guest"},
+        "messageId": req.event_id,
+        "content": ((event.payload or {}).get("content") if event else "") or "",
+        "createdAt": _aware(req.created_at).isoformat() if req.created_at else None,
+        "decidedAt": _aware(req.decided_at).isoformat() if req.decided_at else None,
+    }
+
+
+def pending_requests(db: Session, workspace: Workspace, channel: Channel) -> List[dict]:
+    link_ids = [l.id for l in links_for(db, str(workspace.id), channel.name)]
+    if not link_ids:
+        return []
+    rows = db.execute(select(ThreadGuestRequest).where(
+        ThreadGuestRequest.link_id.in_(link_ids), ThreadGuestRequest.status == "pending",
+    ).order_by(ThreadGuestRequest.created_at)).scalars().all()
+    return [serialize_request(db, r) for r in rows]
+
+
+def decide_request(db: Session, workspace: Workspace, channel: Channel, request_id: str, decision: str,
+                   decided_by: str, owner_label: str):
+    """Approve (the request goes to the agent) or decline (the guest is told). Once."""
+    if decision not in ("approve", "decline"):
+        raise LinkError(400, "decision must be 'approve' or 'decline'")
+    req = db.execute(select(ThreadGuestRequest).where(ThreadGuestRequest.id == request_id)
+                     .with_for_update()).scalar_one_or_none()
+    link = db.get(ThreadGuestLink, req.link_id) if req else None
+    if (req is None or link is None or str(link.workspace_id) != str(workspace.id)
+            or link.channel_name != channel.name):
+        raise LinkError(404, "Request not found")
+    if req.status != "pending":
+        raise LinkError(409, f"This request was already {req.status}")
+    original = db.get(EventRecord, req.event_id)
+    guest = db.get(ThreadGuest, req.guest_id)
+    guest_name = guest.display_name if guest else "the guest"
+    req.status = "approved" if decision == "approve" else "declined"
+    req.decided_by = decided_by
+    req.decided_at = _now()
+    verb = "approved" if decision == "approve" else "declined"
+    _notice(db, workspace, channel, f"{owner_label} {verb} {guest_name}'s request.",
+            {"share_request_update": {"id": req.id, "messageId": req.event_id, "status": req.status}})
+    release = None
+    if decision == "approve" and original is not None and guest is not None:
+        payload = dict(original.payload or {})
+        metadata = {k: v for k, v in (original.metadata_ or {}).items()
+                    if k in ("sender_email", "guest", "guest_link_id")}
+        metadata["share_released_from"] = original.id
+        metadata["share_request"] = {"id": req.id, "status": "approved"}
+        release = {"source": original.source, "target": original.target, "payload": payload, "metadata": metadata}
+    db.commit()
+    return req, release

@@ -611,3 +611,65 @@ def test_addressing_the_agent_by_the_name_people_see_runs_it(client, db, no_push
     assert stored.metadata_.get("target_agents") == ["pr-reviewer"]
     r = _post(client, _token(data), g["session"], "thanks @claude code, and cc me@claude.code")
     assert db.get(EventRecord, r.json()["data"]["id"]).payload["content"] == "thanks @pr-reviewer, and cc me@claude.code"
+
+
+# --- owner approval of guests' requests --------------------------------------
+
+def test_owner_can_require_approval_before_a_guest_request_runs(client, db, no_push):
+    from app.models import ThreadGuestRequest
+    data = _published(client, link_expires_at=(datetime.now(timezone.utc) + timedelta(days=7)).isoformat())
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    link_id = data["link"]["id"]
+    r = client.patch(f"/v1/guest-links/{link_id}?network={data['workspaceId']}", json={"approval_mode": "owner"}, headers=owner)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["link"]["approvalMode"] == "owner"
+    assert r.json()["data"]["link"]["expiresAt"] is not None, "changing the mode keeps the expiry"
+    token = _token(data)
+    assert client.get(f"/v1/guest-links/public/{token}").json()["data"]["approvalMode"] == "owner"
+
+    g = _guest(client, token)
+    comment = _post(client, token, g["session"], "just a comment")
+    assert "share_request" not in comment.json()["data"]["metadata"], "comments need no approval"
+    asked = _post(client, token, g["session"], "@pr-reviewer review https://github.com/a/b/pull/3").json()["data"]
+    assert asked["metadata"]["share_request"]["status"] == "pending"
+    held = db.get(EventRecord, asked["id"])
+    assert held.metadata_.get("target_agents") == ["__no_response__"], "held from the agent"
+
+    pending = client.get(f"/v1/guest-links/room/requests?network={data['slug']}", headers=owner).json()["data"]["requests"]
+    assert [p["guest"]["name"] for p in pending] == ["Maya"]
+    rid = pending[0]["id"]
+    assert client.post(f"/v1/guest-links/room/requests/{rid}?network={data['slug']}", json={"decision": "approve"},
+                       headers={"X-Workspace-Token": token}).status_code == 404, "a guest can't approve"
+    ok = client.post(f"/v1/guest-links/room/requests/{rid}?network={data['slug']}", json={"decision": "approve"}, headers=owner)
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["request"]["status"] == "approved"
+    again = client.post(f"/v1/guest-links/room/requests/{rid}?network={data['slug']}", json={"decision": "decline"}, headers=owner)
+    assert again.status_code == 409, "decided once"
+
+    req = db.get(ThreadGuestRequest, rid)
+    db.refresh(req)
+    released = db.get(EventRecord, req.released_event_id)
+    assert released.metadata_.get("target_agents") == ["pr-reviewer"], "approval sends it to the agent"
+    assert released.source == held.source and released.metadata_["share_released_from"] == held.id
+    msgs = _messages(client, token)
+    note = [m for m in msgs if m["metadata"].get("share_request_update")]
+    assert note and note[-1]["payload"]["content"] == "Alex approved Maya's request."
+    assert client.get(f"/v1/guest-links/room/requests?network={data['slug']}", headers=owner).json()["data"]["requests"] == []
+
+
+def test_declined_requests_never_reach_the_agent(client, db, no_push):
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    client.patch(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", json={"approval_mode": "owner"}, headers=owner)
+    g = _guest(client, _token(data))
+    _post(client, _token(data), g["session"], "@pr-reviewer do something")
+    rid = client.get(f"/v1/guest-links/room/requests?network={data['slug']}", headers=owner).json()["data"]["requests"][0]["id"]
+    r = client.post(f"/v1/guest-links/room/requests/{rid}?network={data['slug']}", json={"decision": "decline"}, headers=owner)
+    assert r.json()["data"]["request"]["status"] == "declined"
+    routed = db.query(EventRecord).filter(EventRecord.target == f"channel/{data['channel']['name']}").all()
+    assert not any((e.metadata_ or {}).get("target_agents") == ["pr-reviewer"] for e in routed)
+    assert any("declined" in (e.payload or {}).get("content", "") for e in routed)
+    bad = client.patch(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", json={"approval_mode": "sometimes"}, headers=owner)
+    assert bad.status_code == 400

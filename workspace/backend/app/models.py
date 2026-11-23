@@ -743,6 +743,9 @@ class ThreadGuestLink(Base):
     created_by = Column(Text, nullable=False)          # "human:<email>" or "share:anonymous"
     owner_name = Column(Text, nullable=True)           # how guests see the person who shared
     can_post = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
+    # "none": a guest's request to the agent runs at once. "owner": it waits
+    # until the owner approves it (ThreadGuestRequest).
+    approval_mode = Column(Text, nullable=False, default="none", server_default=text("'none'"))
     publish_key_hash = Column(Text, unique=True, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
@@ -752,6 +755,30 @@ class ThreadGuestLink(Base):
 
     __table_args__ = (
         Index("idx_thread_guest_links_channel", "workspace_id", "channel_name"),
+    )
+
+
+class ThreadGuestRequest(Base):
+    """A guest's request to a thread's agent, waiting for the owner's decision.
+
+    Only links with approval_mode "owner" make these. The guest's message is
+    stored (and shown) at once but held from the agent; approving re-posts it
+    for the agent (``released_event_id``), declining tells the guest.
+    """
+    __tablename__ = "thread_guest_requests"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
+    guest_id = Column(Text, nullable=False)
+    event_id = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")   # pending | approved | declined
+    decided_by = Column(Text, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    released_event_id = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_thread_guest_requests_link", "link_id", "status"),
     )
 
 
