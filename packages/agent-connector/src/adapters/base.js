@@ -189,7 +189,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink, onRelocate }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -203,6 +203,10 @@ class BaseAdapter {
     // list / TUI can show the REAL failure instead of a swallowed log line. A
     // null reason means "healthy again" (clears any prior error).
     this._onStatus = typeof onStatus === 'function' ? onStatus : null;
+    // Set by the daemon: move this agent to another workspace on the same
+    // server (OpenAgents Share "add to my workspace"). Without it the agent
+    // doesn't advertise "relocate" and is never asked to move.
+    this._onRelocate = typeof onRelocate === 'function' ? onRelocate : null;
     this._lastReportedStatusKey = null;
     // Consecutive heartbeat failures — a transient single blip must not flip the
     // agent to a hard error (see HEARTBEAT_ERROR_THRESHOLD).
@@ -407,7 +411,10 @@ class BaseAdapter {
         workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
         // "guest_turns": this client runs a shared-thread guest's turn
         // read-only. The server routes guests' requests only to such clients.
-        capabilities: this.supportsGuestRuns ? ['guest_turns'] : [],
+        capabilities: [
+          ...(this.supportsGuestRuns ? ['guest_turns'] : []),
+          ...(this._onRelocate ? ['relocate'] : []),
+        ],
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
@@ -970,11 +977,44 @@ class BaseAdapter {
       await this._handleSkillInstall(payload);
     } else if (action === 'skill.uninstall') {
       await this._handleSkillUninstall(payload);
+    } else if (action === 'relocate') {
+      await this._handleRelocate(payload || {});
     } else if (action === 'model.set') {
       // Adapters read workspaceModel when (re)spawning their CLI; ones with
       // a staleness check (claude.js) respawn on the next message.
       this.workspaceModel = (payload && payload.model) || null;
       this._log(`Workspace model set to ${this.workspaceModel || '(default)'}`);
+    }
+  }
+
+  /**
+   * The workspace moved this agent's conversation into another workspace on
+   * the same server. Collect the new connection — once, proving it's this
+   * running agent with its session id — and hand it to the daemon, which
+   * rebinds the agent and restarts it there. The payload itself carries no
+   * secret; a stale or replayed action just fails to collect.
+   */
+  async _handleRelocate(payload) {
+    if (!this._onRelocate || !payload.relocation_id) return;
+    try {
+      const res = await this.client._post('/v1/guest-links/relocation/accept', {
+        network: this.workspaceId,
+        agent_name: this.agentName,
+        relocation_id: payload.relocation_id,
+        session_id: this._sessionId || null,
+      }, { 'X-Workspace-Token': this.token });
+      const data = (res && res.data) || res || {};
+      if (!data.token || !data.workspace_id) throw new Error('no connection in the reply');
+      this._log(`Moving to workspace ${data.slug || data.workspace_id}`);
+      await this._onRelocate({
+        workspaceId: data.workspace_id,
+        slug: data.slug || data.workspace_id,
+        name: payload.name || data.slug || data.workspace_id,
+        token: data.token,
+        endpoint: this.endpoint,
+      });
+    } catch (e) {
+      this._log(`relocate: failed: ${e.message}`, 'error');
     }
   }
 

@@ -1637,6 +1637,27 @@ async _runNodeCommand(n, cmd) {
   }
 
   /**
+   * Rebind an agent to another workspace on the same server and restart it
+   * there (OpenAgents Share: a shared conversation was added to one of the
+   * person's workspaces). The restart runs after the adapter's control
+   * handler returns, so the adapter isn't waiting on its own shutdown.
+   */
+  _relocateAgent(agentName, target) {
+    const current = this.config.getAgent(agentName);
+    const networks = this.config.getNetworks ? this.config.getNetworks() : [];
+    const old = current && networks.find((n) => n.slug === current.network || n.id === current.network);
+    if (old && old.endpoint && target.endpoint && old.endpoint !== target.endpoint) {
+      this._log(`relocate ${agentName}: refused, different server (${target.endpoint})`, 'error');
+      return;
+    }
+    this.config.addNetwork({ id: target.workspaceId, slug: target.slug, name: target.name,
+      endpoint: target.endpoint || (old && old.endpoint), token: target.token });
+    this.config.setAgentNetwork(agentName, target.slug);
+    this._log(`relocate ${agentName}: now in workspace ${target.slug}`);
+    setTimeout(() => { this.restartAgent(agentName).catch((e) => this._log(`relocate restart failed: ${e.message}`, 'error')); }, 0);
+  }
+
+  /**
    * Restart a single agent by name.
    */
   restartAgent(agentName) {
@@ -2126,6 +2147,7 @@ async _runNodeCommand(n, cmd) {
         seedSession: agentCfg.seed_session || null,
         // Live runtime/connectivity status → daemon.status.json (Agents list/TUI).
         onStatus: (update) => this._applyAdapterStatus(name, info, update),
+        onRelocate: (target) => this._relocateAgent(name, target),
         logSink: (level, msg) => this._logAs(`adapter [${name}]`, level, msg),
       });
     } catch (e) {
