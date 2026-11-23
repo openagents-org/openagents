@@ -59,6 +59,9 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 
 PUBLIC_WORKSPACE_SETTINGS = frozenset({
     "theme", "monitorMode", "services_enabled", "browser_enabled", "slack_browser_previews",
+    # Beta: one live SSE stream per web-app tab and wake-ups for agent
+    # connectors instead of timed polling (see app/services/agent_stream.py).
+    "realtime_stream",
 })
 # Shown to clients but set only by the server: "openagents_share" marks a
 # workspace made by OpenAgents Share (the owner sees a "keep it" banner).
@@ -485,6 +488,8 @@ def update_workspace(
             return json_response(ResponseCode.BAD_REQUEST, "Unsupported workspace settings; use the dedicated configuration fields")
         if "services_enabled" in body.settings and type(body.settings["services_enabled"]) is not bool:
             return json_response(ResponseCode.BAD_REQUEST, "services_enabled must be a boolean")
+        if "realtime_stream" in body.settings and type(body.settings["realtime_stream"]) is not bool:
+            return json_response(ResponseCode.BAD_REQUEST, "realtime_stream must be a boolean")
         # Clients only receive public settings. Replacing the entire stored map
         # with that round-trip would silently erase keys and server metadata.
         workspace.settings = {**(workspace.settings or {}), **body.settings}
@@ -512,6 +517,9 @@ def update_workspace(
 
     db.commit()
     db.refresh(workspace)
+    if body.settings and "realtime_stream" in body.settings:
+        from app.services.agent_stream import forget_workspace_settings
+        forget_workspace_settings(workspace.id)
 
     members = db.execute(
         select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace.id)

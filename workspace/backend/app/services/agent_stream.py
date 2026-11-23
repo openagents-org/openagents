@@ -24,6 +24,15 @@ Pieces:
 * ``AGENT_STREAM_WORKSPACES``: rollout allowlist of workspace ids
   (comma-separated, or ``*`` for all). Unset means off: the endpoint answers
   404 and connectors keep polling. Self-hosters can set ``*``.
+* The workspace setting ``realtime_stream`` (Settings → General →
+  Experimental) turns the same streams on for one workspace, in addition to
+  the allowlist.
+
+The web app's workspace-level stream (GET /v1/events/live) uses the same hub:
+it receives the full event feed published on ``ws:<id>:events`` (filtered per
+viewer in the endpoint) plus content-free panel topics on ``ws:<id>:ui-wake``
+("todos", "knowledge", ...), published from a commit hook over the models
+behind each panel.
 
 If Redis is unavailable or the subscription drops, every open stream gets a
 wake for both kinds (so connectors catch up with a poll), and connectors fall
@@ -48,7 +57,10 @@ logger = logging.getLogger(__name__)
 
 MESSAGE_TYPE = "workspace.message.posted"
 CONTROL_TYPE = "workspace.agent.control"
-CHANNEL_PATTERN = "ws:*:agent-wake"
+AGENT_WAKE_SUFFIX = "agent-wake"
+EVENTS_SUFFIX = "events"
+UI_WAKE_SUFFIX = "ui-wake"
+PATTERNS = ("ws:*:agent-wake", "ws:*:events", "ws:*:ui-wake")
 # Per commit, keep at most this many sources/targets; beyond it, wake everyone.
 _SUMMARY_CAP = 50
 
@@ -67,12 +79,52 @@ def configure_allowlist(raw: str) -> None:
     _ALLOW_ALL, _ALLOWED = _parse_allowlist(raw)
 
 
-def stream_enabled(workspace_id) -> bool:
-    return _ALLOW_ALL or str(workspace_id) in _ALLOWED
+def stream_enabled(workspace_id, settings: Optional[dict] = None) -> bool:
+    """Allowlisted, or the workspace turned on ``realtime_stream``."""
+    if _ALLOW_ALL or str(workspace_id) in _ALLOWED:
+        return True
+    return bool((settings or {}).get("realtime_stream") is True)
+
+
+_SETTINGS_TTL_SECONDS = 30.0
+_settings_cache: dict[str, tuple[float, dict]] = {}
+
+
+def workspace_stream_enabled(workspace_id) -> bool:
+    """``stream_enabled`` with the workspace settings loaded (sync; run in a
+    thread). Cached briefly per worker: a toggle reaches new connections
+    within 30 s, open streams re-check when they reconnect (every 5-6 min)."""
+    if _ALLOW_ALL or str(workspace_id) in _ALLOWED:
+        return True
+    import time as _time
+    key = str(workspace_id)
+    now = _time.monotonic()
+    hit = _settings_cache.get(key)
+    if hit and hit[0] > now:
+        return stream_enabled(key, hit[1])
+    from sqlalchemy import select
+    from app.database import SessionLocal
+    from app.models import Workspace
+    db = SessionLocal()
+    try:
+        settings = db.execute(select(Workspace.settings).where(Workspace.id == key)).scalar_one_or_none() or {}
+    finally:
+        db.close()
+    _settings_cache[key] = (now + _SETTINGS_TTL_SECONDS, dict(settings))
+    return stream_enabled(key, settings)
+
+
+def forget_workspace_settings(workspace_id) -> None:
+    """Drop the cached toggle (called when this worker saves the setting)."""
+    _settings_cache.pop(str(workspace_id), None)
 
 
 def wake_channel(workspace_id) -> str:
     return f"ws:{workspace_id}:agent-wake"
+
+
+def ui_wake_channel(workspace_id) -> str:
+    return f"ws:{workspace_id}:ui-wake"
 
 
 # ---------------------------------------------------------------------------
@@ -81,10 +133,10 @@ def wake_channel(workspace_id) -> str:
 
 @event.listens_for(Session, "before_flush")
 def _record_event_writes(session, flush_context, instances):
-    if not (_ALLOW_ALL or _ALLOWED):
-        return
+    # Published for every workspace (a few small messages per second in
+    # total); whether anyone may listen is decided when a stream connects.
     for row in session.new:
-        if not isinstance(row, EventRecord) or not stream_enabled(row.network_id):
+        if not isinstance(row, EventRecord):
             continue
         if row.type == MESSAGE_TYPE:
             kind = "m"
@@ -126,6 +178,105 @@ def _discard_rolled_back_wakes(session):
         session.info.pop("agent_wakes", None)
 
 
+# ---------------------------------------------------------------------------
+# Panel topics for the web app: which panels to refetch after a commit
+# ---------------------------------------------------------------------------
+
+def _ui_topic_map():
+    from app import models as m
+    # model -> (topic, workspace id attribute, attributes whose change matters
+    #           on UPDATE, or None for any change)
+    return {
+        m.KnowledgeEntry: ("knowledge", "workspace_id", None),
+        m.KnowledgeFolder: ("knowledge", "workspace_id", None),
+        m.FileRecord: ("files", "workspace_id", None),
+        m.BrowserTab: ("browser_tabs", "workspace_id", None),
+        m.BrowserContext: ("browser_contexts", "workspace_id", None),
+        m.TodoRecord: ("todos", "workspace_id", None),
+        m.KanbanTask: ("tasks", "workspace_id", None),
+        m.Workflow: ("workflows", "workspace_id", None),
+        m.WorkflowRun: ("workflows", "workspace_id", None),
+        m.RoutineRecord: ("routines", "workspace_id", None),
+        m.NotificationRecord: ("notifications", "workspace_id", None),
+        m.ApprovalRequest: ("approvals", "workspace_id", None),
+        m.Channel: ("discover", "workspace_id", None),
+        # Heartbeats rewrite these rows constantly; only membership and status
+        # changes matter to the agent list.
+        m.WorkspaceMember: ("discover", "workspace_id", ("status", "role", "agent_type")),
+        m.Node: ("discover", "workspace_id", ("status",)),
+    }
+
+
+_UI_TOPICS = None
+
+
+def _changed(row, attrs) -> bool:
+    from sqlalchemy import inspect as sa_inspect
+    state = sa_inspect(row)
+    for attr in attrs:
+        try:
+            if state.attrs[attr].history.has_changes():
+                return True
+        except KeyError:
+            continue
+    return False
+
+
+def _event_topics(row) -> tuple:
+    etype = str(row.type or "")
+    if etype.endswith(".heartbeat"):
+        return ()
+    topics = ("discover",)
+    if row.visibility == "direct":
+        topics += ("conversations",)
+    return topics
+
+
+@event.listens_for(Session, "before_flush")
+def _record_panel_writes(session, flush_context, instances):
+    global _UI_TOPICS
+    try:
+        if _UI_TOPICS is None:
+            _UI_TOPICS = _ui_topic_map()
+        pending = None
+        for bucket, rows in (("new", session.new), ("dirty", session.dirty), ("deleted", session.deleted)):
+            for row in rows:
+                if isinstance(row, EventRecord):
+                    if bucket != "new":
+                        continue
+                    topics, workspace_id = _event_topics(row), row.network_id
+                else:
+                    spec = _UI_TOPICS.get(type(row))
+                    if spec is None:
+                        continue
+                    topic, ws_attr, watched = spec
+                    if bucket == "dirty" and watched is not None and not _changed(row, watched):
+                        continue
+                    topics, workspace_id = (topic,), getattr(row, ws_attr, None)
+                if not topics or not workspace_id:
+                    continue
+                if pending is None:
+                    pending = session.info.setdefault("ui_wakes", {})
+                pending.setdefault(str(workspace_id), set()).update(topics)
+    except Exception as e:  # never break a write over a UI hint
+        logger.debug("agent-stream: panel topic bookkeeping failed: %s", e)
+
+
+@event.listens_for(Session, "after_commit")
+def _publish_panel_wakes(session):
+    if session.in_nested_transaction():
+        return
+    for workspace_id, topics in session.info.pop("ui_wakes", {}).items():
+        cache.publish_event(ui_wake_channel(workspace_id), json.dumps(
+            {"topics": sorted(topics)}, separators=(",", ":")).encode())
+
+
+@event.listens_for(Session, "after_rollback")
+def _discard_panel_wakes(session):
+    if not session.in_nested_transaction():
+        session.info.pop("ui_wakes", None)
+
+
 def kinds_for(summary: Optional[dict], agent_address: str) -> set:
     """Which polls ``agent_address`` (``openagents:<name>``) should run.
 
@@ -152,13 +303,29 @@ def kinds_for(summary: Optional[dict], agent_address: str) -> set:
 # ---------------------------------------------------------------------------
 
 class Subscription:
-    """One open stream: accumulated wake kinds plus an event to wait on."""
+    """An agent's stream: accumulated wake kinds plus an event to wait on."""
 
     def __init__(self, workspace_id: str, agent_address: str):
         self.workspace_id = workspace_id
         self.agent_address = agent_address
         self.kinds: set = set()
         self._ready = asyncio.Event()
+
+    def deliver(self, suffix: str, data: Optional[bytes]) -> None:
+        if suffix != AGENT_WAKE_SUFFIX:
+            return
+        summary = None
+        if data is not None:
+            try:
+                summary = json.loads(data)
+                if not isinstance(summary, dict):
+                    summary = None
+            except Exception:
+                summary = None
+        self.notify(summary)
+
+    def resync(self) -> None:
+        self.notify(None)
 
     def notify(self, summary: Optional[dict]) -> None:
         kinds = kinds_for(summary, self.agent_address)
@@ -177,19 +344,76 @@ class Subscription:
         return kinds
 
 
+class LiveSubscription:
+    """A browser tab's workspace stream: raw events (filtered later by the
+    endpoint) plus panel topics. Bounded: if a tab falls far behind it gets one
+    ``resync`` instead of an unbounded backlog, and catches up by polling."""
+
+    MAX_EVENTS = 500
+
+    def __init__(self, workspace_id: str):
+        self.workspace_id = workspace_id
+        self.events: list = []
+        self.topics: set = set()
+        self.needs_resync = False
+        self._ready = asyncio.Event()
+
+    def deliver(self, suffix: str, data: Optional[bytes]) -> None:
+        if suffix == EVENTS_SUFFIX and data is not None:
+            if len(self.events) >= self.MAX_EVENTS:
+                self.events.clear()
+                self.needs_resync = True
+            else:
+                self.events.append(data)
+        elif suffix == UI_WAKE_SUFFIX and data is not None:
+            try:
+                topics = json.loads(data).get("topics") or []
+                self.topics.update(str(t) for t in topics)
+            except Exception:
+                return
+        else:
+            return
+        self._ready.set()
+
+    def resync(self) -> None:
+        self.events.clear()
+        self.needs_resync = True
+        self._ready.set()
+
+    async def wait(self, timeout: float):
+        """``(events, topics, resync)`` since the last call; empty on timeout."""
+        try:
+            await asyncio.wait_for(self._ready.wait(), timeout)
+        except asyncio.TimeoutError:
+            return [], set(), False
+        self._ready.clear()
+        events, self.events = self.events, []
+        topics, self.topics = self.topics, set()
+        resync, self.needs_resync = self.needs_resync, False
+        return events, topics, resync
+
+
 class WakeHub:
+    """One Redis pattern subscription per worker process, fanned out in memory
+    to that worker's open agent and browser streams."""
+
     def __init__(self):
-        self._subs: dict[str, set[Subscription]] = {}
+        self._subs: dict[str, set] = {}
         self._task: Optional[asyncio.Task] = None
 
-    def subscribe(self, workspace_id: str, agent_address: str) -> Subscription:
-        sub = Subscription(str(workspace_id), agent_address)
+    def _add(self, sub):
         self._subs.setdefault(sub.workspace_id, set()).add(sub)
         if self._task is None or self._task.done():
             self._task = asyncio.get_running_loop().create_task(self._run())
         return sub
 
-    def unsubscribe(self, sub: Subscription) -> None:
+    def subscribe(self, workspace_id: str, agent_address: str) -> Subscription:
+        return self._add(Subscription(str(workspace_id), agent_address))
+
+    def subscribe_live(self, workspace_id: str) -> LiveSubscription:
+        return self._add(LiveSubscription(str(workspace_id)))
+
+    def unsubscribe(self, sub) -> None:
         subs = self._subs.get(sub.workspace_id)
         if subs is not None:
             subs.discard(sub)
@@ -200,27 +424,22 @@ class WakeHub:
         return sum(len(subs) for subs in self._subs.values())
 
     def _dispatch(self, channel: bytes, data: bytes) -> None:
-        # channel = b"ws:<workspace id>:agent-wake"
+        # channel = b"ws:<workspace id>:<suffix>"; only routing here, no
+        # decoding unless this worker has a stream for the workspace.
         try:
-            workspace_id = channel.decode().split(":", 2)[1]
+            _, workspace_id, suffix = channel.decode().split(":", 2)
         except Exception:
             return
         subs = self._subs.get(workspace_id)
         if not subs:
             return
-        try:
-            summary = json.loads(data)
-            if not isinstance(summary, dict):
-                summary = None
-        except Exception:
-            summary = None
         for sub in list(subs):
-            sub.notify(summary)
+            sub.deliver(suffix, data)
 
     def _wake_all(self) -> None:
         for subs in list(self._subs.values()):
             for sub in list(subs):
-                sub.notify(None)
+                sub.resync()
 
     async def _run(self) -> None:
         delay = 1.0
@@ -231,8 +450,8 @@ class WakeHub:
                 if client is None:
                     raise RuntimeError("redis unavailable")
                 pubsub = client.pubsub()
-                await pubsub.psubscribe(CHANNEL_PATTERN)
-                # Wakes published while we were not subscribed are lost.
+                await pubsub.psubscribe(*PATTERNS)
+                # Anything published while we were not subscribed is lost.
                 self._wake_all()
                 delay = 1.0
                 while self._subs:
@@ -249,7 +468,7 @@ class WakeHub:
             finally:
                 if pubsub is not None:
                     try:
-                        await pubsub.punsubscribe(CHANNEL_PATTERN)
+                        await pubsub.punsubscribe(*PATTERNS)
                         await pubsub.close()
                     except Exception:
                         pass

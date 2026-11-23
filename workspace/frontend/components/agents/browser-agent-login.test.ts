@@ -105,3 +105,37 @@ it('keeps the same sign-in command after a transient status request failure', as
   expect(host.querySelector('[role="alert"]')).toBeNull();
   expect(vi.mocked(api.enqueueNodeCommand).mock.calls.filter(call => call[1] === 'login_status')).toHaveLength(1);
 });
+
+it('accepts only each agent\'s own sign-in page, per account for OpenCode', () => {
+  expect(safeLoginUrl('cursor', 'https://cursor.com/loginDeepControl?challenge=a&uuid=b')).toBe('https://cursor.com/loginDeepControl?challenge=a&uuid=b');
+  expect(safeLoginUrl('cursor', 'https://cursor.com.evil.example/loginDeepControl')).toBeUndefined();
+  expect(safeLoginUrl('cursor', 'https://cursor.com/settings')).toBeUndefined();
+  expect(safeLoginUrl('opencode', 'https://auth.openai.com/codex/device', 'chatgpt')).toBe('https://auth.openai.com/codex/device');
+  expect(safeLoginUrl('opencode', 'https://github.com/login/device', 'copilot')).toBe('https://github.com/login/device');
+  expect(safeLoginUrl('opencode', 'https://github.com/login/device', 'chatgpt')).toBeUndefined();
+  expect(safeLoginUrl('opencode', 'https://auth.openai.com/codex/device')).toBeUndefined();
+  expect(safeLoginUrl('deepseek', 'https://platform.deepseek.com/')).toBeUndefined();
+});
+
+it('starts OpenCode with the chosen account, shows its code, and reports failure', async () => {
+  let status = 'waiting';
+  const onFailed = vi.fn();
+  const api = {
+    enqueueNodeCommand: vi.fn(async (_node, next) => ({ commandId: next })),
+    listNodeCommands: vi.fn(async () => [{ commandId: 'login_start', status: 'done', result: { ok: true, data: {
+      sessionId: 'session', type: 'opencode', method: 'copilot', status, expiresAt: Date.now() + 60_000, url: 'https://github.com/login/device', code: 'EA15-212B',
+    } } }, { commandId: 'login_status', status: 'done', result: { ok: true, data: {
+      sessionId: 'session', type: 'opencode', status, expiresAt: Date.now() + 60_000,
+    } } }]),
+  } as unknown as AgentSetupApi;
+  await act(async () => root.render(React.createElement(BrowserAgentLogin, { api, nodeId: 'n1', type: 'opencode', method: 'copilot', agent: 'OpenCode', onSignedIn: vi.fn(), onFailed })));
+  await act(async () => host.querySelector('button')!.click());
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'login_start', { type: 'opencode', method: 'copilot' });
+  expect(host.querySelector('a')?.getAttribute('href')).toBe('https://github.com/login/device');
+  expect(host.textContent).toContain('EA15-212B');
+  expect(host.querySelector('#agent-login-code')).toBeNull();
+  expect(onFailed).not.toHaveBeenCalled();
+  status = 'failed';
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(onFailed).toHaveBeenCalledOnce();
+});

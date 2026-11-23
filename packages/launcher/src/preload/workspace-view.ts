@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron"
 import { DEFAULT_THEME_MODE, WORKSPACE_THEME_KEY } from "../shared/appearance-bridge"
+import { WORKSPACE_HOST_API, type WorkspaceBundleUpdate } from "../shared/workspace-bundle"
 
 /**
  * Preload for the workspace the launcher hosts — the only thing that crosses
@@ -56,6 +57,8 @@ interface HostConfig {
   locale: string
   /** Which page this view holds — see shared/workspace-view's WorkspaceViewScope. */
   scope?: { kind: "home" } | { kind: "workspace"; aliases: string[] } | null
+  /** A downloaded bundle already waiting for this page to refresh onto it. */
+  bundleUpdate?: WorkspaceBundleUpdate | null
 }
 
 let config: HostConfig | null = null
@@ -106,6 +109,15 @@ ipcRenderer.on("workspace-view:session", (_e, session: EmbeddedSession) => {
  */
 const aliases = new Set(config?.scope?.kind === "workspace" ? config.scope.aliases : [])
 
+/**
+ * The newest bundle update on offer, kept so a page that subscribes after the
+ * announcement — or loads after it — still hears about it.
+ */
+let bundleUpdate: WorkspaceBundleUpdate | null = config?.bundleUpdate ?? null
+ipcRenderer.on("workspace-view:bundle-update", (_e, update: WorkspaceBundleUpdate | null) => {
+  bundleUpdate = update
+})
+
 function subscribe<T>(channel: string, callback: (value: T) => void): () => void {
   const handler = (_e: unknown, value: T): void => callback(value)
   ipcRenderer.on(channel, handler)
@@ -119,6 +131,24 @@ function subscribe<T>(channel: string, callback: (value: T) => void): () => void
  * Shared components use it only when present; the web app keeps its own behavior.
  */
 contextBridge.exposeInMainWorld("__oaHost__", {
+  /**
+   * Which version of this bridge the page is talking to — see
+   * shared/workspace-bundle. A bundle can be newer than the launcher running
+   * it, so anything added after version 1 must be checked for before use.
+   */
+  hostApi: WORKSPACE_HOST_API,
+  /** The page started. Proves a freshly downloaded bundle works on this launcher. */
+  bundleReady: () => ipcRenderer.send("workspace-view:bundle-ready"),
+  /**
+   * A newer bundle is ready; null when the offer is withdrawn. Called at once
+   * with an offer already standing. Returns an unsubscribe function.
+   */
+  onBundleUpdate: (callback: (update: WorkspaceBundleUpdate | null) => void) => {
+    if (bundleUpdate) callback(bundleUpdate)
+    return subscribe("workspace-view:bundle-update", callback)
+  },
+  /** Switch to the newer bundle. The launcher reloads every page onto it. */
+  applyBundleUpdate: () => ipcRenderer.send("workspace-view:bundle-apply"),
   openComputer: () => ipcRenderer.send("workspace-view:open-computer"),
   signIn: () => ipcRenderer.send("workspace-view:sign-in"),
   signOut: () => ipcRenderer.send("workspace-view:sign-out"),

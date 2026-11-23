@@ -15,6 +15,7 @@ import { webBase } from "./endpoints"
 import type { AccountInfo } from "./session-store"
 import type { NodeStatus } from "../agent-manager"
 import { pushNotification } from "../notifications"
+import type { WorkspaceBundleUpdater } from "../bundle-ota/updater"
 
 /**
  * The account's IPC surface, kept out of index.ts.
@@ -48,6 +49,8 @@ export interface AccountIpcDeps {
    * for it is picked up at once instead of on the next 10s tick.
    */
   nudgeNode: () => void
+  /** Keeps the Workspace bundle current. Absent when nothing updates it (tests). */
+  bundles?: Pick<WorkspaceBundleUpdater, "attach" | "pending" | "apply" | "pageReady" | "pageStarted" | "pageGone">
 }
 
 const NOTICE_TYPES = new Set(["info", "success", "error", "warning"])
@@ -97,9 +100,11 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
     // Main owns the tabs, so a renderer that reloads asks for them again
     // rather than losing track of pages that are still open.
     onTabsChanged: (snapshot) => deps.getWindow()?.webContents.send("workspace-tabs:changed", snapshot),
+    bundle: deps.bundles,
   })
 
   workspaceHost = host
+  deps.bundles?.attach(host)
 
   // The renderer is the only thing that talks to the widget; main just
   // forwards a ticket/randstr pair and only when it is well-formed.
@@ -234,6 +239,14 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
   ipcMain.on("workspace-view:nudge-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.nudgeNode()
   })
+  // A page loaded from a downloaded bundle proving it started, and the user
+  // accepting the refresh onto a newer one. See bundle-ota/updater.
+  ipcMain.on("workspace-view:bundle-ready", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.bundles?.pageReady(event.sender.id)
+  })
+  ipcMain.on("workspace-view:bundle-apply", (event) => {
+    if (host.isWorkspaceSender(event.sender)) deps.bundles?.apply()
+  })
   ipcMain.on("workspace-view:open-computer", (event) => {
     if (host.isWorkspaceSender(event.sender)) deps.getWindow()?.webContents.send("workspace:open-computer")
   })
@@ -306,6 +319,7 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       theme,
       locale: toWorkspaceLocale(language),
       scope: host.scopeFor(event.sender),
+      bundleUpdate: deps.bundles?.pending() ?? null,
     }
   })
 

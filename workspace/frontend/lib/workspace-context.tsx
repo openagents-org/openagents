@@ -22,6 +22,8 @@ import { threadUnreadState } from './thread-unread';
 import { adoptRemoteMarkers, queueRead } from './read-state';
 import { unreadCutoffMs } from './unread-window';
 import { useDiscoveryPolling } from '@/hooks/use-discovery-polling';
+import { LiveStream, type LiveState } from '@/lib/live-stream';
+import { LiveStreamContext } from '@/lib/live-stream-context';
 import { forgetWorkspaceSnapshot, readWorkspaceSnapshot, snapshotKey, writeWorkspaceSnapshot, type WorkspaceSnapshot } from './workspace-snapshot';
 import { groupSignals, withoutLocallyRead, type UnreadSignals } from './signals';
 import type { PendingUpload } from '@/hooks/use-upload-queue';
@@ -918,7 +920,7 @@ export function WorkspaceProvider({
   const refreshSignalsRef = useRef<() => Promise<void>>(async () => {});
 
   /** Refresh agents and channels from the discover endpoint. */
-  const refreshDiscovery = useCallback(async () => {
+  const refreshDiscovery = useCallback(async (opts?: { panels?: boolean }) => {
     try {
       const discovery = await workspaceApi.discover(lastReadRef.current);
       const nextAgents = discovery.agents.map(networkAgentToWorkspaceAgent);
@@ -1121,37 +1123,41 @@ export function WorkspaceProvider({
         }
       }
 
-      // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
-      //
-      // The file list is the expensive one: a page per 200 files, re-listed
-      // in full. Every 5 s while agents work, on a workspace with thousands of
-      // files, that kept the network busy and re-rendered the whole app each
-      // time. Explicit refreshFiles() calls (uploads, deletes, the refresh
-      // button) are not throttled; only this background poll is.
-      // Unchanged lists keep their old array (keepIfSame), so a poll that
-      // finds nothing new re-renders nothing.
-      if (Date.now() - filesPolledAtRef.current >= FILES_POLL_INTERVAL_MS) {
-        filesPolledAtRef.current = Date.now();
-        const filesEpoch = filesEpochRef.current;
-        workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch, r.storage)).catch(() => {});
+      // With the live stream connected, panels refresh on their own wake-up
+      // topics and this tick skips them (see the live stream effect below).
+      if (opts?.panels !== false) {
+        // Also refresh files, browser tabs, persistent contexts, and DM conversations so sidebar counts stay current
+        //
+        // The file list is the expensive one: a page per 200 files, re-listed
+        // in full. Every 5 s while agents work, on a workspace with thousands of
+        // files, that kept the network busy and re-rendered the whole app each
+        // time. Explicit refreshFiles() calls (uploads, deletes, the refresh
+        // button) are not throttled; only this background poll is.
+        // Unchanged lists keep their old array (keepIfSame), so a poll that
+        // finds nothing new re-renders nothing.
+        if (Date.now() - filesPolledAtRef.current >= FILES_POLL_INTERVAL_MS) {
+          filesPolledAtRef.current = Date.now();
+          const filesEpoch = filesEpochRef.current;
+          workspaceApi.listFiles().then((r) => commitFiles(r.files, filesEpoch, r.storage)).catch(() => {});
+        }
+        workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(prev => keepIfSame(prev, r.tabs)); if (r.limits) setBrowserTabLimits(prev => keepIfSame(prev, r.limits!)); }).catch(() => {});
+        workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(prev => keepIfSame(prev, r.contexts))).catch(() => {});
+        workspaceApi.listConversations(undefined, lastReadRef.current).then(receiveDMConversations).catch(() => {});
+        workspaceApi.listTodos().then((r) => setTodos(prev => keepIfSame(prev, r.todos))).catch(() => {});
+        workspaceApi.listTasks().then((r) => setTasks(prev => keepIfSame(prev, r.tasks))).catch(() => {});
+        workspaceApi.listWorkflows().then((r) => setWorkflows(prev => keepIfSame(prev, r.workflows))).catch(() => {});
+        workspaceApi.listRoutines().then((r) => setRoutines(prev => keepIfSame(prev, r.routines))).catch(() => {});
+        workspaceApi.listKnowledge().then((r) => setKnowledge(prev => keepIfSame(prev, r.entries))).catch(() => {});
+        workspaceApi.listNotifications().then((r) => {
+          setNotifications(r.notifications);
+          setNotificationsLoaded(true);
+          setUnreadNotificationCount(r.unreadCount);
+        }).catch(() => {});
+        workspaceApi.listApprovals({ status: 'pending' }).then((r) => {
+          setPendingApprovals(r.approvals);
+          setPendingApprovalsByAgent(r.pendingByAgent);
+        }).catch(() => {});
       }
-      workspaceApi.listBrowserTabs().then((r) => { setBrowserTabs(prev => keepIfSame(prev, r.tabs)); if (r.limits) setBrowserTabLimits(prev => keepIfSame(prev, r.limits!)); }).catch(() => {});
-      workspaceApi.listBrowserContexts().then((r) => setBrowserContexts(prev => keepIfSame(prev, r.contexts))).catch(() => {});
-      workspaceApi.listConversations(undefined, lastReadRef.current).then(receiveDMConversations).catch(() => {});
-      workspaceApi.listTodos().then((r) => setTodos(prev => keepIfSame(prev, r.todos))).catch(() => {});
-      workspaceApi.listTasks().then((r) => setTasks(prev => keepIfSame(prev, r.tasks))).catch(() => {});
-      workspaceApi.listWorkflows().then((r) => setWorkflows(prev => keepIfSame(prev, r.workflows))).catch(() => {});
-      workspaceApi.listRoutines().then((r) => setRoutines(prev => keepIfSame(prev, r.routines))).catch(() => {});
-      workspaceApi.listKnowledge().then((r) => setKnowledge(prev => keepIfSame(prev, r.entries))).catch(() => {});
-      workspaceApi.listNotifications().then((r) => {
-        setNotifications(r.notifications);
-        setNotificationsLoaded(true);
-        setUnreadNotificationCount(r.unreadCount);
-      }).catch(() => {});
-      workspaceApi.listApprovals({ status: 'pending' }).then((r) => {
-        setPendingApprovals(r.approvals);
-        setPendingApprovalsByAgent(r.pendingByAgent);
-      }).catch(() => {});
       void refreshSignalsRef.current();
     } catch {
       // Non-critical — keep existing state
@@ -1160,6 +1166,8 @@ export function WorkspaceProvider({
 
   // Alias for backward compat
   const refreshAgents = refreshDiscovery;
+  const refreshDiscoveryRef = React.useRef(refreshDiscovery);
+  refreshDiscoveryRef.current = refreshDiscovery;
 
   const refreshFiles = useCallback(async () => {
     const epoch = filesEpochRef.current;
@@ -1958,7 +1966,78 @@ export function WorkspaceProvider({
   const hasActiveAgentsRef = React.useRef(false);
   hasActiveAgentsRef.current = Object.values(lastMessageBySession).some((m) => m.isStatus);
 
-  useDiscoveryPolling(refreshDiscovery, !loading && !error, hasActiveAgentsRef);
+  // Live stream (beta, workspace setting "realtime_stream"): one connection per
+  // tab carries thread/DM events and panel wake-ups. While it is live the
+  // discovery tick becomes a slow safety refresh; otherwise nothing changes.
+  const realtimeEnabled = workspace?.settings?.realtime_stream === true;
+  const [liveStream, setLiveStream] = useState<LiveStream | null>(null);
+  const [liveState, setLiveState] = useState<LiveState>('stopped');
+  const liveActiveRef = React.useRef(false);
+  liveActiveRef.current = liveState === 'live';
+  useEffect(() => {
+    if (!apiReady || !realtimeEnabled) {
+      setLiveStream(null);
+      setLiveState('stopped');
+      return;
+    }
+    const stream = new LiveStream({ request: () => workspaceApi.getLiveStreamRequest() });
+    const offState = stream.onState(setLiveState);
+    const onVisible = () => { if (document.visibilityState === 'visible') stream.kick(); };
+    document.addEventListener('visibilitychange', onVisible);
+    stream.start();
+    setLiveStream(stream);
+    return () => {
+      offState();
+      document.removeEventListener('visibilitychange', onVisible);
+      stream.stop();
+    };
+  }, [apiReady, realtimeEnabled, workspaceId, token, bearerToken]);
+
+  const panelRefreshersRef = React.useRef<Record<string, () => unknown>>({});
+  panelRefreshersRef.current = {
+    discover: () => refreshDiscovery({ panels: false }),
+    conversations: refreshDMConversations,
+    todos: refreshTodos,
+    tasks: refreshTasks,
+    workflows: refreshWorkflows,
+    routines: refreshRoutines,
+    knowledge: refreshKnowledge,
+    notifications: refreshNotifications,
+    approvals: refreshApprovals,
+    files: refreshFiles,
+    browser_tabs: refreshBrowserTabs,
+    browser_contexts: refreshBrowserContexts,
+  };
+  useEffect(() => {
+    if (!liveStream) return;
+    // Coalesce bursts (an agent posting status lines every second) into at
+    // most one refetch per topic every few seconds.
+    const MIN_GAP_MS: Record<string, number> = { discover: 3_000 };
+    const lastRun: Record<string, number> = {};
+    const timers: Record<string, ReturnType<typeof setTimeout>> = {};
+    const run = (topic: string) => {
+      delete timers[topic];
+      lastRun[topic] = Date.now();
+      try { void panelRefreshersRef.current[topic]?.(); } catch { /* best effort */ }
+    };
+    const offWake = liveStream.onWake((topics) => {
+      for (const topic of topics) {
+        if (!panelRefreshersRef.current[topic] || timers[topic]) continue;
+        const gap = MIN_GAP_MS[topic] ?? 1_500;
+        const wait = Math.max(500, (lastRun[topic] ?? 0) + gap - Date.now());
+        timers[topic] = setTimeout(() => run(topic), wait);
+      }
+    });
+    // Reconnected or told it may have missed something: refresh everything once.
+    const offSync = liveStream.onResync(() => { void refreshDiscoveryRef.current(); });
+    return () => {
+      offWake();
+      offSync();
+      Object.values(timers).forEach(clearTimeout);
+    };
+  }, [liveStream]);
+
+  useDiscoveryPolling(refreshDiscovery, !loading && !error, hasActiveAgentsRef, liveActiveRef);
 
   const createSession = useCallback(async (opts?: { title?: string; titleManuallySet?: boolean; master?: string; participants?: string[]; humanParticipants?: string[]; resumeFrom?: string; visibility?: ChannelVisibility; directorEmail?: string; groups?: string[] }) => {
     // Only set a channel leader when one is explicitly requested (e.g. the
@@ -2215,6 +2294,7 @@ export function WorkspaceProvider({
   }, [refreshDiscovery]);
 
   return (
+    <LiveStreamContext.Provider value={{ stream: liveStream, state: liveState }}>
     <WorkspaceContext.Provider
       value={{
         workspace,
@@ -2353,5 +2433,6 @@ export function WorkspaceProvider({
     >
       {children}
     </WorkspaceContext.Provider>
+    </LiveStreamContext.Provider>
   );
 }

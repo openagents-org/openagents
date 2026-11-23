@@ -26,7 +26,7 @@ let host: HTMLDivElement;
 beforeEach(() => { seal.mockReset(); seal.mockImplementation(async (_api, _node, _action, args) => { const { apiKey, config, ...rest } = args; return { ...rest, encryptedCredentials: { ciphertext: 'sealed' } }; }); });
 afterEach(async () => { if (root) await act(async () => root.unmount()); host?.remove(); });
 
-async function open({ signedIn = false, type = 'codex', detailFails = false, detailPending = false, deviceModels = [], browserLogin = false, installed = true, existingNames = [] }: { signedIn?: boolean; type?: string; detailFails?: boolean; detailPending?: boolean; deviceModels?: { id: string; label: string }[]; browserLogin?: boolean; installed?: boolean; existingNames?: string[] } = {}) {
+async function open({ signedIn = false, type = 'codex', detailFails = false, detailPending = false, deviceModels = [], browserLogin = false, installed = true, existingNames = [], loginCommand, browserLoginMethods, listNodeCommands }: { signedIn?: boolean; type?: string; detailFails?: boolean; detailPending?: boolean; deviceModels?: { id: string; label: string }[]; browserLogin?: boolean; installed?: boolean; existingNames?: string[]; loginCommand?: string; browserLoginMethods?: string[]; listNodeCommands?: () => Promise<unknown> } = {}) {
   host = document.createElement('div'); document.body.appendChild(host); root = createRoot(host);
   const detail = {
     name: type, label: type, models: [{ id: 'gpt-6', label: 'GPT-6' }],
@@ -35,10 +35,10 @@ async function open({ signedIn = false, type = 'codex', detailFails = false, det
   } as unknown as AgentCatalogDetail;
   const api = {
     getAgentCatalogDetail: detailPending ? vi.fn(() => new Promise<AgentCatalogDetail>(() => {})) : detailFails ? vi.fn().mockRejectedValue(new Error('Unavailable')) : vi.fn().mockResolvedValue(detail),
-    listModelAccess: vi.fn().mockResolvedValue([]), listNodeCommands: vi.fn(),
+    listModelAccess: vi.fn().mockResolvedValue([]), listNodeCommands: listNodeCommands ? vi.fn(listNodeCommands) : vi.fn(),
     enqueueNodeCommand: vi.fn().mockResolvedValue({ commandId: 'c1' }),
   } as unknown as AgentSetupApi;
-  const node = { nodeId: 'n1', name: 'My server', launcherVersion: '0.2.230', agents: existingNames.map(name => ({ name, type })), runtimes: [{ type, installed, ready: signedIn, signedIn, browserLogin, loginCommand: type === 'codex' ? 'codex login' : type === 'claude' ? 'claude auth login' : undefined, cliModels: deviceModels }] } as unknown as WorkspaceNode;
+  const node = { nodeId: 'n1', name: 'My server', launcherVersion: '0.2.230', agents: existingNames.map(name => ({ name, type })), runtimes: [{ type, installed, ready: signedIn, signedIn, browserLogin, browserLoginMethods, loginCommand: loginCommand ?? (type === 'codex' ? 'codex login' : type === 'claude' ? 'claude auth login' : undefined), cliModels: deviceModels }] } as unknown as WorkspaceNode;
   const onQueued = vi.fn();
   await act(async () => root.render(React.createElement(AgentSetup, { node, catalog: [{ name: type, label: type } as AgentCatalogEntry], initialType: type, api, extensions: { guided: true }, onBack: () => {}, onChanged: () => {}, onQueued })));
   return { api, onQueued };
@@ -256,4 +256,89 @@ it('offers browser sign-in before Codex is installed and waits for authenticatio
   expect(host.textContent).toContain('Install and sign in to Codex');
   expect(host.querySelector('code')).toBeNull();
   expect(host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!.disabled).toBe(true);
+});
+
+const codes = () => [...host.querySelectorAll('code')].map((c) => c.textContent);
+
+it('keeps a terminal sign-in one click away under the browser link', async () => {
+  await open({ browserLogin: true, loginCommand: 'agn login codex' });
+  await choose('subscription');
+  expect(host.querySelector('[data-testid="manual-sign-in"]')).toBeNull();
+  await click(messages.agentSetup.manualToggle);
+  expect(host.querySelector('[data-testid="manual-sign-in"]')).toBeTruthy();
+  // The device's own command first, then the CLI's for a device without agn on PATH.
+  expect(codes()).toEqual(['agn login codex', 'codex login --device-auth']);
+  expect(host.textContent).toContain(messages.agentSetup.manualTip.codex);
+  await click(messages.agentSetup.manualUseKey);
+  expect(host.querySelector('#setup-api-key')).toBeTruthy();
+  expect(host.querySelector('[data-testid="agent-setup-key-link"] a')?.getAttribute('href')).toBe('https://platform.openai.com/api-keys');
+});
+
+it('opens the terminal sign-in when the browser link fails', async () => {
+  const { api } = await open({ browserLogin: true, listNodeCommands: async () => [{ commandId: 'c1', status: 'error', result: { ok: false } }] });
+  await choose('subscription');
+  await click('Sign in to Codex');
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'login_start', { type: 'codex' });
+  expect(host.textContent).toContain(messages.agentSetup.browserLoginFailed);
+  expect(host.querySelector('[data-testid="manual-sign-in"]')).toBeTruthy();
+});
+
+it('lets the user add a not-yet-installed agent and sign in from the terminal', async () => {
+  await open({ browserLogin: true, installed: false });
+  await choose('subscription');
+  expect(host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!.disabled).toBe(true);
+  await click(messages.agentSetup.manualToggle);
+  expect(host.textContent).toContain('Add the agent first');
+  expect(host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!.disabled).toBe(false);
+});
+
+it('asks which account OpenCode should sign in to and sends that choice', async () => {
+  const { api } = await open({ type: 'opencode', browserLogin: true, loginCommand: 'agn login opencode', browserLoginMethods: ['chatgpt', 'copilot'] });
+  await choose('subscription');
+  const chatgpt = host.querySelector<HTMLButtonElement>('[data-testid="agent-login-method-chatgpt"]')!;
+  expect(chatgpt.getAttribute('data-state')).toBe('on');
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="agent-login-method-copilot"]')!.click());
+  await click('Sign in to opencode');
+  expect(api.enqueueNodeCommand).toHaveBeenCalledWith('n1', 'login_start', { type: 'opencode', method: 'copilot' });
+});
+
+it('leaves an account choice this page does not know to the terminal', async () => {
+  await open({ type: 'opencode', browserLogin: true, loginCommand: 'agn login opencode', browserLoginMethods: ['someday'] });
+  await choose('subscription');
+  expect(host.querySelector('[data-testid="browser-agent-login"]')).toBeNull();
+  expect(codes()).toEqual(['agn login opencode', 'opencode auth login']);
+});
+
+it('shows step-by-step terminal sign-in for agents without a browser link', async () => {
+  await open({ type: 'hermes', loginCommand: 'agn login hermes' });
+  await choose('subscription');
+  expect(host.querySelector('[data-testid="manual-sign-in"]')).toBeTruthy();
+  expect(codes()).toEqual(['agn login hermes', 'hermes setup']);
+  expect(host.textContent).toContain(messages.agentSetup.manualTip.hermes);
+});
+
+it('points DeepSeek, which has no sign-in, to where its keys come from', async () => {
+  await open({ type: 'deepseek' });
+  await next();
+  expect(host.querySelector('[data-testid="agent-setup-auth-subscription"]')).toBeNull();
+  await choose('key');
+  expect(host.querySelector('[data-testid="agent-setup-key-link"] a')?.getAttribute('href')).toBe('https://platform.deepseek.com/api_keys');
+});
+
+it('puts the API key first for OpenCode and names its sign-in as another product\'s plan', async () => {
+  await open({ type: 'opencode', browserLogin: true, loginCommand: 'agn login opencode', browserLoginMethods: ['chatgpt', 'copilot'] });
+  await next();
+  const ids = [...host.querySelectorAll('[data-testid^="agent-setup-auth-"]')].map((el) => el.getAttribute('data-testid')).filter((id) => /-(key|subscription|later)$/.test(id!));
+  expect(ids).toEqual(['agent-setup-auth-key', 'agent-setup-auth-subscription', 'agent-setup-auth-later']);
+  expect(host.querySelector('#setup-api-key')).toBeTruthy();
+  expect(host.textContent).toContain(messages.agentSetup.subscriptionPlan);
+  expect(host.textContent).not.toContain(messages.agentSetup.subscriptionHint);
+});
+
+it('keeps the subscription first for Codex', async () => {
+  await open();
+  await next();
+  const ids = [...host.querySelectorAll('[data-testid^="agent-setup-auth-"]')].map((el) => el.getAttribute('data-testid')).filter((id) => /-(key|subscription|later)$/.test(id!));
+  expect(ids[0]).toBe('agent-setup-auth-subscription');
+  expect(host.querySelector('#setup-api-key')).toBeNull();
 });

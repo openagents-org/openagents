@@ -179,3 +179,40 @@ it('does not leave the old loop running when a refocus restarts polling', async 
   expect(h.dm.mock.calls.length - start).toBe(1);   // a leaked loop would poll here too
   await act(async () => root.unmount());
 });
+
+it('uses the workspace live stream instead of its own stream or polling, for threads and DMs', async () => {
+  const { LiveStreamContext } = await import('@/lib/live-stream-context');
+  const eventFns = new Set<(e: Record<string, unknown>) => void>();
+  const stream = {
+    onEvent: (fn: (e: Record<string, unknown>) => void) => { eventFns.add(fn); return () => eventFns.delete(fn); },
+    onResync: () => () => {},
+  };
+  const host = document.createElement('div');
+  root = createRoot(host);
+  function View({ sessionId }: { sessionId: string }) {
+    const state = useMessagePolling({ sessionId });
+    return React.createElement('div', null, state.messages.map(m => m.content).join(','));
+  }
+  const render = (sessionId: string) => act(async () => root.render(React.createElement(
+    LiveStreamContext.Provider, { value: { stream: stream as never, state: 'live' } },
+    React.createElement(View, { sessionId }),
+  )));
+  await render('thread');
+  await act(async () => { vi.advanceTimersByTime(60_000); });
+  expect(FakeSource.instances).toHaveLength(0);
+  expect(h.poll).not.toHaveBeenCalled();
+  const send = (event: Record<string, unknown>) => act(async () => { eventFns.forEach(fn => fn(event)); });
+  await send({ id: 'e1', type: 'workspace.message.posted', source: 'human:me@example.com', target: 'channel/thread',
+    timestamp: 1, payload: { content: 'live hello' } });
+  await send({ id: 'e2', type: 'workspace.message.posted', source: 'human:me@example.com', target: 'channel/other',
+    timestamp: 2, payload: { content: 'elsewhere' } });
+  expect(host.textContent).toBe('live hello');
+
+  await render(SESSION);
+  const afterHistory = h.dm.mock.calls.length; // the DM's initial history load
+  await act(async () => { vi.advanceTimersByTime(60_000); });
+  expect(h.dm.mock.calls.length).toBe(afterHistory); // and no polling after it
+  await send({ id: 'e3', type: 'workspace.message.posted', source: 'openagents:bot', target: 'human:me@example.com',
+    visibility: 'direct', timestamp: 3, payload: { content: 'dm via live' } });
+  expect(host.textContent).toContain('dm via live');
+});

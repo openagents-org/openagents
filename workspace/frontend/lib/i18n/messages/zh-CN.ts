@@ -71,6 +71,28 @@ export const messages: Messages = {
     "browserLoginWaiting": "在新标签页中完成登录，此页面会自动检查。",
     "browserLoginVerifying": "正在设备上验证登录…",
     "browserLoginFailed": "登录未完成。请使用新的登录链接和授权码重试。",
+    "manualToggle": "链接无法使用？改为在终端中登录",
+    "manualStepTerminal": "在运行 {agent} 的电脑 {device} 上打开终端。",
+    "manualStepInstall": "先添加智能体：添加后 {agent} 会安装到 {device}。然后在 {device} 上打开终端。",
+    "manualStepRun": "运行以下命令：",
+    "manualStepFallback": "如果提示“agn: command not found”，请改为运行 {agent} 自带的登录命令：",
+    "manualStepBrowser": "打开命令输出的链接，在任意浏览器中登录 {agent}。如果显示了授权码，请在该页面输入。",
+    "manualStepCheck": "回到此处点击重新检查，本页面会从设备读取登录状态。",
+    "manualUseKey": "改用 API 密钥",
+    "manualTip": {
+      "claude": "授权后 Claude 会显示一个授权码，将它粘贴到终端并按回车。",
+      "codex": "在服务器或 SSH 上请保留 --device-auth：它会给出一个授权码，可在任意电脑上打开 auth.openai.com/codex/device 输入，而不需要设备本身有浏览器。",
+      "cursor": "这与登录 Cursor 编辑器是分开的。也可以使用 cursor.com/dashboard → Integrations 中的 Cursor API 密钥。",
+      "opencode": "ChatGPT 套餐请选择 OpenAI →“ChatGPT Pro/Plus (headless)”，Copilot 套餐请选择 GitHub Copilot，然后打开链接并输入授权码。",
+      "hermes": "选择 Nous Portal 可使用 Nous 账号登录；也可以选择其他服务商，并在提示时粘贴其密钥。"
+    },
+    "loginMethodLabel": "{agent} 使用哪个账号？",
+    "loginMethod": {
+      "chatgpt": "ChatGPT Plus/Pro",
+      "copilot": "GitHub Copilot"
+    },
+    "getKeyPrompt": "还没有密钥？",
+    "getKeyLink": "前往 {provider} 获取",
 
     "optionalSettings": "可选设置",
     "details": "智能体与模型",
@@ -87,6 +109,8 @@ export const messages: Messages = {
     "authHint": "使用订阅账号、添加 API 密钥，或稍后完成验证。",
     "subscription": "使用我的订阅",
     "subscriptionHint": "登录你已订阅的账号。",
+    "subscriptionPlan": "使用我的 ChatGPT 或 Copilot 套餐",
+    "subscriptionPlanHint": "用你已有的 ChatGPT Plus/Pro 或 GitHub Copilot 套餐登录。",
     "key": "使用 API 密钥",
     "keyHint": "为此智能体提供一个新密钥。",
     "later": "稍后设置",
@@ -246,6 +270,12 @@ export const messages: Messages = {
     auto: '自动',
     autoHint: '已根据你所在的地区判断',
     useAuto: '跟随所在地区',
+  },
+
+  desktopBundle: {
+    ready: '工作区有新版本可用',
+    readyHint: '刷新后即可使用。',
+    refresh: '刷新',
   },
 
   messageReply: { confirmTitle: "撤回这条消息？", confirmDescription: "这将从会话中为所有人移除此消息及其附件。其他人可能已经看过。此操作无法撤销。", to: '回复 {name}', cancel: '取消回复', attachment: '附件', recalled: '消息已撤回', recall: '撤回消息', recallFailed: '无法撤回此消息。' },
@@ -1269,6 +1299,8 @@ export const messages: Messages = {
     experimental: '实验功能',
     monitorMode: '监控模式',
     monitorModeHint: '以 2x3 网格概览最近的会话,替代会话列表。',
+    realtimeStream: '实时更新(测试版)',
+    realtimeStreamHint: '通过一条实时连接推送消息、面板更新和代理唤醒,不再定时轮询。代理需要连接器 0.2.235 或更高版本;连接中断时会自动回退到轮询。',
     notificationSound: '通知提示音',
     notificationSoundHint: '收到新通知或智能体完成工作时播放提示音。',
     testSound: '测试提示音',
