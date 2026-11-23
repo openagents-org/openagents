@@ -1069,3 +1069,58 @@ def decide_request(db: Session, workspace: Workspace, channel: Channel, request_
         release = {"source": original.source, "target": original.target, "payload": payload, "metadata": metadata}
     db.commit()
     return req, release
+
+
+# ---------------------------------------------------------------------------
+# A guest takes a copy into their own workspace
+# ---------------------------------------------------------------------------
+
+def fork_for_guest(db: Session, token: str, user, target_id: Optional[str]) -> dict:
+    """Copy what the guest can see into a private thread in one of their workspaces.
+
+    The copy holds the same messages the guest page shows (member emails
+    already replaced by names), no agent and no link back into the original:
+    the guest continues with their own agents. The original is untouched.
+    """
+    from app.access import _role_for_email, provision_workspace
+    from app.models import ChannelHumanMember
+    from app.routers.network import _resolve_workspace
+
+    link, workspace, channel = live_link(db, token)
+    email = user.email.strip().lower()
+    if target_id:
+        target = _resolve_workspace(db, target_id)
+        if target is None or target.status == "deleted":
+            raise LinkError(404, "Workspace not found")
+        if _role_for_email(db, target, email) not in ("member", "admin", "owner"):
+            raise LinkError(403, "You can copy into workspaces where you're a member")
+    else:
+        target = provision_workspace(db, user, name=f"{getattr(user, 'display_name', None) or email.split('@')[0]}'s workspace")
+    if str(target.id) == str(workspace.id):
+        raise LinkError(400, "Pick another workspace")
+
+    owner = link.owner_name or "Owner"
+    name = f"share-copy-{secrets.token_hex(6)}"
+    copy_channel = Channel(workspace_id=str(target.id), name=name, title=f"{channel.title} (from {owner})"[:200],
+                           created_by=email, response_mode="passive", visibility="private",
+                           owner_email=email, status="active")
+    db.add(copy_channel)
+    db.flush()
+    db.add(ChannelHumanMember(channel_id=copy_channel.id, user_email=email))
+    page = channel_messages(db, workspace, channel, None, 200)
+    last = None
+    for m in page["messages"]:
+        if (m["payload"] or {}).get("message_type", "chat") not in ("chat", "notice"):
+            continue
+        meta = dict(m["metadata"] or {})
+        meta.update({"share_copied_from": m["id"], "target_agents": ["__no_response__"]})
+        source = m["source"] if not m["source"].startswith("openagents:") else m["source"]
+        db.add(EventRecord(id=str(uuid.uuid4()), network_id=str(target.id), type="workspace.message.posted",
+                           source=source, target=f"channel/{name}", payload=dict(m["payload"] or {}),
+                           metadata_=meta, timestamp=m["timestamp"], visibility="channel"))
+        last = m["timestamp"]
+    copy_channel.last_event_at = last
+    db.commit()
+    logger.info("share: guest copied a shared thread into workspace %s", target.id)
+    return {"workspace": {"id": str(target.id), "slug": target.slug, "name": target.name},
+            "channel": {"name": name, "title": copy_channel.title}}

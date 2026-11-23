@@ -12,6 +12,7 @@
   POST   /v1/guest-links/room/messages?network=         {content, idempotency_key} — post as the owner
   POST   /v1/guest-links/import  {network, target}      owner token + sign-in: move it into one of their workspaces
   POST   /v1/guest-links/relocation/accept              the launcher collects its new connection, once
+  POST   /v1/guest-links/public/{token}/fork  {target?}  signed-in guest: a private copy in their workspace
   GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
   POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
@@ -493,3 +494,20 @@ def owner_room_decide(network: str, request_id: str, body: RequestDecision, back
             from app.routers.sharing import _after_message_hooks
             _after_message_hooks(background_tasks, str(workspace.id), posted)
     return _ok({"request": svc.serialize_request(db, req)})
+
+
+class ForkRequest(BaseModel):
+    target: Optional[str] = None   # a workspace id/slug the guest belongs to; omitted = a new workspace
+
+
+@router.post("/guest-links/public/{token}/fork")
+def fork_shared_thread(token: str, body: ForkRequest, db: Session = Depends(get_db),
+                       authorization: Optional[str] = Header(None)):
+    """A signed-in guest copies the conversation into their own workspace."""
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to copy this conversation")
+    try:
+        return _ok(svc.fork_for_guest(db, token, user, body.target))
+    except svc.LinkError as e:
+        return _fail(e)

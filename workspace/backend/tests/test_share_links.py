@@ -690,3 +690,26 @@ def test_declined_requests_never_reach_the_agent(client, db, no_push):
     assert any("declined" in (e.payload or {}).get("content", "") for e in routed)
     bad = client.patch(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", json={"approval_mode": "sometimes"}, headers=owner)
     assert bad.status_code == 400
+
+
+def test_a_signed_in_guest_can_copy_the_conversation_into_their_workspace(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "maya", "alex")
+    data = _published(client)
+    token = _token(data)
+    g = _guest(client, token)
+    _post(client, token, g["session"], "my note")
+    assert client.post(f"/v1/guest-links/public/{token}/fork", json={}).status_code == 401
+    r = client.post(f"/v1/guest-links/public/{token}/fork", json={}, headers={"Authorization": "Bearer maya"})
+    assert r.status_code == 200, r.text
+    out = r.json()["data"]
+    ws = db.get(Workspace, out["workspace"]["id"])
+    assert ws.creator_email == "maya@acme.test"
+    ch = db.query(Channel).filter(Channel.name == out["channel"]["name"]).one()
+    assert ch.visibility == "private" and ch.owner_email == "maya@acme.test" and not ch.participants
+    copied = db.query(EventRecord).filter(EventRecord.target == f"channel/{ch.name}").all()
+    assert [e.payload["content"] for e in sorted(copied, key=lambda e: e.timestamp)][-1] == "my note"
+    assert all("alex@acme.test" not in (e.source or "") for e in copied), "no member emails in the copy"
+    # Into a workspace they don't belong to: refused.
+    team = client.post("/v1/workspaces", json={"name": "Not hers"}).json()["data"]
+    assert client.post(f"/v1/guest-links/public/{token}/fork", json={"target": team["workspaceId"]},
+                       headers={"Authorization": "Bearer maya"}).status_code == 403
