@@ -115,6 +115,57 @@ class TestStream:
         assert r.status_code == 403
 
 
+def _live(client, workspace, monkeypatch, published, headers):
+    """The workspace-level live stream (/v1/events/live) over the same events."""
+    import asyncio
+    import app.routers.events as events_mod
+    from app.services import agent_stream
+    from tests.conftest import TestingSessionLocal
+
+    monkeypatch.setattr(events_mod, "SessionLocal", TestingSessionLocal)
+    monkeypatch.setattr(events_mod, "LIVE_STREAM_MAX_SECONDS", 0.2)
+    monkeypatch.setattr(events_mod, "LIVE_STREAM_JITTER_SECONDS", 0.0)
+    monkeypatch.setattr(events_mod, "LIVE_STREAM_KEEPALIVE_SECONDS", 0.05)
+    monkeypatch.setattr(agent_stream.hub, "_task", None)
+    agent_stream.configure_allowlist(workspace["id"])
+    real = agent_stream.hub.subscribe_live
+
+    def subscribe_live(workspace_id):
+        agent_stream.hub._task = asyncio.get_running_loop().create_future()
+        sub = real(workspace_id)
+        for data in list(published):
+            sub.deliver("events", data)
+        return sub
+
+    monkeypatch.setattr(agent_stream.hub, "subscribe_live", subscribe_live)
+    try:
+        r = client.get(f"/v1/events/live?network={workspace['id']}", headers=headers)
+    finally:
+        agent_stream.configure_allowlist("")
+    assert r.status_code == 200, r.text
+    out = []
+    for line in r.text.splitlines():
+        if line.startswith("data: "):
+            ev = json.loads(line[len("data: "):])
+            if ev:
+                out.append((ev.get("payload") or {}).get("content") or (ev.get("payload") or {}).get("name") or ev.get("type"))
+    return out
+
+
+class TestLiveStream:
+    def test_third_member_gets_neither_private_thread_nor_dm(self, client, workspace, scenario, monkeypatch):
+        got = _live(client, workspace, monkeypatch, scenario, _as("vic", workspace))
+        assert "open thread msg" in got
+        assert "private thread msg" not in got
+        assert "dm msg" not in got
+        assert "secret" not in got
+
+    def test_participants_get_both(self, client, workspace, scenario, monkeypatch):
+        for who in ("adam", "mia"):
+            got = _live(client, workspace, monkeypatch, scenario, _as(who, workspace))
+            assert {"open thread msg", "private thread msg", "dm msg"} <= set(got), who
+
+
 class TestEventVisibleTo:
     def test_rules(self):
         from app.routers.events import _event_visible_to as ok

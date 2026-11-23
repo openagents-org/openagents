@@ -1241,6 +1241,8 @@ export const messages: Messages = {
     experimental: '实验功能',
     monitorMode: '监控模式',
     monitorModeHint: '以 2x3 网格概览最近的会话,替代会话列表。',
+    realtimeStream: '实时更新(测试版)',
+    realtimeStreamHint: '通过一条实时连接推送消息、面板更新和代理唤醒,不再定时轮询。代理需要连接器 0.2.235 或更高版本;连接中断时会自动回退到轮询。',
     notificationSound: '通知提示音',
     notificationSoundHint: '收到新通知或智能体完成工作时播放提示音。',
     testSound: '测试提示音',
