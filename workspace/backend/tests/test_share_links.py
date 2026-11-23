@@ -302,7 +302,7 @@ def test_instructions_name_this_servers_own_endpoints(client, monkeypatch):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/markdown")
     assert "https://api.example.test/v1/share/publish" in r.text
-    assert "OPENAGENTS_ENDPOINT=https://api.example.test npx" in r.text, "the launcher talks to this server"
+    assert "up --endpoint https://api.example.test" in r.text, "the launcher talks to this server"
     assert "{API}" not in r.text and "{APP}" not in r.text
     assert "openagents.org" not in r.text.replace("@openagents-org/", ""), "self-hosters get their own URLs"
 
