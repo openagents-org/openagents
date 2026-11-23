@@ -254,6 +254,13 @@ export const messages = {
     useAuto: 'Match my region',
   },
 
+  /** The desktop app's Workspace updates, offered without a launcher release. */
+  desktopBundle: {
+    ready: 'A new version of Workspace is available',
+    readyHint: 'Refresh to start using it.',
+    refresh: 'Refresh',
+  },
+
   /** View names. Shared by the sidebar, the nav rail and the app header. */
   messageReply: { confirmTitle: "Recall this message?", confirmDescription: "This removes the message and its attachments from the conversation for everyone. Others may already have seen it. This cannot be undone.", to: 'Replying to {name}', cancel: 'Cancel reply', attachment: 'Attachment', recalled: 'Message recalled', recall: 'Recall message', recallFailed: 'This message could not be recalled.' },
   routing: { unavailable: 'Routing unavailable', routing: 'Routing', conversation: 'Conversation', keepConversation: 'Keep as conversation', searchAgents: 'Search agents…', noMatches: 'No agents found', assignTitle: 'Assign to an agent', assignHint: 'Choose who handles this message and its attachments.', onlineInThread: 'Online in this thread', toHuman: 'To human', toAgent: 'To agent', chooseAgent: 'Choose agent', reclassifyHint: 'Choose an online agent in this thread to handle this message.', noOnlineAgents: 'No agents in this thread are online.', continuing: 'Continuing with {agent}', askAgent: 'Ask an agent', title: 'Who should work on this?',
