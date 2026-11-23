@@ -269,6 +269,10 @@ class TestNodeCommands:
             assert client.post(url, json=body).status_code in (401, 403)
             assert client.post(url, json=body, headers=_tok(ws["device_token"])).status_code == 200
         assert client.post(url, json={"action": "login_start", "args": {"type": "shell"}}, headers=_tok(ws["device_token"])).status_code == 400
+        for args in ({"type": "cursor"}, {"type": "opencode", "method": "chatgpt"}, {"type": "opencode", "method": "copilot"}):
+            assert client.post(url, json={"action": "login_start", "args": args}, headers=_tok(ws["device_token"])).status_code == 200
+        for args in ({"type": "opencode"}, {"type": "opencode", "method": "anthropic"}, {"type": "claude", "method": "copilot"}, {"type": "deepseek"}):
+            assert client.post(url, json={"action": "login_start", "args": args}, headers=_tok(ws["device_token"])).status_code == 400
         assert client.post(url, json={"action": "login_input", "args": {"sessionId": "session", "config": {"code": "plaintext"}}}, headers=_tok(ws["device_token"])).status_code == 400
         encrypted = {"sessionId": "session", "encryptedCredentials": {"algorithm": "RSA-OAEP-256+A256GCM", "ciphertext": "opaque"}}
         assert client.post(url, json={"action": "login_input", "args": encrypted}, headers=_tok(ws["device_token"])).status_code == 200

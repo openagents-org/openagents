@@ -357,6 +357,105 @@ class WorkspaceClient {
   /**
    * Disconnect agent via POST /v1/leave. Best-effort (ignores errors).
    */
+  /**
+   * Open the agent wake-up stream (GET /v1/events/agent-stream, SSE).
+   *
+   * The server sends no event content, only "poll now" signals:
+   * `event: wake` with `{"kinds": ["message"|"control", ...]}`. The caller
+   * reacts by running its normal polls, so all access rules stay server-side
+   * in GET /v1/events.
+   *
+   * Returns `{ done, close }`. `done` resolves (never rejects) with
+   * `{ reason }`:
+   *   - 'disabled': the backend does not offer the stream for this workspace
+   *     (404, including backends that predate it) → keep polling.
+   *   - 'ended': the server closed the stream normally → reconnect.
+   *   - 'error': network/HTTP error, or silence past `idleMs` → back off.
+   *
+   * @param {object} opts
+   * @param {() => void} [opts.onOpen]  called once the stream is established
+   * @param {(kinds: string[]) => void} [opts.onWake]
+   * @param {number} [opts.idleMs=45000]  no bytes for this long = dead stream
+   *   (the server sends a keepalive every 15 s)
+   * @param {number} [opts.connectMs=15000]
+   */
+  openAgentStream(workspaceId, agentName, token, { onOpen, onWake, idleMs = 45000, connectMs = 15000 } = {}) {
+    const params = new URLSearchParams({ network: workspaceId, agent: agentName });
+    const fullUrl = `${this.endpoint}/v1/events/agent-stream?${params}`;
+    const headers = this._withAgent({ ...this._wsHeaders(token), Accept: 'text/event-stream' });
+    delete headers['Content-Type'];
+    let req = null;
+    let settled = false;
+    let idleTimer = null;
+    let finish;
+    const done = new Promise((resolve) => { finish = resolve; });
+    const settle = (reason, error) => {
+      if (settled) return;
+      settled = true;
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = null;
+      try { if (req) req.destroy(); } catch {}
+      finish({ reason, error });
+    };
+    const armIdle = (ms) => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => settle('error', new Error(`agent stream silent for ${Math.round(ms / 1000)}s`)), ms);
+    };
+    try {
+      const parsedUrl = new URL(fullUrl);
+      const transport = parsedUrl.protocol === 'https:' ? https : http;
+      armIdle(connectMs);
+      req = transport.request(fullUrl, { method: 'GET', headers }, (res) => {
+        if (res.statusCode === 404) { res.resume(); settle('disabled'); return; }
+        const type = String(res.headers['content-type'] || '');
+        if (res.statusCode !== 200 || !type.startsWith('text/event-stream')) {
+          res.resume();
+          const err = new Error(`agent stream HTTP ${res.statusCode}`);
+          err.status = res.statusCode;
+          settle('error', err);
+          return;
+        }
+        res.setEncoding('utf8');
+        armIdle(idleMs);
+        try { if (onOpen) onOpen(); } catch {}
+        let buffer = '';
+        res.on('data', (chunk) => {
+          if (settled) return;
+          armIdle(idleMs);
+          buffer += chunk.replace(/\r\n/g, '\n');
+          let sep;
+          while ((sep = buffer.indexOf('\n\n')) !== -1) {
+            const block = buffer.slice(0, sep);
+            buffer = buffer.slice(sep + 2);
+            let eventName = 'message';
+            const data = [];
+            for (const line of block.split('\n')) {
+              if (line.startsWith('event:')) eventName = line.slice(6).trim();
+              else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+            }
+            if (eventName === 'reconnect') { settle('ended'); return; }
+            if (eventName !== 'wake') continue;
+            let kinds = ['message', 'control'];
+            try {
+              const parsed = JSON.parse(data.join('\n'));
+              if (parsed && Array.isArray(parsed.kinds)) kinds = parsed.kinds;
+            } catch {}
+            try { if (onWake) onWake(kinds); } catch {}
+          }
+          if (buffer.length > 65536) settle('error', new Error('agent stream: oversized event'));
+        });
+        res.on('end', () => settle('ended'));
+        res.on('error', (e) => settle('error', e));
+        res.on('close', () => settle('ended'));
+      });
+      req.on('error', (e) => settle('error', e));
+      req.end();
+    } catch (e) {
+      settle('error', e);
+    }
+    return { done, close: () => settle('closed') };
+  }
+
   async disconnect(workspaceId, agentName, token) {
     try {
       await this._post('/v1/leave', {

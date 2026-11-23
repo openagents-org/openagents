@@ -23,7 +23,7 @@ const { LogWriter } = require('./log-writer');
 const { redactDiagnostic } = require('./adapters/health-status');
 const { installCommandFor } = require('./probe');
 const { deviceCredentialKey, decryptCredentials } = require('./credential-envelope');
-const { BrowserLogin } = require('./browser-login');
+const { BrowserLogin, BROWSER_LOGIN_TYPES, loginMethods } = require('./browser-login');
 
 /** Types whose endpoint is one device-wide config file of their own. None
  *  left: OpenClaw gives each keyed agent a private store (adapters/openclaw.js)
@@ -522,7 +522,7 @@ class Daemon {
    */
   /** Install a missing CLI before its native browser sign-in, without creating an agent. */
   async _prepareBrowserLogin(type) {
-    if (!['claude', 'codex'].includes(type) || !['linux', 'darwin'].includes(process.platform)) {
+    if (!BROWSER_LOGIN_TYPES.includes(type) || !['linux', 'darwin'].includes(process.platform)) {
       throw new Error('Browser sign-in is not supported for this agent or device.');
     }
     const { Installer } = require('./installer');
@@ -550,9 +550,14 @@ class Daemon {
       // Whatever `agn login` can sign in, which is wider than _hasCliSignIn:
       // OpenCode signs in without the registry marking it a sign-in agent.
       const out = this._agnLoginFor(rt.type) ? { ...rt, loginCommand: agnLoginCommand(rt.type) } : rt;
-      if (['claude', 'codex'].includes(rt.type) && ['linux', 'darwin'].includes(process.platform)) {
+      if (BROWSER_LOGIN_TYPES.includes(rt.type) && ['linux', 'darwin'].includes(process.platform)) {
         this._browserLoginSupported ??= !!whichBinary('script');
-        if (this._browserLoginSupported) out.browserLogin = true;
+        if (this._browserLoginSupported) {
+          out.browserLogin = true;
+          // A type with a choice of accounts (OpenCode: ChatGPT or Copilot) names them.
+          const methods = loginMethods(rt.type);
+          if (methods.length > 1) out.browserLoginMethods = methods;
+        }
       }
       if (!out.installed || !supportsCliModels(rt.type)) return out;
       const listed = this._cliModels[this._cliModelsKey(this._signInAgent(rt.type))];
@@ -1353,7 +1358,8 @@ async _runNodeCommand(n, cmd) {
         if (action === 'login_start') {
           const type = args.type;
           const binary = await this._prepareBrowserLogin(type);
-          data = this._browserLogins.start(owner, type, binary, getEnhancedEnv());
+          const method = typeof args.method === 'string' ? args.method : undefined;
+          data = this._browserLogins.start(owner, type, binary, getEnhancedEnv(), process.platform, method);
         } else if (action === 'login_input') {
           if (!cmd.args?.encryptedCredentials) throw new Error('Authorization codes must be encrypted for this device.');
           data = this._browserLogins.input(owner, args.sessionId, args.config?.code);

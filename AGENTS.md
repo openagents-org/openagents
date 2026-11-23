@@ -25,7 +25,7 @@ Never push directly to `openagents-release` or `release`; rulesets block it.
 3. Run `gh workflow run promote-release.yml -R openagents-org/openagents` (optional `-f ref=<develop sha>`). It merges the `develop` commit into `openagents-release` and pushes with the promotion deploy key.
    - If the merge conflicts, nothing is pushed. Open a PR into `openagents-release` that merges `develop` and resolves the conflicts, then rerun.
    - The hosted-layer guard (`HOSTED_LAYER_FILES` in the workflow) fails the run if a hosted-only file would be missing from production. Don't "fix" this by editing the list unless that hosted feature is really being retired. Update the list whenever you add or retire a hosted module.
-4. The push starts the DigitalOcean rollout (secondary node, then primary; see `workspace/operations/digitalocean/cd/README.md`) and the Vercel production deploy. Confirm both finished: `gh run list --workflow deploy-digitalocean.yml`, and the Vercel deployment for `openagents-release`.
+4. The push starts the DigitalOcean rollout (secondary node, then primary; see `workspace/operations/digitalocean/cd/README.md`) and the Vercel production deploy, and — when the front end changed — the desktop app's Workspace bundle publish. Confirm they finished: `gh run list --workflow deploy-digitalocean.yml`, the Vercel deployment for `openagents-release`, and `gh run list --workflow workspace-bundle-publish.yml`.
 5. Production schema changes, migrations, backfills and data repair need the user's explicit agreement first. Preview authorization doesn't count.
 
 ## Cutting a self-hosted release
@@ -41,8 +41,9 @@ Self-hosters build the frontend from source with `workspace/docker-compose.prod.
 
 ## Other release tracks
 
-- Launcher installers: tag `launcher-v*` / `desktop-v*` → `desktop-build.yml`.
+- Launcher installers: tag `launcher-v*` / `desktop-v*` → `desktop-build.yml`. Tag a commit on `openagents-release` (promote first), not `develop`: the installer carries the hosted layer, and its built-in Workspace bundle is what the bundle feed above is compared against.
 - Agent connector (`@openagents-org/agent-launcher` on npm): version bump merged to `develop` → `agent-connector.yml`.
+- Workspace desktop bundle (the front end inside the launcher): part of step 4 above, not a separate release. A push to `openagents-release` that touches `workspace/frontend` → `workspace-bundle-publish.yml` signs it and publishes it to the R2 feed installed launchers update from (checked every 30 minutes), without a launcher release. A bundle that needs a newer launcher bridge (`workspace/frontend/desktop/host-api.ts`) waits for a launcher release that provides it. To pull a bad bundle, revert the change on `openagents-release` (via `develop` and a promote, or a PR into `openagents-release`): the revert's publish supersedes it, and launchers pick that up within ~30 minutes.
 
 ## Repo conventions
 

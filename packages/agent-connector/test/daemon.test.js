@@ -847,6 +847,7 @@ describe('Daemon', () => {
       { type: 'pi', installed: true, ready: true },
       { type: 'gemini', installed: true, ready: true },
       { type: 'cursor', installed: false, ready: false },
+      { type: 'opencode', installed: false, ready: false },
     ];
     daemon._cliModels[daemon._cliModelsKey(daemon._signInAgent('codex'))] = listedNow();
     const piModels = [{ id: 'openai/gpt-6.1-sol', label: 'gpt-6.1-sol (openai)' }];
@@ -857,7 +858,9 @@ describe('Daemon', () => {
       { type: 'claude', installed: true, ready: false, loginCommand: 'agn login claude', ...(['linux', 'darwin'].includes(process.platform) ? { browserLogin: true } : {}), cliModels: null },
       { type: 'pi', installed: true, ready: true, loginCommand: 'agn login pi', cliModels: piModels },
       { type: 'gemini', installed: true, ready: true, loginCommand: 'agn login gemini' },
-      { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor' },
+      { type: 'cursor', installed: false, ready: false, loginCommand: 'agn login cursor', ...(['linux', 'darwin'].includes(process.platform) ? { browserLogin: true } : {}) },
+      // A choice of accounts is named, so the workspace can ask which one.
+      { type: 'opencode', installed: false, ready: false, loginCommand: 'agn login opencode', ...(['linux', 'darwin'].includes(process.platform) ? { browserLogin: true, browserLoginMethods: ['chatgpt', 'copilot'] } : {}) },
     ]);
     // The detection snapshot itself is left as it was.
     assert.equal(daemon._runtimes[0].cliModels, undefined);

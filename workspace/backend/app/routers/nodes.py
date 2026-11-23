@@ -148,6 +148,14 @@ def _format_node(node: Node, now: datetime, owner_email: Optional[str] = None) -
 
 
 # Remote agent-management actions the daemon knows how to execute.
+# Agent types whose native CLI sign-in the connector can relay, and the
+# accounts each offers (packages/agent-connector/src/browser-login.js).
+BROWSER_LOGIN_METHODS = {
+    "claude": {"default"},
+    "codex": {"default"},
+    "cursor": {"default"},
+    "opencode": {"chatgpt", "copilot"},
+}
 ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models", "list_local_sessions", "import_local_session"}
 # Local CLI sessions a device owner may import as threads
 # (app/routers/imported_sessions.py).
@@ -492,7 +500,10 @@ def enqueue_command(
         if action == "import_local_session" and not (isinstance(args.get("id"), str) and args["id"]
                                                      and (args.get("agent") is None or isinstance(args.get("agent"), str))):
             return json_response(ResponseCode.BAD_REQUEST, "Pick a session to import")
-    if action == "login_start" and args.get("type") not in {"claude", "codex"}:
+    if action == "login_start" and (
+        args.get("type") not in BROWSER_LOGIN_METHODS
+        or args.get("method", "default") not in BROWSER_LOGIN_METHODS[args.get("type")]
+    ):
         return json_response(ResponseCode.BAD_REQUEST, "Unsupported browser sign-in")
     if action in {"login_status", "login_input", "login_cancel"} and not isinstance(args.get("sessionId"), str):
         return json_response(ResponseCode.BAD_REQUEST, "Missing sign-in session")
