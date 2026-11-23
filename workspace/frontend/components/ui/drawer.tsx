@@ -83,14 +83,14 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
 
 /**
  * The only part of a drawer that scrolls, so its header and footer stay put
- * (the same contract as DialogBody). The scrollbar is hidden; scrolling and
- * overscroll still work.
+ * (the same contract as DialogBody, children never shrink included). The
+ * scrollbar is hidden; scrolling and overscroll still work.
  */
 function DrawerBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="drawer-body"
-      className={cn("no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1", className)}
+      className={cn("no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-4 pt-1 *:shrink-0", className)}
       {...props}
     />
   )

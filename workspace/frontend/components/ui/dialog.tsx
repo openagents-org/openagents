@@ -137,13 +137,18 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/** The only part of a dialog that scrolls. */
+/**
+ * The only part of a dialog that scrolls. Callers often make it a flex column;
+ * its children never shrink (`*:shrink-0`), because a child that clips its
+ * own overflow (Card, CodeBlock) would otherwise be squashed and cut off
+ * instead of the body scrolling.
+ */
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="dialog-body"
       className={cn(
-        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-6 pt-1 pb-6",
+        "no-scrollbar min-h-0 grow overflow-y-auto overscroll-contain px-6 pt-1 pb-6 *:shrink-0",
         className
       )}
       {...props}
