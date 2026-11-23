@@ -6,8 +6,12 @@
 //   node scripts/pack-workspace-bundle.mjs --keygen
 //
 // Writes:
-//   <out>/<version>/workspace-<version>.tar.gz   the bundle (plain ustar, gzip)
-//   <out>/latest.json                            { payload, signature }
+//   <out>/<version>/workspace-<hash>.tar.gz   the bundle (plain ustar, gzip)
+//   <out>/latest.json                         { payload, signature }
+//
+// <hash> is the start of the archive's SHA-256. The CDN caches archives as
+// immutable, so a forced re-run on the same commit that packs different bytes
+// must not reuse a name a client may already hold under the old hash.
 //
 // `payload` is the manifest's JSON text and `signature` its ed25519 signature
 // (base64), made with the PKCS#8 PEM key in WORKSPACE_BUNDLE_SIGNING_KEY. The
@@ -96,10 +100,16 @@ export function buildRelease({ dir, out, privateKeyPem }) {
   for (const key of ["schema", "version", "commit", "committedAt", "minHostApi"]) {
     if (info[key] === undefined) throw new Error(`bundle-info.json has no "${key}"`)
   }
+  // The version names the folder the archive is written and uploaded to, so
+  // it must be one path segment (the launcher's own rule, manifest.ts VERSION).
+  if (typeof info.version !== "string" || !/^[0-9A-Za-z][0-9A-Za-z._-]{0,79}$/.test(info.version)) {
+    throw new Error(`bundle-info.json has an unusable version: ${JSON.stringify(info.version)}`)
+  }
   if (!statSync(join(dir, "index.html")).isFile()) throw new Error("bundle has no index.html")
   const files = listFiles(dir).map((name) => ({ name, data: readFileSync(join(dir, name)) }))
   const archive = gzipSync(packTar(files), { level: 9 })
-  const archivePath = `${info.version}/workspace-${info.version}.tar.gz`
+  const sha256 = createHash("sha256").update(archive).digest("hex")
+  const archivePath = `${info.version}/workspace-${sha256.slice(0, 16)}.tar.gz`
   mkdirSync(join(out, info.version), { recursive: true })
   writeFileSync(join(out, archivePath), archive)
 
@@ -110,7 +120,7 @@ export function buildRelease({ dir, out, privateKeyPem }) {
     committedAt: info.committedAt,
     minHostApi: info.minHostApi,
     archive: archivePath,
-    sha256: createHash("sha256").update(archive).digest("hex"),
+    sha256,
     size: archive.length,
   }
   const payload = JSON.stringify(manifest)
