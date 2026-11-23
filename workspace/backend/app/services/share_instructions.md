@@ -57,7 +57,7 @@ curl -sS -X POST "{API}/v1/share/publish" -H "Content-Type: application/json" -d
 
 ## 4. Start the shared agent on this computer
 
-1. Make a folder for it: `~/.openagents/shared/<agentName>/`.
+1. Make a folder for it: `~/.openagents/shared/<agentName>/`. If you aren't allowed to write there, ask the person to allow it; don't put it inside their project.
 2. In that folder write `CLAUDE.md` (and the same text as `AGENTS.md`) containing:
    - the **Role** paragraph;
    - a short summary of the approved excerpts, as background;
@@ -70,6 +70,8 @@ npx -y {LAUNCHER} create <agentName> --type claude --path ~/.openagents/shared/<
 npx -y {LAUNCHER} connect <agentName> <token> --endpoint {API}
 npx -y {LAUNCHER} up --endpoint {API}
 ```
+
+The launcher may print notes about device pairing or a newer version; neither needs action now.
 
 Only Claude Code can take guest requests at the moment. If you are a different agent, still publish (people can read the thread and talk to the person), but tell the person guests' requests will get a "can't take guest requests yet" reply.
 
