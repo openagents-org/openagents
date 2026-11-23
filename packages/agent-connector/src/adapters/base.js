@@ -417,6 +417,11 @@ class BaseAdapter {
         ],
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
+      // OpenAgents Share: the conversation moved while this agent was offline.
+      if (joinResult && joinResult.relocation && this._onRelocate) {
+        const relocation = joinResult.relocation;
+        setTimeout(() => { this._handleRelocate(relocation).catch(() => {}); }, 0);
+      }
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
       this._reportStatus(null); // joined OK → clear any prior error
       return true;

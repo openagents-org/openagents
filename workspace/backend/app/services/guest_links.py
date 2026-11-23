@@ -24,6 +24,7 @@ Nothing here touches existing workspaces: a guest link is only ever minted
 together with the workspace it opens, by ``publish``.
 """
 
+import copy
 import hashlib
 import logging
 import re
@@ -836,7 +837,7 @@ def import_into(db: Session, source: Workspace, token: Optional[str], user, targ
     """
     from app.access import _role_for_email
     from app.models import ChannelHumanMember, Node
-    from app.routers.network import _resolve_workspace, effective_agent_status
+    from app.routers.network import _resolve_workspace
     from app.routers.workspaces import _emit_agent_control_event
 
     workspace, channel = owner_room(db, str(source.id), token)
@@ -852,8 +853,8 @@ def import_into(db: Session, source: Workspace, token: Optional[str], user, targ
         WorkspaceMember.workspace_id == str(workspace.id), WorkspaceMember.status != "removed",
     )).scalars().all() if any(p.agent_name == m.agent_name for p in (channel.participants or []))]
     for m in agents:
-        if effective_agent_status(m) != "online":
-            raise LinkError(409, f"Start {m.display_name or m.agent_name} on your computer first, then try again.")
+        # An offline agent can move too: it learns where it lives the next
+        # time its launcher joins (pending_relocation, in the join reply).
         if RELOCATE_CAPABILITY not in (m.capabilities or []):
             raise LinkError(409, "Update the OpenAgents launcher on your computer first, then try again.")
         clash = db.get(WorkspaceMember, (str(target.id), m.agent_name))
@@ -923,14 +924,40 @@ def import_into(db: Session, source: Workspace, token: Optional[str], user, targ
             "channel": {"name": now_name, "title": new_channel.title}}
 
 
+def pending_relocation(db: Session, workspace: Workspace, agent_name: str, session_id: Optional[str]) -> Optional[dict]:
+    """A move this agent hasn't collected yet, for the join reply.
+
+    An agent that was offline when its conversation moved missed the control
+    action; joining the old workspace hands it the move instead, bound to the
+    session it just started.
+    """
+    # Deep copies: JSON columns only save when the new value differs from the
+    # loaded one, and an in-place edit changes both.
+    share = copy.deepcopy((workspace.settings or {}).get("openagents_share"))
+    if not isinstance(share, dict) or not share.get("moved_to"):
+        return None
+    rels = share.get("relocations") or []
+    rel = next((r for r in rels if r.get("agent") == agent_name and not r.get("accepted")), None)
+    if rel is None:
+        return None
+    rel["session_id"] = session_id
+    share["relocations"] = rels
+    settings = copy.deepcopy(workspace.settings or {})
+    settings["openagents_share"] = share
+    workspace.settings = settings
+    db.commit()
+    moved = share["moved_to"]
+    return {"relocation_id": rel["id"], "workspace_id": moved.get("workspaceId"), "slug": moved.get("slug")}
+
+
 def accept_relocation(db: Session, source: Workspace, token: Optional[str], agent_name: str,
                       relocation_id: str, session_id: Optional[str]) -> dict:
     """The launcher, still holding the old token, collects its new connection — once."""
     from app.models import Node
     if not token or not secrets.compare_digest(str(token), str(source.password_hash or "")):
         raise LinkError(403, "Not allowed")
-    share = dict((source.settings or {}).get("openagents_share") or {})
-    rels = list(share.get("relocations") or [])
+    share = copy.deepcopy((source.settings or {}).get("openagents_share") or {})
+    rels = share.get("relocations") or []
     rel = next((r for r in rels if r.get("id") == relocation_id and r.get("agent") == agent_name), None)
     if rel is None or rel.get("accepted"):
         raise LinkError(404, "Unknown or already used relocation")
@@ -942,7 +969,7 @@ def accept_relocation(db: Session, source: Workspace, token: Optional[str], agen
         raise LinkError(404, "Unknown relocation")
     rel["accepted"] = True
     share["relocations"] = rels
-    settings = dict(source.settings or {})
+    settings = copy.deepcopy(source.settings or {})
     settings["openagents_share"] = share
     source.settings = settings
     if all(r.get("accepted") for r in rels):

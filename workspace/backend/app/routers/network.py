@@ -296,13 +296,19 @@ def join_network(
             )
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid network token")
 
-    return success_response({
+    response = {
         "network_id": str(workspace.id),
         "agent_name": body.agent_name,
         "role": result.metadata.get("role", "member"),
         "status": "online",
         "session_id": result.metadata.get("session_id"),
-    })
+    }
+    # OpenAgents Share: this agent's conversation moved while it was offline.
+    from app.services.guest_links import pending_relocation
+    relocation = pending_relocation(db, workspace, body.agent_name, result.metadata.get("session_id"))
+    if relocation:
+        response["relocation"] = relocation
+    return success_response(response)
 
 
 # ---------------------------------------------------------------------------

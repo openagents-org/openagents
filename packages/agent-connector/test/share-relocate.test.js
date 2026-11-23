@@ -82,3 +82,19 @@ describe('share relocate', () => {
     assert.equal(cfg.getAgent('pr-reviewer').network, 'team');
   });
 });
+
+describe('share relocate on join', () => {
+  it('a move reported in the join reply is collected right after joining', async () => {
+    const moves = [];
+    const a = mk({ onRelocate: async (t) => { moves.push(t); } });
+    a.client.joinNetwork = async () => ({ session_id: 's2', relocation: { relocation_id: 'r9', workspace_id: 'ws-new', slug: 'team' } });
+    a._reportStatus = () => {};
+    let sent;
+    a.client._post = async (url, body) => { sent = body; return { data: { workspace_id: 'ws-new', slug: 'team', token: 'nt' } }; };
+    await a._joinWorkspace();
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal(sent.relocation_id, 'r9');
+    assert.equal(sent.session_id, 's2');
+    assert.equal(moves[0].slug, 'team');
+  });
+});

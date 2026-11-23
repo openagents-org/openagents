@@ -589,15 +589,32 @@ def test_adding_the_conversation_to_an_existing_workspace(client, db, monkeypatc
     assert gone.json()["data"]["movedTo"] == {"slug": team["slug"], "channel": new_channel}
 
 
-def test_moving_needs_the_agent_running_on_an_updated_launcher(client, db, monkeypatch, no_push):
+def test_moving_needs_an_updated_launcher(client, db, monkeypatch, no_push):
     _people(db, monkeypatch, "alex")
     data = _published(client)
     team = _team(client, db)
-    r = _import(client, data, team["workspaceId"])
-    assert r.status_code == 409 and "Start" in r.json()["message"]
     _join(client, data, ["guest_turns"])
     r = _import(client, data, team["workspaceId"])
     assert r.status_code == 409 and "Update" in r.json()["message"]
+
+
+def test_an_offline_agent_learns_about_the_move_when_it_next_joins(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex")
+    data = _published(client)
+    _join(client, data, ["guest_turns", "relocate"])
+    db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").update({"status": "offline"})
+    db.commit()
+    team = _team(client, db)
+    assert _import(client, data, team["workspaceId"]).status_code == 200
+    j = client.post("/v1/join", json={"agent_name": "pr-reviewer", "token": data["token"], "network": data["workspaceId"],
+                                      "agent_type": "claude", "capabilities": ["guest_turns", "relocate"]}).json()["data"]
+    rel = j["relocation"]
+    assert rel["workspace_id"] == team["workspaceId"]
+    ok = client.post("/v1/guest-links/relocation/accept", headers={"X-Workspace-Token": data["token"]},
+                     json={"network": data["workspaceId"], "agent_name": "pr-reviewer",
+                           "relocation_id": rel["relocation_id"], "session_id": j["session_id"]})
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["token"]
 
 
 def test_addressing_the_agent_by_the_name_people_see_runs_it(client, db, no_push):
