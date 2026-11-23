@@ -707,34 +707,47 @@ class Daemon {
   }
 
   /**
-   * True if agent `a` is bound to the node's currently-connected workspace.
-   * A missing network never matches (guards against undefined === undefined
-   * leaking local-only agents when a node field is also unset).
-   */
-  /**
    * import_local_session: upload one of the owner's local CLI sessions as a
    * workspace thread, in batches (the first creates the thread), and, when
    * `agent` is an agent of the same tool on this device, record the import so
    * the agent continues the real session on that thread from a copy.
    * Returns {channel, title, resumable}.
    */
-  async _importLocalSession(n, args) {
-    const { readLocalSession } = require('./local-sessions');
+  async _importLocalSession(n, args, commandId) {
+    // One import at a time: several picked at once would all read and upload
+    // together.
+    const run = () => this._importOne(n, args, commandId);
+    const next = (this._importQueue || Promise.resolve()).then(run, run);
+    this._importQueue = next.catch(() => {});
+    return next;
+  }
+
+  /** Where this device's agents work: sessions run there are theirs, not the owner's. */
+  _agentWorkdirs() {
+    let agents = [];
+    try { agents = this.config.getAgents() || []; } catch {}
+    return agents.map((a) => resolveAgentWorkdir(a.path) || defaultAgentWorkdir(a.name)).filter(Boolean);
+  }
+
+  async _importOne(n, args, commandId) {
+    const { runLocalSessions } = require('./local-sessions-worker');
     const type = String(args.type || '');
-    const session = readLocalSession(type, String(args.id || ''));
+    const session = await runLocalSessions('readLocalSession', [type, String(args.id || '')]);
     if (!session) throw new Error('That session is no longer on this device');
     const agentName = String(args.agent || '').trim();
     const client = this._nodeClientFor(n);
     const BATCH = Daemon.IMPORT_BATCH;
-    const head = {
-      type, session_id: session.id, title: session.title, cwd: session.cwd,
-      agent: agentName || null, truncated: session.truncated, total: session.total,
-    };
-    const first = await client.importSession(n.node_id, n.token, { ...head, messages: session.messages.slice(0, BATCH) });
+    // The workspace takes the session, tool and agent from the command the
+    // owner started; every call names it.
+    const head = { command_id: commandId, title: session.title, cwd: session.cwd, truncated: session.truncated, total: session.total };
+    const batches = [];
+    for (let i = 0; i < Math.max(session.messages.length, 1); i += BATCH) batches.push(session.messages.slice(i, i + BATCH));
+    const first = await client.importSession(n.node_id, n.token, { ...head, messages: batches[0], final: batches.length === 1 });
     const channel = first && first.channel;
     if (!channel) throw new Error('The workspace did not create a thread for the import');
-    for (let i = BATCH; i < session.messages.length; i += BATCH) {
-      await client.importSession(n.node_id, n.token, { ...head, channel, messages: session.messages.slice(i, i + BATCH) });
+    if (first.existing) return { channel, title: first.title || session.title, resumable: false, existing: true };
+    for (let i = 1; i < batches.length; i++) {
+      await client.importSession(n.node_id, n.token, { command_id: commandId, channel, messages: batches[i], final: i === batches.length - 1 });
     }
     // Native continuation: Claude Code forks the session, Codex resumes a
     // copy under a new id. OpenCode gets the full transcript as context on the
@@ -751,6 +764,11 @@ class Daemon {
     return { channel, title: (first && first.title) || session.title, resumable };
   }
 
+  /**
+   * True if agent `a` is bound to the node's currently-connected workspace.
+   * A missing network never matches (guards against undefined === undefined
+   * leaking local-only agents when a node field is also unset).
+   */
   _agentOnNodeWorkspace(a, node) {
     if (!a || !a.network || !node) return false;
     if (a.network !== node.workspace_slug && a.network !== node.workspace_id) return false;
@@ -1376,13 +1394,17 @@ async _runNodeCommand(n, cmd) {
       } else if (action === 'list_local_sessions') {
         // The owner's own past CLI sessions, for the workspace's import
         // picker (src/local-sessions.js). Titles only.
-        const { listLocalSessions } = require('./local-sessions');
-        const sessions = listLocalSessions(args.type, { limit: Number(args.limit) || 200 });
+        const { runLocalSessions } = require('./local-sessions-worker');
+        const sessions = await runLocalSessions('listLocalSessions', [args.type, {
+          limit: Number(args.limit) || 200,
+          excludeCwds: this._agentWorkdirs(),
+          excludeIds: require('./session-imports').copiedIds(),
+        }]);
         data = { type: args.type, sessions };
         ok = true;
         message = `Found ${sessions.length} session(s)`;
       } else if (action === 'import_local_session') {
-        data = await this._importLocalSession(n, args);
+        data = await this._importLocalSession(n, args, cmd.commandId);
         ok = true;
         message = `Imported "${data.title}"`;
       } else {

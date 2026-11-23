@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
+import { isOwnedAgent } from '@/lib/sidebar-agents';
 import type { NodeCommand, WorkspaceNode } from '@/lib/types';
 
 export const IMPORTABLE_TYPES = ['claude', 'codex', 'opencode', 'hermes'] as const;
@@ -31,15 +32,14 @@ export function isImportableType(type: string | null | undefined): type is Impor
   return !!type && (IMPORTABLE_TYPES as readonly string[]).includes(type);
 }
 
-export interface LocalSession { id: string; type: string; title: string; cwd: string | null; updatedAt: string; messageCount: number }
+export interface LocalSession { id: string; type: string; title: string; cwd: string | null; updatedAt: string; messageCount: number | null }
 type Outcome = { state: 'running' } | { state: 'done'; channel: string; resumable: boolean } | { state: 'error'; message: string };
 
 /** Wait for a device command to finish: up to ~2 minutes (the device picks it up within ~10 s). */
 export async function waitForNodeCommand(nodeId: string, commandId: string, tries = 80): Promise<NodeCommand | null> {
   for (let i = 0; i < tries; i++) {
     await new Promise((r) => setTimeout(r, 1500));
-    const cmds = await workspaceApi.listNodeCommands(nodeId, 100).catch((): NodeCommand[] => []);
-    const c = cmds.find((x) => x.commandId === commandId);
+    const c = await workspaceApi.getNodeCommand(nodeId, commandId).catch(() => null);
     if (c && (c.status === 'done' || c.status === 'error')) return c;
   }
   return null;
@@ -56,7 +56,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { agents, refreshWorkspace, setCurrentSessionId } = useWorkspace();
+  const { agents, refreshWorkspace, setCurrentSessionId, currentUser } = useWorkspace();
   const [type, setType] = useState<ImportableType>(initialType || 'claude');
   const [sessions, setSessions] = useState<LocalSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -87,17 +87,21 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
     return () => { cancelled = true; };
   }, [open, type, node.nodeId, t]);
 
-  // Who can own the threads: the workspace's agents, the device's own of
-  // this tool first (those continue the real session).
+  // Who can continue them: only the person's own agents — a private session
+  // given to someone else's agent would hand it the whole history. The
+  // device's own agents of this tool come first; Claude Code and Codex ones
+  // continue the real session.
   const choices = useMemo(() => {
     const local = new Set(node.agents.filter((a) => a.type === type).map((a) => a.name));
+    const resumes = (name: string) => local.has(name) && (type === 'claude' || type === 'codex');
     return [...agents]
-      .filter((a) => a.role !== 'removed')
+      .filter((a) => a.role !== 'removed' && isOwnedAgent(a, currentUser.id))
       .sort((a, b) => Number(local.has(b.agentName)) - Number(local.has(a.agentName)))
-      .map((a) => ({ name: a.agentName, label: a.displayName || a.agentName, resumes: local.has(a.agentName) }));
-  }, [agents, node.agents, type]);
+      .map((a) => ({ name: a.agentName, label: a.displayName || a.agentName, resumes: resumes(a.agentName) }));
+  }, [agents, node.agents, type, currentUser.id]);
   useEffect(() => {
-    if (!target && choices.length) setTarget(choices[0].name);
+    if (target && !choices.some((c) => c.name === target)) setTarget('');
+    else if (!target && choices.length) setTarget(choices[0].name);
   }, [choices, target]);
 
   const visible = (sessions || []).filter((s) => `${s.title} ${s.cwd || ''}`.toLowerCase().includes(query.toLowerCase()));
@@ -118,12 +122,13 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         const data = done?.result?.data as { channel?: string; resumable?: boolean } | undefined;
         outcome = done?.result?.ok && data?.channel
           ? { state: 'done', channel: data.channel, resumable: !!data.resumable }
-          : { state: 'error', message: done?.result?.message || t('importSessions.importFailed') };
+          : { state: 'error', message: done ? (done.result?.message || t('importSessions.importFailed')) : t('importSessions.stillImporting') };
       } catch (e) {
         outcome = { state: 'error', message: e instanceof Error ? e.message : t('importSessions.importFailed') };
       }
       setOutcomes((prev) => ({ ...prev, [id]: outcome }));
     }));
+    setPicked(new Set());
     await refreshWorkspace().catch(() => {});
   };
 
@@ -161,7 +166,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{s.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
-                        {[s.cwd, t('importSessions.messages', { count: s.messageCount }), timeAgo(s.updatedAt)].filter(Boolean).join(' · ')}
+                        {[s.cwd, typeof s.messageCount === 'number' ? t(s.messageCount === 1 ? 'importSessions.message' : 'importSessions.messages', { count: s.messageCount }) : null, timeAgo(s.updatedAt)].filter(Boolean).join(' · ')}
                       </span>
                       {o?.state === 'error' && <span className="block text-xs text-destructive">{o.message}</span>}
                     </span>
@@ -182,7 +187,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
             </Select>
           </div>
           <p className="text-xs text-muted-foreground">
-            {choices.find((c) => c.name === target)?.resumes ? t('importSessions.resumeHint') : t('importSessions.contextHint')}
+            {!choices.length ? t('importSessions.noOwnAgents') : choices.find((c) => c.name === target)?.resumes ? t('importSessions.resumeHint') : t('importSessions.contextHint')}
             {' '}{t('importSessions.privacyHint')}
           </p>
 
@@ -199,7 +204,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={importing}>{t('common.close')}</Button>
-          <Button onClick={() => void runImport()} disabled={importing || picked.size === 0 || !!error} data-testid="import-sessions-submit">
+          <Button onClick={() => void runImport()} disabled={importing || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
             {importing ? <Loader2 className="size-4 animate-spin" /> : null}
             {t('importSessions.import', { count: picked.size })}
           </Button>

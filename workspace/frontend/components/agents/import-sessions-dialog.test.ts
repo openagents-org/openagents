@@ -3,12 +3,15 @@ import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const api = vi.hoisted(() => ({ enqueue: vi.fn(), list: vi.fn() }));
+const api = vi.hoisted(() => ({ enqueue: vi.fn(), get: vi.fn() }));
 const ws = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), open: vi.fn() }));
-vi.mock('@/lib/api', () => ({ workspaceApi: { enqueueNodeCommand: api.enqueue, listNodeCommands: api.list } }));
+vi.mock('@/lib/api', () => ({ workspaceApi: { enqueueNodeCommand: api.enqueue, getNodeCommand: api.get } }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
-  agents: [{ agentName: 'coder', displayName: null, role: 'member' }, { agentName: 'claude-bot', displayName: 'Claude', role: 'member' }],
-  refreshWorkspace: ws.refresh, setCurrentSessionId: ws.open,
+  agents: [
+    { agentName: 'coder', displayName: null, role: 'member', ownerEmail: 'me@x.com' },
+    { agentName: 'theirs', displayName: 'Someone else’s agent', role: 'member', ownerEmail: 'other@x.com' },
+  ],
+  refreshWorkspace: ws.refresh, setCurrentSessionId: ws.open, currentUser: { id: 'me@x.com' },
 }) }));
 const t = (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key);
 const formatters = { timeAgo: () => '2d ago' };
@@ -29,14 +32,14 @@ beforeEach(() => {
   vi.useFakeTimers();
   commands = [];
   let n = 0;
-  api.enqueue.mockReset(); api.list.mockReset(); ws.open.mockReset();
+  api.enqueue.mockReset(); api.get.mockReset(); ws.open.mockReset();
   api.enqueue.mockImplementation(async (_node: string, action: string, args: Record<string, unknown>) => {
     const commandId = `c${++n}`;
     const data = action === 'list_local_sessions' ? { sessions: SESSIONS } : { channel: `channel-${args.id}`, resumable: true };
     commands.push({ commandId, action, status: 'done', result: { ok: true, message: null, data }, args });
     return { commandId };
   });
-  api.list.mockImplementation(async () => commands);
+  api.get.mockImplementation(async (_node: string, id: string) => commands.find((c) => c.commandId === id));
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
@@ -72,4 +75,15 @@ it('says when the device cannot list its sessions', async () => {
   await render();
   expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('not supported');
   expect((q('[data-testid="import-sessions-submit"]') as HTMLButtonElement)!.disabled).toBe(true);
+});
+
+it('offers only the person\'s own agents, never someone else\'s', async () => {
+  // Radix Select scrolls the picked option into view; jsdom has no layout.
+  Element.prototype.scrollIntoView = vi.fn();
+  Element.prototype.hasPointerCapture = vi.fn(() => false);
+  await render();
+  await act(async () => document.body.querySelector<HTMLButtonElement>('[aria-label="importSessions.agent"]')!.click());
+  const options = [...document.body.querySelectorAll('[role="option"]')].map((o) => o.textContent);
+  expect(options.some((o) => o?.includes('coder'))).toBe(true);
+  expect(options.some((o) => o?.includes('Someone else'))).toBe(false);
 });

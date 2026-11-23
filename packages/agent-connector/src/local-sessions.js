@@ -104,7 +104,9 @@ function readLines(file) {
 // ── Claude Code ────────────────────────────────────────────────────────────
 
 // Text the CLI injects into the user's turn that the person didn't type.
-const CLAUDE_INJECTED = /^\s*<(command-name|command-message|command-args|local-command-stdout|system-reminder|user-memory-input)\b/;
+const CLAUDE_INJECTED = /^\s*<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|system-reminder|user-memory-input|bash-input|bash-stdout|bash-stderr)\b/;
+// Whole blocks of it, including what a `!command` printed: never imported.
+const CLAUDE_INJECTED_BLOCK = /<(command-name|command-message|command-args|local-command-stdout|local-command-stderr|system-reminder|user-memory-input|bash-input|bash-stdout|bash-stderr)\b[^>]*>[\s\S]*?<\/\1>/g;
 
 function claudeText(content, { forTitle = false } = {}) {
   if (typeof content === 'string') return content;
@@ -132,12 +134,13 @@ function parseClaude(lines) {
     if (o.sessionId && !id) id = o.sessionId;
     if (o.cwd && !cwd) cwd = o.cwd;
     if (o.isSidechain) continue; // sub-agent chatter
+    if (o.isMeta || o.isCompactSummary) continue; // CLI-written, not the person's
     const m = o.message;
     if (!m || (o.type !== 'user' && o.type !== 'assistant')) continue;
     const at = o.timestamp || null;
     if (o.type === 'user') {
       if (Array.isArray(m.content) && m.content.every((b) => b && b.type === 'tool_result')) continue;
-      const text = claudeText(m.content).split('\n').filter((l) => !CLAUDE_INJECTED.test(l)).join('\n');
+      const text = claudeText(m.content).replace(CLAUDE_INJECTED_BLOCK, '').split('\n').filter((l) => !CLAUDE_INJECTED.test(l)).join('\n');
       if (text.trim() && !CLAUDE_INJECTED.test(text)) messages.push({ role: 'user', text, at });
     } else {
       const text = claudeText(m.content);
@@ -252,7 +255,9 @@ function listFileSessions(type, { env, limit }) {
     if (!first) continue; // nothing the person said: an empty or aborted session
     if (ranByOpenAgents(first.text, s.cwd, env)) continue;
     out.push({
-      id: s.id || idFromFile(type, file),
+      // Claude Code: the file's name is the session (a resumed file can open
+      // with an older session's records).
+      id: type === 'claude' ? idFromFile(type, file) : (s.id || idFromFile(type, file)),
       type,
       title: maskSecrets(oneLine(first.text)),
       cwd: s.cwd,
@@ -272,7 +277,7 @@ function readFileSession(type, id, { env }) {
   const file = findSessionFile(type, id, env);
   if (!file) return null;
   const s = parse(type, readLines(file));
-  return { id: s.id || id, cwd: s.cwd, file, messages: s.messages };
+  return { id: type === 'claude' ? id : (s.id || id), cwd: s.cwd, file, messages: s.messages };
 }
 
 // ── OpenCode ───────────────────────────────────────────────────────────────
@@ -316,7 +321,8 @@ function listOpencode({ env, limit, run }) {
 }
 
 function readOpencode(id, { env, run }) {
-  if (!/^[A-Za-z0-9_-]{4,80}$/.test(String(id || ''))) return null;
+  // Never something the CLI would take for an option.
+  if (!/^[A-Za-z0-9][A-Za-z0-9_-]{3,79}$/.test(String(id || ''))) return null;
   const exported = jsonFrom(run(['export', id], env));
   if (!exported || !Array.isArray(exported.messages)) return null;
   const messages = [];
@@ -434,8 +440,16 @@ function reader(type) {
 /** Newest first: [{id, type, title, cwd, updatedAt, messageCount}] (count null
  *  when the tool can't say cheaply). Sessions an OpenAgents agent ran are left
  *  out: they are already threads. `run` replaces the opencode CLI in tests. */
-function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run = runOpencode } = {}) {
-  return reader(type).list({ env, limit: Math.max(1, Math.min(limit, 1000)), run });
+function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run = runOpencode, excludeCwds = [], excludeIds = [] } = {}) {
+  const max = Math.max(1, Math.min(limit, 1000));
+  // Sessions this device's agents ran in their own folders, and the copies
+  // adapters made to continue an import, aren't the person's own.
+  const folders = excludeCwds.filter(Boolean).map((d) => path.resolve(d));
+  const skip = new Set(excludeIds);
+  const inFolder = (cwd) => !!cwd && folders.some((d) => path.resolve(cwd) === d || path.resolve(cwd).startsWith(d + path.sep));
+  return reader(type).list({ env, limit: Math.min(max * 2, 2000), run })
+    .filter((s) => !skip.has(s.id) && !inFolder(s.cwd))
+    .slice(0, max);
 }
 
 /** One session as a conversation, or null if it isn't there:

@@ -230,6 +230,7 @@ class CodexAdapter extends BaseAdapter {
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
       fs.writeFileSync(path.join(dir, `rollout-${stamp}-${newId}.jsonl`), complete.split(entry.session_id).join(newId), { mode: 0o600 });
       this._channelThreads[msgChannel] = newId;
+      try { require('../session-imports').recordCopy(newId); } catch { /* only hides it from the import picker */ }
       this._saveSessions();
       this._log(`Channel ${msgChannel} continues imported Codex session ${entry.session_id} as ${newId}`);
     } catch (e) {

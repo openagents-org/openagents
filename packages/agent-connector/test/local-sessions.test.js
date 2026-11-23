@@ -191,3 +191,43 @@ describe('local sessions', () => {
   });
 });
 
+
+describe('local sessions: what is left out', () => {
+  let home; let env;
+  const ID = '22222222-2222-3333-4444-555555555555';
+  before(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-sessions2-'));
+    env = { CLAUDE_CONFIG_DIR: path.join(home, 'claude'), OPENAGENTS_HOME: path.join(home, 'oa') };
+    const proj = path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-work-x');
+    fs.mkdirSync(proj, { recursive: true });
+    const base = { cwd: '/work/x', isSidechain: false };
+    fs.writeFileSync(path.join(proj, `${ID}.jsonl`), [
+      // A resumed file can open with an older session's records.
+      { ...base, sessionId: 'older-session-id', type: 'user', message: { role: 'user', content: 'Deploy the site' } },
+      { ...base, sessionId: ID, type: 'user', isMeta: true, message: { role: 'user', content: 'Caveat: written by the CLI' } },
+      { ...base, sessionId: ID, type: 'user', message: { role: 'user', content: '<bash-input>cat .env</bash-input>' } },
+      { ...base, sessionId: ID, type: 'user', message: { role: 'user', content: '<bash-stdout>PASSWORD=hunter2hunter2\nOTHER=1</bash-stdout><bash-stderr></bash-stderr>' } },
+      { ...base, sessionId: ID, type: 'user', isCompactSummary: true, message: { role: 'user', content: 'This session is being continued…' } },
+      { ...base, sessionId: ID, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Deployed.' }] } },
+    ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  });
+  after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  it('uses the file name as a Claude session\'s id', () => {
+    assert.equal(listLocalSessions('claude', { env })[0].id, ID);
+    assert.equal(readLocalSession('claude', ID, { env }).id, ID);
+  });
+
+  it('never imports what a !command printed, CLI notes or compaction summaries', () => {
+    const all = readLocalSession('claude', ID, { env }).messages.map((m) => m.text).join('\n');
+    assert.ok(!all.includes('hunter2') && !all.includes('cat .env') && !all.includes('Caveat') && !all.includes('being continued'));
+    assert.deepEqual(readLocalSession('claude', ID, { env }).messages.map((m) => m.role), ['user', 'assistant']);
+  });
+
+  it('leaves out sessions run in an agent\'s folder and copies made to continue an import', () => {
+    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/x'] }).length, 0);
+    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work'] }).length, 0);
+    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/xy'] }).length, 1);
+    assert.equal(listLocalSessions('claude', { env, excludeIds: [ID] }).length, 0);
+  });
+});

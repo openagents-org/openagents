@@ -71,7 +71,10 @@ describe('import_local_session (daemon)', () => {
     assert.deepEqual(calls.map((c) => c.body.messages.length), [50, 50, 20]);
     assert.equal(calls[0].body.channel, undefined, 'the first call creates the thread');
     assert.ok(calls.slice(1).every((c) => c.body.channel === 'channel-imp1'));
-    assert.equal(calls[0].body.session_id, SID);
+    // The workspace takes session, tool and agent from the owner's command.
+    assert.ok(calls.every((c) => c.body.command_id === 'c1'));
+    assert.equal(calls[0].body.session_id, undefined);
+    assert.deepEqual(calls.map((c) => c.body.final), [false, false, true]);
     assert.equal(calls[0].body.total, 120);
     assert.equal(calls[0].nodeId, 'n1');
     assert.deepEqual(result().data, { channel: 'channel-imp1', title: 'question 0', resumable: true });
@@ -86,6 +89,16 @@ describe('import_local_session (daemon)', () => {
     await daemon._runNodeCommand(node, { commandId: 'c2', action: 'import_local_session', args: { type: 'claude', id: SID, agent: 'cx' } });
     assert.equal(result().data.resumable, false);
     assert.equal(fs.existsSync(importsFile('w1', 'cx')), false);
+  });
+
+  it('stops at a thread the workspace already has for the session', async () => {
+    claudeSession(60);
+    const { daemon, calls, node, result } = daemonWith({ name: 'cc', type: 'claude', network: 'w1', node_id: 'n1' });
+    daemon._nodeClients.get('n1').importSession = async (nodeId, token, body) => { calls.push({ body }); return { channel: 'channel-old', title: 't', existing: true }; };
+    await daemon._runNodeCommand(node, { commandId: 'c9', action: 'import_local_session', args: { type: 'claude', id: SID, agent: 'cc' } });
+    assert.equal(calls.length, 1);
+    assert.equal(result().data.channel, 'channel-old');
+    assert.equal(result().data.existing, true);
   });
 
   it('reports a session that is gone', async () => {

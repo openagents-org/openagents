@@ -483,6 +483,11 @@ class WorkspaceApi {
     });
   }
 
+  /** One remote command's status (its result data only for the device's owner). */
+  async getNodeCommand(nodeId: string, commandId: string): Promise<NodeCommand> {
+    return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands/${encodeURIComponent(commandId)}`);
+  }
+
   /** Recent remote commands for a node (to show pending/done status). */
   async listNodeCommands(nodeId: string, limit?: number): Promise<NodeCommand[]> {
     return this.request<NodeCommand[]>(`/v1/nodes/${nodeId}/commands${limit ? `?limit=${limit}` : ''}`);
