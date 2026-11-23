@@ -474,7 +474,7 @@ class WorkspaceApi {
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,
-    action: 'login_start' | 'login_status' | 'login_input' | 'login_cancel' | 'credential_key' | 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models' | 'list_local_sessions',
+    action: 'login_start' | 'login_status' | 'login_input' | 'login_cancel' | 'credential_key' | 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models' | 'list_local_sessions' | 'import_local_session',
     args: Record<string, unknown> = {},
   ): Promise<NodeCommand> {
     return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {

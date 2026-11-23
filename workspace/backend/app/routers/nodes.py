@@ -148,7 +148,10 @@ def _format_node(node: Node, now: datetime, owner_email: Optional[str] = None) -
 
 
 # Remote agent-management actions the daemon knows how to execute.
-ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models", "list_local_sessions"}
+ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models", "list_local_sessions", "import_local_session"}
+# Local CLI sessions a device owner may import as threads
+# (app/routers/imported_sessions.py).
+IMPORTABLE_SESSION_TYPES = {"claude", "codex", "opencode", "hermes"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
 # a name). `detect_runtimes` / `list_dir` are node-wide and take no agent;
 # `probe_agent` smoke-tests a runtime and accepts either a type or a name.
@@ -462,14 +465,17 @@ def enqueue_command(
         envelope = args["encryptedCredentials"]
         if not isinstance(envelope, dict) or envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
             return json_response(ResponseCode.BAD_REQUEST, "Invalid credential envelope")
-    if action == "list_local_sessions":
+    if action in {"list_local_sessions", "import_local_session"}:
         # The device owner's own past CLI sessions are private: only that
-        # person, signed in, may list them — never a machine credential an
-        # agent on the device could hold.
+        # person, signed in, may list or import them — never a machine
+        # credential an agent on the device could hold.
         if not authorization or repeats_machine_token(x_workspace_token, authorization):
-            return json_response(ResponseCode.FORBIDDEN, "Sign in as the device owner to list its local sessions")
-        if args.get("type") not in {"claude", "codex"}:
-            return json_response(ResponseCode.BAD_REQUEST, "Importing sessions supports claude and codex")
+            return json_response(ResponseCode.FORBIDDEN, "Sign in as the device owner to import its local sessions")
+        if args.get("type") not in IMPORTABLE_SESSION_TYPES:
+            return json_response(ResponseCode.BAD_REQUEST, "Importing sessions supports claude, codex, opencode and hermes")
+        if action == "import_local_session" and not (isinstance(args.get("id"), str) and args["id"]
+                                                     and (args.get("agent") is None or isinstance(args.get("agent"), str))):
+            return json_response(ResponseCode.BAD_REQUEST, "Pick a session to import")
     if action == "login_start" and args.get("type") not in {"claude", "codex"}:
         return json_response(ResponseCode.BAD_REQUEST, "Unsupported browser sign-in")
     if action in {"login_status", "login_input", "login_cancel"} and not isinstance(args.get("sessionId"), str):
