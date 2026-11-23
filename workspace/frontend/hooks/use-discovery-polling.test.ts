@@ -7,9 +7,10 @@ import { useDiscoveryPolling } from './use-discovery-polling';
 let root: Root;
 let enabled = false;
 let active = { current: false };
-let refresh = vi.fn<() => Promise<void>>();
+let refresh = vi.fn<(opts?: { panels?: boolean }) => Promise<void>>();
+let live = { current: false };
 function Harness() {
-  useDiscoveryPolling(refresh, enabled, active);
+  useDiscoveryPolling(refresh, enabled, active, live);
   return null;
 }
 const render = () => act(async () => root.render(createElement(Harness)));
@@ -19,6 +20,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   enabled = false;
   active = { current: false };
+  live = { current: false };
   refresh = vi.fn().mockResolvedValue(undefined);
   root = createRoot(document.createElement('div'));
 });
@@ -73,4 +75,27 @@ it('retries a failed refresh without blocking the workspace', async () => {
   await render();
   await advance(20_000);
   expect(refresh).toHaveBeenCalledTimes(2);
+});
+
+
+it('becomes a slow safety refresh while the live stream is connected', async () => {
+  enabled = true;
+  active.current = true;
+  live.current = true;
+  await render();
+  await advance(5_000);
+  expect(refresh).toHaveBeenLastCalledWith({ panels: false });
+  await advance(29_999);
+  expect(refresh).toHaveBeenCalledTimes(1);
+  await advance(1);
+  expect(refresh).toHaveBeenCalledTimes(2);
+  await advance(60_000);
+  // every 4th live tick also refreshes the side panels
+  expect(refresh).toHaveBeenLastCalledWith({ panels: true });
+  live.current = false;
+  await advance(30_000);
+  expect(refresh).toHaveBeenLastCalledWith();
+  const calls = refresh.mock.calls.length;
+  await advance(5_000);
+  expect(refresh.mock.calls.length).toBe(calls + 1);
 });

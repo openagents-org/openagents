@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { workspaceApi } from '@/lib/api';
 import { eventToMessage } from '@/lib/types';
 import { compareMessages, mergeMessages } from '@/lib/message-merge';
+import { useLiveStream } from '@/lib/live-stream-context';
 import type { ONMEvent, WorkspaceMessage } from '@/lib/types';
 
 interface UsePollingOptions {
@@ -162,6 +163,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
 
   // Load recent history (newest messages first, then reverse for display)
   const dmPair = useMemo(() => parseDMSession(sessionId), [sessionId]);
+  const live = useLiveStream();
 
   const loadHistory = useCallback(async (): Promise<boolean> => {
     if (!sessionId) return false;
@@ -322,6 +324,35 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       });
     }
 
+    // The workspace's live stream (beta setting "realtime_stream") carries this
+    // thread or DM on the tab's single connection. Catch up with a poll on
+    // every (re)connect or when it reports it may have missed something. When
+    // it is not live, fall through to the per-thread stream and polling below.
+    const liveStream = live.state === 'live' ? live.stream : null;
+    if (liveStream) {
+      const offEvent = liveStream.onEvent((event) => {
+        if (cancelled || sessionId !== currentSessionRef.current) return;
+        if (event.type && event.type !== 'workspace.message.posted') return;
+        try {
+          const msg = scopeMessageToSession(eventToMessage(event as unknown as ONMEvent), sessionId, dmPair);
+          if (!msg) return;
+          bumpNewest(msg);
+          setMessages((prev) => mergeMessages(prev, [msg]));
+        } catch {
+          // malformed event
+        }
+      });
+      const offSync = liveStream.onResync(() => {
+        if (!cancelled && newestIdRef.current) void poll();
+      });
+      if (historyLoadedRef.current && newestIdRef.current) void poll();
+      return () => {
+        cancelled = true;
+        offEvent();
+        offSync();
+      };
+    }
+
     // Try SSE first for instant updates, fall back to polling
     const isDM = sessionId.startsWith('dm:');
     let eventSource: EventSource | null = null;
@@ -437,7 +468,7 @@ export function useMessagePolling({ sessionId, enabled = true, initialMessages }
       if (retryTimeout) clearTimeout(retryTimeout);
       if (connectTimeout) clearTimeout(connectTimeout);
     };
-  }, [sessionId, enabled, poll, loadHistory, reconnectNonce]);
+  }, [sessionId, enabled, poll, loadHistory, reconnectNonce, live.state, live.stream, dmPair, bumpNewest]);
 
   // Recover after the tab is backgrounded (esp. mobile browsers, which suspend
   // timers and kill the EventSource). On return to the foreground: immediately
