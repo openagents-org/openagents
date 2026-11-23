@@ -1445,6 +1445,99 @@ class _StreamVisibility:
 
 
 # ---------------------------------------------------------------------------
+# GET /v1/events/agent-stream — wake-ups for agent connectors
+# ---------------------------------------------------------------------------
+
+AGENT_STREAM_KEEPALIVE_SECONDS = 15.0
+# Streams end after a few minutes (with jitter) and the connector reconnects
+# at once. That bounds how long a draining server keeps connections during a
+# deploy and re-checks credentials and the rollout allowlist regularly.
+AGENT_STREAM_MAX_SECONDS = 300.0
+AGENT_STREAM_JITTER_SECONDS = 60.0
+
+
+def _authorize_agent_stream(network, token, authorization):
+    """Same credential check as GET /v1/events (workspace, device or bearer)."""
+    db = SessionLocal()
+    try:
+        workspace_id, error, _legacy, _workspace = _resolve_and_auth_cached(db, network, token, authorization)
+        return workspace_id, error
+    finally:
+        db.close()
+
+
+@router.get("/events/agent-stream")
+async def agent_event_stream(
+    request: Request,
+    network: str = Query(...),
+    agent: Optional[str] = Query(None, description="Agent name; defaults to the X-Agent-Name header"),
+    token: Optional[str] = Query(None),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """Tell a connector when to poll, instead of it polling on a timer.
+
+    Emits ``event: wake`` with ``{"kinds": [...]}`` (``message`` and/or
+    ``control``) after a commit that may have something for this agent, plus a
+    keepalive comment every 15 s. No event content is sent: the connector runs
+    its normal ``GET /v1/events`` polls, which apply all access rules. Answers
+    404 (``agent_stream_disabled``) unless the workspace is in
+    ``AGENT_STREAM_WORKSPACES``; connectors then keep polling.
+    """
+    import random
+
+    from app.services import agent_stream
+    from app.services.access_model import get_request_agent_name
+
+    agent_name = (agent or get_request_agent_name() or "").strip()
+    if not agent_name:
+        return json_response(ResponseCode.BAD_REQUEST, "Missing agent name (X-Agent-Name header or agent query parameter)")
+    workspace_id, error = await run_in_threadpool(
+        _authorize_agent_stream, network, x_workspace_token or token, authorization,
+    )
+    if error is not None:
+        return error
+    if not agent_stream.stream_enabled(workspace_id):
+        return json_response(
+            ResponseCode.NOT_FOUND, "Agent stream is not enabled for this workspace",
+            data={"reason": "agent_stream_disabled"},
+        )
+
+    address = agent_name if agent_name.startswith("openagents:") else f"openagents:{agent_name}"
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + AGENT_STREAM_MAX_SECONDS + random.uniform(0, AGENT_STREAM_JITTER_SECONDS)
+
+    async def wakes():
+        sub = agent_stream.hub.subscribe(workspace_id, address)
+        try:
+            # Flush headers at once; proxies may otherwise hold the response.
+            yield ": connected\n\n"
+            while True:
+                remaining = deadline - loop.time()
+                if remaining <= 0 or await request.is_disconnected():
+                    break
+                kinds = await sub.wait(min(AGENT_STREAM_KEEPALIVE_SECONDS, remaining))
+                if kinds:
+                    payload = _json.dumps({"kinds": sorted(kinds)}, separators=(",", ":"))
+                    yield f"event: wake\ndata: {payload}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+            yield "event: reconnect\ndata: {}\n\n"
+        finally:
+            agent_stream.hub.unsubscribe(sub)
+
+    return StreamingResponse(
+        wakes(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+# ---------------------------------------------------------------------------
 # GET /v1/events/stream — Server-Sent Events
 # ---------------------------------------------------------------------------
 

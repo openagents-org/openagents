@@ -196,3 +196,8 @@ def resume_cursor(head, newest, incoming):
     if head and (not position or head['timestamp'] > position['timestamp']):
         position = head
     return position['id'] if position else None
+
+
+# Agent wake-up publishing hooks live next to these poll-cache hooks and must be
+# registered wherever events are written (see app/services/agent_stream.py).
+from app.services import agent_stream as _agent_stream  # noqa: E402,F401
