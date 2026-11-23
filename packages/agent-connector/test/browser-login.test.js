@@ -2,7 +2,7 @@
 const { it } = require('node:test');
 const assert = require('node:assert/strict');
 const { EventEmitter } = require('node:events');
-const { BrowserLogin, loginDetails } = require('../src/browser-login');
+const { BrowserLogin, BROWSER_LOGIN_TYPES, loginDetails, loginMethods } = require('../src/browser-login');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -91,4 +91,45 @@ it('runs the sign-in bridge through a real pseudo-terminal', { skip: !['linux', 
     manager.input('owner', session.sessionId, 'code#state');
     await until('done');
   } finally { manager.close(); fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+it('relays Cursor and OpenCode sign-ins with the exact login each CLI needs', () => {
+  assert.deepEqual(BROWSER_LOGIN_TYPES, ['claude', 'codex', 'cursor', 'opencode']);
+  assert.deepEqual(loginMethods('opencode'), ['chatgpt', 'copilot']);
+  assert.deepEqual(loginMethods('deepseek'), []);
+  // Captured from cursor-agent 2026.11.22: a link only, the CLI polls by itself.
+  const cursorOut = 'Open a browser and navigate to this link: https://cursor.com/loginDeepControl?challenge=abc&uuid=1&mode=login&redirectTarget=cli\r\n';
+  assert.deepEqual(loginDetails('cursor', cursorOut), { url: 'https://cursor.com/loginDeepControl?challenge=abc&uuid=1&mode=login&redirectTarget=cli', code: undefined });
+  assert.equal(loginDetails('cursor', 'https://cursor.com.evil.example/loginDeepControl?x').url, undefined);
+  assert.equal(loginDetails('cursor', 'https://cursor.com/settings').url, undefined);
+  // Captured from opencode 1.17.11/1.19.6 (clack prompts with box drawing).
+  assert.deepEqual(loginDetails('opencode', '●  Go to: https://auth.openai.com/codex/device\n│\n●  Enter code: X51S-2VSP5\n', 'chatgpt'),
+    { url: 'https://auth.openai.com/codex/device', code: 'X51S-2VSP5' });
+  assert.deepEqual(loginDetails('opencode', '●  Go to: https://github.com/login/device\n│\n●  Enter code: EA15-212B\n', 'copilot'),
+    { url: 'https://github.com/login/device', code: 'EA15-212B' });
+  // A ChatGPT sign-in never accepts the Copilot page, and vice versa.
+  assert.equal(loginDetails('opencode', 'https://github.com/login/device', 'chatgpt').url, undefined);
+  assert.equal(loginDetails('opencode', 'https://auth.openai.com/codex/device', 'copilot').url, undefined);
+
+  const { manager, proc, args } = setup();
+  try {
+    manager.start('owner', 'cursor', '/bin/cursor-agent', {}, 'linux');
+    assert.match(args()[1][3], /'\/bin\/cursor-agent' 'login'$/);
+    const s = manager.start('owner', 'opencode', '/bin/opencode', {}, 'linux', 'copilot');
+    assert.match(args()[1][3], /'\/bin\/opencode' 'auth' 'login' '-p' 'github-copilot'$/);
+    assert.equal(manager.read('owner', s.sessionId).method, 'copilot');
+    // The deployment-type menu comes first: pick GitHub.com once, then the link.
+    proc.stdout.emit('data', '◆  Select GitHub deployment type\n│  ● GitHub.com (Public)\n');
+    proc.stdout.emit('data', '◆  Select GitHub deployment type\n');
+    assert.equal(proc.input, '\r');
+    proc.stdout.emit('data', '●  Go to: https://github.com/login/device\n●  Enter code: EA15-212B\n');
+    assert.deepEqual({ ...manager.read('owner', s.sessionId), sessionId: 0, expiresAt: 0 },
+      { sessionId: 0, type: 'opencode', method: 'copilot', status: 'waiting', url: 'https://github.com/login/device', code: 'EA15-212B', expiresAt: 0 });
+    // Only Claude reads a pasted code.
+    assert.throws(() => manager.input('owner', s.sessionId, 'code'));
+    manager.start('owner', 'opencode', '/bin/opencode', {}, 'linux', 'chatgpt');
+    assert.match(args()[1][3], /'-p' 'openai' '-m' 'ChatGPT Pro\/Plus \(headless\)'$/);
+    assert.throws(() => manager.start('owner', 'deepseek', '/bin/dsh', {}, 'linux'), /not supported/);
+    assert.throws(() => manager.start('owner', 'cursor', '/bin/cursor-agent', {}, 'win32'), /not supported/);
+  } finally { manager.close(); }
 });

@@ -148,6 +148,14 @@ def _format_node(node: Node, now: datetime, owner_email: Optional[str] = None) -
 
 
 # Remote agent-management actions the daemon knows how to execute.
+# Agent types whose native CLI sign-in the connector can relay, and the
+# accounts each offers (packages/agent-connector/src/browser-login.js).
+BROWSER_LOGIN_METHODS = {
+    "claude": {"default"},
+    "codex": {"default"},
+    "cursor": {"default"},
+    "opencode": {"chatgpt", "copilot"},
+}
 ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
 # a name). `detect_runtimes` / `list_dir` are node-wide and take no agent;
@@ -462,7 +470,10 @@ def enqueue_command(
         envelope = args["encryptedCredentials"]
         if not isinstance(envelope, dict) or envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
             return json_response(ResponseCode.BAD_REQUEST, "Invalid credential envelope")
-    if action == "login_start" and args.get("type") not in {"claude", "codex"}:
+    if action == "login_start" and (
+        args.get("type") not in BROWSER_LOGIN_METHODS
+        or args.get("method", "default") not in BROWSER_LOGIN_METHODS[args.get("type")]
+    ):
         return json_response(ResponseCode.BAD_REQUEST, "Unsupported browser sign-in")
     if action in {"login_status", "login_input", "login_cancel"} and not isinstance(args.get("sessionId"), str):
         return json_response(ResponseCode.BAD_REQUEST, "Missing sign-in session")

@@ -32,19 +32,33 @@ The public key is obtained through the authenticated Workspace connection.
 
 ## Browser subscription sign-in
 
-A Claude or Codex runtime reports `browserLogin: true` only when the
-connector supports the flow and the POSIX `script` utility is available. Missing
-or false capabilities keep the existing terminal instructions; no version guess
-enables the new UI. Native Windows currently uses that fallback.
+A Claude, Codex, Cursor or OpenCode runtime reports `browserLogin: true` only
+when the connector supports the flow and the POSIX `script` utility is
+available. Missing or false capabilities keep the existing terminal
+instructions; no version guess enables the new UI. Native Windows currently uses
+that fallback. A type with a choice of accounts also reports
+`browserLoginMethods` (OpenCode: `["chatgpt", "copilot"]`), and `login_start`
+must then name one as `method`.
+
+| Type | Device command | Link accepted | Extra |
+|---|---|---|---|
+| `claude` | `claude auth login` | `claude.ai`/`claude.com` `…/oauth/authorize` | code pasted back (`login_input`) |
+| `codex` | `codex login --device-auth` | `auth.openai.com/codex/device` | device code |
+| `cursor` | `cursor-agent login` | `cursor.com/loginDeepControl` | the CLI polls; nothing to paste |
+| `opencode` + `chatgpt` | `opencode auth login -p openai -m "ChatGPT Pro/Plus (headless)"` | `auth.openai.com/codex/device` | device code |
+| `opencode` + `copilot` | `opencode auth login -p github-copilot` | `github.com/login/device` | device code; the connector picks "GitHub.com" at the first prompt |
 
 The connection owner queues `login_start` with the agent type. If its CLI is
-missing, the connector installs it before starting sign-in. The device runs
-`claude auth login` or `codex login --device-auth` in a pseudo-terminal and returns
-an opaque session ID. `login_status` returns only a validated provider URL, a
-Codex device code when applicable, expiry and status. Raw CLI output and account
+missing, the connector installs it before starting sign-in. The device runs the
+command above in a pseudo-terminal and returns an opaque session ID.
+`login_status` returns only a validated provider URL, a device code when
+applicable, expiry and status. Raw CLI output and account
 credentials never leave the device. All commands use the existing connection
 owner authorization. Sessions are additionally scoped to the workspace/node
 pairing, expire after ten minutes, and can be stopped with `login_cancel`.
+
+The workspace always offers the terminal sign-in (`agn login <type>`, or the
+CLI's own command) under the link, and opens it when the link fails.
 
 For Claude, `login_input` carries `{sessionId, encryptedCredentials}`. Its
 encrypted `config.code` is the browser-provided authorization code. The AAD adds
