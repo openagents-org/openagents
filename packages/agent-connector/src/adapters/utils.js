@@ -251,8 +251,28 @@ function decodeConsoleOutput(buf, isWindows = process.platform === 'win32') {
  * "[claude-code:unrecognized_model] {"model":…}", on every run against a relay
  * model; read as the failure, it turned a timed-out smoke test into "wrong
  * model" and skipped the direct API check that would have said why.
+ * CodeBuddy on a Windows machine without Git opens every run with a
+ * five-line "Note: Git Bash not detected … will use PowerShell" notice on
+ * stderr and carries on; a failed connection test quoted that notice as its
+ * reason, so the real one never showed (daily errors dashboard, 2026-11-23).
  */
-const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`/i;
+const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize the model|\[claude-code:unrecognized_model\]|assumes a context window|auto-compact keeps this session|CLAUDE_CODE_DISABLE_UNKNOWN_MODEL_WINDOW_ENFORCEMENT|Model metadata for .* not found|Defaulting to fallback metadata|^\s*Reading (prompt|additional input) from stdin|^\s*\d{4}-\d{2}-\d{2}T[\d:.]+Z?\s+(TRACE|DEBUG|INFO|WARN)\s|^\s*\(node:\d+\) (\[\w+\] )?\w*Warning:|^\s*\(Use `node --trace-(warnings|deprecation) \.\.\.`|^\s*Note: Git Bash not detected\b|^\s*Git Bash-only features \(|^\s*To enable Git Bash features, install Git for Windows|^\s*or set: CODEBUDDY_CODE_GIT_BASH_PATH=|^\s*Suppress this notice with: CODEBUDDY_SKIP_GIT_BASH_CHECK/i;
+
+/**
+ * An account with nothing left to spend, in words that say only that.
+ * Relays built on new-api / one-api refuse at 403 with "Insufficient user
+ * quota, remaining quota: ＄-0.000054" or "预扣费额度失败, 用户剩余额度: ¥0.22", and
+ * others say "Forbidden: Insufficient account balance". Checked after the
+ * status code, each of those read as a rejected key: the connection test,
+ * OpenCode and Pi all told the user to replace a key that works, and Pi
+ * marked the agent as signed out (daily errors dashboard, 2026-11-23).
+ *
+ * Adapters test this ahead of their 401/403 and rate-limit rules, so it is
+ * kept to phrases that never describe a throttle or a bad key: no bare
+ * "quota exceeded" (Gemini's per-minute limit), "billing", 额度 or 402, which
+ * also turn up in rate-limit text, paths and ids. Match lower-cased text.
+ */
+const CREDIT_EXHAUSTED = /insufficient[_ ]?(?:[a-z]+[_ ])?(?:balance|quota|credits?|funds)\b|not enough (?:quota|credits?|balance)|no credits? (?:left|remaining)|pre-?consume quota|credit balance is too low|payment required|out of (?:credits?|balance)\b|余额不足|额度不足|预扣费额度失败|欠费|arrearage/;
 
 /**
  * What a failed socket says went wrong. Node 20+ tries every address a host
@@ -305,6 +325,7 @@ module.exports = {
   SESSION_DEFAULT_RE,
   networkErrorText,
   BENIGN_CLI_OUTPUT,
+  CREDIT_EXHAUSTED,
   stripCliNoise,
   stripAnsi,
   decodeConsoleOutput,

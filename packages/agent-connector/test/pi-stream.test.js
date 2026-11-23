@@ -425,6 +425,17 @@ describe('classifyPiError', () => {
     ['502 {"title":"Error","ray_id":"9a403c"}', 'server'],
     ['Error 522: Connection timed out', 'server'],
     ['Rate limit reached for gpt-4o on requests per min (RPM): Limit 500, Used 500, Requested 1', 'rate_limit'],
+    // Daily errors dashboard, 2026-11-23: a spent relay account answers 403,
+    // which read as a sign-in failure and marked the agent signed out.
+    ['403 {"error":{"type":"mixroute_error","message":"pre-consume quota failed, user remaining quota: ＄0.01"}}', 'credit'],
+    ['402: {"message":"not enough quota to process this request","type":"insufficient_quota"}', 'credit'],
+    ['403 {"error":{"message":"Insufficient user quota, remaining quota: ＄-0.000054","type":"new_api_error"}}', 'credit'],
+    ['403 {"error":{"message":"预扣费额度失败, 用户剩余额度: ¥0.22"}}', 'credit'],
+    ['403 Forbidden: invalid api key', 'auth'],
+    // Not a spent account: a per-minute quota, a path and a throttle.
+    ["429 RESOURCE_EXHAUSTED: Quota exceeded for quota metric 'Generate Content API requests per minute'", 'rate_limit'],
+    ["ENOENT: no such file or directory, open '/home/u/billing-api/src/a.ts'", 'filesystem'],
+    ['请求过于频繁，超出额度限制 (429)', 'rate_limit'],
   ];
   for (const [raw, kind] of CASES) {
     it(`classifies "${raw.slice(0, 40)}" as ${kind}`, () => {

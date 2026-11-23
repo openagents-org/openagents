@@ -71,6 +71,7 @@
 
 const path = require('path');
 const { StringDecoder } = require('string_decoder');
+const { CREDIT_EXHAUSTED } = require('./utils');
 
 // ────────────────────────────────────────────────────────────────────────
 // Constants
@@ -656,9 +657,10 @@ class PiAssistantAccumulator {
 /**
  * Map a raw Pi failure string (an assistant `errorMessage`, a failed RPC
  * `error`, or stderr) to `{ kind, userMessage }`. `kind` is one of
- * 'auth' | 'rate_limit' | 'model' | 'provider' | 'network' | 'context' |
- * 'filesystem' | null, and the caller decides which REASON (if any) it maps
- * to. Always pass the result through redactSecrets before display.
+ * 'credit' | 'auth' | 'server' | 'rate_limit' | 'model' | 'provider' |
+ * 'network' | 'context' | 'filesystem' | null, and the caller decides which
+ * REASON (if any) it maps to. Always pass the result through redactSecrets
+ * before display.
  *
  * @param {string} text
  * @returns {{kind: string|null, userMessage: string}}
@@ -681,6 +683,16 @@ function classifyPiError(text) {
   // through the digits of its ray id (daily errors dashboard, 2026-11-19).
   const status = (...codes) => codes.some((c) => STATUS_TOKEN[c].test(low));
 
+  // Before the 401/403 rule: a relay that has run out of credit refuses at
+  // 403 ("pre-consume quota failed, user remaining quota: …"), and as an auth
+  // failure the agent was reported as signed out and the user sent to
+  // replace a key that works (daily errors dashboard, 2026-11-23).
+  if (CREDIT_EXHAUSTED.test(low)) {
+    return {
+      kind: 'credit',
+      userMessage: `Pi's provider account is out of credit or quota: ${raw}\n\nTop it up, or switch this agent to a key or model that has credit.`,
+    };
+  }
   if (status(401, 403) || has('unauthorized', 'authentication_error', 'authentication failed',
     'invalid api key', 'invalid x-api-key', 'invalid_api_key', 'no api key',
     'missing api key', 'no credentials', 'not authenticated')) {
@@ -703,8 +715,7 @@ function classifyPiError(text) {
       userMessage: `Pi's provider answered with a server error: ${raw}\n\nThis is on the provider's side; retry shortly, or switch provider/model if it persists.`,
     };
   }
-  if (status(429) || has('rate limit', 'rate_limit', 'too many requests', 'quota', 'overloaded',
-    'insufficient_quota')) {
+  if (status(429) || has('rate limit', 'rate_limit', 'too many requests', 'quota', 'overloaded')) {
     return {
       kind: 'rate_limit',
       userMessage: `Pi hit the provider's rate limit or quota: ${raw}\n\nWait and retry, or switch provider/model.`,
