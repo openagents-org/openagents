@@ -76,7 +76,12 @@ def share_instructions():
     """
     text = _INSTRUCTIONS.read_text(encoding="utf-8")
     import app.config as app_config  # read at request time: settings can be reloaded
-    text = text.replace("{API}", (app_config.config.PUBLIC_API_BASE or "").rstrip("/")).replace("{APP}", svc.frontend_base())
+    import os
+    # SHARE_LAUNCHER_PACKAGE: what `npx` installs (a test build's tarball URL on
+    # a private preview); defaults to the published launcher.
+    launcher = os.environ.get("SHARE_LAUNCHER_PACKAGE") or "@openagents-org/agent-launcher@latest"
+    text = (text.replace("{API}", (app_config.config.PUBLIC_API_BASE or "").rstrip("/"))
+            .replace("{APP}", svc.frontend_base()).replace("{LAUNCHER}", launcher))
     return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
                              headers={"Cache-Control": "public, max-age=300"})
 

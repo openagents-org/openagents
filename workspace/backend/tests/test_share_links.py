@@ -468,3 +468,10 @@ def test_guests_do_not_see_agent_cli_errors(client, db, no_push):
     db.commit()
     last = _messages(client, _token(data))[-1]
     assert last["payload"]["content"] == "Here is part of it."
+
+
+def test_instructions_can_install_a_test_build_of_the_launcher(client, monkeypatch):
+    assert "npx -y @openagents-org/agent-launcher@latest create" in client.get("/v1/share/instructions").text
+    monkeypatch.setenv("SHARE_LAUNCHER_PACKAGE", "https://preview.example.test/launcher.tgz")
+    text = client.get("/v1/share/instructions").text
+    assert "npx -y https://preview.example.test/launcher.tgz create" in text and "{LAUNCHER}" not in text

@@ -66,9 +66,9 @@ curl -sS -X POST "{API}/v1/share/publish" -H "Content-Type: application/json" -d
 3. Connect it (requires Node.js; the commands install the OpenAgents launcher on first use). `OPENAGENTS_ENDPOINT` points the launcher at this OpenAgents server; keep it on every command (on Windows PowerShell, run `$env:OPENAGENTS_ENDPOINT="{API}"` first and drop the prefix):
 
 ```sh
-OPENAGENTS_ENDPOINT={API} npx -y @openagents-org/agent-launcher@latest create <agentName> --type claude --path ~/.openagents/shared/<agentName>
-OPENAGENTS_ENDPOINT={API} npx -y @openagents-org/agent-launcher@latest connect <agentName> <token>
-OPENAGENTS_ENDPOINT={API} npx -y @openagents-org/agent-launcher@latest up
+OPENAGENTS_ENDPOINT={API} npx -y {LAUNCHER} create <agentName> --type claude --path ~/.openagents/shared/<agentName>
+OPENAGENTS_ENDPOINT={API} npx -y {LAUNCHER} connect <agentName> <token>
+OPENAGENTS_ENDPOINT={API} npx -y {LAUNCHER} up
 ```
 
 Only Claude Code can take guest requests at the moment. If you are a different agent, still publish (people can read the thread and talk to the person), but tell the person guests' requests will get a "can't take guest requests yet" reply.
@@ -80,4 +80,4 @@ Tell the person, briefly:
 - **Send this to your team:** the `guestUrl`.
 - **Keep this private:** the `ownerUrl`. It is full control of the workspace. Opening it and signing in (or creating a free account) keeps the workspace in their OpenAgents account; until then it exists only behind that link.
 - From the owner link they can copy the guest link again, change its expiry or turn it off (the share icon in the thread header).
-- The shared agent answers while this computer is on and the launcher is running. Stop it with `npx @openagents-org/agent-launcher stop <agentName>`.
+- The shared agent answers while this computer is on and the launcher is running. Stop it with `npx -y {LAUNCHER} stop <agentName>`.
