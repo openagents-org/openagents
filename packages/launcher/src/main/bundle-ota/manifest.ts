@@ -32,7 +32,7 @@ export const DEFAULT_BUNDLE_FEED = "https://dl.openagents.org/workspace-bundle/d
  * base64). Rotating means shipping the new key here one launcher release
  * BEFORE the feed starts signing with it.
  */
-const TRUSTED_KEYS = ["MCowBQYDK2VwAyEApMiAefMUYmYjafWfjMLgZP6i21f7rC3VMZvlWWYaaFg="]
+const TRUSTED_KEYS = ["MCowBQYDK2VwAyEA2CMJOjtJ26M8tGfbwkjXi1yVskOLRwctbTue+sNc+yg="]
 
 export interface BundleInfo {
   schema: number
