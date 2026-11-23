@@ -16,6 +16,7 @@ const WEB_ONLY = new Set([
   '/share/artifact/:token', // public links opened by people outside the app
   '/share/file/:token',
   '/share/thread/:token', // guest view of one shared thread, opened without an account
+  '/share/own/:slug', // owner's light room for a shared agent, opened from the owner link
 ]);
 
 const APP_DIR = join(__dirname, '..', 'app');

@@ -50,7 +50,8 @@ export type GuestThreadErrorKind =
   | 'server';
 
 export class GuestThreadError extends Error {
-  constructor(public kind: GuestThreadErrorKind, message: string, public status: number | null = null) {
+  /** `data` carries the error body's `data` (e.g. `movedTo` on a 410 from the owner room). */
+  constructor(public kind: GuestThreadErrorKind, message: string, public status: number | null = null, public data: unknown = null) {
     super(message);
     this.name = 'GuestThreadError';
   }
@@ -110,7 +111,7 @@ function linkUrl(token: string, path = '', baseUrl = getApiBaseUrl()): string {
   return `${baseUrl}/v1/guest-links/public/${encodeURIComponent(token)}${path}`;
 }
 
-async function request<T>(url: string, init: RequestInit, options: GuestApiOptions = {}): Promise<T> {
+export async function request<T>(url: string, init: RequestInit, options: GuestApiOptions = {}): Promise<T> {
   const fetchImpl = options.fetchImpl ?? fetch;
   let res: Response;
   try {
@@ -123,7 +124,7 @@ async function request<T>(url: string, init: RequestInit, options: GuestApiOptio
   let body: { code?: number; message?: string; data?: T } | null = null;
   try { body = await res.json(); } catch { body = null; }
   if (!res.ok) {
-    throw new GuestThreadError(errorKindForStatus(res.status), body?.message || `HTTP ${res.status}`, res.status);
+    throw new GuestThreadError(errorKindForStatus(res.status), body?.message || `HTTP ${res.status}`, res.status, body?.data ?? null);
   }
   if (!body || (body.code !== undefined && body.code !== 0)) {
     throw new GuestThreadError('server', body?.message || 'Unexpected response', res.status);

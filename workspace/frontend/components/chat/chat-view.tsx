@@ -172,6 +172,8 @@ export function ChatView() {
         && Boolean((workspace.settings as Record<string, unknown> | undefined)?.openagents_share) && (
         <KeepWorkspaceBanner
           workspaceId={workspace.workspaceId}
+          slug={workspace.slug}
+          threadName={currentSessionId || undefined}
           token={workspaceToken}
           share={Boolean((workspace.settings as Record<string, unknown> | undefined)?.openagents_share)}
           claimed={Boolean(workspace.creatorEmail)}

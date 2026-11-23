@@ -15,6 +15,15 @@ export interface GuestLink {
   createdAt: string | null;
 }
 
+/** Where the owner's link calls go: the workspace API (signed-in owner) or
+ * the owner room (workspace token from the owner link). */
+export interface GuestLinksClient {
+  list(channel: string): Promise<GuestLink[]>;
+  create(channel: string, expiresAt: string | null): Promise<GuestLink>;
+  updateExpiry(id: string, expiresAt: string | null): Promise<GuestLink>;
+  revoke(id: string): Promise<GuestLink>;
+}
+
 /** Threads made by `POST /v1/share/publish` are named `share-<hex>`. */
 export const SHARED_THREAD_PREFIX = 'share-';
 

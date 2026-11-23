@@ -16,26 +16,41 @@ import {
   upsertLink,
   type ExpiryChoice,
   type GuestLink,
+  type GuestLinksClient,
 } from '@/lib/guest-links';
+import { GuestThreadError } from '@/lib/guest-thread-api';
+import { cn } from '@/lib/utils';
+
+/** The default client: the signed-in workspace API. */
+export const workspaceGuestLinksClient: GuestLinksClient = {
+  list: (channel) => workspaceApi.listGuestLinks(channel),
+  create: (channel, expiresAt) => workspaceApi.createGuestLink(channel, expiresAt),
+  updateExpiry: (id, expiresAt) => workspaceApi.updateGuestLinkExpiry(id, expiresAt),
+  revoke: (id) => workspaceApi.revokeGuestLink(id),
+};
+
+function isForbidden(error: unknown): boolean {
+  const status = error instanceof ApiError ? error.status : error instanceof GuestThreadError ? error.status : null;
+  return status === 401 || status === 403;
+}
 
 export type GuestLinksLoad = { links: GuestLink[] | null; error: 'forbidden' | 'failed' | null };
 
 /** The thread's guest links, loaded while `enabled` (the share dialog is open). */
-export function useGuestLinks(channel: string, enabled: boolean) {
+export function useGuestLinks(channel: string, enabled: boolean, client: GuestLinksClient = workspaceGuestLinksClient) {
   const [state, setState] = useState<GuestLinksLoad & { channel: string }>({ channel, links: null, error: null });
   useEffect(() => {
     if (!enabled) return;
     let active = true;
     setState({ channel, links: null, error: null });
-    workspaceApi.listGuestLinks(channel)
+    client.list(channel)
       .then((links) => { if (active) setState({ channel, links, error: null }); })
       .catch((error) => {
         if (!active) return;
-        const forbidden = error instanceof ApiError && (error.status === 401 || error.status === 403);
-        setState({ channel, links: null, error: forbidden ? 'forbidden' : 'failed' });
+        setState({ channel, links: null, error: isForbidden(error) ? 'forbidden' : 'failed' });
       });
     return () => { active = false; };
-  }, [channel, enabled]);
+  }, [channel, enabled, client]);
   const current = state.channel === channel ? state : { links: null, error: null };
   const setLinks = (update: (links: GuestLink[]) => GuestLink[]) =>
     setState((prev) => ({ ...prev, links: update(prev.links || []), error: null }));
@@ -53,8 +68,12 @@ const CHOICE_KEY: Record<ExpiryChoice, MessageKey> = {
  * The owner's view of a shared thread's guest link: copy it, change when it
  * expires, turn it off, or make a new one. Lives in the thread's share dialog.
  */
-export function GuestLinkPanel({ channel, agentName, links, error, setLinks }: {
+export function GuestLinkPanel({ channel, agentName, links, error, setLinks, client = workspaceGuestLinksClient, compact = false }: {
   channel: string;
+  /** Where link changes go; defaults to the signed-in workspace API. */
+  client?: GuestLinksClient;
+  /** Narrow layout (the owner room's side panel): link and copy stack. */
+  compact?: boolean;
   /** The thread's agent, for "Guests can ask <agent> …"; null when unknown. */
   agentName: string | null;
   links: GuestLink[] | null;
@@ -108,7 +127,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks }: {
         <p className="text-sm text-muted-foreground">{message}</p>
         {failure}
         <div>
-          <Button variant="outline" disabled={!!busy} onClick={() => void run('create', () => workspaceApi.createGuestLink(channel, null))}>
+          <Button variant="outline" disabled={!!busy} onClick={() => void run('create', () => client.create(channel, null))}>
             {busy === 'create' ? <Spinner data-icon="inline-start" /> : <Plus data-icon="inline-start" />}{t('share.createGuestLink')}
           </Button>
         </div>
@@ -119,11 +138,11 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks }: {
   const link = state.link;
   const activeChoice: ExpiryChoice | null = picked?.linkId === link.id ? picked.choice : link.expiresAt ? null : 'never';
   const setExpiry = async (choice: ExpiryChoice) => {
-    const updated = await run('expiry', () => workspaceApi.updateGuestLinkExpiry(link.id, expiryForChoice(choice)));
+    const updated = await run('expiry', () => client.updateExpiry(link.id, expiryForChoice(choice)));
     if (updated && mounted.current) setPicked({ linkId: updated.id, choice });
   };
   const turnOff = async () => {
-    const updated = await run('revoke', () => workspaceApi.revokeGuestLink(link.id));
+    const updated = await run('revoke', () => client.revoke(link.id));
     if (mounted.current) setConfirmOff(false);
     return updated;
   };
@@ -131,7 +150,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks }: {
   return (
     <div className="flex flex-col gap-3" data-guest-link-state="live">
       <p className="text-sm text-muted-foreground">{hint}</p>
-      <div className="flex gap-2">
+      <div className={cn('flex gap-2', compact && 'flex-col')}>
         <Input aria-label={t('share.guestLink')} readOnly value={link.url} className="select-all" onFocus={(e) => e.target.select()} />
         <Button onClick={() => copy.copyToClipboard(link.url)} className="shrink-0">
           {copy.isCopied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copy.isCopied ? t('common.copied') : t('share.copyLink')}

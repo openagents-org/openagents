@@ -12,7 +12,7 @@ import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/compone
 import { humanColor } from '@/lib/human-color';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { senderIdentity } from '@/lib/guest-thread';
+import { senderIdentity, type ThreadViewer } from '@/lib/guest-thread';
 
 /** Same markup as the workspace HumanAvatar, without the team roster lookup
  * (a guest can't read the workspace roster). */
@@ -30,6 +30,8 @@ interface GuestMessageRowProps {
   agentNames: string[];
   agentLabels: Record<string, string>;
   currentGuestId: string | null;
+  /** Who is looking; overrides `currentGuestId` (the owner room passes this). */
+  viewer?: ThreadViewer;
   showTime?: boolean;
   onRetry?: (localId: string) => void;
 }
@@ -39,10 +41,10 @@ interface GuestMessageRowProps {
  * workspace's HumanMessageRow / AgentMessageRow (which need the workspace
  * context, reactions and roster a guest doesn't have).
  */
-export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, showTime = true, onRetry }: GuestMessageRowProps) {
+export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, onRetry }: GuestMessageRowProps) {
   const t = useT();
   const { formatTime } = useFormatters();
-  const who = senderIdentity(message, agents, currentGuestId);
+  const who = senderIdentity(message, agents, viewer ?? currentGuestId);
   const isAgent = who.kind === 'agent';
   const timestamp = showTime && message.createdAt ? formatTime(message.createdAt) : null;
   const sendStatus = message.metadata?.send_status as 'sending' | 'failed' | undefined;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
 import { Hash, Info } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
@@ -27,6 +27,7 @@ import {
   threadPeople,
   toWorkspaceAgents,
   type ThreadPerson,
+  type ThreadViewer,
 } from '@/lib/guest-thread';
 import { GuestComposer } from './guest-composer';
 import { GuestMessageRow, PersonAvatar } from './guest-message-row';
@@ -42,22 +43,33 @@ interface GuestThreadViewProps {
   hasOlder: boolean;
   olderState?: 'idle' | 'loading' | 'error';
   onLoadOlder?: () => void;
-  guest: GuestIdentity | null;
-  nameRequest: { reason: 'first-post' | 'session-expired' } | null;
+  /** Who is looking: a guest (default) or the share's owner in the owner room. */
+  viewer?: 'guest' | 'owner';
+  guest?: GuestIdentity | null;
+  nameRequest?: { reason: 'first-post' | 'session-expired' } | null;
   sendTick: number;
   send: (pending: ReturnType<typeof newPendingSend>) => SendResult;
   retry: (localId: string) => void;
-  join: (name: string) => Promise<unknown>;
-  cancelName: () => void;
+  join?: (name: string) => Promise<unknown>;
+  cancelName?: () => void;
+  /** Owner room: actions at the end of the top bar (e.g. "Keep this conversation"). */
+  headerActions?: ReactNode;
+  /** Owner room: extra panel (the guest link card) in the sidebar and details sheet. */
+  ownerPanel?: ReactNode;
 }
 
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, guest, nameRequest, sendTick, send, retry, join, cancelName }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, ownerPanel }: GuestThreadViewProps) {
   const t = useT();
+  const isOwner = viewer === 'owner';
+  const threadViewer = useMemo<ThreadViewer>(
+    () => ({ guestId: guest?.id ?? null, isOwner, ownerName: info.owner.name }),
+    [guest?.id, isOwner, info.owner.name],
+  );
   const title = info.thread.title || info.thread.name;
   const agents = useMemo(() => toWorkspaceAgents(info.agents), [info.agents]);
   const agentNames = useMemo(() => agents.map((a) => a.agentName), [agents]);
   const agentLabels = useMemo(() => Object.fromEntries(info.agents.map((a) => [a.name, agentDisplayName(a)])), [info.agents]);
-  const people = useMemo(() => threadPeople(messages, info.owner.name, guest), [messages, info.owner.name, guest]);
+  const people = useMemo(() => threadPeople(messages, info.owner.name, guest, isOwner), [messages, info.owner.name, guest, isOwner]);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [askAgent, setAskAgent] = useState<string | null>(() => (defaultAskAgent(info.agents) ? info.agents[0].name : null));
@@ -81,6 +93,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   };
 
   const handleJoin = async (name: string) => {
+    if (!join) return;
     const delivered = await join(name);
     if (delivered) setDraft('');
   };
@@ -92,7 +105,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
           <Image src="/logo-icon.png" alt="OpenAgents" width={24} height={24} />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold">{info.workspace.name}</p>
-            <p className="truncate text-xs text-muted-foreground">{t('guestThread.guestWorkspace')}</p>
+            <p className="truncate text-xs text-muted-foreground">{isOwner ? t('shareRoom.yourShare') : t('guestThread.guestWorkspace')}</p>
           </div>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
@@ -102,8 +115,18 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             <span className="truncate">{title}</span>
           </div>
           <ThreadRoster agents={info.agents} people={people} />
+          {ownerPanel && <div className="mt-4 px-2" data-owner-panel="sidebar">{ownerPanel}</div>}
         </div>
-        {guest && (
+        {isOwner && (
+          <div className="flex items-center gap-2.5 border-t px-4 py-3">
+            <PersonAvatar seed={`name:${info.owner.name.trim().toLowerCase()}`} className="size-8" />
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{info.owner.name}</p>
+              <p className="text-xs text-muted-foreground">{t('shareRoom.ownerYou')}</p>
+            </div>
+          </div>
+        )}
+        {!isOwner && guest && (
           <div className="flex items-center gap-2.5 border-t px-4 py-3">
             <PersonAvatar seed={`guest:${guest.id}`} className="size-8" />
             <div className="min-w-0">
@@ -129,6 +152,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             <span className="hidden sm:inline">{t('guestThread.details')}</span>
             <Info className="sm:hidden" />
           </Button>
+          {headerActions}
         </header>
 
         <GuestMessageList
@@ -140,7 +164,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
           agents={agents}
           agentNames={agentNames}
           agentLabels={agentLabels}
-          currentGuestId={guest?.id ?? null}
+          viewer={threadViewer}
           sendTick={sendTick}
           onRetry={retry}
         />
@@ -161,14 +185,10 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
           {statusAgent && (
             <p className="mt-1.5 truncate px-1 text-xs text-muted-foreground" role="status">
               <span className={statusAgent.online ? 'mr-1.5 inline-block size-1.5 rounded-full bg-success align-middle' : 'mr-1.5 inline-block size-1.5 rounded-full bg-muted-foreground/40 align-middle'} aria-hidden="true" />
-              {!statusAgent.online
-                ? t('guestThread.offlineNotice', { agent: agentDisplayName(statusAgent), owner: info.owner.name })
-                : statusAgent.acceptsGuests === false
-                  ? t('guestThread.noGuestRuns', { agent: agentDisplayName(statusAgent), owner: info.owner.name })
-                  : t('guestThread.runsOn', { agent: agentDisplayName(statusAgent), owner: info.owner.name })}
+              <AgentStatusText agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} />
             </p>
           )}
-          {info.canPost && <p className="mt-0.5 truncate px-1 text-[11px] text-muted-foreground/80">{t('guestThread.guestNotice')}</p>}
+          {info.canPost && <p className="mt-0.5 truncate px-1 text-[11px] text-muted-foreground/80">{isOwner ? t('shareRoom.ownerNotice') : t('guestThread.guestNotice')}</p>}
         </div>
       </main>
 
@@ -180,20 +200,28 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
           </SheetHeader>
           <SheetBody className="flex flex-col gap-1">
             <ThreadRoster agents={info.agents} people={people} />
-            <ExpiryLine expiresAt={info.expiresAt} />
-            <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">{info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}</p>
+            {isOwner ? (
+              ownerPanel && <div className="mt-4 px-2" data-owner-panel="sheet">{ownerPanel}</div>
+            ) : (
+              <>
+                <ExpiryLine expiresAt={info.expiresAt} />
+                <p className="mt-3 rounded-md bg-muted/50 px-3 py-2 text-xs text-muted-foreground">{info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}</p>
+              </>
+            )}
           </SheetBody>
         </SheetContent>
       </Sheet>
 
-      <GuestNameDialog open={!!nameRequest} reason={nameRequest?.reason ?? null} onJoin={handleJoin} onCancel={cancelName} />
+      {!isOwner && cancelName && (
+        <GuestNameDialog open={!!nameRequest} reason={nameRequest?.reason ?? null} onJoin={handleJoin} onCancel={cancelName} />
+      )}
     </div>
   );
 }
 
 // ── Message list ──
 
-function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, currentGuestId, sendTick, onRetry }: {
+function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, viewer, sendTick, onRetry }: {
   info: GuestThreadInfo;
   messages: WorkspaceMessage[];
   hasOlder: boolean;
@@ -202,7 +230,7 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
   agents: WorkspaceAgent[];
   agentNames: string[];
   agentLabels: Record<string, string>;
-  currentGuestId: string | null;
+  viewer: ThreadViewer;
   sendTick: number;
   onRetry: (localId: string) => void;
 }) {
@@ -266,7 +294,8 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
       agents={agents}
       agentNames={agentNames}
       agentLabels={agentLabels}
-      currentGuestId={currentGuestId}
+      currentGuestId={viewer.guestId}
+      viewer={viewer}
       showTime={showTime}
       onRetry={onRetry}
     />
@@ -333,6 +362,19 @@ function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThr
   if (!isOptimistic(m) && m.createdAt && Date.now() - new Date(m.createdAt).getTime() > WORKING_WINDOW_MS) return null;
   const agent = agents.find((a) => startsWithMention(m.content, a.name));
   return agent && agent.online ? agent.name : null;
+}
+
+function AgentStatusText({ agent, ownerName, isOwner }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean }) {
+  const t = useT();
+  const params = { agent: agentDisplayName(agent), owner: ownerName };
+  if (isOwner) {
+    if (!agent.online) return <>{t('shareRoom.offlineNotice', params)}</>;
+    if (agent.acceptsGuests === false) return <>{t('shareRoom.noGuestRuns', params)}</>;
+    return <>{t('shareRoom.runsOn', params)}</>;
+  }
+  if (!agent.online) return <>{t('guestThread.offlineNotice', params)}</>;
+  if (agent.acceptsGuests === false) return <>{t('guestThread.noGuestRuns', params)}</>;
+  return <>{t('guestThread.runsOn', params)}</>;
 }
 
 // ── Roster ──

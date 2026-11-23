@@ -92,6 +92,11 @@ export function isSeedMessage(message: Pick<WorkspaceMessage, 'metadata'>): bool
   return message.metadata?.share_seed === true;
 }
 
+/** The share's owner posting from the owner room (`human:owner`, `metadata.share_owner`). */
+export function isOwnerMessage(message: Pick<WorkspaceMessage, 'metadata' | 'senderAddress'>): boolean {
+  return message.metadata?.share_owner === true || message.senderAddress === 'human:owner';
+}
+
 export type SenderKind = 'agent' | 'guest' | 'human';
 
 export interface SenderIdentity {
@@ -104,7 +109,21 @@ export interface SenderIdentity {
   avatarSeed: string;
 }
 
-export function senderIdentity(message: WorkspaceMessage, agents: WorkspaceAgent[], currentGuestId: string | null): SenderIdentity {
+/** Who is looking: a guest (maybe named) or the share's owner. */
+export interface ThreadViewer {
+  guestId: string | null;
+  isOwner?: boolean;
+  /** Owner's display name, for owner-room posts that carry no sender name. */
+  ownerName?: string;
+}
+
+function toViewer(viewer: string | null | ThreadViewer): ThreadViewer {
+  return viewer && typeof viewer === 'object' ? viewer : { guestId: viewer };
+}
+
+export function senderIdentity(message: WorkspaceMessage, agents: WorkspaceAgent[], viewerOrGuestId: string | null | ThreadViewer): SenderIdentity {
+  const viewer = toViewer(viewerOrGuestId);
+  const currentGuestId = viewer.guestId;
   const guest = guestOf(message);
   if (guest) {
     return {
@@ -123,6 +142,11 @@ export function senderIdentity(message: WorkspaceMessage, agents: WorkspaceAgent
       agent,
       avatarSeed: message.senderName,
     };
+  }
+  if (isOwnerMessage(message)) {
+    const named = message.senderName && message.senderName !== 'owner' && message.senderName !== 'user' ? message.senderName : '';
+    const name = viewer.ownerName || named || 'Owner';
+    return { kind: 'human', name, isSelf: !!viewer.isOwner, avatarSeed: humanSeed(name) };
   }
   const name = message.senderName && message.senderName !== 'user' ? message.senderName : 'User';
   return { kind: 'human', name, isSelf: false, avatarSeed: humanSeed(name) };
@@ -282,6 +306,24 @@ export function optimisticMessage(pending: PendingSend, guest: GuestIdentity, st
   };
 }
 
+/** Optimistic row for a send from the owner room. */
+export function optimisticOwnerMessage(pending: PendingSend, ownerName: string, status: 'sending' | 'failed' = 'sending', error?: string): WorkspaceMessage {
+  return {
+    messageId: pending.localId,
+    sessionId: '',
+    senderId: null,
+    senderAddress: 'human:owner',
+    senderType: 'human',
+    senderName: ownerName,
+    content: pending.content,
+    mentions: [],
+    targetAgents: null,
+    messageType: 'chat',
+    metadata: { share_owner: true, idempotency_key: pending.idempotencyKey, send_status: status, ...(error ? { send_error: error } : {}) },
+    createdAt: new Date().toISOString(),
+  };
+}
+
 // ── Polling cadence ──
 
 export const POLL_VISIBLE_MS = 3000;
@@ -324,12 +366,12 @@ export interface ThreadPerson {
  * Who is in the thread, as far as a guest can tell: the owner, people who
  * have posted, and guests who have posted (plus the viewer once named).
  */
-export function threadPeople(messages: WorkspaceMessage[], ownerName: string, currentGuest: GuestIdentity | null): ThreadPerson[] {
+export function threadPeople(messages: WorkspaceMessage[], ownerName: string, currentGuest: GuestIdentity | null, viewerIsOwner = false): ThreadPerson[] {
   const people = new Map<string, ThreadPerson>();
   const ownerKey = `name:${ownerName.trim().toLowerCase()}`;
-  people.set(ownerKey, { key: ownerKey, name: ownerName, role: 'owner', isSelf: false, avatarSeed: humanSeed(ownerName) });
+  people.set(ownerKey, { key: ownerKey, name: ownerName, role: 'owner', isSelf: viewerIsOwner, avatarSeed: humanSeed(ownerName) });
   for (const m of messages) {
-    if (isOptimistic(m)) continue;
+    if (isOptimistic(m) || isOwnerMessage(m)) continue;
     const guest = guestOf(m);
     if (guest) {
       const key = `guest:${guest.id}`;
