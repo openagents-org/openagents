@@ -156,6 +156,27 @@ function parsePiModels(text, env = {}) {
 }
 
 /**
+ * `step --list-models`: the models the Step Code sign-in can run, as a table —
+ *
+ *   provider  model           context  max-out  thinking  images
+ *   step      step-3.5-flash  256K     256K     no        no
+ *
+ * Only `step` rows: a user's models.json can declare other providers, which an
+ * agent run never sees. Signed out, the CLI prints "No models available…"
+ * instead, which parses to nothing.
+ */
+function parseStepCodeModels(text) {
+  const seen = new Map();
+  for (const line of String(text || '').split(/\r?\n/)) {
+    const cols = line.trim().split(/\s{2,}/);
+    if (cols.length < 2 || cols[0] !== 'step') continue;
+    const id = cleanId(cols[1]);
+    if (id && !seen.has(id)) seen.set(id, { id, label: id });
+  }
+  return [...seen.values()].slice(0, MAX_MODELS);
+}
+
+/**
  * How each CLI is asked. Claude Code has no command for it; its SDK control
  * protocol does, and a run that is sent the request and then end-of-input
  * answers and exits without a prompt ever reaching a model.
@@ -170,6 +191,11 @@ const LISTERS = {
   codex: {
     args: ['debug', 'models'],
     parse: parseCodexModels,
+    timeoutMs: 30_000,
+  },
+  'step-code': {
+    args: ['--list-models'],
+    parse: parseStepCodeModels,
     timeoutMs: 30_000,
   },
   claude: {
@@ -357,4 +383,4 @@ async function codexPlanFallback(binary, env, refused, opts = {}) {
   return pick ? pick.id : null;
 }
 
-module.exports = { codexPlanRefusedModel, codexAccountModels, codexPlanFallback, listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels };
+module.exports = { codexPlanRefusedModel, codexAccountModels, codexPlanFallback, listCliModels, supportsCliModels, cliModelsWithKey, parseCodexModels, parseClaudeModels, parseQoderModels, parsePiModels, parseStepCodeModels };

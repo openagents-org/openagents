@@ -26,7 +26,8 @@
     "qoder": "Qoder 终端编程智能体，使用 Qoder 账号登录或个人访问令牌（PAT）以 headless 模式驱动 —— 每个频道一个会话。",
     "qoder-cn": "Qoder 终端编程智能体的国内版（qoder.com.cn），使用 Qoder CN 账号登录或个人访问令牌（PAT）以 headless 模式驱动 —— 每个频道一个会话。",
     "qwen-code": "阿里通义 Qwen Code 终端编程智能体，使用百炼（Model Studio）或 Coding Plan 的 API Key 以 headless 模式驱动 —— 每个频道一个会话。",
-    "kiro": "Kiro 终端编程智能体（kiro-cli），通过 Agent Client Protocol 驱动，使用 Kiro 账号登录或 API Key，可使用自己的智能体配置、工具和 MCP 服务器 —— 每个频道一个会话。"
+    "kiro": "Kiro 终端编程智能体（kiro-cli），通过 Agent Client Protocol 驱动，使用 Kiro 账号登录或 API Key，可使用自己的智能体配置、工具和 MCP 服务器 —— 每个频道一个会话。",
+    "step-code": "阶跃星辰的终端编程智能体，使用 Step Plan 账号登录或 Step Platform API Key 以 headless 模式驱动 —— 每个频道一个会话。"
   },
   "genericLabels": {
     "apiKey": "API 密钥",
