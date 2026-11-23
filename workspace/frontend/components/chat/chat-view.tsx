@@ -40,6 +40,9 @@ import { useChatSend, type ReplyTargets } from './use-chat-send';
 import { ChatViewHeader } from './chat-view-header';
 import { ConnectAgentNotice, OfflineAgentsBanner, ProbeFailureBanner, type FailingProbe } from './chat-view-banners';
 import { KeepWorkspaceBanner } from '@/components/share/keep-workspace-banner';
+import { WorkspaceGuestRequests } from '@/components/share/workspace-guest-requests';
+import { isSharedThreadName } from '@/lib/guest-links';
+import { isReleasedCopy } from '@/lib/share-requests';
 import { NoThreadSelected, ThreadEmpty } from './chat-view-empty';
 
 export { resetOptimisticStoreForTests } from './chat-message-cache';
@@ -121,7 +124,8 @@ export function ChatView() {
   const browserMessages = useThreadBrowserMessages(displayMessages);
   const { sessionPendingQueue, setPendingQueue } = usePendingQueue(currentSessionId);
   // Queued messages wait in the Queue tab, not in the chat log.
-  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages, sessionPendingQueue), [displayMessages, sessionPendingQueue]);
+  // A guest request approved by the owner is re-posted for the agent; the original stays in the log.
+  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages.filter((m) => !isReleasedCopy(m)), sessionPendingQueue), [displayMessages, sessionPendingQueue]);
   useThreadActivity(currentSessionId, chatLogMessages, displayMessages);
 
   const handleSend = useChatSend({
@@ -179,6 +183,7 @@ export function ChatView() {
           claimed={Boolean(workspace.creatorEmail)}
         />
       )}
+      {!isDM && currentSessionId && isSharedThreadName(currentSessionId) && <WorkspaceGuestRequests key={currentSessionId} channel={currentSessionId} />}
       {!needsConnection && <OfflineAgentsBanner participants={participants} agents={agents} />}
       <ProbeFailureBanner failing={failingProbes} retesting={retesting} onRetest={retestAgent} onDismiss={dismissProbe} />
       {needsConnection && !dmWithPerson && !hasYumi && <ConnectAgentNotice onConnect={() => openView('connect')} />}

@@ -11,6 +11,7 @@ import { approvalFromMetadata } from '@/lib/approvals';
 import { handoffFromMessage } from '@/lib/handoff'; // v1.1 M6
 import { isYumiWelcome } from '@/lib/yumi-onboarding';
 import { useHumanNames } from '@/hooks/use-team-roster';
+import { isShareNotice } from '@/lib/share-requests';
 import { attachmentsFromMetadata } from './message-attachments';
 import { HumanMessageRow } from './human-message-row';
 import { AgentMessageRow } from './agent-message-row';
@@ -60,6 +61,15 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const displayContent = yumiWelcome ? t('yumiOnboarding.greeting') : message.content;
   const attachments = attachmentsFromMetadata(message.metadata);
   const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
+
+  // OpenAgents Share notices ("Raphael approved Maya's request.") — a system line
+  if (isShareNotice(message)) {
+    return (
+      <Marker className="justify-center py-1" data-share-notice={message.messageId}>
+        <MarkerContent className="text-xs">{message.content}</MarkerContent>
+      </Marker>
+    );
+  }
 
   // Status messages — subtle inline
   if (isSystem) {

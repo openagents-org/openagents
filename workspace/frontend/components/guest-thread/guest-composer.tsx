@@ -23,6 +23,8 @@ interface GuestComposerProps {
   draft: string;
   onDraftChange: (draft: string) => void;
   onSubmit: () => void;
+  /** Requests to the agent wait for this person's approval (null: they run right away). */
+  approvalOwner?: string | null;
   className?: string;
 }
 
@@ -47,7 +49,7 @@ export function matchingAgents(agents: WorkspaceAgent[], query: string): Workspa
  * passive, so a message only runs the agent when it starts with `@<agent>`;
  * the chip adds that prefix, and the placeholder/hint say which will happen.
  */
-export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDraftChange, onSubmit, className }: GuestComposerProps) {
+export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDraftChange, onSubmit, approvalOwner = null, className }: GuestComposerProps) {
   const t = useT();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const workspaceAgents = React.useMemo(() => toWorkspaceAgents(agents), [agents]);
@@ -119,7 +121,9 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
       <InputGroup className="bg-background">
         {canSend && hintAgent && (
           <InputGroupAddon align="block-start" className="text-xs font-normal" data-composer-hint>
-            {runsAgent
+            {runsAgent && approvalOwner
+              ? t('guestThread.askAgentHintApproval', { agent: agentDisplayName(hintAgent), owner: approvalOwner })
+              : runsAgent
               ? t('guestThread.askAgentHint', { agent: agentDisplayName(hintAgent) })
               : t('guestThread.commentHint', { agent: agentDisplayName(hintAgent) })}
           </InputGroupAddon>

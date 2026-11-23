@@ -2,17 +2,22 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { GuestThreadError } from '@/lib/guest-thread-api';
-import { optimisticOwnerMessage, type PendingSend } from '@/lib/guest-thread';
+import { nextPollDelay, optimisticOwnerMessage, type PendingSend } from '@/lib/guest-thread';
+import type { ShareRequestStatus } from '@/lib/share-requests';
 import {
+  decideRoomRequest,
   fetchEarlierRoomMessages,
+  fetchRoomRequests,
   fetchRoom,
   fetchRoomMessages,
   movedToOf,
   postRoomMessage,
   type MovedTo,
   type RoomCredentials,
+  type ShareRequest,
   type ShareRoom,
 } from '@/lib/share-room-api';
+import type { DecideOutcome } from './share-request-status';
 import { isHidden, useThreadFeed, type ThreadFeedSource } from './use-thread-feed';
 import { INFO_REFRESH_MS, type SendResult } from './use-guest-thread';
 
@@ -93,6 +98,53 @@ export function useOwnerRoom(slug: string, token: string) {
     markFailed(optimisticOwnerMessage(pending, name, 'failed', reason));
   }, [creds, deliverFeed, markFailed]);
 
+  // Guests' requests waiting for the owner, polled alongside the messages.
+  const [requests, setRequests] = useState<ShareRequest[]>([]);
+  /** Decisions made here, shown before the thread's notice arrives. */
+  const [decisions, setDecisions] = useState<Record<string, ShareRequestStatus>>({});
+
+  const loadRequests = useCallback(async () => {
+    const list = await fetchRoomRequests(creds);
+    setRequests(list.filter((r) => r.status === 'pending'));
+  }, [creds]);
+
+  useEffect(() => {
+    if (status !== 'ready') return;
+    let cancelled = false;
+    let failures = 0;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const tick = async () => {
+      try {
+        await loadRequests();
+        failures = 0;
+      } catch (error) {
+        if (endWith(error)) { cancelled = true; return; }
+        failures += 1;
+      }
+      if (!cancelled) timer = setTimeout(tick, nextPollDelay(isHidden(), failures));
+    };
+    void tick();
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [status, loadRequests, endWith]);
+
+  const decide = useCallback(async (id: string, decision: 'approve' | 'decline'): Promise<DecideOutcome> => {
+    try {
+      const request = await decideRoomRequest(creds, id, decision);
+      setDecisions((prev) => ({ ...prev, [id]: request.status }));
+      setRequests((prev) => prev.filter((r) => r.id !== id));
+      return 'ok';
+    } catch (error) {
+      if (endWith(error)) return 'failed';
+      if (error instanceof GuestThreadError && error.status === 409) {
+        // Decided elsewhere: the list (and soon the thread's notice) catches up.
+        setRequests((prev) => prev.filter((r) => r.id !== id));
+        void loadRequests().catch(() => {});
+        return 'conflict';
+      }
+      return 'failed';
+    }
+  }, [creds, endWith, loadRequests]);
+
   const send = useCallback((pending: PendingSend): SendResult => {
     void deliver(pending);
     return 'sent';
@@ -107,5 +159,6 @@ export function useOwnerRoom(slug: string, token: string) {
     status, room, movedTo, creds,
     messages: feed.messages, hasOlder: feed.hasOlder, olderState: feed.olderState, loadOlder: feed.loadOlder, sendTick: feed.sendTick,
     reload: load, refresh, send, retry,
+    requests: requests.filter((r) => !decisions[r.id]), decisions, decide,
   };
 }

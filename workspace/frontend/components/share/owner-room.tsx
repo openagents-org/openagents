@@ -12,7 +12,9 @@ import { agentDisplayName } from '@/lib/guest-thread';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { roomGuestLinksClient, roomToThreadInfo, threadPath } from '@/lib/share-room-api';
+import { liveLink } from '@/lib/guest-links';
 import { GuestLinkDialog } from './guest-link-dialog';
+import { GuestRequestsBanner } from './guest-requests-banner';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
 /**
@@ -30,9 +32,15 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   const data = room.room;
   const threadName = data?.thread.name ?? '';
   const claimed = !!data?.share?.claimed;
-  const info = useMemo(() => (data ? roomToThreadInfo(data) : null), [data]);
   const linksClient = useMemo(() => roomGuestLinksClient(room.creds), [room.creds]);
   const guestLinks = useGuestLinks(threadName, room.status === 'ready' && !!threadName, linksClient);
+  // The approval mode follows the link as changed in the dialog, before the room refreshes.
+  const currentLink = guestLinks.links ? liveLink(guestLinks.links) : null;
+  const info = useMemo(() => {
+    if (!data) return null;
+    const base = roomToThreadInfo(data);
+    return currentLink ? { ...base, approvalMode: currentLink.approvalMode ?? 'none' } : base;
+  }, [data, currentLink]);
 
   // Back from signing in to keep it: reopen the dialog on the choice step.
   useEffect(() => {
@@ -89,6 +97,9 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         send={room.send}
         retry={room.retry}
         headerActions={headerActions}
+        banner={<GuestRequestsBanner requests={room.requests} onDecide={room.decide} />}
+        decisions={room.decisions}
+        onDecide={room.decide}
       />
       <GuestLinkDialog
         open={linkOpen}

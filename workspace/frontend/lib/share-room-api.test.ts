@@ -44,9 +44,11 @@ describe('room data mapping', () => {
       agents: ROOM.agents,
       expiresAt: '2026-12-01T00:00:00Z',
       canPost: true,
+      approvalMode: 'none',
       guest: null,
     });
     expect(roomToThreadInfo({ ...ROOM, link: null }).expiresAt).toBeNull();
+    expect(roomToThreadInfo({ ...ROOM, link: { ...ROOM.link!, approvalMode: 'owner' } }).approvalMode).toBe('owner');
   });
 
   it('reads movedTo only when it is complete', () => {

@@ -5,6 +5,7 @@ import { Check, Copy, Link2Off, Plus } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Spinner } from '@/components/ui/spinner';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { ApiError, workspaceApi } from '@/lib/api';
@@ -14,6 +15,7 @@ import {
   expiryForChoice,
   guestLinkState,
   upsertLink,
+  type ApprovalMode,
   type ExpiryChoice,
   type GuestLink,
   type GuestLinksClient,
@@ -27,6 +29,7 @@ export const workspaceGuestLinksClient: GuestLinksClient = {
   create: (channel, expiresAt) => workspaceApi.createGuestLink(channel, expiresAt),
   updateExpiry: (id, expiresAt) => workspaceApi.updateGuestLinkExpiry(id, expiresAt),
   revoke: (id) => workspaceApi.revokeGuestLink(id),
+  updateApprovalMode: (id, mode) => workspaceApi.updateGuestLinkApprovalMode(id, mode),
 };
 
 function isForbidden(error: unknown): boolean {
@@ -83,7 +86,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
   const t = useT();
   const { formatDateTime } = useFormatters();
   const copy = useCopyToClipboard();
-  const [busy, setBusy] = useState<null | 'expiry' | 'revoke' | 'create'>(null);
+  const [busy, setBusy] = useState<null | 'expiry' | 'revoke' | 'create' | 'approval'>(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** The choice made here, so it stays highlighted (the server keeps a date). */
@@ -101,7 +104,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
   }
 
   const state = guestLinkState(links);
-  const run = async (kind: 'expiry' | 'revoke' | 'create', action: () => Promise<GuestLink>) => {
+  const run = async (kind: 'expiry' | 'revoke' | 'create' | 'approval', action: () => Promise<GuestLink>) => {
     setBusy(kind); setActionError(null);
     try {
       const link = await action();
@@ -141,6 +144,11 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
     const updated = await run('expiry', () => client.updateExpiry(link.id, expiryForChoice(choice)));
     if (updated && mounted.current) setPicked({ linkId: updated.id, choice });
   };
+  const setApproval = (mode: ApprovalMode) => {
+    if (!client.updateApprovalMode || mode === (link.approvalMode ?? 'none')) return;
+    const update = client.updateApprovalMode.bind(client);
+    void run('approval', () => update(link.id, mode));
+  };
   const turnOff = async () => {
     const updated = await run('revoke', () => client.revoke(link.id));
     if (mounted.current) setConfirmOff(false);
@@ -156,6 +164,9 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
           {copy.isCopied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copy.isCopied ? t('common.copied') : t('share.copyLink')}
         </Button>
       </div>
+      {client.updateApprovalMode && (
+        <ApprovalChoice mode={link.approvalMode ?? 'none'} agentName={agentName} busy={busy === 'approval'} disabled={!!busy} onChange={setApproval} />
+      )}
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">{t('share.guestLinkExpiry')}</span>
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('share.guestLinkExpiry')}>
@@ -189,6 +200,47 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
           </Button>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Whether a guest's request to the agent runs right away or waits for the owner. */
+function ApprovalChoice({ mode, agentName, busy, disabled, onChange }: {
+  mode: ApprovalMode;
+  agentName: string | null;
+  busy: boolean;
+  disabled: boolean;
+  onChange: (mode: ApprovalMode) => void;
+}) {
+  const t = useT();
+  const agent = agentName || t('share.guestLinkAgentFallback');
+  const options: { value: ApprovalMode; title: string; body: string }[] = [
+    { value: 'none', title: t('share.approvalNone'), body: t('share.approvalNoneBody', { agent }) },
+    { value: 'owner', title: t('share.approvalOwner'), body: t('share.approvalOwnerBody') },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5" data-guest-link-approval={mode}>
+      <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+        {t('share.approvalHeading')}
+        {busy && <Spinner className="size-3.5" />}
+      </span>
+      <RadioGroup value={mode} onValueChange={(value) => onChange(value as ApprovalMode)} disabled={disabled} aria-label={t('share.approvalHeading')} className="gap-1.5">
+        {options.map((option) => (
+          <label
+            key={option.value}
+            className={cn(
+              'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/50',
+              mode === option.value && 'border-primary/40 bg-muted/40',
+            )}
+          >
+            <RadioGroupItem value={option.value} className="mt-0.5" data-approval-choice={option.value} />
+            <span className="grid gap-0.5">
+              <span className="text-sm font-medium leading-tight">{option.title}</span>
+              <span className="text-xs text-muted-foreground">{option.body}</span>
+            </span>
+          </label>
+        ))}
+      </RadioGroup>
     </div>
   );
 }

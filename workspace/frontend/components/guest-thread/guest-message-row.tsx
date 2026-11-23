@@ -15,6 +15,8 @@ import { Message, MessageAvatar, MessageContent, MessageHeader } from '@/compone
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import { isOptimistic, senderIdentity, startsWithMention, type ThreadViewer } from '@/lib/guest-thread';
+import { shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
+import { ShareRequestStatusView, type DecideRequest } from './share-request-status';
 
 /** The workspace's person avatar (same seed → same colour), without the team
  * roster lookup a guest can't make. */
@@ -34,6 +36,12 @@ interface GuestMessageRowProps {
   /** Show who a person's message went to ("→ Claude Code" / "→ Conversation"). */
   showAudience?: boolean;
   onRetry?: (localId: string) => void;
+  /** A held request's status as decided so far (overrides the message's own snapshot). */
+  requestStatus?: ShareRequestStatus;
+  /** Owner room: approve or decline a held request. */
+  onDecide?: DecideRequest;
+  /** Who approves requests ("Waiting for Raphael's approval"). */
+  ownerName?: string;
 }
 
 /**
@@ -41,7 +49,7 @@ interface GuestMessageRowProps {
  * workspace's HumanMessageRow / AgentMessageRow (which need the workspace
  * context, reactions and roster a guest doesn't have).
  */
-export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, showAudience = false, onRetry }: GuestMessageRowProps) {
+export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, showAudience = false, onRetry, requestStatus, onDecide, ownerName = '' }: GuestMessageRowProps) {
   const t = useT();
   const { formatTime } = useFormatters();
   const who = senderIdentity(message, agents, viewer ?? currentGuestId);
@@ -51,6 +59,8 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
   const sendError = message.metadata?.send_error as string | undefined;
   const pending = isOptimistic(message);
   const askedAgent = !isAgent ? agents.find((a) => startsWithMention(message.content, a.agentName)) : undefined;
+  const held = !isAgent ? shareRequestOf(message) : null;
+  const heldAgent = held ? (askedAgent ?? agents.find((a) => message.content.includes(`@${a.agentName}`)) ?? agents[0]) : undefined;
 
   return (
     <Message className={cn('gap-3', isAgent ? 'py-2' : 'py-1.5', sendStatus === 'sending' && 'opacity-70')} data-guest-message={message.messageId}>
@@ -79,7 +89,17 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
             )}
           </BubbleContent>
         </Bubble>
-        {showAudience && !isAgent && !pending && (
+        {held && (
+          <ShareRequestStatusView
+            requestId={held.id}
+            status={requestStatus ?? held.status}
+            guestName={who.name}
+            agentName={heldAgent ? (heldAgent.displayName?.trim() || heldAgent.agentName) : ''}
+            ownerName={ownerName}
+            onDecide={onDecide}
+          />
+        )}
+        {showAudience && !isAgent && !pending && !held && (
           <div className="mt-2" data-message-audience={askedAgent ? 'agent' : 'human'}>
             {askedAgent ? <RoutedAgentBadge names={[askedAgent.agentName]} agents={agents} /> : <ConversationBadge />}
           </div>

@@ -31,7 +31,14 @@ export interface GuestThreadInfo {
   agents: GuestThreadAgent[];
   expiresAt: string | null;
   canPost: boolean;
+  /** `owner`: a request to the agent waits for the owner's approval. */
+  approvalMode?: 'none' | 'owner';
   guest: GuestIdentity | null;
+}
+
+export interface ForkResult {
+  workspace: { id: string; slug: string; name: string };
+  channel: { name: string; title: string | null };
 }
 
 export interface GuestMessagesPage {
@@ -164,5 +171,17 @@ export function postGuestMessage(token: string, session: string, content: string
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'X-Guest-Session': session },
     body: JSON.stringify({ content, idempotency_key: idempotencyKey }),
+  }, options);
+}
+
+/**
+ * A signed-in guest copies the conversation into their own workspace
+ * (`target`) or a new one (omitted). The account's bearer, no guest session.
+ */
+export function forkSharedThread(token: string, idToken: string, target?: string | null, options: GuestApiOptions = {}): Promise<ForkResult> {
+  return request<ForkResult>(linkUrl(token, '/fork', options.baseUrl), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${idToken}` },
+    body: JSON.stringify(target ? { target } : {}),
   }, options);
 }

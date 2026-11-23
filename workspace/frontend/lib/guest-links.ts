@@ -10,10 +10,14 @@ export interface GuestLink {
   /** `<app>/share/thread/<token>` */
   url: string;
   canPost: boolean;
+  /** `owner`: a guest's request to the agent waits for the owner's approval. */
+  approvalMode?: ApprovalMode;
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string | null;
 }
+
+export type ApprovalMode = 'none' | 'owner';
 
 /** Where the owner's link calls go: the workspace API (signed-in owner) or
  * the owner room (workspace token from the owner link). */
@@ -22,6 +26,8 @@ export interface GuestLinksClient {
   create(channel: string, expiresAt: string | null): Promise<GuestLink>;
   updateExpiry(id: string, expiresAt: string | null): Promise<GuestLink>;
   revoke(id: string): Promise<GuestLink>;
+  /** Whether guests' requests to the agent wait for the owner (absent: not offered). */
+  updateApprovalMode?(id: string, mode: ApprovalMode): Promise<GuestLink>;
 }
 
 /** Threads made by `POST /v1/share/publish` are named `share-<hex>`. */

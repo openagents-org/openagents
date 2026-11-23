@@ -54,6 +54,8 @@ import {
 import { GuestComposer } from './guest-composer';
 import { GuestMessageRow, PersonAvatar } from './guest-message-row';
 import { GuestNameDialog } from './guest-name-dialog';
+import type { DecideRequest } from './share-request-status';
+import { isReleasedCopy, isShareNotice, requestDecisions, requestStatus, shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
 import type { SendResult } from './use-guest-thread';
 
 /** How long after asking an agent we keep showing "working…" with no reply. */
@@ -74,8 +76,14 @@ interface GuestThreadViewProps {
   retry: (localId: string) => void;
   join?: (name: string) => Promise<unknown>;
   cancelName?: () => void;
-  /** Owner room: buttons at the end of the thread header (guest link, "Keep this conversation"). */
+  /** Buttons at the end of the thread header (owner: guest link, "Keep this conversation"; guest: "Continue in my workspace"). */
   headerActions?: ReactNode;
+  /** A strip under the status banner (owner: guest requests waiting). */
+  banner?: ReactNode;
+  /** Owner room: decisions recorded here, before the thread's notice arrives. */
+  decisions?: Record<string, ShareRequestStatus>;
+  /** Owner room: approve or decline a held guest request. */
+  onDecide?: DecideRequest;
 }
 
 /**
@@ -83,7 +91,7 @@ interface GuestThreadViewProps {
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, banner, decisions, onDecide }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -109,6 +117,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   }, [title, info.workspace.name]);
 
   const statusAgent = info.agents.find((a) => a.name === askAgent) ?? info.agents[0] ?? null;
+  const needsApproval = info.approvalMode === 'owner';
   const identity = isOwner
     ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareRoom.ownerYou') }
     : guest ? { name: guest.name, seed: guestAvatarSeed(guest.id), role: t('guestThread.guestBadge') } : null;
@@ -176,7 +185,8 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             )}
           </header>
 
-          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} />}
+          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} needsApproval={needsApproval} />}
+          {banner}
 
           <GuestMessageList
             info={info}
@@ -190,6 +200,8 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             viewer={threadViewer}
             sendTick={sendTick}
             onRetry={retry}
+            decisions={decisions}
+            onDecide={onDecide}
           />
 
           {/* Same reading width as the workspace's composer at its widest. */}
@@ -202,6 +214,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
                 draft={draft}
                 onDraftChange={setDraft}
                 onSubmit={handleSubmit}
+                approvalOwner={needsApproval && !isOwner ? info.owner.name : null}
               />
             ) : (
               <Alert role="note" className="bg-muted/40">
@@ -422,14 +435,16 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
  * Where the agent runs and what this viewer can do, as a workspace thread
  * banner: a quiet strip while all is well, a warning when the agent can't answer.
  */
-function AgentStatusBanner({ agent, ownerName, isOwner, canPost }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean }) {
+function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean; needsApproval: boolean }) {
   const t = useT();
   const params = { agent: agentDisplayName(agent), owner: ownerName };
   const warning = !agent.online || agent.acceptsGuests === false;
   const status = isOwner
     ? !agent.online ? t('shareRoom.offlineNotice', params) : agent.acceptsGuests === false ? t('shareRoom.noGuestRuns', params) : t('shareRoom.runsOn', params)
     : !agent.online ? t('guestThread.offlineNotice', params) : agent.acceptsGuests === false ? t('guestThread.noGuestRuns', params) : t('guestThread.runsOn', params);
-  const notice = isOwner ? t('shareRoom.ownerNotice') : canPost ? t('guestThread.guestNotice') : null;
+  const notice = isOwner
+    ? (needsApproval ? t('shareRoom.ownerApprovalNotice') : t('shareRoom.ownerNotice'))
+    : !canPost ? null : needsApproval ? t('guestThread.approvalNotice', params) : t('guestThread.guestNotice');
   return (
     <Alert
       role="status"
@@ -448,7 +463,7 @@ function AgentStatusBanner({ agent, ownerName, isOwner, canPost }: { agent: Gues
 
 // ── Message list ──
 
-function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, viewer, sendTick, onRetry }: {
+function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, viewer, sendTick, onRetry, decisions, onDecide }: {
   info: GuestThreadInfo;
   messages: WorkspaceMessage[];
   hasOlder: boolean;
@@ -460,6 +475,8 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
   viewer: ThreadViewer;
   sendTick: number;
   onRetry: (localId: string) => void;
+  decisions?: Record<string, ShareRequestStatus>;
+  onDecide?: DecideRequest;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -469,7 +486,8 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
   const anchorRef = useRef<{ height: number; top: number } | null>(null);
 
   const { seed, groups } = useMemo(() => {
-    const visible = messages.filter((m) => !isControlMessage(m) && m.messageType !== 'loading');
+    // An approved request's copy re-posted for the agent shows as "Approved" on the original.
+    const visible = messages.filter((m) => !isControlMessage(m) && m.messageType !== 'loading' && !isReleasedCopy(m));
     const split = splitSeed(visible);
     return { seed: split.seed, groups: groupMessages(filterThreadSteps(split.rest)) };
   }, [messages]);
@@ -480,7 +498,15 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
   }, [seed, info.agents]);
   const seedAgentType = agentTypeLabel(seedAgent?.type) ?? (seedAgent ? agentDisplayName(seedAgent) : null);
 
-  const working = useMemo(() => workingAgent(groups, info.agents), [groups, info.agents]);
+  const seen = useMemo(() => requestDecisions(messages), [messages]);
+  const statusOf = (message: WorkspaceMessage): ShareRequestStatus | undefined => {
+    const req = shareRequestOf(message);
+    return req ? requestStatus(req, decisions, seen) : undefined;
+  };
+  const working = useMemo(() => workingAgent(groups, info.agents, (m) => {
+    const req = shareRequestOf(m);
+    return req ? requestStatus(req, decisions, seen) : undefined;
+  }), [groups, info.agents, decisions, seen]);
   const lastKey = groups.length ? groupKey(groups[groups.length - 1]) : '';
   const firstKey = seed[0]?.messageId ?? (groups.length ? groupKey(groups[0]) : '');
 
@@ -514,7 +540,12 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
     if (el && sendTick > 0) el.scrollTop = el.scrollHeight;
   }, [sendTick]);
 
-  const row = (message: WorkspaceMessage, live: boolean) => (
+  const row = (message: WorkspaceMessage, live: boolean) => isShareNotice(message) ? (
+    // A system line, as the workspace marks thread events.
+    <Marker key={message.messageId} className="justify-center py-1" data-share-notice={message.messageId}>
+      <MarkerContent className="text-xs">{message.content}</MarkerContent>
+    </Marker>
+  ) : (
     <GuestMessageRow
       key={message.messageId}
       message={message}
@@ -526,6 +557,9 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
       showTime={live}
       showAudience={live}
       onRetry={onRetry}
+      requestStatus={statusOf(message)}
+      onDecide={onDecide}
+      ownerName={info.owner.name}
     />
   );
 
@@ -584,11 +618,21 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
  * it is online, and nothing has come back yet. Steps already show their own
  * activity, so this only covers the gap before the first one.
  */
-function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThreadAgent[]): string | null {
-  const last = groups[groups.length - 1];
+function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThreadAgent[], statusOf: (m: WorkspaceMessage) => ShareRequestStatus | undefined): string | null {
+  // Decision notices don't count as an answer.
+  let index = groups.length - 1;
+  while (index >= 0) {
+    const g = groups[index];
+    if (g.type === 'chat' && isShareNotice(g.message)) index -= 1;
+    else break;
+  }
+  const last = groups[index];
   if (!last || last.type !== 'chat') return null;
   const m = last.message;
   if (m.senderType === 'agent' || m.metadata?.send_status === 'failed') return null;
+  // A held request runs only once approved.
+  const held = statusOf(m);
+  if (held && held !== 'approved') return null;
   if (!isOptimistic(m) && m.createdAt && Date.now() - new Date(m.createdAt).getTime() > WORKING_WINDOW_MS) return null;
   const agent = agents.find((a) => startsWithMention(m.content, a.name));
   return agent && agent.online ? agent.name : null;

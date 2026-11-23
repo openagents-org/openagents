@@ -98,6 +98,16 @@ describe('a guest message in the owner’s thread', () => {
     expect(host.textContent).toContain('Sam');
   });
 
+  it('renders a Share decision notice as a system line', async () => {
+    const message = eventToMessage({ id: 'n1', type: 'workspace.message.posted', source: 'system:share', target: 'channel/share-abc',
+      payload: { content: 'Alex approved Maya’s request.', message_type: 'notice', sender_name: 'OpenAgents' },
+      metadata: { share_request_update: { id: 'r1', messageId: 'evt-1', status: 'approved' } }, timestamp: 1, visibility: 'channel' } as ONMEvent);
+    await act(async () => root.render(React.createElement(ChatMessage, { message })));
+    expect(host.querySelector('[data-share-notice="n1"]')?.textContent).toBe('Alex approved Maya’s request.');
+    expect(host.querySelector('[data-guest-badge]')).toBeNull();
+    expect(host.textContent).not.toContain('OpenAgents');
+  });
+
   it('cites a guest by name when replying', () => {
     expect(citationFor(eventToMessage(guestEvent())).sender_name).toBe('Maya');
   });

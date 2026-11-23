@@ -185,3 +185,69 @@ it('keeps the dialog closed when nobody was keeping it', async () => {
   await act(async () => { (host.querySelector('[data-owner-keep]') as HTMLElement).click(); });
   expect(host.querySelector('[data-keep-step="choose"]')).not.toBeNull();
 });
+
+const HELD = { id: 'e4', type: 'workspace.message', source: 'human:guest-g1@guest.invalid', target: 'channel/share-abc', payload: { content: '@claude-code review #42', sender_name: 'Maya' }, metadata: { guest: { id: 'g1', name: 'Maya' }, share_request: { id: 'r1', status: 'pending' } }, timestamp: 4, visibility: 'channel' };
+const REQUEST = { id: 'r1', status: 'pending', guest: { id: 'g1', name: 'Maya' }, messageId: 'e4', content: '@claude-code review #42', createdAt: '2026-11-23T00:00:00Z' };
+
+function approvalServer(decideStatus = 200) {
+  const decisions: Array<{ url: string; body: unknown }> = [];
+  const handler = (url: string, init?: RequestInit) => {
+    if (url.includes('/room/requests/') && init?.method === 'POST') {
+      decisions.push({ url, body: JSON.parse(String(init.body)) });
+      if (decideStatus !== 200) return new Response(JSON.stringify({ code: decideStatus, message: 'already' }), { status: decideStatus });
+      return ok({ request: { ...REQUEST, status: 'approved' } });
+    }
+    if (url.includes('/room/requests')) return ok({ requests: decisions.length ? [] : [REQUEST] });
+    if (url.includes('/room/messages')) return ok({ messages: url.includes('after=') ? [] : [...MESSAGES, HELD], hasMore: false });
+    if (url.includes('/v1/guest-links/room')) return ok({ ...ROOM, link: { ...LINK, approvalMode: 'owner' } });
+    if (url.includes('/v1/guest-links?')) return ok({ links: [{ ...LINK, approvalMode: 'owner' }] });
+    return new Response('{}', { status: 500 });
+  };
+  return { handler, decisions };
+}
+
+it('shows waiting guest requests and approves one from the held message', async () => {
+  const server = approvalServer();
+  serve(server.handler);
+  await open();
+  expect(host.querySelector('[data-guest-requests="1"]')?.textContent).toContain('share.guestRequestsWaiting:{"count":1}');
+  expect(host.textContent).toContain('shareRoom.ownerApprovalNotice');
+  const card = host.querySelector('[data-guest-message="e4"] [data-share-request="pending"]')!;
+  expect(card.textContent).toContain('shareRoom.requestTitle:{"guest":"Maya","agent":"Claude Code"}');
+  await act(async () => { (card.querySelector('[data-share-decide="approve"]') as HTMLElement).click(); });
+  for (let i = 0; i < 4; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(server.decisions).toEqual([{ url: 'https://api.test/v1/guest-links/room/requests/r1?network=alex-share', body: { decision: 'approve' } }]);
+  expect(host.querySelector('[data-guest-message="e4"] [data-share-request]')?.getAttribute('data-share-request')).toBe('approved');
+  expect(host.querySelector('[data-guest-requests]')).toBeNull();
+  const post = fetchMock.mock.calls.find((c) => String(c[0]).includes('/room/requests/'))!;
+  expect(((post[1] as RequestInit).headers as Record<string, string>)['X-Workspace-Token']).toBe('ws-token');
+});
+
+it('says when someone already decided the request', async () => {
+  const server = approvalServer(409);
+  serve(server.handler);
+  await open();
+  await act(async () => { (host.querySelector('[data-share-decide="decline"]') as HTMLElement).click(); });
+  for (let i = 0; i < 4; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(server.decisions[0].body).toEqual({ decision: 'decline' });
+  expect(host.querySelector('[data-guest-message="e4"]')?.textContent).toContain('shareRoom.requestAlreadyDecided');
+});
+
+it('switches guests’ requests to need the owner’s approval from the link dialog', async () => {
+  const patches: unknown[] = [];
+  serve((url, init) => {
+    if (init?.method === 'PATCH') { patches.push(JSON.parse(String(init.body))); return ok({ link: { ...LINK, approvalMode: 'owner' } }); }
+    if (url.includes('/room/requests')) return ok({ requests: [] });
+    return roomServer()(url, init);
+  });
+  await open();
+  await act(async () => { (host.querySelector('[data-owner-link-button]') as HTMLElement).click(); });
+  for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(host.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('none');
+  await act(async () => { (host.querySelector('[data-approval-choice="owner"]') as HTMLElement).click(); });
+  for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(patches).toEqual([{ approval_mode: 'owner' }]);
+  expect(host.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('owner');
+  // The room follows the new mode.
+  expect(host.textContent).toContain('shareRoom.ownerApprovalNotice');
+});

@@ -3,6 +3,7 @@
 import { use } from 'react';
 import { GuestLinkState } from '@/components/guest-thread/guest-link-state';
 import { GuestThreadView } from '@/components/guest-thread/guest-thread-view';
+import { ContinueInWorkspace } from '@/components/guest-thread/continue-in-workspace';
 import { useGuestThread } from '@/components/guest-thread/use-guest-thread';
 
 /**
@@ -31,6 +32,7 @@ export default function SharedThreadPage({ params }: { params: Promise<{ token: 
       retry={thread.retry}
       join={thread.join}
       cancelName={thread.cancelName}
+      headerActions={<ContinueInWorkspace token={token} />}
     />
   );
 }

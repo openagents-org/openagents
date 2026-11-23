@@ -50,6 +50,7 @@ export function roomToThreadInfo(room: ShareRoom): GuestThreadInfo {
     agents: room.agents || [],
     expiresAt: room.link?.expiresAt ?? null,
     canPost: true,
+    approvalMode: room.link?.approvalMode ?? 'none',
     guest: null,
   };
 }
@@ -132,7 +133,40 @@ export function roomGuestLinksClient(creds: RoomCredentials, options: GuestApiOp
       const data = await request<{ link: GuestLink }>(url(linkPath(id), options), { method: 'DELETE', headers: headers(creds) }, options);
       return data.link;
     },
+    async updateApprovalMode(id, mode) {
+      const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {
+        method: 'PATCH', headers: headers(creds, null, true), body: JSON.stringify({ approval_mode: mode }),
+      }, options);
+      return data.link;
+    },
   };
+}
+
+// ── Guests' requests waiting for the owner ──
+
+export type ShareRequestStatus = 'pending' | 'approved' | 'declined';
+
+export interface ShareRequest {
+  id: string;
+  status: ShareRequestStatus;
+  guest: { id: string; name: string };
+  /** The held guest message. */
+  messageId: string;
+  content: string;
+  createdAt: string | null;
+}
+
+export async function fetchRoomRequests(creds: RoomCredentials, options: GuestApiOptions = {}): Promise<ShareRequest[]> {
+  const data = await request<{ requests?: ShareRequest[] }>(url(`/v1/guest-links/room/requests?${q({ network: creds.slug })}`, options), { method: 'GET', headers: headers(creds) }, options);
+  return data?.requests || [];
+}
+
+/** Approve (the request goes to the agent) or decline it. 409 = already decided. */
+export async function decideRoomRequest(creds: RoomCredentials, id: string, decision: 'approve' | 'decline', options: GuestApiOptions = {}): Promise<ShareRequest> {
+  const data = await request<{ request: ShareRequest }>(url(`/v1/guest-links/room/requests/${encodeURIComponent(id)}?${q({ network: creds.slug })}`, options), {
+    method: 'POST', headers: headers(creds, null, true), body: JSON.stringify({ decision }),
+  }, options);
+  return data.request;
 }
 
 // ── Keeping the conversation ──

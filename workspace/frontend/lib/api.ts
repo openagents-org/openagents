@@ -3,6 +3,7 @@ import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type { GuestLink } from './guest-links';
+import type { ShareRequest as GuestRequestRecord } from './share-room-api';
 import type {
   AgentCatalogDetail,
   PublicShareKind,
@@ -2886,6 +2887,22 @@ class WorkspaceApi {
     return data?.links || [];
   }
 
+  /** OpenAgents Share: guests' requests in this thread waiting for the owner (owner/admin). */
+  async listGuestRequests(channel: string): Promise<GuestRequestRecord[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ requests?: GuestRequestRecord[] }>(`/v1/guest-links/requests?${params}`);
+    return data?.requests || [];
+  }
+
+  async decideGuestRequest(id: string, channel: string, decision: 'approve' | 'decline'): Promise<GuestRequestRecord> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ request: GuestRequestRecord }>(`/v1/guest-links/requests/${encodeURIComponent(id)}?${params}`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    });
+    return data.request;
+  }
+
   async createGuestLink(channel: string, expiresAt: string | null): Promise<GuestLink> {
     const data = await this.request<{ link: GuestLink }>('/v1/guest-links', {
       method: 'POST',
@@ -2898,6 +2915,14 @@ class WorkspaceApi {
     const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
       method: 'PATCH',
       body: JSON.stringify({ expires_at: expiresAt }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkApprovalMode(id: string, mode: 'none' | 'owner'): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approval_mode: mode }),
     });
     return data.link;
   }

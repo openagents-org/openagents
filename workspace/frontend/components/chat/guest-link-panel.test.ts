@@ -29,6 +29,7 @@ vi.mock('@/lib/api', () => {
       createGuestLink: vi.fn(),
       updateGuestLinkExpiry: vi.fn(),
       revokeGuestLink: vi.fn(),
+      updateGuestLinkApprovalMode: vi.fn(),
     },
   };
 });
@@ -162,4 +163,17 @@ it('stays usable after an action under StrictMode (dev double-mount)', async () 
   for (let i = 0; i < 3; i++) await act(async () => { await Promise.resolve(); });
   await click(document.querySelector('[data-expiry-choice="1d"]')!);
   expect(button('share.guestLinkTurnOff')?.hasAttribute('disabled')).toBe(false);
+});
+
+it('lets the owner choose whether guests’ requests wait for their approval', async () => {
+  vi.mocked(workspaceApi.updateGuestLinkApprovalMode).mockImplementation(async (id, mode) => ({ ...LIVE, id, approvalMode: mode }));
+  await render();
+  expect(document.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('none');
+  expect(text()).toContain('share.approvalNoneBody:{"agent":"PR Reviewer"}');
+  await click(document.querySelector('[data-approval-choice="owner"]')!);
+  expect(workspaceApi.updateGuestLinkApprovalMode).toHaveBeenCalledWith('link-1', 'owner');
+  expect(document.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('owner');
+  // Picking the current mode again sends nothing.
+  await click(document.querySelector('[data-approval-choice="owner"]')!);
+  expect(workspaceApi.updateGuestLinkApprovalMode).toHaveBeenCalledTimes(1);
 });

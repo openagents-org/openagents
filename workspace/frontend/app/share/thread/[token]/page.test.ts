@@ -7,6 +7,9 @@ const t = (key: string, params?: Record<string, unknown>) => (params ? `${key}:$
 const formatters = { formatTime: () => 'T', formatDate: () => 'D', formatDateTime: () => 'DT' };
 vi.mock('@/lib/i18n', () => ({ useT: () => t, useFormatters: () => formatters }));
 vi.mock('@/lib/api-base', () => ({ getApiBaseUrl: () => 'https://api.test' }));
+const auth = vi.hoisted(() => ({ value: { user: null as null | { email: string }, idToken: null as null | string, loading: false, signIn: () => {} } }));
+vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => auth.value }));
+vi.mock('@/lib/auth-redirects', () => ({ goToCentralLogin: vi.fn() }));
 vi.mock('next/image', () => ({ default: (props: Record<string, unknown>) => React.createElement('img', { alt: props.alt }) }));
 vi.mock('@/components/chat/markdown-content', () => ({
   MarkdownContent: ({ content }: { content: string }) => React.createElement('div', { 'data-testid': 'markdown' }, content),
@@ -299,4 +302,33 @@ it('shows who a live message went to, and the guest’s colour seed matches the 
   const probe = document.createElement('span');
   probe.style.backgroundColor = humanColor('guest-g-1@guest.invalid');
   expect(avatar.style.backgroundColor).toBe(probe.style.backgroundColor);
+});
+
+const HELD = { id: 'e5', type: 'workspace.message', source: 'human:guest-g-1@guest.invalid', target: 'channel/channel-1', payload: { content: '@claude-code review #42', sender_name: 'Maya' }, metadata: { guest: { id: 'g-1', name: 'Maya' }, share_request: { id: 'r1', status: 'pending' } }, timestamp: 5, visibility: 'channel' };
+const APPROVED_NOTICE = { id: 'e6', type: 'workspace.message.posted', source: 'system:share', target: 'channel/channel-1', payload: { content: 'Alex approved Maya’s request.', message_type: 'notice', sender_name: 'OpenAgents' }, metadata: { share_request_update: { id: 'r1', messageId: 'e5', status: 'approved' } }, timestamp: 6, visibility: 'channel' };
+const RELEASED = { ...HELD, id: 'e7', timestamp: 7, metadata: { guest: { id: 'g-1', name: 'Maya' }, share_released_from: 'e5', share_request: { id: 'r1', status: 'approved' } } };
+
+it('says a held request waits for the owner, then shows the decision and hides the re-post', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  let decided = false;
+  serve((url) => {
+    if (url.includes('after=')) return ok({ messages: decided ? [APPROVED_NOTICE, RELEASED] : [], hasMore: false });
+    return url.includes('/messages') ? ok({ messages: [...MESSAGES, HELD], hasMore: false }) : ok({ ...INFO, approvalMode: 'owner' });
+  });
+  await open();
+  const held = host.querySelector('[data-guest-message="e5"]')!;
+  expect(held.querySelector('[data-share-request="pending"]')?.textContent).toBe('guestThread.waitingApproval:{"owner":"Alex"}');
+  // No Approve/Decline for a guest.
+  expect(host.querySelector('[data-share-decide]')).toBeNull();
+  // The banner and the composer hint say requests wait for the owner.
+  expect(host.textContent).toContain('guestThread.approvalNotice:{"agent":"Claude Code","owner":"Alex"}');
+  await typeInto(host.querySelector('textarea')!, 'check this');
+  expect(host.querySelector('[data-composer-hint]')?.textContent).toBe('guestThread.askAgentHintApproval:{"agent":"Claude Code","owner":"Alex"}');
+
+  decided = true;
+  await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+  await settle();
+  expect(host.querySelector('[data-share-notice="e6"]')?.textContent).toBe('Alex approved Maya’s request.');
+  expect(held.querySelector('[data-share-request]')?.getAttribute('data-share-request')).toBe('approved');
+  expect(host.querySelector('[data-guest-message="e7"]')).toBeNull();
 });
