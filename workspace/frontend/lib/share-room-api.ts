@@ -8,7 +8,7 @@
 import { getApiBaseUrl } from '@/lib/api-base';
 import type { ONMEvent } from '@/lib/types';
 import type { GuestLink, GuestLinksClient, ThreadGuestRecord } from '@/lib/guest-links';
-import { request, type GuestApiOptions, type GuestMessagesPage, type GuestThreadAgent, type GuestThreadInfo } from '@/lib/guest-thread-api';
+import { request, type GuestApiOptions, type GuestMessagesPage, type GuestThreadAgent, type GuestThreadInfo, type PinnedArtifact } from '@/lib/guest-thread-api';
 
 export interface MovedTo {
   slug: string;
@@ -23,6 +23,7 @@ export interface ShareRoom {
   link: GuestLink | null;
   /** `claimed`: saved to someone's rooms; `keptAsWorkspace`: made a full workspace. */
   share: { claimed: boolean; movedTo: MovedTo | null; keptAsWorkspace?: boolean };
+  pinnedArtifact?: PinnedArtifact | null;
 }
 
 /**
@@ -64,6 +65,7 @@ export function roomToThreadInfo(room: ShareRoom): GuestThreadInfo {
     canPost: true,
     approvalMode: room.link?.approvalMode ?? 'none',
     guestsCanPost: room.link?.canPost ?? true,
+    pinnedArtifact: room.pinnedArtifact ?? null,
     guest: null,
   };
 }
@@ -169,6 +171,16 @@ export function roomGuestLinksClient(creds: RoomCredentials, options: GuestApiOp
       return data.link;
     },
   };
+}
+
+// ── The artifact open for guests ──
+
+/** Open an artifact for guests (or close it: null). */
+export async function pinRoomArtifact(creds: RoomCredentials, ref: PinnedArtifact | null, options: GuestApiOptions = {}): Promise<PinnedArtifact | null> {
+  const data = await request<{ pinnedArtifact: PinnedArtifact | null }>(url(`/v1/guest-links/room/pin?${q({ network: creds.slug })}`, options), {
+    method: 'PUT', headers: roomHeaders(creds, null, true), body: JSON.stringify(ref ? { kind: ref.kind, id: ref.id } : { kind: null }),
+  }, options);
+  return data?.pinnedArtifact ?? null;
 }
 
 // ── Guests' requests waiting for the owner ──

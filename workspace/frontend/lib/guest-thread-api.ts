@@ -24,6 +24,12 @@ export interface GuestIdentity {
   name: string;
 }
 
+/** The artifact the owner has open for everyone (a thread file or browser session). */
+export interface PinnedArtifact {
+  kind: 'file' | 'browser';
+  id: string;
+}
+
 export interface GuestThreadInfo {
   thread: { name: string; title: string | null };
   workspace: { name: string };
@@ -35,6 +41,8 @@ export interface GuestThreadInfo {
   approvalMode?: 'none' | 'owner' | 'off';
   /** Owner room: whether guests can post on the link (`canPost` is the viewer's own). */
   guestsCanPost?: boolean;
+  /** Open for guests when they arrive (the owner's open artifact). */
+  pinnedArtifact?: PinnedArtifact | null;
   guest: GuestIdentity | null;
 }
 

@@ -434,3 +434,55 @@ it('picks up a link made read-only when it re-reads the link info', async () => 
     vi.useRealTimers();
   }
 });
+
+const PIN_RESOURCES = { files: [{ id: 'f-md', name: 'notes.md', path: 'notes.md', contentType: 'text/markdown', size: 10, createdAt: null, uploadedBy: 'openagents:claude-code' }], browsers: [], routines: [] };
+function pinServer(pinned: unknown = { kind: 'file', id: 'f-md' }) {
+  return (url: string) => {
+    if (url.endsWith('/resources')) return ok(PIN_RESOURCES);
+    if (url.includes('/files/')) return new Response('# Notes', { status: 200, headers: { 'Content-Type': 'text/markdown' } });
+    return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok({ ...INFO, pinnedArtifact: pinned });
+  };
+}
+
+it('opens the artifact the owner is showing, and remembers when the guest closes it', async () => {
+  sessionStorage.clear();
+  serve(pinServer());
+  await open();
+  expect(host.querySelector('[data-share-artifact-panel]')?.textContent).toContain('notes.md');
+  // Guests can't change what guests see.
+  expect(host.querySelector('[data-guests-see]')).toBeNull();
+  await act(async () => { (host.querySelector('[data-share-viewer-close]') as HTMLElement).click(); });
+  expect(host.querySelector('[data-share-artifact-panel]')).toBeNull();
+  expect(sessionStorage.getItem('oa-share-pin-closed:tok')).toBe('1');
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await open();
+  expect(host.querySelector('[data-share-artifact-panel]')).toBeNull();
+  sessionStorage.clear();
+});
+
+it('on a phone offers the owner’s artifact in a banner instead of opening it', async () => {
+  sessionStorage.clear();
+  vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })));
+  serve(pinServer());
+  await open();
+  expect(host.querySelector('[data-share-artifact-panel]')).toBeNull();
+  expect(host.querySelector('[data-pin-banner]')?.textContent).toContain('guestThread.ownerShowing:{"owner":"Alex","name":"notes.md"}');
+});
+
+it('shows the owner’s preview read-only: no session, no name prompt, nothing posts', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  serve((url) => (url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO)));
+  const params = Object.assign(Promise.resolve({ token: 'tok' }), { status: 'fulfilled', value: { token: 'tok' } });
+  const searchParams = Object.assign(Promise.resolve({ preview: '1' }), { status: 'fulfilled', value: { preview: '1' } });
+  await act(async () => root.render(React.createElement(Suspense, { fallback: null }, React.createElement(SharedThreadPage, { params, searchParams }))));
+  await settle();
+  const infoCall = fetchMock.mock.calls.find((call) => String(call[0]).endsWith('/v1/guest-links/public/tok'));
+  expect((infoCall?.[1] as RequestInit).headers).toBeUndefined();
+  expect(host.querySelector('[data-guest-preview]')?.textContent).toContain('guestThread.previewBar');
+  expect(host.querySelector('[data-fork-open]')).toBeNull();
+  // The composer is shown but inert.
+  expect(host.querySelector('[data-guest-preview] [aria-hidden="true"] textarea')).not.toBeNull();
+  expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
+  expect(localStorage.getItem('oa-guest-session:tok')).toBe('secret');
+});

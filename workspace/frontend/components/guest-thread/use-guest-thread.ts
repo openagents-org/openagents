@@ -29,7 +29,9 @@ export const INFO_REFRESH_MS = 30000;
  * with optimistic rows and idempotent retries. Only talks to the public
  * `/v1/guest-links/public/{token}` API.
  */
-export function useGuestThread(token: string) {
+export function useGuestThread(token: string, options: { preview?: boolean } = {}) {
+  // The owner's preview reads as a stranger would: no stored guest session, no joining.
+  const preview = !!options.preview;
   const [status, setStatus] = useState<GuestThreadStatus>('loading');
   const [info, setInfo] = useState<GuestThreadInfo | null>(null);
   const [guest, setGuest] = useState<GuestIdentity | null>(null);
@@ -65,7 +67,7 @@ export function useGuestThread(token: string) {
   const load = useCallback(async () => {
     setStatus('loading');
     try {
-      let session = loadGuestSession(token);
+      let session = preview ? null : loadGuestSession(token);
       let linkInfo: GuestThreadInfo;
       try {
         linkInfo = await fetchThreadLink(token, session);
@@ -88,7 +90,7 @@ export function useGuestThread(token: string) {
     } catch (error) {
       if (!endWith(error)) setStatus('error');
     }
-  }, [token, source, endWith, setIdentity, reset]);
+  }, [token, source, endWith, setIdentity, reset, preview]);
 
   useEffect(() => { void load(); }, [load]);
 
@@ -145,6 +147,7 @@ export function useGuestThread(token: string) {
 
   /** Queue a send; asks for a name first when the guest hasn't picked one. */
   const send = useCallback((pending: PendingSend): SendResult => {
+    if (preview) return 'sent';
     if (!guestRef.current || !sessionRef.current) {
       queuedRef.current = pending;
       setNameRequest({ reason: 'first-post' });
@@ -152,7 +155,7 @@ export function useGuestThread(token: string) {
     }
     void deliver(pending);
     return 'sent';
-  }, [deliver]);
+  }, [deliver, preview]);
 
   /** Resend a failed message with its original idempotency key. */
   const retry = useCallback((localId: string) => {

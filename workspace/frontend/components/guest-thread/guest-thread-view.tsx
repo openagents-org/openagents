@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import { AlertTriangle, Bot, Laptop, Menu, MessageSquare, Users } from 'lucide-react';
+import { AlertTriangle, Bot, Eye, Laptop, Menu, MessageSquare, PanelRight, Users } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { STRIP as BANNER_STRIP } from '@/components/chat/chat-view-banners';
 import { IntermediateSteps } from '@/components/chat/intermediate-steps';
@@ -34,7 +34,7 @@ import { isControlMessage } from '@/lib/control-messages';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
-import type { GuestIdentity, GuestThreadAgent, GuestThreadInfo } from '@/lib/guest-thread-api';
+import type { GuestIdentity, GuestThreadAgent, GuestThreadInfo, PinnedArtifact } from '@/lib/guest-thread-api';
 import {
   agentDisplayName,
   agentTypeLabel,
@@ -56,9 +56,9 @@ import { GuestComposer } from './guest-composer';
 import { GuestMessageRow, PersonAvatar } from './guest-message-row';
 import { GuestNameDialog } from './guest-name-dialog';
 import type { DecideRequest } from './share-request-status';
-import { ShareArtifactViewer, ShareResourceShelf, selectionKey, shareAttachmentSource, useFreshSelection, type ShareSelection } from './share-resources';
+import { ShareArtifactViewer, ShareResourceShelf, fileSelection, selectionKey, shareAttachmentSource, useFreshSelection, type ShareSelection } from './share-resources';
 import { useShareResources } from './use-share-resources';
-import type { ShareResourceSource } from '@/lib/share-resources';
+import type { ShareResourceSource, ShareResources } from '@/lib/share-resources';
 import type { AttachmentSource } from '@/components/chat/message-attachments';
 import { GuestRequestsBanner, type PendingGuestRequest } from '@/components/share/guest-requests-banner';
 import { isReleasedCopy, isShareNotice, requestDecisions, requestStatus, shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
@@ -94,6 +94,37 @@ interface GuestThreadViewProps {
   resourceSource?: ShareResourceSource | null;
   /** Guest page: the owner removed this guest; they can still read. */
   removed?: boolean;
+  /** Owner room: the owner's panel at the top of the sidebar (and its phone sheet). */
+  ownerPanel?: ReactNode;
+  /** A strip at the top of the conversation (owner room: "not saved yet", phone warning). */
+  topBanner?: ReactNode;
+  /** Owner room: the artifact the owner opens is open for guests (null = closed). */
+  onPinChange?: (ref: PinnedArtifact | null) => void;
+  /** Guest page: where "I closed the owner's artifact" is remembered (sessionStorage). */
+  pinStorageKey?: string;
+  /** Guest page in the owner's preview: read only, nothing posts. */
+  preview?: boolean;
+}
+
+/** Was the owner's open artifact closed by this guest (this tab, this link)? */
+function pinClosed(key?: string): boolean {
+  if (!key) return false;
+  try { return sessionStorage.getItem(key) === '1'; } catch { return false; }
+}
+function setPinClosed(key: string | undefined, closed: boolean) {
+  if (!key) return;
+  try { if (closed) sessionStorage.setItem(key, '1'); else sessionStorage.removeItem(key); } catch { /* ignore */ }
+}
+
+/** The shelf's entry for a pinned artifact, once the thread's resources have it. */
+function selectionForPin(pin: PinnedArtifact | null | undefined, resources: ShareResources): ShareSelection | null {
+  if (!pin) return null;
+  if (pin.kind === 'file') {
+    const file = resources.files.find((f) => f.id === pin.id);
+    return file ? fileSelection(file) : null;
+  }
+  const tab = resources.browsers.find((b) => b.id === pin.id);
+  return tab ? { kind: 'browser', id: tab.id, title: tab.title, url: tab.url } : null;
 }
 
 /**
@@ -101,7 +132,7 @@ interface GuestThreadViewProps {
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null, removed = false }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null, removed = false, ownerPanel, topBanner, onPinChange, pinStorageKey, preview = false }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -118,12 +149,20 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   // The owner can stop guests asking the agent: their messages are comments then.
   const asksOff = info.approvalMode === 'off';
   const guestAsksOff = asksOff && !isOwner;
-  const [askAgent, setAskAgent] = useState<string | null>(() => (!guestAsksOff && defaultAskAgent(info.agents) ? info.agents[0].name : null));
-  useEffect(() => { if (guestAsksOff) setAskAgent(null); }, [guestAsksOff]);
+  // Ask is on by default: always for the owner (it's their agent), with one agent for guests.
+  const askByDefault = (list: GuestThreadAgent[]) => !guestAsksOff && (isOwner ? list.length > 0 : defaultAskAgent(list));
+  const [askAgent, setAskAgentState] = useState<string | null>(() => (askByDefault(info.agents) ? info.agents[0].name : null));
+  const askTouched = useRef(false);
+  const setAskAgent = (name: string | null) => { askTouched.current = true; setAskAgentState(name); };
+  useEffect(() => { if (guestAsksOff) setAskAgentState(null); }, [guestAsksOff]);
+  // The agent list can arrive (or come back) after the first render: turn the default on then.
+  useEffect(() => {
+    if (!askTouched.current && !askAgent && askByDefault(info.agents)) setAskAgentState(info.agents[0].name);
+  }, [info.agents]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // The chip can't point at an agent that left the thread.
   useEffect(() => {
-    if (askAgent && !info.agents.some((a) => a.name === askAgent)) setAskAgent(null);
+    if (askAgent && !info.agents.some((a) => a.name === askAgent)) setAskAgentState(null);
   }, [askAgent, info.agents]);
 
   useEffect(() => {
@@ -148,7 +187,38 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const [selection, setSelection] = useState<ShareSelection | null>(null);
   const openSelection = useFreshSelection(selection, resources);
   const wide = useWideLayout();
-  const attachmentSource = useMemo(() => (resourceSource ? shareAttachmentSource(resourceSource, setSelection) : undefined), [resourceSource]);
+  const pin = info.pinnedArtifact ?? null;
+  const pinKey = pin ? `${pin.kind}:${pin.id}` : '';
+  const pinnedSelection = selectionForPin(pin, resources);
+  // Someone opens or closes an artifact. The owner's choice is what guests see open.
+  const openArtifact = (next: ShareSelection) => {
+    setSelection(next);
+    if (isOwner) onPinChange?.({ kind: next.kind, id: next.id });
+    else setPinClosed(pinStorageKey, false);
+  };
+  const closeArtifact = () => {
+    setSelection(null);
+    if (isOwner) onPinChange?.(null);
+    else setPinClosed(pinStorageKey, true);
+  };
+  const openRef = useRef(openArtifact);
+  openRef.current = openArtifact;
+  const attachmentSource = useMemo(() => (resourceSource ? shareAttachmentSource(resourceSource, (next) => openRef.current(next)) : undefined), [resourceSource]);
+  // The owner's open artifact opens here too (desktop only; on a phone a banner offers it).
+  // The owner gets it back on load; a guest also when it changes, unless they closed it.
+  const appliedPin = useRef<string | null>(null);
+  useEffect(() => {
+    if (!resourceSource || !wide || appliedPin.current === pinKey) return;
+    if (!pinKey) { appliedPin.current = pinKey; return; }
+    if (!pinnedSelection) return; // wait for the shelf to know it
+    const first = appliedPin.current === null;
+    appliedPin.current = pinKey;
+    if (isOwner) { if (first) setSelection((prev) => prev ?? pinnedSelection); return; }
+    if (pinClosed(pinStorageKey)) return;
+    setSelection(pinnedSelection);
+  }, [pinKey, pinnedSelection?.id, wide, resourceSource]); // eslint-disable-line react-hooks/exhaustive-deps
+  const showPinBanner = !isOwner && !wide && !!pinnedSelection && selectionKey(openSelection) !== pinKey;
+  const guestsSeeOpen = isOwner && !!openSelection && selectionKey(openSelection) === pinKey;
 
   const handleSubmit = () => {
     const content = composeOutgoing(draft, !!askAgent, askAgent);
@@ -172,6 +242,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       people={people}
       identity={identity}
       expiresAt={isOwner ? undefined : info.expiresAt}
+      ownerPanel={ownerPanel}
       notice={isOwner ? t('shareRoom.ownerNotice') : removed ? t('guestThread.removedNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
     />
   );
@@ -181,7 +252,8 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       open
       onOpenChange={() => {}}
       className="h-dvh min-h-0 bg-background lg:bg-sidebar"
-      style={{ '--sidebar-width': '15rem' } as React.CSSProperties}
+      // A little wider with the owner panel, so its policy lines read in full.
+      style={{ '--sidebar-width': ownerPanel ? '17rem' : '15rem' } as React.CSSProperties}
     >
       <Sidebar collapsible="none" className="hidden h-full shrink-0 lg:flex" aria-label={info.workspace.name}>
         {sidebar}
@@ -215,6 +287,16 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
           <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+          {topBanner}
+          {showPinBanner && pinnedSelection && (
+            <Alert role="status" className={cn(BANNER_STRIP, 'bg-primary/5')} data-pin-banner="">
+              <PanelRight />
+              <AlertDescription className="flex min-w-0 items-center gap-2 text-xs">
+                <span className="min-w-0 flex-1 truncate">{t('guestThread.ownerShowing', { owner: info.owner.name, name: pinnedSelection.kind === 'file' ? pinnedSelection.name : pinnedSelection.title })}</span>
+                <Button size="xs" variant="outline" onClick={() => openArtifact(pinnedSelection)} data-pin-banner-open="">{t('guestThread.ownerShowingOpen')}</Button>
+              </AlertDescription>
+            </Alert>
+          )}
           {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost && !removed} guestsCanPost={guestsCanPost} needsApproval={needsApproval} asksOff={asksOff} className={statusFolds ? 'max-sm:hidden' : undefined} />}
           {waiting && onDecide && (
             <GuestRequestsBanner
@@ -226,7 +308,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
           {resourceSource && (
             <ShareResourceShelf resources={resources} agents={info.agents} source={resourceSource} selected={openSelection}
-              onOpen={(next) => setSelection((prev) => (selectionKey(prev) === selectionKey(next) ? null : next))} />
+              onOpen={(next) => (selectionKey(openSelection) === selectionKey(next) ? closeArtifact() : openArtifact(next))} />
           )}
 
           <GuestMessageList
@@ -248,7 +330,18 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
           {/* Same reading width as the workspace's composer at its widest. */}
           <div className="mx-auto w-full max-w-6xl shrink-0 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:px-5 lg:pb-3">
-            {removed ? (
+            {preview ? (
+              <div className="flex flex-col gap-2" data-guest-preview="">
+                <Alert role="note" className="border-primary/30 bg-primary/5">
+                  <Eye />
+                  <AlertDescription className="text-foreground">{t('guestThread.previewBar')}</AlertDescription>
+                </Alert>
+                <div className="pointer-events-none opacity-50" aria-hidden="true">
+                  <GuestComposer agents={info.agents} askAgent={askAgent} onAskAgentChange={() => {}} draft="" onDraftChange={() => {}} onSubmit={() => {}}
+                    askBlocked={guestAsksOff && statusAgent ? t('guestThread.askDisabled', { owner: info.owner.name, agent: agentDisplayName(statusAgent) }) : null} />
+                </div>
+              </div>
+            ) : removed ? (
               <Alert role="note" className="bg-muted/40" data-guest-removed-notice="">
                 <AlertDescription>{t('guestThread.removedNotice')}</AlertDescription>
               </Alert>
@@ -273,7 +366,8 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
           {/* Desktop: the artifact beside the conversation, as the workspace's preview panel. */}
           {resourceSource && openSelection && wide && (
             <aside className="flex w-[min(46%,720px)] min-w-80 shrink-0 flex-col border-l" aria-label={t('artifactPanel.title')} data-share-artifact-panel="">
-              <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={() => setSelection(null)} />
+              <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={closeArtifact}
+                {...(isOwner && onPinChange ? { guestsSee: guestsSeeOpen, onGuestsSeeChange: (see: boolean) => onPinChange(see ? { kind: openSelection.kind, id: openSelection.id } : null) } : {})} />
             </aside>
           )}
           </div>
@@ -282,13 +376,14 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
       {/* Phone: the artifact in a sheet over the conversation. */}
       {resourceSource && !wide && (
-        <Sheet open={!!openSelection} onOpenChange={(open) => { if (!open) setSelection(null); }}>
+        <Sheet open={!!openSelection} onOpenChange={(open) => { if (!open) closeArtifact(); }}>
           <SheetContent side="bottom" showCloseButton={false} className="h-[88dvh] gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] data-[side=bottom]:h-[88dvh]">
             <SheetHeader className="sr-only">
               <SheetTitle>{openSelection ? (openSelection.kind === 'file' ? openSelection.name : openSelection.title) : t('artifactPanel.title')}</SheetTitle>
               <SheetDescription>{t('artifactPanel.title')}</SheetDescription>
             </SheetHeader>
-            {openSelection && <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={() => setSelection(null)} />}
+            {openSelection && <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={closeArtifact}
+                {...(isOwner && onPinChange ? { guestsSee: guestsSeeOpen, onGuestsSeeChange: (see: boolean) => onPinChange(see ? { kind: openSelection.kind, id: openSelection.id } : null) } : {})} />}
           </SheetContent>
         </Sheet>
       )}
@@ -323,7 +418,7 @@ function Logo({ size }: { size: number }) {
 
 /** The workspace sidebar, cut down to this one thread: brand, the thread,
  * its agents and people, and who you are. */
-function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity, expiresAt, notice }: {
+function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity, expiresAt, notice, ownerPanel }: {
   workspaceName: string;
   subtitle: string;
   title: string;
@@ -334,6 +429,8 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
   expiresAt?: string | null;
   /** What this viewer can do here. */
   notice: string;
+  /** Owner room: the owner's panel, above the thread. */
+  ownerPanel?: ReactNode;
 }) {
   const t = useT();
   const { formatDateTime } = useFormatters();
@@ -351,6 +448,7 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
       </SidebarHeader>
 
       <SidebarContent>
+        {ownerPanel && <div className="px-3 pt-3" data-owner-panel-slot="">{ownerPanel}</div>}
         <SidebarGroup className="px-1.5">
           <SidebarGroupLabel className="px-2">{t('guestThread.threads')}</SidebarGroupLabel>
           <SidebarGroupContent>

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Bot, CalendarClock, Download, ExternalLink, Globe, Layers, X } from 'lucide-react';
+import { Bot, CalendarClock, ChevronDown, Download, ExternalLink, Eye, EyeOff, Globe, Layers, X } from 'lucide-react';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { ArtifactBody, readArtifactResponse, type LoadedArtifact } from '@/components/artifacts/artifact-body';
 import { ScreenshotThumbnail } from '@/components/artifacts/browser-thumbnail';
@@ -181,10 +182,14 @@ export function ShareResourceShelf({ resources, agents, source, selected, onOpen
  * link-scoped bytes (HTML in a sandboxed frame without same-origin); a
  * browser session is a screenshot that refreshes while open, view only.
  */
-export function ShareArtifactViewer({ source, selection, onClose }: {
+export function ShareArtifactViewer({ source, selection, onClose, guestsSee, onGuestsSeeChange }: {
   source: ShareResourceSource;
   selection: ShareSelection;
   onClose: () => void;
+  /** Owner room: guests see this artifact open. */
+  guestsSee?: boolean;
+  /** Owner room: show it to guests, or stop (it stays open for the owner). */
+  onGuestsSeeChange?: (see: boolean) => void;
 }) {
   const t = useT();
   const title = selection.kind === 'file' ? selection.name : (selection.title || selection.url);
@@ -196,6 +201,22 @@ export function ShareArtifactViewer({ source, selection, onClose }: {
       <header className="flex h-12 shrink-0 items-center gap-2 border-b px-3">
         {selection.kind === 'file' ? getFileIcon(selection.contentType, selection.name) : <Globe className="size-4 shrink-0 text-muted-foreground" />}
         <span className="min-w-0 flex-1 truncate text-sm font-semibold" title={title}>{title}</span>
+        {onGuestsSeeChange && (guestsSee ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="secondary" size="xs" className="shrink-0 gap-1 rounded-full" data-guests-see="on">
+                <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareRoom.guestsSeeThis')}</span><ChevronDown className="size-3" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onSelect={() => onGuestsSeeChange(false)} data-guests-see-hide=""><EyeOff />{t('shareRoom.dontShowGuests')}</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : (
+          <Button variant="ghost" size="xs" className="shrink-0 text-muted-foreground" onClick={() => onGuestsSeeChange(true)} data-guests-see="off">
+            <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareRoom.showGuests')}</span>
+          </Button>
+        ))}
         {download && (
           <WithTooltip label={t('artifactPanel.download')}>
             <Button variant="ghost" size="icon-sm" onClick={download} aria-label={t('artifactPanel.download')} data-share-download=""><Download /></Button>

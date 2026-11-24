@@ -324,3 +324,144 @@ it('waits for sign-in to settle before deciding a tokenless link is invalid', as
   expect(fetchMock).not.toHaveBeenCalled();
   state.auth.loading = false;
 });
+
+const RESOURCES = {
+  files: [{ id: 'f-md', name: 'notes.md', path: 'notes.md', contentType: 'text/markdown', size: 10, createdAt: null, uploadedBy: 'openagents:claude-code' }],
+  browsers: [], routines: [],
+};
+function ownerServer(room: Record<string, unknown> = ROOM, extra?: (url: string, init?: RequestInit) => Response | null) {
+  const base = roomServer(room);
+  return (url: string, init?: RequestInit) => {
+    const hit = extra?.(url, init);
+    if (hit) return hit;
+    if (url.includes('/room/guests')) return ok({ guests: [{ id: 'g1', name: 'Maya', joinedAt: null, lastSeenAt: null, removed: false }, { id: 'g2', name: 'Sam', joinedAt: null, lastSeenAt: null, removed: true }] });
+    if (url.includes('/room/requests')) return ok({ requests: [] });
+    if (url.includes('/room/resources')) return ok(RESOURCES);
+    if (url.includes('/room/files/')) return new Response('# Notes', { status: 200, headers: { 'Content-Type': 'text/markdown' } });
+    if (url.includes('/room/pin')) return ok({ pinnedArtifact: JSON.parse(String(init?.body)).kind ? JSON.parse(String(init?.body)) : null });
+    return base(url, init);
+  };
+}
+const wait = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
+
+it('keeps the owner panel in the sidebar: owner-page warning, copy link, preview, and the policy at a glance', async () => {
+  localStorage.clear();
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  serve(ownerServer({ ...ROOM, link: { ...LINK, approvalMode: 'owner' } }, (url) => (url.includes('/v1/guest-links?') ? ok({ links: [{ ...LINK, approvalMode: 'owner' }] }) : null)));
+  await open();
+  const panel = host.querySelector('[data-owner-panel-slot] [data-owner-panel]')!;
+  expect(panel.textContent).toContain('shareRoom.ownerPage');
+  const values = Object.fromEntries([...panel.querySelectorAll('[data-owner-policy-row]')].map((row) => [row.getAttribute('data-owner-policy-row'), row.querySelector('[data-owner-policy-value]')!.textContent]));
+  expect(values).toEqual({ requests: 'shareRoom.policyRequestsOwner', post: 'shareRoom.policyPostYes', expiry: 'shareRoom.policyLinkNever', guests: '1' });
+  await act(async () => { (panel.querySelector('[data-owner-copy-link]') as HTMLElement).click(); });
+  expect(writeText).toHaveBeenCalledWith(LINK.url);
+  expect(panel.querySelector('[data-owner-copy-link]')?.textContent).toBe('shareRoom.guestLinkCopied');
+  // Right after copying: "See what guests see" opens the preview.
+  await act(async () => { (panel.querySelector('[data-owner-see-guests]') as HTMLElement).click(); });
+  const frame = host.querySelector('[data-guest-preview-frame]') as HTMLIFrameElement;
+  expect(frame.getAttribute('src')).toBe(`${window.location.origin}/share/thread/gtok?preview=1`);
+  expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-same-origin');
+  expect(host.querySelector('[data-guest-preview-open]')?.getAttribute('href')).toBe(`${window.location.origin}/share/thread/gtok?preview=1`);
+});
+
+it('opens the link settings at the part a policy line names', async () => {
+  serve(ownerServer());
+  await open();
+  await act(async () => { (host.querySelector('[data-owner-policy-row="guests"]') as HTMLElement).click(); });
+  await wait(200);
+  expect(host.querySelector('[data-owner-guest-link]')).not.toBeNull();
+  expect(host.querySelector('[data-guest-link-section="guests"]')?.hasAttribute('data-focused')).toBe(true);
+  expect(host.querySelector('[data-guest-link-section="requests"]')?.hasAttribute('data-focused')).toBe(false);
+});
+
+it('nudges to save an unsaved room: sign in when signed out, one click when signed in', async () => {
+  localStorage.clear();
+  serve(ownerServer());
+  await open();
+  expect(host.querySelector('[data-owner-not-saved]')?.textContent).toContain('shareRoom.notSavedBody');
+  expect(host.querySelector('[data-owner-save]')?.textContent).toBe('shareRoom.signInToSave');
+  expect(host.querySelector('[data-owner-save-strip]')).not.toBeNull();
+  await act(async () => { (host.querySelector('[data-owner-save]') as HTMLElement).click(); });
+  expect(host.querySelector('[data-keep-step="sign-in"]')).not.toBeNull();
+  // The strip, once dismissed, stays dismissed for this room.
+  await act(async () => { (host.querySelector('[data-owner-save-strip] [data-strip-dismiss]') as HTMLElement).click(); });
+  expect(host.querySelector('[data-owner-save-strip]')).toBeNull();
+  expect(localStorage.getItem('oa-owner-save-nudge:alex-share')).toBe('1');
+
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  state.auth.user = { email: 'alex@example.com' };
+  state.auth.idToken = 'id-tok';
+  serve(ownerServer(ROOM, (url) => (url.endsWith('/v1/guest-links/claim') ? ok({ claimed: true }) : null)));
+  await open();
+  expect(host.querySelector('[data-owner-save]')?.textContent).toBe('shareRoom.saveToRoomsShort');
+  await act(async () => { (host.querySelector('[data-owner-save]') as HTMLElement).click(); });
+  await wait(0);
+  expect(fetchMock.mock.calls.some((c) => String(c[0]).endsWith('/v1/guest-links/claim'))).toBe(true);
+  expect(host.querySelector('[data-owner-saved] a')?.getAttribute('href')).toBe('/rooms');
+});
+
+it('shows "Saved to your rooms" for a saved room', async () => {
+  serve(ownerServer({ ...ROOM, share: { claimed: true, movedTo: null } }));
+  await open();
+  expect(host.querySelector('[data-owner-saved]')).not.toBeNull();
+  expect(host.querySelector('[data-owner-not-saved]')).toBeNull();
+  expect(host.querySelector('[data-owner-save-strip]')).toBeNull();
+});
+
+it('pins what the owner opens for guests, unpins on close, and can hide it while keeping it open', async () => {
+  serve(ownerServer());
+  await open();
+  const pins = () => fetchMock.mock.calls.filter((c) => String(c[0]).includes('/room/pin')).map((c) => JSON.parse(String((c[1] as RequestInit).body)));
+  const tile = [...host.querySelectorAll('[data-share-resources] li button')].find((b) => b.textContent?.includes('notes.md')) as HTMLElement;
+  await act(async () => { tile.click(); });
+  await wait(600);
+  expect(pins()).toEqual([{ kind: 'file', id: 'f-md' }]);
+  expect(host.querySelector('[data-guests-see="on"]')).not.toBeNull();
+  // Closing the viewer closes it for guests too.
+  await act(async () => { (host.querySelector('[data-share-viewer-close]') as HTMLElement).click(); });
+  await wait(600);
+  expect(pins().at(-1)).toEqual({ kind: null });
+  // Quick open/close flips settle into one call.
+  await act(async () => { tile.click(); });
+  await act(async () => { tile.click(); });
+  await act(async () => { tile.click(); });
+  await wait(600);
+  expect(pins()).toHaveLength(3);
+  expect(pins().at(-1)).toEqual({ kind: 'file', id: 'f-md' });
+});
+
+it('reopens the artifact guests see when the owner comes back, without pinning again', async () => {
+  serve(ownerServer({ ...ROOM, pinnedArtifact: { kind: 'file', id: 'f-md' } }));
+  await open();
+  await wait(50);
+  expect(host.querySelector('[data-share-artifact-panel]')?.textContent).toContain('notes.md');
+  await wait(600);
+  expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('/room/pin'))).toBe(false);
+  // "Show to guests" toggles back on from the viewer header once hidden.
+  expect(host.querySelector('[data-guests-see="on"]')).not.toBeNull();
+});
+
+it('turns Ask on by default for the owner, even with several agents', async () => {
+  serve(ownerServer({ ...ROOM, agents: [...ROOM.agents, { name: 'helper', displayName: 'helper', type: 'codex', online: true, acceptsGuests: true }] }));
+  await open();
+  const chips = [...host.querySelectorAll('[data-slot="toggle"]')];
+  expect(chips[0].getAttribute('data-state')).toBe('on');
+  expect(chips[1].getAttribute('data-state')).toBe('off');
+});
+
+it('"Don’t show to guests" unpins but keeps the artifact open for the owner', async () => {
+  serve(ownerServer({ ...ROOM, pinnedArtifact: { kind: 'file', id: 'f-md' } }));
+  await open();
+  await wait(50);
+  const chip = host.querySelector('[data-guests-see="on"]') as HTMLElement;
+  await act(async () => { chip.focus(); chip.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await wait(0);
+  await act(async () => { (document.querySelector('[data-guests-see-hide]') as HTMLElement).click(); });
+  await wait(600);
+  const pin = fetchMock.mock.calls.filter((c) => String(c[0]).includes('/room/pin')).map((c) => JSON.parse(String((c[1] as RequestInit).body)));
+  expect(pin).toEqual([{ kind: null }]);
+  expect(host.querySelector('[data-share-artifact-panel]')).not.toBeNull();
+  expect(host.querySelector('[data-guests-see="off"]')).not.toBeNull();
+});

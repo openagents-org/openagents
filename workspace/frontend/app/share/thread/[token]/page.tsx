@@ -11,9 +11,15 @@ import { useGuestThread } from '@/components/guest-thread/use-guest-thread';
  * Guest view of one shared thread. Opened from a link without an account:
  * no workspace provider, no auth token, only the public thread-link API.
  */
-export default function SharedThreadPage({ params }: { params: Promise<{ token: string }> }) {
+export default function SharedThreadPage({ params, searchParams }: {
+  params: Promise<{ token: string }>;
+  searchParams?: Promise<{ preview?: string | string[] }>;
+}) {
   const { token } = use(params);
-  const thread = useGuestThread(token);
+  const query = searchParams ? use(searchParams) : {};
+  // `?preview=1`: the owner's preview — read only, no name prompt, nothing posts.
+  const preview = (Array.isArray(query.preview) ? query.preview[0] : query.preview) === '1';
+  const thread = useGuestThread(token, { preview });
   const resourceSource = useMemo(() => guestResourceSource(token), [token]);
 
   if (thread.status !== 'ready' || !thread.info) {
@@ -32,11 +38,13 @@ export default function SharedThreadPage({ params }: { params: Promise<{ token: 
       sendTick={thread.sendTick}
       send={thread.send}
       retry={thread.retry}
-      join={thread.join}
-      cancelName={thread.cancelName}
-      headerActions={<ContinueInWorkspace token={token} />}
+      join={preview ? undefined : thread.join}
+      cancelName={preview ? undefined : thread.cancelName}
+      headerActions={preview ? undefined : <ContinueInWorkspace token={token} />}
       resourceSource={resourceSource}
-      removed={thread.removed}
+      removed={!preview && thread.removed}
+      preview={preview}
+      pinStorageKey={`oa-share-pin-closed:${token}`}
     />
   );
 }

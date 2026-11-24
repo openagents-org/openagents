@@ -46,6 +46,7 @@ describe('room data mapping', () => {
       canPost: true,
       approvalMode: 'none',
       guestsCanPost: true,
+      pinnedArtifact: null,
       guest: null,
     });
     expect(roomToThreadInfo({ ...ROOM, link: null }).expiresAt).toBeNull();

@@ -179,7 +179,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
         </Button>
       </div>
       {client.updateCanPost && (
-        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5" data-guest-link-can-post={link.canPost ? 'on' : 'off'}>
+        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5" data-guest-link-section="post" data-guest-link-can-post={link.canPost ? 'on' : 'off'}>
           <span className="grid gap-0.5">
             <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">{t('share.canPost')}{busy === 'post' && <Spinner className="size-3.5" />}</span>
             <span className="text-xs text-muted-foreground">{link.canPost ? t('share.canPostOnBody') : t('share.canPostOffBody')}</span>
@@ -190,7 +190,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
       {client.updateApprovalMode && (
         <ApprovalChoice mode={link.approvalMode ?? 'none'} agentName={agentName} busy={busy === 'approval'} disabled={!!busy || !link.canPost} onChange={setApproval} />
       )}
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5" data-guest-link-section="expiry">
         <span className="text-xs font-medium text-muted-foreground">{t('share.guestLinkExpiry')}</span>
         <div className="flex flex-wrap items-center gap-1" role="group" aria-label={t('share.guestLinkExpiry')}>
           {EXPIRY_CHOICES.map((choice) => (
@@ -244,7 +244,7 @@ function ApprovalChoice({ mode, agentName, busy, disabled, onChange }: {
     { value: 'off', title: t('share.approvalOff', { agent }), body: t('share.approvalOffBody') },
   ];
   return (
-    <div className="flex flex-col gap-1.5" data-guest-link-approval={mode}>
+    <div className="flex flex-col gap-1.5" data-guest-link-section="requests" data-guest-link-approval={mode}>
       <span className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
         {t('share.approvalHeading')}
         {busy && <Spinner className="size-3.5" />}
@@ -301,7 +301,7 @@ function GuestsSection({ channel, client }: { channel: string; client: GuestLink
     }
   };
   return (
-    <div className="flex flex-col gap-1.5" data-guest-link-guests="">
+    <div className="flex flex-col gap-1.5" data-guest-link-section="guests" data-guest-link-guests="">
       <span className="text-xs font-medium text-muted-foreground">{t('share.guestsHeading', { count: guests?.length ?? 0 })}</span>
       {failed ? <p className="text-xs text-muted-foreground">{t('share.guestsLoadFailed')}</p>
         : !guests ? <Spinner className="size-4 text-muted-foreground" />
