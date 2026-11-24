@@ -141,4 +141,20 @@ describe('guest turn errors', () => {
     assert.doesNotMatch(errors[0], /req_123|safeguards/);
     adapter._guestChannels.delete('share-abc');
   });
+
+  it("a guest turn neither resumes nor becomes the owner's CLI session", () => {
+    const adapter = mkClaude();
+    adapter.toolMode = 'skills';
+    adapter._channelSessions['share-abc'] = 'owner-session';
+    adapter._guestChannels.add('share-abc');
+    const { cmd } = adapter._buildClaudeCmd('hi', 'share-abc');
+    assert.ok(!cmd.includes('--resume'), 'no --resume for a guest turn');
+    adapter._rememberSession({ msgChannel: 'share-abc', spawnMode: 'guest' }, 'guest-session');
+    assert.equal(adapter._channelSessions['share-abc'], 'owner-session');
+    adapter._guestChannels.delete('share-abc');
+    const owner = adapter._buildClaudeCmd('hi', 'share-abc').cmd;
+    assert.equal(owner[owner.indexOf('--resume') + 1], 'owner-session');
+    adapter._rememberSession({ msgChannel: 'share-abc', spawnMode: 'execute' }, 'owner-2');
+    assert.equal(adapter._channelSessions['share-abc'], 'owner-2');
+  });
 });

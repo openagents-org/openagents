@@ -485,6 +485,13 @@ class ClaudeAdapter extends BaseAdapter {
     return null;
   }
 
+  /** Save a channel's CLI session — never one a guest's turn ran in. */
+  _rememberSession(pp, sessionId) {
+    if (!sessionId || pp.spawnMode === 'guest' || this._effectiveMode(pp.msgChannel) === 'guest') return;
+    this._channelSessions[pp.msgChannel] = sessionId;
+    this._saveSessions();
+  }
+
   /** Guest turns run read-only (see GUEST_ALLOWED_TOOLS). */
   get supportsGuestRuns() {
     return true;
@@ -532,7 +539,13 @@ class ClaudeAdapter extends BaseAdapter {
     }
     cmd.push('--disallowedTools', ...disallowedTools);
 
-    // Resume existing conversation (skipped on retry after stale session)
+    // Resume existing conversation (skipped on retry after stale session).
+    // A guest's turn never resumes the owner's session, nor is it saved as
+    // one (see _rememberSession): each side keeps its own conversation, so a
+    // guest's read-only turns neither see nor colour the owner's work — the
+    // model once carried "I'm in plan mode" from a guest turn into the
+    // owner's next request. The thread's recent messages come in the prompt.
+    if (runMode === 'guest') skipResume = true;
     const sessionId = this._channelSessions[channelName];
     let seeded = false;
     if (sessionId && !skipResume) {
@@ -974,7 +987,7 @@ class ClaudeAdapter extends BaseAdapter {
       // the next message resumes the conversation; drop everything else.
       if (pp.userStopped) {
         if (eventType === 'result' && event.session_id) {
-          this._channelSessions[pp.msgChannel] = event.session_id;
+          this._rememberSession(pp, event.session_id);
           this._saveSessions();
         }
         if (eventType === 'result' && pp.messageResolve) {
@@ -1032,10 +1045,7 @@ class ClaudeAdapter extends BaseAdapter {
       } else if (eventType === 'result') {
         pp.awaitingToolResult = false;
         const sessionId = event.session_id;
-        if (sessionId) {
-          this._channelSessions[pp.msgChannel] = sessionId;
-          this._saveSessions();
-        }
+        if (sessionId) this._rememberSession(pp, sessionId);
         if (event.is_error) {
           // Capture the error so _handleMessage can surface it to the user.
           // Without this, an auth/API failure (e.g. 401 invalid token) is only
