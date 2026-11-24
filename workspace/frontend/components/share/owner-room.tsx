@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
-import { BookmarkPlus, ExternalLink, Share2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { BookmarkPlus, ExternalLink, LayoutList, Share2 } from 'lucide-react';
 import { useGuestLinks } from '@/components/chat/guest-link-panel';
 import { GuestLinkState } from '@/components/guest-thread/guest-link-state';
 import { GuestThreadView } from '@/components/guest-thread/guest-thread-view';
@@ -24,14 +24,19 @@ import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dial
  */
 export function OwnerRoom({ slug, token, navigate }: { slug: string; token: string; navigate?: (href: string) => void }) {
   const t = useT();
-  const room = useOwnerRoom(slug, token);
   const { user, idToken, loading } = useOpenAgentsAuth();
+  const idTokenRef = useRef(idToken);
+  idTokenRef.current = idToken;
+  const getIdToken = useCallback(() => idTokenRef.current, []);
+  // A signed-in owner opens their room without the owner link's token.
+  const room = useOwnerRoom(slug, token, { idToken: getIdToken, signedIn: !!user && !!idToken, ready: !loading });
   const [keepOpen, setKeepOpen] = useState(false);
   const [linkOpen, setLinkOpen] = useState(false);
 
   const data = room.room;
   const threadName = data?.thread.name ?? '';
   const claimed = !!data?.share?.claimed;
+  const kept = !!data?.share?.keptAsWorkspace;
   const linksClient = useMemo(() => roomGuestLinksClient(room.creds), [room.creds]);
   const resourceSource = useMemo(() => roomResourceSource(room.creds), [room.creds]);
   const guestLinks = useGuestLinks(threadName, room.status === 'ready' && !!threadName, linksClient);
@@ -45,9 +50,9 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
 
   // Back from signing in to keep it: reopen the dialog on the choice step.
   useEffect(() => {
-    if (loading || !user || !idToken || room.status !== 'ready' || claimed) return;
+    if (loading || !user || !idToken || room.status !== 'ready' || kept) return;
     if (takeKeepIntent(slug)) setKeepOpen(true);
-  }, [loading, user, idToken, room.status, claimed, slug]);
+  }, [loading, user, idToken, room.status, kept, slug]);
 
   if (room.status === 'moved') {
     const href = room.movedTo ? threadPath(room.movedTo.slug, room.movedTo.channel) : null;
@@ -58,7 +63,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   }
 
   const firstAgent = data.agents[0] ?? null;
-  const primary = claimed ? (
+  const primary = kept ? (
     <Button size="sm" asChild data-owner-open="">
       <a href={threadPath(slug, threadName)}>
         <ExternalLink data-icon="inline-start" />
@@ -81,6 +86,13 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
           <Share2 />
         </Button>
       </WithTooltip>
+      {user && (
+        <WithTooltip label={t('rooms.myRooms')}>
+          <Button variant="ghost" size="icon-sm" asChild aria-label={t('rooms.myRooms')} data-owner-my-rooms="">
+            <a href="/rooms"><LayoutList /></a>
+          </Button>
+        </WithTooltip>
+      )}
       {primary}
     </>
   );
@@ -113,7 +125,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         setLinks={guestLinks.setLinks}
         client={linksClient}
       />
-      {!claimed && (
+      {!kept && (
         <KeepConversationDialog
           open={keepOpen}
           onOpenChange={setKeepOpen}
@@ -121,6 +133,8 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
           token={token}
           threadName={threadName}
           navigate={navigate}
+          saved={claimed}
+          onSaved={() => { void room.refresh(); }}
         />
       )}
     </>

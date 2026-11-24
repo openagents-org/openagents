@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { BookmarkPlus, Check, FolderInput, LogIn } from 'lucide-react';
+import { BookmarkPlus, Check, FolderInput, LayoutGrid, LayoutList, LogIn } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/responsive-dialog';
@@ -10,7 +10,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { goToCentralLogin } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { claimShare, importShare, listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/share-room-api';
+import { claimShare, importShare, keepAsWorkspace, listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/share-room-api';
 import { cn } from '@/lib/utils';
 
 /**
@@ -45,7 +45,7 @@ function messageOf(error: unknown, fallback: string): string {
   return message && !/^HTTP \d+$/.test(message) && message !== 'Network error' ? message : fallback;
 }
 
-type Busy = null | 'claim' | 'import' | 'list';
+type Busy = null | 'claim' | 'workspace' | 'import' | 'list';
 
 interface KeepConversationDialogProps {
   open: boolean;
@@ -56,7 +56,11 @@ interface KeepConversationDialogProps {
   token: string;
   /** The shared thread, for the full-workspace URL after keeping. */
   threadName: string;
-  /** After "Make it my workspace" succeeds; default opens the thread in the full workspace. */
+  /** Already saved to the owner's rooms ("Save to my rooms" shows as done). */
+  saved?: boolean;
+  /** After "Save to my rooms" succeeds. */
+  onSaved?: () => void;
+  /** @deprecated alias of `onSaved` (the workspace banner). */
   onClaimed?: () => void;
   /** Leaves the page; replaceable in tests. */
   navigate?: (href: string) => void;
@@ -66,11 +70,11 @@ function defaultNavigate(href: string) {
   window.location.assign(href);
 }
 
-export function KeepConversationDialog({ open, onOpenChange, network, token, threadName, onClaimed, navigate = defaultNavigate }: KeepConversationDialogProps) {
+export function KeepConversationDialog({ open, onOpenChange, network, token, threadName, saved = false, onSaved, onClaimed, navigate = defaultNavigate }: KeepConversationDialogProps) {
   const t = useT();
   const { user, idToken, loading, signIn } = useOpenAgentsAuth();
   const signedIn = !!user && !!idToken;
-  const [step, setStep] = useState<'choose' | 'pick'>('choose');
+  const [step, setStep] = useState<'choose' | 'pick' | 'saved'>('choose');
   const [busy, setBusy] = useState<Busy>(null);
   const [error, setError] = useState<string | null>(null);
   const [workspaces, setWorkspaces] = useState<MyWorkspace[] | null>(null);
@@ -86,20 +90,35 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
     if (open && signedIn) takeKeepIntent(network);
   }, [open, signedIn, network]);
 
-  const creds = { slug: network, token };
+  const creds = { slug: network, token: token || null, idToken };
 
   const signInToKeep = () => {
     rememberKeepIntent(network);
     goToCentralLogin(() => { void signIn(); });
   };
 
+  /** "Save to my rooms": the owner's account keeps it; it stays a room. */
   const claim = async () => {
     if (!idToken) return;
     setBusy('claim'); setError(null);
     try {
       await claimShare(creds, idToken);
-      if (onClaimed) { onClaimed(); onOpenChange(false); setBusy(null); return; }
-      navigate(threadPath(network, threadName));
+      (onSaved ?? onClaimed)?.();
+      setStep('saved');
+    } catch (e) {
+      setError(messageOf(e, t('shareRoom.keepFailed')));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /** "Make it a workspace": a full workspace of theirs (claimed first if needed), then open it. */
+  const makeWorkspace = async () => {
+    if (!idToken) return;
+    setBusy('workspace'); setError(null);
+    try {
+      const result = await keepAsWorkspace(creds);
+      navigate(threadPath(result.workspace.slug || network, result.channel.name || threadName));
     } catch (e) {
       setError(messageOf(e, t('shareRoom.keepFailed')));
       setBusy(null);
@@ -156,29 +175,42 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
         <LogIn data-icon="inline-start" />{t('shareRoom.signIn')}
       </Button>
     );
+  } else if (step === 'saved') {
+    description = t('shareRoom.savedToRoomsBody');
+    body = (
+      <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 p-3" data-keep-step="saved">
+        <Check className="mt-0.5 size-4 shrink-0 text-success" />
+        <div className="grid gap-0.5">
+          <p className="text-sm font-medium">{t('shareRoom.savedToRooms')}</p>
+          <p className="text-xs text-muted-foreground">{t('shareRoom.savedToRoomsHint')}</p>
+        </div>
+      </div>
+    );
+    footer = (
+      <>
+        <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
+        <Button asChild data-keep-my-rooms=""><a href="/rooms"><LayoutList data-icon="inline-start" />{t('rooms.openMyRooms')}</a></Button>
+      </>
+    );
   } else if (step === 'choose') {
+    const choice = (key: string, icon: React.ReactNode, title: string, text: string, onClick: () => void, opts: { done?: boolean; busy?: boolean } = {}) => (
+      <Item asChild variant="outline">
+        <button type="button" className="text-left hover:bg-muted disabled:opacity-60" disabled={!!busy || opts.done} onClick={onClick} data-keep-choice={key}>
+          <ItemMedia variant="icon">{icon}</ItemMedia>
+          <ItemContent>
+            <ItemTitle>{title}</ItemTitle>
+            <ItemDescription>{text}</ItemDescription>
+          </ItemContent>
+          {(opts.busy || opts.done) && <ItemActions>{opts.busy ? <Spinner className="size-4" /> : <Check className="size-4 text-success" />}</ItemActions>}
+        </button>
+      </Item>
+    );
     body = (
       <div className="flex flex-col gap-3" data-keep-step="choose">
         <ItemGroup className="gap-2">
-          <Item asChild variant="outline">
-            <button type="button" className="text-left hover:bg-muted disabled:opacity-60" disabled={!!busy} onClick={() => void claim()} data-keep-choice="claim">
-              <ItemMedia variant="icon"><BookmarkPlus /></ItemMedia>
-              <ItemContent>
-                <ItemTitle>{t('shareRoom.makeMine')}</ItemTitle>
-                <ItemDescription>{t('shareRoom.makeMineBody')}</ItemDescription>
-              </ItemContent>
-              {busy === 'claim' && <ItemActions><Spinner className="size-4" /></ItemActions>}
-            </button>
-          </Item>
-          <Item asChild variant="outline">
-            <button type="button" className="text-left hover:bg-muted disabled:opacity-60" disabled={!!busy} onClick={pickWorkspace} data-keep-choice="import">
-              <ItemMedia variant="icon"><FolderInput /></ItemMedia>
-              <ItemContent>
-                <ItemTitle>{t('shareRoom.addToMine')}</ItemTitle>
-                <ItemDescription>{t('shareRoom.addToMineBody')}</ItemDescription>
-              </ItemContent>
-            </button>
-          </Item>
+          {choice('claim', <BookmarkPlus />, saved ? t('shareRoom.savedToRooms') : t('shareRoom.saveToRooms'), t('shareRoom.saveToRoomsBody'), () => void claim(), { done: saved, busy: busy === 'claim' })}
+          {choice('workspace', <LayoutGrid />, t('shareRoom.makeWorkspace'), t('shareRoom.makeWorkspaceBody'), () => void makeWorkspace(), { busy: busy === 'workspace' })}
+          {choice('import', <FolderInput />, t('shareRoom.addToMine'), t('shareRoom.addToMineBody'), pickWorkspace)}
         </ItemGroup>
         {failure}
       </div>

@@ -5,7 +5,7 @@
  */
 import { getApiBaseUrl } from '@/lib/api-base';
 import { request, type GuestApiOptions } from '@/lib/guest-thread-api';
-import type { RoomCredentials } from '@/lib/share-room-api';
+import { roomHeaders, type RoomCredentials } from '@/lib/share-room-api';
 import type { RoutineItem } from '@/lib/types';
 
 export interface ShareFile {
@@ -132,12 +132,12 @@ export function guestResourceSource(token: string, options: GuestApiOptions = {}
 export function roomResourceSource(creds: RoomCredentials, options: GuestApiOptions = {}): ShareResourceSource {
   const base = () => `${options.baseUrl ?? getApiBaseUrl()}/v1/guest-links/room`;
   const query = `network=${encodeURIComponent(creds.slug)}`;
-  const headers = { 'X-Workspace-Token': creds.token };
+  const headersNow = () => roomHeaders(creds);
   const fetchImpl = (...args: Parameters<typeof fetch>) => (options.fetchImpl ?? fetch)(...args);
   return {
-    key: `room:${creds.slug}:${creds.token}`,
-    fetchResources: async () => toShareResources(await request(`${base()}/resources?${query}`, { method: 'GET', headers }, options)),
-    fetchFile: (id, signal) => bytes(`${base()}/files/${encodeURIComponent(id)}?${query}`, headers, signal, fetchImpl),
-    fetchScreenshot: (id, signal) => bytes(`${base()}/browsers/${encodeURIComponent(id)}/screenshot?${query}`, headers, signal, fetchImpl),
+    key: `room:${creds.slug}:${creds.token || 'bearer'}`,
+    fetchResources: async () => toShareResources(await request(`${base()}/resources?${query}`, { method: 'GET', headers: headersNow() }, options)),
+    fetchFile: (id, signal) => bytes(`${base()}/files/${encodeURIComponent(id)}?${query}`, headersNow(), signal, fetchImpl),
+    fetchScreenshot: (id, signal) => bytes(`${base()}/browsers/${encodeURIComponent(id)}/screenshot?${query}`, headersNow(), signal, fetchImpl),
   };
 }

@@ -138,7 +138,7 @@ it('posts as the owner with the token, the @agent prefix and an idempotency key'
 });
 
 it('offers "Open in your workspace" once the conversation is kept', async () => {
-  serve(roomServer({ ...ROOM, share: { claimed: true, movedTo: null } }));
+  serve(roomServer({ ...ROOM, share: { claimed: true, movedTo: null, keptAsWorkspace: true } }));
   await open();
   expect(host.querySelector('[data-owner-keep]')).toBeNull();
   expect(host.querySelector('[data-owner-open]')?.getAttribute('href')).toBe('/alex-share/threads/share-abc');
@@ -291,4 +291,36 @@ it('says in the room when guests can’t ask the agent or the link is read-only,
   root = createRoot(host);
   await open();
   expect(host.textContent).toContain('shareRoom.ownerReadOnlyNotice');
+});
+
+it('opens for the signed-in owner without the owner token, using their sign-in', async () => {
+  state.auth.user = { email: 'alex@example.com' };
+  state.auth.idToken = 'id-tok';
+  serve(roomServer());
+  await open(null);
+  expect(host.textContent).toContain('PR reviewer');
+  expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+  for (const call of fetchMock.mock.calls) {
+    const headers = (call[1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer id-tok');
+    expect(headers['X-Workspace-Token']).toBeUndefined();
+  }
+  expect(host.querySelector('[data-owner-my-rooms]')?.getAttribute('href')).toBe('/rooms');
+});
+
+it('says the owner link isn’t valid for someone signed in who doesn’t own the room', async () => {
+  state.auth.user = { email: 'sam@example.com' };
+  state.auth.idToken = 'id-tok';
+  serve(() => new Response(JSON.stringify({ code: 403, message: 'Not yours' }), { status: 403 }));
+  await open(null);
+  expect(host.textContent).toContain('shareRoom.notFoundTitle');
+});
+
+it('waits for sign-in to settle before deciding a tokenless link is invalid', async () => {
+  state.auth.loading = true;
+  serve(roomServer());
+  await open(null);
+  expect(host.textContent).not.toContain('shareRoom.notFoundTitle');
+  expect(fetchMock).not.toHaveBeenCalled();
+  state.auth.loading = false;
 });

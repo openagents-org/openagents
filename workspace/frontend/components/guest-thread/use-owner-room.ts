@@ -28,14 +28,31 @@ export type OwnerRoomStatus = 'loading' | 'ready' | 'not_found' | 'moved' | 'err
  * thread a guest sees, read and posted to with the owner link's workspace
  * token. No name prompt — the owner posts as themselves.
  */
-export function useOwnerRoom(slug: string, token: string) {
-  const [status, setStatus] = useState<OwnerRoomStatus>(token ? 'loading' : 'not_found');
+export interface OwnerRoomAuth {
+  /** The signed-in account's current bearer (read at request time). */
+  idToken: () => string | null;
+  signedIn: boolean;
+  /** Sign-in state is known (not still loading). */
+  ready: boolean;
+}
+
+export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) {
+  // Without the owner link's token, the signed-in owner's bearer opens the room.
+  const signedIn = !!auth?.signedIn;
+  const waitingForAuth = !token && !!auth && !auth.ready;
+  const canOpen = !!token || signedIn;
+  const [status, setStatus] = useState<OwnerRoomStatus>(canOpen || waitingForAuth ? 'loading' : 'not_found');
   const [room, setRoom] = useState<ShareRoom | null>(null);
   const [movedTo, setMovedTo] = useState<MovedTo | null>(null);
   const failedRef = useRef(new Map<string, PendingSend>());
   const ownerNameRef = useRef('');
 
-  const creds = useMemo<RoomCredentials>(() => ({ slug, token }), [slug, token]);
+  const idTokenRef = useRef(auth?.idToken);
+  idTokenRef.current = auth?.idToken;
+  const creds = useMemo<RoomCredentials>(
+    () => ({ slug, token: token || null, idToken: signedIn ? () => idTokenRef.current?.() ?? null : null }),
+    [slug, token, signedIn],
+  );
 
   const endWith = useCallback((error: unknown): boolean => {
     if (!(error instanceof GuestThreadError)) return false;
@@ -52,7 +69,8 @@ export function useOwnerRoom(slug: string, token: string) {
   const { reset, deliver: deliverFeed, markFailed } = feed;
 
   const load = useCallback(async () => {
-    if (!creds.token) { setStatus('not_found'); return; }
+    if (waitingForAuth) { setStatus('loading'); return; }
+    if (!creds.token && !creds.idToken) { setStatus('not_found'); return; }
     setStatus('loading');
     try {
       const next = await fetchRoom(creds);
@@ -64,9 +82,11 @@ export function useOwnerRoom(slug: string, token: string) {
       reset(page);
       setStatus('ready');
     } catch (error) {
+      // Signed in but not this room's owner: same as an invalid owner link.
+      if (error instanceof GuestThreadError && error.status === 403) { setStatus('not_found'); return; }
       if (!endWith(error)) setStatus('error');
     }
-  }, [creds, source, reset, endWith]);
+  }, [creds, source, reset, endWith, waitingForAuth]);
 
   useEffect(() => { void load(); }, [load]);
 
