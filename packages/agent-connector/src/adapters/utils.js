@@ -262,7 +262,8 @@ const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize 
  * An account with nothing left to spend, in words that say only that.
  * Relays built on new-api / one-api refuse at 403 with "Insufficient user
  * quota, remaining quota: ＄-0.000054" or "预扣费额度失败, 用户剩余额度: ¥0.22", and
- * others say "Forbidden: Insufficient account balance". Checked after the
+ * others say "Forbidden: Insufficient account balance" or "403 organization
+ * balance exhausted". Checked after the
  * status code, each of those read as a rejected key: the connection test,
  * OpenCode and Pi all told the user to replace a key that works, and Pi
  * marked the agent as signed out (daily errors dashboard, 2026-11-23).
@@ -272,7 +273,19 @@ const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize 
  * "quota exceeded" (Gemini's per-minute limit), "billing", 额度 or 402, which
  * also turn up in rate-limit text, paths and ids. Match lower-cased text.
  */
-const CREDIT_EXHAUSTED = /insufficient[_ ]?(?:[a-z]+[_ ])?(?:balance|quota|credits?|funds)\b|not enough (?:quota|credits?|balance)|no credits? (?:left|remaining)|pre-?consume quota|credit balance is too low|payment required|out of (?:credits?|balance)\b|余额不足|额度不足|预扣费额度失败|欠费|arrearage/;
+const CREDIT_EXHAUSTED = /insufficient[_ ]?(?:[a-z]+[_ ])?(?:balance|quota|credits?|funds)\b|not enough (?:quota|credits?|balance)|no credits? (?:left|remaining)|pre-?consume quota|credit balance is too low|payment required|out of (?:credits?|balance)\b|\bbalance (?:is |has been )?exhausted\b|余额不足|额度不足|预扣费额度失败|欠费|arrearage/;
+
+/**
+ * A provider turning away the device's network or region, not its
+ * credentials. Anthropic answers 403 ("Request blocked before it reached
+ * Anthropic's API (HTTP 403) · the network this request came from isn't
+ * allowed: usually an unsupported region"), and read by its status alone
+ * that sent users to replace a key nobody had looked at (daily errors
+ * dashboard, 2026-11-24). Kept to wording about where the request came from:
+ * "unsupported region us-west-9" in a cloud config is a setting, not a block.
+ * Match lower-cased text.
+ */
+const REGION_BLOCKED = /request blocked before it reached|network this request came from isn.t allowed|unsupported_country|(?:country|region),? (?:or territory )?(?:is )?not supported|not available in your (?:country|region)/;
 
 /**
  * What a failed socket says went wrong. Node 20+ tries every address a host
@@ -326,6 +339,7 @@ module.exports = {
   networkErrorText,
   BENIGN_CLI_OUTPUT,
   CREDIT_EXHAUSTED,
+  REGION_BLOCKED,
   stripCliNoise,
   stripAnsi,
   decodeConsoleOutput,

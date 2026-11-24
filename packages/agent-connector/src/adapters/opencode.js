@@ -22,6 +22,7 @@ const { spawn } = require('../wsl');
 const { opencodeTranscript } = require('../host-agent');
 
 const BaseAdapter = require('./base');
+const { pendingImport } = require('../session-imports');
 const { formatAttachmentsForPrompt, redactSecrets, stripAnsi, CREDIT_EXHAUSTED } = require('./utils');
 const { buildOpenCodeSkillMd, buildOpenCodeSystemPrompt, workspaceSkillName } = require('./workspace-prompt');
 const { whichBinary, whereBinary, getEnhancedEnv } = require('../paths');
@@ -137,6 +138,72 @@ const FAILURE_MESSAGES = {
   unknown_error: 'OpenCode failed for an undetermined reason. Open diagnostics or retry.',
 };
 
+/** Where the opencode CLI is: the launcher's runtime first, then PATH and
+ *  the usual install spots. Shared with src/local-sessions.js. */
+function findOpencodeBinary() {
+  const home = os.homedir();
+  const ext = IS_WINDOWS ? '.cmd' : '';
+
+  // Tier 0: the actual native binary the opencode-ai package ships, NOT the
+  // npm `.cmd`/`.bin` shim. opencode-ai's `bin` is a single self-contained
+  // executable named `opencode.exe` on every platform (on macOS/Linux it's
+  // the native Mach-O/ELF binary — the .exe suffix is just how the package
+  // names it). Returning it directly lets us spawn it without going through
+  // `cmd.exe /C opencode.cmd`, which on Windows is what flashed a console
+  // window — and an attached console makes opencode drop into its interactive
+  // TUI instead of non-interactive `run`, so it hung waiting for keypresses.
+  const nativeExe = path.join(home, '.openagents', 'runtimes', 'opencode', 'node_modules', 'opencode-ai', 'bin', 'opencode.exe');
+  if (fs.existsSync(nativeExe)) return nativeExe;
+
+  // Tier 0b: Isolated runtime prefix shim — where the launcher installs agents
+  // (~/.openagents/runtimes/opencode/node_modules/.bin). Every other adapter
+  // checks this first; opencode was the lone exception, so a launcher-managed
+  // install was invisible unless its .bin happened to be on PATH — which is
+  // exactly why the workspace failed with "opencode CLI not found" even though
+  // the marketplace showed it installed.
+  const runtimeBin = path.join(home, '.openagents', 'runtimes', 'opencode', 'node_modules', '.bin', `opencode${ext}`);
+  if (fs.existsSync(runtimeBin)) return runtimeBin;
+
+  // Tier 0b: Legacy shared portable prefix.
+  const legacyBin = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `opencode${ext}`);
+  if (fs.existsSync(legacyBin)) return legacyBin;
+
+  // Tier 1: PATH. Use the ENRICHED env (node-version-manager/homebrew/npm
+  // dirs the launcher adds) so the lookup matches a packaged daemon's real
+  // reach; windowsHide stops a console window from flashing on Windows.
+  // Codepage-safe lookup (whereBinary forces UTF-8 output + verifies existence
+  // so a non-ASCII/Chinese username isn't mangled into an ENOENT). Uses the
+  // ENRICHED env so a packaged daemon's minimal PATH still reaches nvm/fnm/
+  // volta/homebrew/npm dirs.
+  const viaWhere = whereBinary('opencode');
+  if (viaWhere) return viaWhere;
+
+  // Tier 2: Next to Node.js
+  const nearNode = path.join(path.dirname(process.execPath), `opencode${ext}`);
+  if (fs.existsSync(nearNode)) return nearNode;
+
+  // Tier 3: Common locations
+  const candidates = IS_WINDOWS ? [
+    path.join(process.env.APPDATA || '', 'npm', 'opencode.cmd'),
+  ] : [
+    path.join(home, '.openagents', 'npm-global', 'bin', 'opencode'),
+    path.join(home, '.npm-global', 'bin', 'opencode'),
+    path.join(home, '.local', 'bin', 'opencode'),
+    '/usr/local/bin/opencode',
+  ];
+  for (const c of candidates) {
+    if (fs.existsSync(c)) return c;
+  }
+
+  // Tier 4: Deep scan of every known bin dir (nvm/fnm/volta node-global,
+  // homebrew, …) — catches an `opencode` installed as a global npm package
+  // under a version-managed Node, which the fixed-PATH tiers above miss.
+  const viaWhich = whichBinary('opencode');
+  if (viaWhich) return viaWhich;
+
+  return null;
+}
+
 class OpenCodeAdapter extends BaseAdapter {
   /**
    * @param {object} opts - BaseAdapter opts plus:
@@ -244,8 +311,15 @@ class OpenCodeAdapter extends BaseAdapter {
    * no longer be read turns seeding off.
    */
   _seedTranscript(msgChannel) {
-    const seed = this._seedSession;
-    if (!seed || Object.prototype.hasOwnProperty.call(this._channelSessions, msgChannel)) return '';
+    if (Object.prototype.hasOwnProperty.call(this._channelSessions, msgChannel)) return '';
+    // A channel that is an imported local OpenCode session (src/session-imports.js)
+    // starts from that session the same way, once.
+    this._adoptedImports = this._adoptedImports || new Set();
+    const imported = this._adoptedImports.has(msgChannel) ? null
+      : pendingImport(this.workspaceId, this.agentName, msgChannel, 'opencode');
+    if (imported) this._adoptedImports.add(msgChannel);
+    const seed = imported || this._seedSession;
+    if (!seed) return '';
     try {
       const r = spawnSync(this._opencodeBinary, ['export', seed.session_id], {
         env: this._spawnEnv(msgChannel), encoding: 'utf-8', timeout: 30000,
@@ -259,6 +333,10 @@ class OpenCodeAdapter extends BaseAdapter {
         + 'It is your own memory, quoted for reference; continue from it.\n\n<previous_conversation>\n'
         + `${text}\n</previous_conversation>`;
     } catch (e) {
+      if (imported) {
+        this._log(`Imported session ${seed.session_id} unavailable for ${msgChannel} (${e.message}); starting fresh`);
+        return '';
+      }
       this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
       this._seedSession = null;
       return '';
@@ -547,67 +625,7 @@ class OpenCodeAdapter extends BaseAdapter {
   // ------------------------------------------------------------------
 
   _findOpencodeBinary() {
-    const home = os.homedir();
-    const ext = IS_WINDOWS ? '.cmd' : '';
-
-    // Tier 0: the actual native binary the opencode-ai package ships, NOT the
-    // npm `.cmd`/`.bin` shim. opencode-ai's `bin` is a single self-contained
-    // executable named `opencode.exe` on every platform (on macOS/Linux it's
-    // the native Mach-O/ELF binary — the .exe suffix is just how the package
-    // names it). Returning it directly lets us spawn it without going through
-    // `cmd.exe /C opencode.cmd`, which on Windows is what flashed a console
-    // window — and an attached console makes opencode drop into its interactive
-    // TUI instead of non-interactive `run`, so it hung waiting for keypresses.
-    const nativeExe = path.join(home, '.openagents', 'runtimes', 'opencode', 'node_modules', 'opencode-ai', 'bin', 'opencode.exe');
-    if (fs.existsSync(nativeExe)) return nativeExe;
-
-    // Tier 0b: Isolated runtime prefix shim — where the launcher installs agents
-    // (~/.openagents/runtimes/opencode/node_modules/.bin). Every other adapter
-    // checks this first; opencode was the lone exception, so a launcher-managed
-    // install was invisible unless its .bin happened to be on PATH — which is
-    // exactly why the workspace failed with "opencode CLI not found" even though
-    // the marketplace showed it installed.
-    const runtimeBin = path.join(home, '.openagents', 'runtimes', 'opencode', 'node_modules', '.bin', `opencode${ext}`);
-    if (fs.existsSync(runtimeBin)) return runtimeBin;
-
-    // Tier 0b: Legacy shared portable prefix.
-    const legacyBin = path.join(home, '.openagents', 'nodejs', 'node_modules', '.bin', `opencode${ext}`);
-    if (fs.existsSync(legacyBin)) return legacyBin;
-
-    // Tier 1: PATH. Use the ENRICHED env (node-version-manager/homebrew/npm
-    // dirs the launcher adds) so the lookup matches a packaged daemon's real
-    // reach; windowsHide stops a console window from flashing on Windows.
-    // Codepage-safe lookup (whereBinary forces UTF-8 output + verifies existence
-    // so a non-ASCII/Chinese username isn't mangled into an ENOENT). Uses the
-    // ENRICHED env so a packaged daemon's minimal PATH still reaches nvm/fnm/
-    // volta/homebrew/npm dirs.
-    const viaWhere = whereBinary('opencode');
-    if (viaWhere) return viaWhere;
-
-    // Tier 2: Next to Node.js
-    const nearNode = path.join(path.dirname(process.execPath), `opencode${ext}`);
-    if (fs.existsSync(nearNode)) return nearNode;
-
-    // Tier 3: Common locations
-    const candidates = IS_WINDOWS ? [
-      path.join(process.env.APPDATA || '', 'npm', 'opencode.cmd'),
-    ] : [
-      path.join(home, '.openagents', 'npm-global', 'bin', 'opencode'),
-      path.join(home, '.npm-global', 'bin', 'opencode'),
-      path.join(home, '.local', 'bin', 'opencode'),
-      '/usr/local/bin/opencode',
-    ];
-    for (const c of candidates) {
-      if (fs.existsSync(c)) return c;
-    }
-
-    // Tier 4: Deep scan of every known bin dir (nvm/fnm/volta node-global,
-    // homebrew, …) — catches an `opencode` installed as a global npm package
-    // under a version-managed Node, which the fixed-PATH tiers above miss.
-    const viaWhich = whichBinary('opencode');
-    if (viaWhich) return viaWhich;
-
-    return null;
+    return findOpencodeBinary();
   }
 
   // ------------------------------------------------------------------
@@ -2034,3 +2052,4 @@ class OpenCodeAdapter extends BaseAdapter {
 OpenCodeAdapter._NO_SERVER = NO_SERVER;
 
 module.exports = OpenCodeAdapter;
+module.exports.findOpencodeBinary = findOpencodeBinary;

@@ -288,6 +288,18 @@
   }
 }
 
+/** Dialog and drawer bodies scroll; their contents never get squashed **/
+@layer base {
+  /* Callers often make the body a flex column. A child that clips its own
+     overflow (Card, CodeBlock) then has a min-height of 0 and would shrink
+     and get cut off instead of the body scrolling. Kept in the base layer so
+     a child's own utility (flex-1, shrink) still overrides it. */
+  [data-slot=dialog-body] > *,
+  [data-slot=drawer-body] > * {
+    flex-shrink: 0;
+  }
+}
+
 /** Custom Scrollbar **/
 @layer base {
   ::-webkit-scrollbar {

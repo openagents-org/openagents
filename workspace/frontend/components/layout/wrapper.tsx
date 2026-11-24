@@ -16,6 +16,7 @@ import { ArtifactSplitView } from './artifact-split-view';
 import { AppHeader } from './app-header';
 import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileShell } from './mobile-shell';
+import { ImportSessionsHost } from '@/components/agents/import-sessions-host';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { cn } from '@/lib/utils';
 import { hasAddedWorkspaceAgent, shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
@@ -185,10 +186,13 @@ export function Wrapper() {
   }
 
   if (isMobile) {
-    return <MobileShell showOnboarding={showOnboarding} dismissOnboarding={dismissOnboarding}
-      welcomeActive={welcomeActive} onWelcomeChange={setWelcomeActive} previewWelcome={previewWelcome}
-      welcomeAvailable={welcomeAvailable} openWelcome={openWelcome} openConnect={openConnect} welcomeKey={welcomeKey}
-      forceWelcome={forceWelcome} onWelcomeComplete={finishWelcome} />;
+    return <>
+      <MobileShell showOnboarding={showOnboarding} dismissOnboarding={dismissOnboarding}
+        welcomeActive={welcomeActive} onWelcomeChange={setWelcomeActive} previewWelcome={previewWelcome}
+        welcomeAvailable={welcomeAvailable} openWelcome={openWelcome} openConnect={openConnect} welcomeKey={welcomeKey}
+        forceWelcome={forceWelcome} onWelcomeComplete={finishWelcome} />
+      <ImportSessionsHost />
+    </>;
   }
 
   // ── Desktop layout (app-shell-4) ──
@@ -305,6 +309,7 @@ export function Wrapper() {
       </SidebarInset>
 
       <NewThreadDialogHost />
+      <ImportSessionsHost />
     </SidebarProvider>
     </div>
     </OnboardingSurfaceContext.Provider>

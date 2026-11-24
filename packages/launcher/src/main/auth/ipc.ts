@@ -152,6 +152,7 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       token?: string | null,
       sessionId?: string | null,
       title?: string | null,
+      importAgent?: string | null,
     ) => {
       const request = ++viewRequest
       // Renew before the page reads the session: the preload plants whatever
@@ -166,7 +167,8 @@ export function registerAccountIpc(deps: AccountIpcDeps): AccountManager {
       if (request !== viewRequest) return
       host.show(target === null ? null : String(target || ""), bounds, token ?? null,
         typeof sessionId === "string" && sessionId.length <= 200 ? sessionId : null,
-        typeof title === "string" && title ? title.slice(0, 200) : null)
+        typeof title === "string" && title ? title.slice(0, 200) : null,
+        typeof importAgent === "string" && importAgent.length <= 200 ? importAgent : null)
     },
   )
   ipcMain.handle("workspace-view:set-bounds", (_e, bounds: ViewBounds) =>

@@ -206,7 +206,10 @@
     "pairToggle": "Join with a pairing code",
     "pairToggleHint": "Have a pairing code for a workspace? Join it here.",
     "agentCount_one": "{{count}} agent from this computer",
-    "agentCount_other": "{{count}} agents from this computer"
+    "agentCount_other": "{{count}} agents from this computer",
+    "importOffer": "It's in. Bring in your past {{tool}} sessions from this computer, to read and continue them in the workspace?",
+    "importNow": "Import past sessions",
+    "importLater": "Not now"
   },
   "detail": {
     "back": "Back to Agent Marketplace",

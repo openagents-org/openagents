@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Globe, Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { BrowserArtifactPreview } from '@/components/artifacts/browser-artifact-preview';
+import { ForcedStreamQuality } from '@/lib/browser-stream-quality';
 import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
@@ -110,7 +111,8 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
         address bar; only the small thumbnail view needs the address here. */}
     {tab?.url && !minimized && !interactive && !fullscreen && <p className="truncate border-b px-3 py-1 text-xs text-muted-foreground" title={tab.url}>{tab.url}</p>}
     <div className={cn('relative min-h-0 overflow-auto bg-muted/40', minimized && !fullscreen && 'hidden', fullscreen ? 'flex-1' : interactive ? 'h-80 max-h-[65vh]' : 'h-34')}>
-      {interactive ? <BrowserArtifactPreview tabId={id} revision={0} /> : fullscreen ? <BrowserArtifactPreview tabId={id} revision={0} /> : <>
+      {/* The compact overlay is too small for the sharp stream; full screen uses the person's choice. */}
+      {fullscreen ? <BrowserArtifactPreview tabId={id} revision={0} /> : interactive ? <ForcedStreamQuality.Provider value="low"><BrowserArtifactPreview tabId={id} revision={0} /></ForcedStreamQuality.Provider> : <>
         <span className="absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground">{t('threadLiveBrowser.waiting')}</span>
         {live ? <iframe key={live} src={live} title={t('browser.liveBrowser', { url: tab!.url })} inert tabIndex={-1} onError={() => setFrameFailed(tab!.liveUrl)} className="pointer-events-none absolute top-0 left-0 h-144 w-256 origin-top-left scale-[0.234375] border-0" />
           : <BrowserThumbnail tabId={id} pageUrl={tab!.url} title={tab!.title || tab!.url} enabled refreshMs={2000} className="absolute inset-0 h-full border-0" />}

@@ -205,7 +205,10 @@
     "connect": "连接",
     "pairToggle": "使用配对码加入",
     "pairToggleHint": "如果你有工作区的配对码，可通过配对码加入。",
-    "agentCount": "{{count}} 个本机智能体"
+    "agentCount": "{{count}} 个本机智能体",
+    "importOffer": "已加入。要把这台电脑上过往的 {{tool}} 会话导入工作区，在那里查看并继续吗？",
+    "importNow": "导入过往会话",
+    "importLater": "以后再说"
   },
   "detail": {
     "back": "返回智能体市场",
