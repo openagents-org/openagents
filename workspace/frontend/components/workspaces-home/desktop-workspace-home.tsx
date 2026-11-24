@@ -1,12 +1,13 @@
 'use client';
 
 import React from 'react';
-import { ArrowRight, Clock, Loader2, Plus, RotateCw } from 'lucide-react';
+import { ArrowRight, Clock, Plus, RotateCw } from 'lucide-react';
 
 import { Button } from '@/components/ui/reui/button';
 import { Input } from '@/components/ui/reui/input';
 import type { AccountWorkspace } from '@/lib/account-api';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
+import { Spinner } from '@/components/ui/spinner';
 
 const ROLE_LABEL: Record<AccountWorkspace['role'], MessageKey> = {
   owner: 'admin.roleOwner',
@@ -141,7 +142,7 @@ export function DesktopWorkspaceHome({ workspaces, loading, error, onRetry, onOp
             <Input autoFocus value={create.name} onChange={(e) => create.onName(e.target.value)} placeholder={t('dashboard.namePlaceholder')} />
             <div className="flex items-center gap-2">
               <Button type="submit" variant="primary" disabled={create.pending}>
-                {create.pending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+                {create.pending ? <Spinner aria-hidden="true" className="size-4" /> : <Plus className="size-4" />}
                 {t('dashboard.createWorkspace')}
               </Button>
               <Button type="button" variant="ghost" onClick={create.onClose} disabled={create.locked}>

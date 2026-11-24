@@ -9,19 +9,21 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Input } from '@/components/ui/input';
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
-import { Field, FieldDescription, FieldLabel } from '@/components/ui/field';
+import { Field, FieldError, FieldLabel } from '@/components/ui/field';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import type { AgentCatalogEntry } from '@/lib/types';
-import type { AgentSetupProps } from './agent-setup-types';
+import { modelProblem, type AgentSetupProps } from './agent-setup-types';
 import type { AgentSetupForm } from './use-agent-setup-form';
 import { agentDisplayName } from './agent-display-name';
 import { AgentNameField, WorkingDirectoryField } from './agent-setup-name-fields';
-import { CodexModeField } from './agent-setup-model-fields';
+import { CodexModeField, DeviceModelField } from './agent-setup-model-fields';
 import { NativeCredentialFields } from './agent-setup-credentials';
 import { BROWSER_LOGIN_TYPES, BrowserAgentLogin } from './browser-agent-login';
 import { ManualSignInGuide } from './agent-setup-manual-sign-in';
 import { AgentSetupKeyLink } from './agent-setup-key-link';
 import { AgentSetupAuthChoice, type AuthChoice, type AuthOption } from './agent-setup-auth-choice';
+import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
 
 const LOGIN_METHOD_LABELS: Record<string, MessageKey> = {
   chatgpt: 'agentSetup.loginMethod.chatgpt',
@@ -88,9 +90,14 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
     setKeyError(false);
   };
   const nameInvalid = !form.name.trim() || !!form.nameClash || !!form.nameError;
+  const deviceModels = runtime?.cliModels || [];
+  // The endpoint's own model field on step 2: an endpoint has no list to match a name to.
+  const endpointModelInvalid = choice === 'key' && customEndpoint && !!modelProblem(form.model);
   const continueDisabled = form.busy || nameInvalid || props.extensions?.disabled;
   const continueToAccount = () => {
     if (continueDisabled) return;
+    // Its error sits in the optional settings, which may be folded away.
+    if (modelProblem(form.model, deviceModels)) { setSettingsOpen(true); return; }
     if (!/^[a-zA-Z0-9_-]+$/.test(form.name.trim())) { form.setNameError(t('connect.agentNameInvalid')); return; }
     setStep(2);
   };
@@ -104,12 +111,12 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
     if (choice === 'key' && (form.nativeCreds.length
       ? form.nativeCreds.some((f) => !(form.nativeValues[f.name] || '').trim())
       : !form.apiKey.trim())) { setKeyError(true); return; }
+    if (endpointModelInvalid) return;
     form.setSetupAuth(choice);
     onSubmit();
   };
   const submitDisabled = (choice === 'key' && form.detailState !== 'ready') || form.busy || props.extensions?.disabled || nameInvalid || !choice ||
     (choice === 'subscription' && !signedIn && ((browserLogin && !manualOpen) || !installLater));
-  const deviceModels = runtime?.cliModels || [];
 
   return (
     <form data-testid="agent-setup-wizard" className="flex h-full min-h-0 w-full flex-col bg-background" onSubmit={(event) => { event.preventDefault(); if (step === 1) continueToAccount(); else submit(); }}>
@@ -121,7 +128,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
           <ol aria-label={t('agentSetup.progress')} className="flex items-center gap-3 text-sm">
             {[{ number: 1, label: t('agentSetup.nameStep') }, { number: 2, label: t('agentSetup.accountStep') }].map(({ number, label }) => (
               <li key={number} aria-current={step === number ? 'step' : undefined} className={cn('flex items-center gap-2', step === number ? 'font-medium text-foreground' : 'text-muted-foreground')}>
-                {number === 2 && <span aria-hidden="true" className="mr-1 h-px w-8 bg-border" />}
+                {number === 2 && <Separator className="mr-1 data-horizontal:w-8" />}
                 <span aria-hidden="true" className={cn('flex size-6 items-center justify-center rounded-full text-xs', step >= number ? 'bg-foreground text-background' : 'bg-muted')}>{step > number ? <Check className="size-3.5" /> : number}</span>
                 {label}
               </li>
@@ -151,7 +158,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
             <div hidden={step !== 2}><section data-testid="agent-setup-auth-step" className="flex flex-col gap-5">
               <p className="text-sm leading-relaxed text-muted-foreground">{t('agentSetup.authHint')}</p>
               <div role="status" className="flex items-start gap-2.5 text-sm">
-                {form.detecting ? <RefreshCw className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" /> : signedIn ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> : <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
+                {form.detecting ? <Spinner aria-hidden="true" className="mt-0.5 shrink-0 text-muted-foreground" /> : signedIn ? <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-success" /> : <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
                 <div className="flex-1 leading-relaxed">
                   {t(form.detecting ? 'agentSetup.checking' : signedIn ? 'agentSetup.signedIn' : form.detectTimedOut ? 'agentSetup.checkingFailed' : runtime?.signedIn === false ? 'agentSetup.notSignedIn' : 'agentSetup.unknown', { device })}
                 </div>
@@ -192,7 +199,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                   </div>
                 ))}
                 {choice === 'key' && form.detailState !== 'ready' && (
-                  form.detailState === 'loading' ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><RefreshCw className="size-4 animate-spin" />{t('agentSetup.loading')}</p> :
+                  form.detailState === 'loading' ? <p role="status" className="flex items-center gap-2 text-sm text-muted-foreground"><Spinner aria-hidden="true" />{t('agentSetup.loading')}</p> :
                   <div role="alert" className="flex items-center justify-between gap-3 text-sm"><span>{t('agentSetup.loadError')}</span><Button type="button" variant="outline" onClick={form.retryDetail}>{t('agentSetup.retry')}</Button></div>
                 )}
                 {choice === 'key' && form.detailState === 'ready' && (
@@ -213,7 +220,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
                       </Field>
                     )}
                     {customEndpoint && <Field><FieldLabel htmlFor="setup-endpoint">{t('agentSetup.endpoint')}</FieldLabel><Input id="setup-endpoint" type="url" value={form.baseUrl} onChange={(event) => form.setBaseUrl(event.target.value)} placeholder="https://api.example.com/v1" /></Field>}
-                    {customEndpoint && <Field><FieldLabel htmlFor="setup-key-model">{t('agentSetup.model')}</FieldLabel><Input id="setup-key-model" value={form.model} onChange={(event) => form.setModel(event.target.value)} placeholder={t('connect.nodeModelAuto')} /></Field>}
+                    {customEndpoint && <Field data-invalid={endpointModelInvalid || undefined}><FieldLabel htmlFor="setup-key-model">{t('agentSetup.model')}</FieldLabel><Input id="setup-key-model" value={form.model} onChange={(event) => form.setModel(event.target.value)} placeholder={t('connect.nodeModelAuto')} aria-invalid={endpointModelInvalid || undefined} />{endpointModelInvalid && <FieldError>{t('agentSetup.modelIdInvalid')}</FieldError>}</Field>}
                     {form.creds.customCodex && <CodexModeField form={form} />}
                   </div>
                 )}
@@ -228,13 +235,7 @@ export function AgentSetupWizard({ form, props, entry, onSubmit }: {
               {/* forceMount keeps the fields (and their values) mounted; hidden while closed, or the section never folds. */}
               <CollapsibleContent forceMount className="pt-5 data-[state=closed]:hidden">
               <fieldset disabled={form.busy} className="flex min-w-0 flex-col gap-5">
-                  <Field>
-                    <FieldLabel htmlFor="setup-model">{t('connect.nodeAgentModelOptional')}</FieldLabel>
-                    <Input id="setup-model" data-testid="agent-setup-model" value={form.model} onChange={(event) => form.setModel(event.target.value)} placeholder={t('connect.nodeModelAuto')} list={deviceModels.length ? 'setup-device-models' : undefined} autoComplete="off" />
-                    {deviceModels.length > 0 && <datalist id="setup-device-models">{deviceModels.map((m) => <option key={m.id} value={m.id}>{m.label || m.id}</option>)}</datalist>}
-                    <FieldDescription>{t('agentSetup.modelHint')}</FieldDescription>
-                    {deviceModels.length > 0 && <FieldDescription>{t('agentSetup.deviceModelsHint')}</FieldDescription>}
-                  </Field>
+                  <DeviceModelField form={form} deviceModels={deviceModels} />
                 <div><WorkingDirectoryField form={form} api={props.api} node={props.node} extensions={props.extensions} /></div>
               </fieldset>
               </CollapsibleContent>

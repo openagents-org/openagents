@@ -25,7 +25,7 @@ async function render(agents: WorkspaceAgent[], onCreateThread: React.ComponentP
   return onOpenChange;
 }
 function button(text: string) {
-  const element = [...document.querySelectorAll('button')].find((node) => node.textContent?.includes(text));
+  const element = [...document.querySelectorAll('button')].find((node) => (node.closest('label') ?? node).textContent?.includes(text));
   if (!element) throw new Error(`Missing button: ${text}`);
   return element;
 }

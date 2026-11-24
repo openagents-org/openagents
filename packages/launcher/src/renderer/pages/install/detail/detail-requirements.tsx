@@ -100,7 +100,9 @@ export function DependenciesCard({
   return (
     <RailCard title={t("agents.dependencies.title")}>
       {command && (
-        <code className="block font-mono text-xs leading-relaxed break-all whitespace-pre-wrap">
+        // Wraps at the spaces, not inside the package name: break-all split
+        // "@anthropic-ai/claude-code" mid-token in a rail this narrow.
+        <code className="block font-mono text-xs leading-relaxed wrap-anywhere whitespace-pre-wrap">
           {command}
         </code>
       )}

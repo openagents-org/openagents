@@ -1,13 +1,14 @@
 'use client';
 
 import { useState } from 'react';
-import { Check, Loader2, Mail } from 'lucide-react';
+import { Check, Mail } from 'lucide-react';
 import { toast } from 'sonner';
 import { useIsMobileDevice } from '@/hooks/use-mobile-device';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { sendSetupEmail } from '@/lib/account-api';
+import { Spinner } from '@/components/ui/spinner';
 
 /** A phone user can continue setup later on the computer that will run agents. */
 export function SetupEmailButton() {
@@ -42,7 +43,7 @@ export function SetupEmailButton() {
       disabled={state !== 'idle'}
       className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3.5 text-sm font-semibold text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
     >
-      {state === 'sending' ? <Loader2 className="size-4 animate-spin" /> : <Mail className="size-4" />}
+      {state === 'sending' ? <Spinner aria-hidden="true" className="size-4" /> : <Mail className="size-4" />}
       {t(state === 'sending' ? 'onboarding.setupEmailSending' : 'onboarding.setupEmailCta')}
     </button>
   );

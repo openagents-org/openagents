@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, ExternalLink, RefreshCw } from 'lucide-react';
+import { Check, Copy, ExternalLink } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton } from '@/components/ui/code-block';
 import { Field, FieldLabel } from '@/components/ui/field';
@@ -10,6 +10,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useT } from '@/lib/i18n';
 import type { AgentSetupApi } from './agent-setup-types';
 import { encryptAgentCredentials } from './encrypt-agent-credentials';
+import { Spinner } from '@/components/ui/spinner';
 
 interface LoginSession {
   sessionId: string;
@@ -153,8 +154,8 @@ export function BrowserAgentLogin({ api, nodeId, type, method, agent, needsInsta
   return <div data-testid="browser-agent-login" className="flex flex-col gap-4">
     <p className="text-sm leading-relaxed text-muted-foreground">{t('agentSetup.browserLoginHint', { agent })}</p>
     {error && <p role="alert" className="text-sm text-destructive">{t('agentSetup.browserLoginFailed')}</p>}
-    {!active && <Button type="button" className="w-fit" onClick={() => void start()} disabled={busy}>{busy && <RefreshCw data-icon="inline-start" className="animate-spin" />}{t(busy && needsInstall ? 'agentSetup.installingForSignIn' : error ? 'agentSetup.retry' : needsInstall ? 'agentSetup.installAndSignIn' : 'agentSetup.openSignIn', { agent })}</Button>}
-    {active && !url && <p role="status" className="flex items-center gap-2 text-sm"><RefreshCw className="size-4 animate-spin" />{t('agentSetup.browserLoginStarting')}</p>}
+    {!active && <Button type="button" className="w-fit" onClick={() => void start()} disabled={busy}>{busy && <Spinner aria-hidden="true" data-icon="inline-start" />}{t(busy && needsInstall ? 'agentSetup.installingForSignIn' : error ? 'agentSetup.retry' : needsInstall ? 'agentSetup.installAndSignIn' : 'agentSetup.openSignIn', { agent })}</Button>}
+    {active && !url && <p role="status" className="flex items-center gap-2 text-sm"><Spinner aria-hidden="true" />{t('agentSetup.browserLoginStarting')}</p>}
     {active && url && <>
       <div className="flex items-center justify-between gap-3">
         <Button asChild className="w-fit"><a href={url} target="_blank" rel="noopener noreferrer">{t('agentSetup.browserLoginOpen', { agent })}<ExternalLink data-icon="inline-end" /></a></Button>

@@ -84,7 +84,10 @@ export function InstallConfirmDialog({
             />
           )}
           {installCmd && (
-            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-center font-mono text-xs break-all whitespace-pre-wrap text-foreground">
+            // Breaks at the spaces between arguments, and inside one only when
+            // it cannot fit a line: break-all split "@late / st", and nowrap let
+            // an update's --prefix path widen the dialog's grid past its edge.
+            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-left font-mono text-xs wrap-anywhere whitespace-pre-wrap text-foreground">
               {installCmd}
             </code>
           )}
@@ -95,6 +98,7 @@ export function InstallConfirmDialog({
       confirmTestId="install-confirm"
       cancelLabel={t("agents.installConfirm.cancel")}
       destructive={false}
+      wide
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

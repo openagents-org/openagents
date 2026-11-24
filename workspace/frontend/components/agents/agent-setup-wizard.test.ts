@@ -171,11 +171,105 @@ it('keeps model selection open-ended and does not present the registry list as c
   expect(creates(api)[0][2]).toMatchObject({ model: 'future-account-model' });
 });
 
-it('offers only device-reported models as optional suggestions', async () => {
+async function pickModel(value: string) {
+  const select = host.querySelector<HTMLSelectElement>('select')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, value);
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+}
+
+it('lists only device-reported models, with Auto first and a custom id last', async () => {
   await open({ deviceModels: [{ id: 'live-model', label: 'Device model' }] });
-  expect(host.querySelector<HTMLInputElement>('#setup-model')!.value).toBe('');
-  expect([...host.querySelectorAll('datalist option')].map((o) => o.getAttribute('value'))).toEqual(['live-model']);
-  expect(host.querySelector('datalist')?.textContent).not.toContain('GPT-6');
+  expect(host.querySelector('datalist')).toBeNull();
+  expect([...host.querySelectorAll('select option')].map((o) => o.getAttribute('value'))).toEqual(['__auto__', 'live-model', '__custom__']);
+  expect(host.querySelector('select')!.value).toBe('__auto__');
+  expect(host.querySelector('#setup-model')).toBeNull();
+  expect(host.querySelector('select')!.textContent).not.toContain('GPT-6');
+});
+
+it('sends the device model picked from the list', async () => {
+  const { api } = await open({ deviceModels: [{ id: 'live-model', label: 'Device model' }] });
+  await pickModel('live-model');
+  await choose('later'); await submit();
+  expect(creates(api)[0][2]).toMatchObject({ model: 'live-model' });
+});
+
+it('goes back from Custom to a listed model', async () => {
+  await open({ deviceModels: [{ id: 'live-model', label: 'Device model' }] });
+  await pickModel('__custom__');
+  await pickModel('live-model');
+  expect(host.querySelector('#setup-model')).toBeNull();
+  expect(host.querySelector('select')!.value).toBe('live-model');
+});
+
+async function typeModel(value: string) {
+  const input = host.querySelector<HTMLInputElement>('#setup-model')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+it('offers the model id for a display name typed in Custom', async () => {
+  const { api } = await open({ deviceModels: [{ id: 'opus[1m]', label: 'Opus 5 with 1M context' }] });
+  await pickModel('__custom__');
+  await typeModel('opus 5 with 1m context');
+  expect(host.querySelector('[data-testid="agent-setup-model-error"]')?.textContent).toContain('opus[1m]');
+  await click('Use opus[1m]');
+  expect(host.querySelector('select')!.value).toBe('opus[1m]');
+  expect(host.querySelector('[data-testid="agent-setup-model-error"]')).toBeNull();
+  await choose('later'); await submit();
+  expect(creates(api)[0][2]).toMatchObject({ model: 'opus[1m]' });
+});
+
+it('keeps a model with spaces from going on to the account step', async () => {
+  await open();
+  await typeModel('my model');
+  expect(host.querySelector('[data-testid="agent-setup-model-error"]')?.textContent).toContain('no spaces');
+  await next();
+  expect(host.querySelector('[data-testid="agent-setup-submit"]')).toBeNull();
+  await typeModel('my-model');
+  expect(host.querySelector('[data-testid="agent-setup-model-error"]')).toBeNull();
+  await next();
+  expect(host.querySelector('[data-testid="agent-setup-submit"]')).toBeTruthy();
+});
+
+it('keeps a display name without spaces from going on as a model id', async () => {
+  await open({ deviceModels: [{ id: 'gpt-5.1-codex', label: 'GPT-5.1-Codex-Max' }] });
+  await pickModel('__custom__');
+  await typeModel('GPT-5.1-Codex-Max');
+  expect(host.querySelector('[data-testid="agent-setup-model-error"]')?.textContent).toContain('gpt-5.1-codex');
+  await next();
+  expect(host.querySelector('[data-testid="agent-setup-submit"]')).toBeNull();
+});
+
+it('checks the model typed for a custom endpoint before adding the agent', async () => {
+  const { api } = await open();
+  await choose('key'); await typeKey('sk-endpoint');
+  await act(async () => host.querySelector<HTMLButtonElement>('#setup-custom-endpoint')!.click());
+  const model = host.querySelector<HTMLInputElement>('#setup-key-model')!;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(model, 'Opus 5 with 1M context');
+    model.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(host.textContent).toContain('no spaces');
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-testid="agent-setup-submit"]')!.click());
+  expect(creates(api)).toHaveLength(0);
+});
+
+it('takes a model id the device does not list through Custom', async () => {
+  const { api } = await open({ deviceModels: [{ id: 'live-model', label: 'Device model' }] });
+  await pickModel('__custom__');
+  const input = host.querySelector<HTMLInputElement>('#setup-model')!;
+  expect(input.value).toBe('');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'unlisted-model');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(host.querySelector('select')!.value).toBe('__custom__');
+  await choose('later'); await submit();
+  expect(creates(api)[0][2]).toMatchObject({ model: 'unlisted-model' });
 });
 
 

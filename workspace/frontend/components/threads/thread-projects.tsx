@@ -117,5 +117,5 @@ export function MoveToProjectMenu({ model, threadId, onCreate }: { model: Thread
 
 export function ProjectPersonalHint() {
   const t = useT();
-  return <div className="flex items-center gap-1.5 border-t px-3 py-2 text-xs text-muted-foreground" title={t('threadProjects.personalHint')}><Info className="size-3 shrink-0" />{t('threadProjects.personal')}</div>;
+  return <WithTooltip label={t('threadProjects.personalHint')}><div className="flex items-center gap-1.5 border-t px-3 py-2 text-xs text-muted-foreground"><Info className="size-3 shrink-0" />{t('threadProjects.personal')}</div></WithTooltip>;
 }
