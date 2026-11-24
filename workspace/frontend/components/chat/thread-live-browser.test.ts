@@ -15,7 +15,7 @@ vi.mock('@/components/artifacts/browser-thumbnail', () => ({ BrowserThumbnail: (
 vi.mock('@/components/artifacts/browser-artifact-preview', () => ({ BrowserArtifactPreview: ({ tabId }: any) => React.createElement('div', { 'data-preview': tabId }) }));
 import { ThreadLiveBrowser } from './thread-live-browser';
 let root: Root, host: HTMLDivElement;
-const tab = (id = 'tab', channel = 'dm:me,bot') => ({ id, status: 'active', createdBy: 'openagents:bot', artifactChannels: [channel], url: 'https://example.com', liveUrl: 'https://browser.example/live', lastActiveAt: '2026-10-16T06:00:00Z', activity: {actor: 'openagents:bot', action: 'navigate', at: new Date().toISOString()} });
+const tab = (id = 'tab', channel = 'dm:me,bot') => ({ id, status: 'active', createdBy: 'openagents:bot', artifactChannels: [channel], url: 'https://example.com', liveUrl: 'https://browser.example/live', lastActiveAt: '2026-10-16T06:00:00Z', activity: {actor: 'openagents:bot', action: 'navigate', at: new Date().toISOString(), channel} as any });
 const render = async () => { await act(async () => root.render(React.createElement(ThreadLiveBrowser))); };
 beforeEach(() => {
   vi.stubGlobal('React', React); vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true); vi.useFakeTimers(); vi.clearAllMocks();
@@ -77,11 +77,26 @@ it('uses frequent authenticated screenshots when there is no live stream', async
   h.ws.browserTabs = [{ ...tab(), liveUrl: null }]; await render();
   expect(host.querySelector('[data-thumbnail="tab"]')?.getAttribute('data-refresh')).toBe('2000');
 });
-it('shows an unassociated legacy tab explicitly linked in the current thread', async () => {
-  h.ws.browserTabs = [{ ...tab(), artifactChannels: [] }];
+it('never opens on its own for activity that did not name a thread; the shared link still opens on click', async () => {
+  const legacy = { ...tab(), artifactChannels: [] as string[], activity: { actor: 'openagents:bot', action: 'navigate', at: new Date().toISOString() } };
+  h.ws.browserTabs = [legacy, { ...legacy, id: 'claimed', artifactChannels: ['dm:me,bot'] }];
   const messages = [{ sessionId: 'dm:me,bot', content: 'Watch https://browser.example/live', metadata: {} }] as any;
   await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
-  expect(host.querySelector('iframe')?.getAttribute('src')).toBe('https://browser.example/live?embed=1');
+  expect(host.querySelector('aside')).toBeNull();
+  h.layout.selectedBrowser = { kind: 'browser', id: 'tab' };
+  await act(async () => root.render(React.createElement(ThreadLiveBrowser, { messages })));
+  expect(host.querySelector('[data-preview="tab"]')).not.toBeNull();
+});
+it('follows only activity made for this thread when one agent drives a shared tab from two threads', async () => {
+  // Thread A is listed first on the tab, but the latest action was for B.
+  const shared = { ...tab('shared', 'B'), artifactChannels: ['dm:me,bot', 'B'] };
+  h.ws.activeSessionIds = new Set(['dm:me,bot', 'B']); h.ws.browserTabs = [shared];
+  await render();
+  expect(host.querySelector('aside')).toBeNull();
+  h.ws.currentSessionId = 'B'; await render();
+  expect(host.querySelector('iframe')).not.toBeNull();
+  h.ws.currentSessionId = 'dm:me,bot'; await render();
+  expect(host.querySelector('aside')).toBeNull();
 });
 it('discovers new browser activity while the agent works, and stops when it finishes', async () => {
   h.ws.activeSessionIds.add('dm:me,bot'); await render();
@@ -123,7 +138,7 @@ it('previews the last browser used before a reply, even when an older browser wa
   const oldId = 'b74094a9-d5c9-4680-9c7a-1b694bc8ef51';
   const newId = 'a4d76856-7089-46fd-a4c9-a3a9447e277f';
   h.ws.browserTabs = [
-    {...tab(oldId), artifactChannels:[], createdBy:'human:user', lastActiveAt:'2026-10-27T09:00:00Z'},
+    {...tab(oldId), artifactChannels:[], createdBy:'human:user', lastActiveAt:'2026-10-27T09:00:00Z', activity:{actor:'openagents:bot', action:'snapshot', at:new Date().toISOString()}},
     {...tab(newId), artifactChannels:[], lastActiveAt:'2026-10-27T08:40:00Z'},
   ];
   const expired = 'https://www.browserfabric.com/live/old-token';

@@ -159,3 +159,39 @@ def test_dm_browser_does_not_guess_or_announce_into_unrelated_conversations(db, 
     asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, channel, "open"))
     assert tab.artifact_channels == []
     assert not cards(db, tab)
+
+
+def test_activity_names_only_the_thread_the_caller_verified(db, setup):
+    """The UI auto-opens a live preview only for activity in its own thread."""
+    ws, tab = setup
+    browser._local_activity.clear()
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, 'browser-demo', 'navigate'))
+    assert browser._tab_to_dict(tab)['activity']['channel'] == 'browser-demo'
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, 'other', 'click'))
+    assert browser._tab_to_dict(tab)['activity']['channel'] == 'other'
+    # An unknown thread is never claimed.
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, 'missing', 'click'))
+    assert 'channel' not in browser._tab_to_dict(tab)['activity']
+
+
+def test_unattributed_call_neither_claims_activity_nor_reorders_threads(db, setup):
+    """Same agent, shared tab: a call without a channel may come from any thread."""
+    ws, tab = setup
+    browser._local_activity.clear()
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, 'browser-demo', 'open'))
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, 'other', 'click'))
+    assert tab.artifact_channels == ['other', 'browser-demo']
+    forget_tab_channel(tab.id)
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, None, 'snapshot'))
+    activity = browser._tab_to_dict(tab)['activity']
+    assert activity['action'] == 'snapshot' and 'channel' not in activity
+    assert tab.artifact_channels == ['other', 'browser-demo']
+
+
+def test_unattributed_call_never_announces_into_a_remembered_thread(db, setup):
+    ws, tab = setup
+    from app.services.browser_preview import remember_tab_channel
+    remember_tab_channel(tab.id, 'browser-demo')
+    asyncio.run(browser._record_browser_work(db, ws, tab, tab.created_by, None, 'click'))
+    assert not cards(db, tab)
+    assert tab.artifact_channels == []

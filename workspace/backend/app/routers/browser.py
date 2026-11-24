@@ -465,19 +465,28 @@ async def _record_browser_work(db, workspace, tab, actor, channel, action):
     Browser operations already happened externally. Preserve their metadata even
     if posting the informational card fails. Never guess a conversation from an
     agent's membership: it may be working in several private threads at once.
+
+    Only a channel the caller named is trusted. A call without one records
+    unattributed activity and nothing else: the same agent may be driving this
+    shared tab from another thread right now, so it neither announces, claims
+    the activity for, nor reorders any thread.
     """
     db.commit()
     if not actor or not actor.startswith("openagents:"):
         return
-    _record_activity(tab.id, action, actor)
-    from app.services.browser_preview import channel_for_tab, remember_tab_channel
-    channel = channel or channel_for_tab(tab.id) or next(iter(tab.artifact_channels or []), None)
-    if not channel:
+    conversation = None
+    if channel:
+        try:
+            conversation = _browser_conversation(db, workspace.id, actor, channel)
+        except Exception:
+            logger.warning("Could not resolve browser conversation for tab %s", tab.id, exc_info=True)
+    # One write, after resolution: the UI opens a live preview only for
+    # activity attributed to its own thread.
+    _record_activity(tab.id, action, actor, conversation[0] if conversation else None)
+    if not conversation:
         return
+    from app.services.browser_preview import remember_tab_channel
     try:
-        conversation = _browser_conversation(db, workspace.id, actor, channel)
-        if not conversation:
-            return
         channel, target = conversation
         remember_tab_channel(tab.id, channel)
         # Serialize first-use announcements; a browser operation can overlap a
@@ -502,8 +511,11 @@ async def _record_browser_work(db, workspace, tab, actor, channel, action):
         logger.warning("Could not attach browser preview for tab %s", tab.id, exc_info=True)
 
 
-def _record_activity(tab_id: str, action: str, actor: str) -> None:
+def _record_activity(tab_id: str, action: str, actor: str, channel: Optional[str] = None) -> None:
+    """Latest action on a tab. `channel` is set only once the caller's thread is verified."""
     payload = {"action": action, "actor": actor, "at": datetime.now(timezone.utc).isoformat()}
+    if channel:
+        payload["channel"] = channel
     _local_activity[tab_id] = (time.monotonic() + BROWSER_ACTIVITY_TTL_SECONDS, payload)
     try:
         cache.set_bytes(

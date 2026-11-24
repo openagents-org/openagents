@@ -5,11 +5,11 @@ import { Globe, Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { BrowserArtifactPreview } from '@/components/artifacts/browser-artifact-preview';
 import { ForcedStreamQuality } from '@/lib/browser-stream-quality';
-import { tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
+import { liveThreadBrowserTab, tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
-import { agentReferencedBrowserTabs, resolveThreadBrowserLink, threadBrowserTabs } from '@/lib/thread-browser';
+import { agentReferencedBrowserTabs, resolveThreadBrowserLink } from '@/lib/thread-browser';
 import { openArtifactPreview } from '@/lib/thread-artifacts';
 import { browserPreviewPreferenceKey, browserPreviewDismissed, dismissBrowserPreview } from '@/lib/browser-preview-preference';
 import type { WorkspaceMessage } from '@/lib/types';
@@ -34,10 +34,9 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   const panel = useRef<HTMLElement>(null);
   const agentReferences = agentReferencedBrowserTabs(browserTabs, currentSessionId || '', messages);
   const working = !!currentSessionId && activeSessionIds.has(currentSessionId);
-  // Historical links remain in Artifacts. Only fresh activity in the current
-  // working thread may open a preview without an explicit click.
-  const automaticTab = working && currentSessionId ? threadBrowserTabs(browserTabs, currentSessionId, messages)
-    .find(tab => !tab.asleep && tabHasFreshAgentActivity(tab)) : undefined;
+  // Historical links and pins remain in Artifacts. Only fresh activity made
+  // for this working thread may open a preview without an explicit click.
+  const automaticTab = working && currentSessionId ? liveThreadBrowserTab(browserTabs, currentSessionId) : undefined;
   const selectedRef = selectedBrowser?.id || null;
   const selectedTab = selectedRef ? browserTabs.find(tab => tab.id === selectedRef)
     || resolveThreadBrowserLink(selectedRef, browserTabs, currentSessionId || '', messages) : undefined;

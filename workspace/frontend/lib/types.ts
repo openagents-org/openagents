@@ -477,6 +477,9 @@ export interface BrowserTabActivity {
   action: string;
   actor: string;
   at: string;
+  /** Thread or DM the action was explicitly made for, verified by the backend.
+   * Absent for unattributed (legacy) calls, which never open a preview on their own. */
+  channel?: string | null;
 }
 
 export interface BrowserTab {

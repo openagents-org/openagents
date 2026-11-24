@@ -51,6 +51,16 @@ export function liveUrlOrigin(liveUrl: string | null | undefined): string | null
   }
 }
 
+/** The tab an agent is driving for this thread right now: only fresh activity
+ * attributed to exactly this thread. A shared tab used by another thread, or
+ * an action that did not say which thread it was for, never qualifies. */
+export function liveThreadBrowserTab(tabs: BrowserTab[], channel: string, now = Date.now()): BrowserTab | undefined {
+  if (!channel) return undefined;
+  return tabs
+    .filter((tab) => tab.status === 'active' && !tab.asleep && tab.activity?.channel === channel && tabHasFreshAgentActivity(tab, now))
+    .sort((a, b) => Date.parse(b.activity!.at) - Date.parse(a.activity!.at))[0];
+}
+
 /** Sidebar-grade check from the polled signal alone. */
 export function tabHasFreshAgentActivity(tab: BrowserTab, now = Date.now()): boolean {
   const a = tab.activity;
