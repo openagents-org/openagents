@@ -10,10 +10,25 @@ import { cn } from '@/lib/utils';
 export function BrowserThumbnail({ tabId, pageUrl, title, enabled, className, refreshMs = 30000 }: {
   tabId: string; pageUrl?: string; title: string; enabled: boolean; className?: string; refreshMs?: number;
 }) {
-  const t = useT();
   const { idToken } = useOpenAgentsAuth();
+  return <ScreenshotThumbnail cacheKey={`${tabId}:${pageUrl}:${idToken}`} fetchScreenshot={signal => workspaceApi.fetchBrowserScreenshot(tabId, signal)}
+    title={title} enabled={enabled} className={className} refreshMs={refreshMs} />;
+}
+
+/**
+ * The refreshing screenshot behind {@link BrowserThumbnail}, for any source of
+ * screenshot bytes (the workspace API, or a shared thread's link). Refreshes
+ * only while on screen and the page is visible.
+ */
+export function ScreenshotThumbnail({ cacheKey, fetchScreenshot, title, enabled, className, imageClassName, refreshMs = 30000 }: {
+  cacheKey: string; fetchScreenshot: (signal: AbortSignal) => Promise<Response>; title: string; enabled: boolean;
+  className?: string; imageClassName?: string; refreshMs?: number;
+}) {
+  const t = useT();
   const host = useRef<HTMLSpanElement>(null);
-  const key = `${tabId}:${pageUrl}:${idToken}:${enabled}`;
+  const fetchRef = useRef(fetchScreenshot);
+  fetchRef.current = fetchScreenshot;
+  const key = `${cacheKey}:${enabled}`;
   const [state, setState] = useState<{ key: string; url?: string; failed?: boolean }>({ key: '' });
   useEffect(() => {
     if (!enabled || !host.current) return;
@@ -25,7 +40,8 @@ export function BrowserThumbnail({ tabId, pageUrl, title, enabled, className, re
       if (!visible || document.hidden || busy || abort.signal.aborted) return;
       busy = true;
       try {
-        const response = await workspaceApi.fetchBrowserScreenshot(tabId, abort.signal);
+        const response = await fetchRef.current(abort.signal);
+        if (response.ok === false) throw new Error(`HTTP ${response.status}`);
         const blob = await response.blob();
         if (abort.signal.aborted) return;
         const previous = objectUrl;
@@ -56,14 +72,14 @@ export function BrowserThumbnail({ tabId, pageUrl, title, enabled, className, re
       document.removeEventListener('visibilitychange', onVisible);
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [key, enabled, tabId, refreshMs]);
+  }, [key, enabled, refreshMs]);
   const current = state.key === key ? state : null;
   return <span ref={host} className={current?.url ? cn("relative block h-44 w-full overflow-hidden border-b bg-muted/50", className) : "hidden"}>
     {current?.url && <img
       src={current.url}
       alt={t('browser.screenshotOf', { url: title })}
       onError={() => setState({ key, failed: true })}
-      className="h-full w-full object-cover object-top"
+      className={cn("h-full w-full object-cover object-top", imageClassName)}
     />}
   </span>;
 }

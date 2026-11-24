@@ -7,6 +7,7 @@ import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { CopyMessageButton } from '@/components/chat/copy-message-button';
 import { HumanAvatarFace } from '@/components/chat/human-avatar-face';
 import { MarkdownContent } from '@/components/chat/markdown-content';
+import { MessageAttachments, attachmentsFromMetadata, type AttachmentSource } from '@/components/chat/message-attachments';
 import { ConversationBadge, RoutedAgentBadge } from '@/components/chat/routing-badge';
 import { Badge } from '@/components/ui/badge';
 import { Bubble, BubbleContent } from '@/components/ui/bubble';
@@ -42,6 +43,8 @@ interface GuestMessageRowProps {
   onDecide?: DecideRequest;
   /** Who approves requests ("Waiting for Raphael's approval"). */
   ownerName?: string;
+  /** Link-scoped bytes for the message's attachments; without it attachments aren't shown. */
+  attachmentSource?: AttachmentSource;
 }
 
 /**
@@ -49,7 +52,7 @@ interface GuestMessageRowProps {
  * workspace's HumanMessageRow / AgentMessageRow (which need the workspace
  * context, reactions and roster a guest doesn't have).
  */
-export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, showAudience = false, onRetry, requestStatus, onDecide, ownerName = '' }: GuestMessageRowProps) {
+export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, agentNames, agentLabels, currentGuestId, viewer, showTime = true, showAudience = false, onRetry, requestStatus, onDecide, ownerName = '', attachmentSource }: GuestMessageRowProps) {
   const t = useT();
   const { formatTime } = useFormatters();
   const who = senderIdentity(message, agents, viewer ?? currentGuestId);
@@ -58,6 +61,7 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
   const sendStatus = message.metadata?.send_status as 'sending' | 'failed' | undefined;
   const sendError = message.metadata?.send_error as string | undefined;
   const pending = isOptimistic(message);
+  const attachments = attachmentsFromMetadata(message.metadata);
   const askedAgent = !isAgent ? agents.find((a) => mentionsAgent(message.content, a.agentName)) : undefined;
   const held = !isAgent ? shareRequestOf(message) : null;
   const heldAgent = held ? (askedAgent ?? agents[0]) : undefined;
@@ -81,6 +85,7 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
             {/* textOnlyImages: inline workspace-file images would need the
                 owner's workspace credentials; a guest gets the alt text. */}
             <MarkdownContent content={message.content} agentNames={agentNames} agentLabels={agentLabels} textOnlyImages />
+            {attachmentSource && attachments.length > 0 && <MessageAttachments items={attachments} senderAgentName={isAgent ? message.senderName : null} source={attachmentSource} />}
             {/* Action bar — revealed on hover, as on the workspace's agent turns. */}
             {isAgent && !pending && message.content.trim() && (
               <div className="mt-1 flex items-center gap-1 opacity-0 transition-opacity group-hover/message:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">

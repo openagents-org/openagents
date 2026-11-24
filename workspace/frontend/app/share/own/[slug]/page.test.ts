@@ -7,7 +7,7 @@ const state = vi.hoisted(() => ({
   auth: { user: null as null | { email: string }, idToken: null as null | string, loading: false, signIn: vi.fn() },
 }));
 const t = (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key);
-const formatters = { formatTime: () => 'T', formatDate: () => 'D', formatDateTime: () => 'DT' };
+const formatters = { formatTime: () => 'T', formatDate: () => 'D', formatDateTime: () => 'DT', weekdayLabels: () => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] };
 vi.mock('@/lib/i18n', () => ({ useT: () => t, useFormatters: () => formatters }));
 vi.mock('@/lib/api-base', () => ({ getApiBaseUrl: () => 'https://api.test' }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => state.auth }));

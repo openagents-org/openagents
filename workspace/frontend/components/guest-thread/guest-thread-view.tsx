@@ -55,6 +55,10 @@ import { GuestComposer } from './guest-composer';
 import { GuestMessageRow, PersonAvatar } from './guest-message-row';
 import { GuestNameDialog } from './guest-name-dialog';
 import type { DecideRequest } from './share-request-status';
+import { ShareArtifactViewer, ShareResourceShelf, selectionKey, shareAttachmentSource, useFreshSelection, type ShareSelection } from './share-resources';
+import { useShareResources } from './use-share-resources';
+import type { ShareResourceSource } from '@/lib/share-resources';
+import type { AttachmentSource } from '@/components/chat/message-attachments';
 import { GuestRequestsBanner, type PendingGuestRequest } from '@/components/share/guest-requests-banner';
 import { isReleasedCopy, isShareNotice, requestDecisions, requestStatus, shareRequestOf, type ShareRequestStatus } from '@/lib/share-requests';
 import type { SendResult } from './use-guest-thread';
@@ -85,6 +89,8 @@ interface GuestThreadViewProps {
   decisions?: Record<string, ShareRequestStatus>;
   /** Owner room: approve or decline a held guest request. */
   onDecide?: DecideRequest;
+  /** Where the thread's artifacts, routines and attachment bytes come from (guest link or owner room). */
+  resourceSource?: ShareResourceSource | null;
 }
 
 /**
@@ -92,7 +98,7 @@ interface GuestThreadViewProps {
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -127,6 +133,14 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const identity = isOwner
     ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareRoom.ownerYou') }
     : guest ? { name: guest.name, seed: guestAvatarSeed(guest.id), role: t('guestThread.guestBadge') } : null;
+
+  // The thread's artifacts and routines, re-read when an agent posts (it may have made a file).
+  const agentPosts = useMemo(() => messages.filter((m) => m.senderType === 'agent').length, [messages]);
+  const resources = useShareResources(resourceSource, agentPosts);
+  const [selection, setSelection] = useState<ShareSelection | null>(null);
+  const openSelection = useFreshSelection(selection, resources);
+  const wide = useWideLayout();
+  const attachmentSource = useMemo(() => (resourceSource ? shareAttachmentSource(resourceSource, setSelection) : undefined), [resourceSource]);
 
   const handleSubmit = () => {
     const content = composeOutgoing(draft, !!askAgent, askAgent);
@@ -191,6 +205,8 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             )}
           </header>
 
+          <div className="flex min-h-0 flex-1">
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} needsApproval={needsApproval} className={statusFolds ? 'max-sm:hidden' : undefined} />}
           {waiting && onDecide && (
             <GuestRequestsBanner
@@ -200,7 +216,13 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             />
           )}
 
+          {resourceSource && (
+            <ShareResourceShelf resources={resources} agents={info.agents} source={resourceSource} selected={openSelection}
+              onOpen={(next) => setSelection((prev) => (selectionKey(prev) === selectionKey(next) ? null : next))} />
+          )}
+
           <GuestMessageList
+            attachmentSource={attachmentSource}
             info={info}
             messages={messages}
             hasOlder={hasOlder}
@@ -234,8 +256,29 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
               </Alert>
             )}
           </div>
+          </div>
+          {/* Desktop: the artifact beside the conversation, as the workspace's preview panel. */}
+          {resourceSource && openSelection && wide && (
+            <aside className="flex w-[min(46%,720px)] min-w-80 shrink-0 flex-col border-l" aria-label={t('artifactPanel.title')} data-share-artifact-panel="">
+              <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={() => setSelection(null)} />
+            </aside>
+          )}
+          </div>
         </main>
       </div>
+
+      {/* Phone: the artifact in a sheet over the conversation. */}
+      {resourceSource && !wide && (
+        <Sheet open={!!openSelection} onOpenChange={(open) => { if (!open) setSelection(null); }}>
+          <SheetContent side="bottom" showCloseButton={false} className="h-[88dvh] gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)]">
+            <SheetHeader className="sr-only">
+              <SheetTitle>{openSelection ? (openSelection.kind === 'file' ? openSelection.name : openSelection.title) : t('artifactPanel.title')}</SheetTitle>
+              <SheetDescription>{t('artifactPanel.title')}</SheetDescription>
+            </SheetHeader>
+            {openSelection && <ShareArtifactViewer source={resourceSource} selection={openSelection} onClose={() => setSelection(null)} />}
+          </SheetContent>
+        </Sheet>
+      )}
 
       <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
         <SheetContent side="left" showCloseButton={false} className="w-70 gap-0 bg-sidebar p-0 pt-[env(safe-area-inset-top)] text-sidebar-foreground">
@@ -478,7 +521,7 @@ function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval, 
 
 // ── Message list ──
 
-function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, viewer, sendTick, onRetry, decisions, onDecide }: {
+function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, agents, agentNames, agentLabels, viewer, sendTick, onRetry, decisions, onDecide, attachmentSource }: {
   info: GuestThreadInfo;
   messages: WorkspaceMessage[];
   hasOlder: boolean;
@@ -492,6 +535,7 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
   onRetry: (localId: string) => void;
   decisions?: Record<string, ShareRequestStatus>;
   onDecide?: DecideRequest;
+  attachmentSource?: AttachmentSource;
 }) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -575,6 +619,7 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
       requestStatus={statusOf(message)}
       onDecide={onDecide}
       ownerName={info.owner.name}
+      attachmentSource={attachmentSource}
     />
   );
 
@@ -651,4 +696,19 @@ function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThr
   if (!isOptimistic(m) && m.createdAt && Date.now() - new Date(m.createdAt).getTime() > WORKING_WINDOW_MS) return null;
   const agent = agents.find((a) => mentionsAgent(m.content, a.name));
   return agent && agent.online ? agent.name : null;
+}
+
+/** Desktop layout (the artifact beside the conversation) vs. phone (a sheet). */
+function useWideLayout(): boolean {
+  const query = '(min-width: 1024px)';
+  const [wide, setWide] = useState(() => typeof window === 'undefined' || typeof window.matchMedia !== 'function' || window.matchMedia(query).matches);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia(query);
+    const update = () => setWide(media.matches);
+    update();
+    media.addEventListener?.('change', update);
+    return () => media.removeEventListener?.('change', update);
+  }, []);
+  return wide;
 }

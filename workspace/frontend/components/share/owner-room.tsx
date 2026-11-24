@@ -13,6 +13,7 @@ import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { roomGuestLinksClient, roomToThreadInfo, threadPath } from '@/lib/share-room-api';
 import { liveLink } from '@/lib/guest-links';
+import { roomResourceSource } from '@/lib/share-resources';
 import { GuestLinkDialog } from './guest-link-dialog';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
@@ -32,6 +33,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   const threadName = data?.thread.name ?? '';
   const claimed = !!data?.share?.claimed;
   const linksClient = useMemo(() => roomGuestLinksClient(room.creds), [room.creds]);
+  const resourceSource = useMemo(() => roomResourceSource(room.creds), [room.creds]);
   const guestLinks = useGuestLinks(threadName, room.status === 'ready' && !!threadName, linksClient);
   // The approval mode follows the link as changed in the dialog, before the room refreshes.
   const currentLink = guestLinks.links ? liveLink(guestLinks.links) : null;
@@ -97,6 +99,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         retry={room.retry}
         headerActions={headerActions}
         requests={room.requests}
+        resourceSource={resourceSource}
         decisions={room.decisions}
         onDecide={room.decide}
       />

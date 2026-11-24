@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const t = (key: string, params?: Record<string, unknown>) => (params ? `${key}:${JSON.stringify(params)}` : key);
-const formatters = { formatTime: () => 'T', formatDate: () => 'D', formatDateTime: () => 'DT' };
+const formatters = { formatTime: () => 'T', formatDate: () => 'D', formatDateTime: () => 'DT', weekdayLabels: () => ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] };
 vi.mock('@/lib/i18n', () => ({ useT: () => t, useFormatters: () => formatters }));
 vi.mock('@/lib/api-base', () => ({ getApiBaseUrl: () => 'https://api.test' }));
 const auth = vi.hoisted(() => ({ value: { user: null as null | { email: string }, idToken: null as null | string, loading: false, signIn: () => {} } }));
@@ -344,4 +344,30 @@ it('shows the agent working when it is mentioned anywhere in the newest message,
   serve((url) => (url.includes('/messages') ? ok({ messages: [...MESSAGES, recent({ share_request: { id: 'r9', status: 'pending' } })], hasMore: false }) : ok({ ...INFO, approvalMode: 'owner' })));
   await open();
   expect(host.querySelector('.working-bubble')).toBeNull();
+});
+
+it('renders a message’s attachments with link-scoped bytes and opens them in the artifact panel', async () => {
+  let n = 0;
+  vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => `blob:${++n}`), revokeObjectURL: vi.fn() }));
+  const withFiles = { id: 'e10', type: 'workspace.message', source: 'openagents:claude-code', target: 'channel/channel-1',
+    payload: { content: 'Here is the chart and the data.', attachments: [{ fileId: 'a1', filename: 'chart.png', contentType: 'image/png' }, { fileId: 'a2', filename: 'data.csv', contentType: 'text/csv' }] },
+    metadata: {}, timestamp: 10, visibility: 'channel' };
+  serve((url) => {
+    if (url.endsWith('/files/a1')) return new Response('png', { status: 200, headers: { 'Content-Type': 'image/png' } });
+    if (url.endsWith('/files/a2')) return new Response('a,b\n1,2\n', { status: 200, headers: { 'Content-Type': 'text/csv' } });
+    if (url.endsWith('/resources')) return ok({ files: [], browsers: [], routines: [] });
+    return url.includes('/messages') ? ok({ messages: [...MESSAGES, withFiles], hasMore: false }) : ok(INFO);
+  });
+  await open();
+  const row = host.querySelector('[data-guest-message="e10"]')!;
+  expect(row.querySelector('img')?.getAttribute('src')).toMatch(/^blob:/);
+  expect(urls()).toContain('https://api.test/v1/guest-links/public/tok/files/a1');
+  const chip = [...row.querySelectorAll('button')].find((b) => b.getAttribute('aria-label') === 'data.csv')!;
+  await act(async () => { chip.click(); });
+  await settle();
+  const panel = host.querySelector('[data-share-artifact-panel]')!;
+  expect(panel.textContent).toContain('data.csv');
+  expect(panel.querySelector('table')?.textContent).toContain('1');
+  // No workspace calls, and no "Request revision" for a guest.
+  expect(urls().some((u) => /\/v1\/(events|workspaces|files)\b/.test(u))).toBe(false);
 });
