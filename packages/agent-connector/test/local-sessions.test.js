@@ -231,3 +231,57 @@ describe('local sessions: what is left out', () => {
     assert.equal(listLocalSessions('claude', { env, excludeIds: [ID] }).length, 0);
   });
 });
+
+describe('local sessions: readiness checks', () => {
+  let home; let env;
+  before(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-sessions3-'));
+    env = { CLAUDE_CONFIG_DIR: path.join(home, 'claude'), OPENAGENTS_HOME: path.join(home, 'oa') };
+    const proj = path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-home-u');
+    fs.mkdirSync(proj, { recursive: true });
+    const write = (id, rows) => fs.writeFileSync(path.join(proj, `${id}.jsonl`), rows.map((r) => JSON.stringify({ cwd: '/home/u', sessionId: id, ...r })).join('\n') + '\n');
+    write('33333333-0000-0000-0000-000000000001', [
+      { type: 'user', message: { role: 'user', content: 'hi' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hi! How can I help?' }] } },
+    ]);
+    write('33333333-0000-0000-0000-000000000002', [
+      { type: 'user', message: { role: 'user', content: 'OWNER-REVIEWED SHARED INSTRUCTIONS (this request…)' } },
+    ]);
+    write('33333333-0000-0000-0000-000000000003', [
+      { type: 'user', message: { role: 'user', content: 'hi' } },
+      { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'Hi!' }] } },
+      { type: 'user', message: { role: 'user', content: 'Refactor the auth module' } },
+    ]);
+  });
+  after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  it('leaves out the device\'s "hi" readiness checks and shared-thread runs, keeps a real chat that began with hi', () => {
+    const ids = listLocalSessions('claude', { env }).map((s) => s.id);
+    assert.deepEqual(ids, ['33333333-0000-0000-0000-000000000003']);
+  });
+});
+
+describe('local sessions: newer Codex context blocks', () => {
+  let home; let env;
+  const write = (id, userTexts) => {
+    const day = path.join(env.CODEX_HOME, 'sessions', '2026', '11', '20');
+    fs.mkdirSync(day, { recursive: true });
+    const rows = [{ type: 'session_meta', payload: { id, cwd: '/work/c' } }];
+    for (const t of userTexts) rows.push({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: t }] } });
+    rows.push({ type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] } });
+    fs.writeFileSync(path.join(day, `rollout-2026-11-20T00-00-00-${id}.jsonl`), rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
+  };
+  before(() => {
+    home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-sessions4-'));
+    env = { CODEX_HOME: path.join(home, 'codex'), OPENAGENTS_HOME: path.join(home, 'oa') };
+    write('01a0bf7a-61e9-7172-a4aa-d4025c84ef24', ['<recommended_plugins>\nHere is a list of plugins\n</recommended_plugins>\n<environment_context>\n<cwd>/work/c</cwd>\n</environment_context>', 'Write a migration for users']);
+    write('01a0bf7a-61e9-7172-a4aa-d4025c84ef25', ['The following is the Codex agent history whose request action you are assessing. …']);
+    write('01a0bf7a-61e9-7172-a4aa-d4025c84ef26', ['<some_new_context>\nx\n</some_new_context>', 'Add tests']);
+  });
+  after(() => fs.rmSync(home, { recursive: true, force: true }));
+
+  it('titles a session by what the person typed, and leaves out Codex\'s own reviewer runs', () => {
+    const list = listLocalSessions('codex', { env });
+    assert.deepEqual(list.map((s) => s.title).sort(), ['Add tests', 'Write a migration for users']);
+  });
+});
