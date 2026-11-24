@@ -2143,6 +2143,13 @@ async def _non_director_targets(event, channel, db, workspace, known_agents) -> 
     the message stays information, as the director rule intends.
     """
     from app.config import config
+    # The thread's response mode still applies: a passive thread wakes agents
+    # only on an @mention, whoever speaks. A message addressed to a person
+    # (@email) is for that person, as in _conversation_targets.
+    if _has_response_mode(channel) and (channel.response_mode or "proactive") == "passive":
+        return []
+    if _addresses_people_only(event):
+        return []
     names = [p.agent_name for p in channel.participants or []
              if p.agent_name != "__no_response__" and p.agent_name in known_agents]
     if not names or not config.ROUTER_LLM_ENABLED:
