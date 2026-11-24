@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export function IssueDueDate({ issue, busy, canEdit, update }: {
   issue: Pick<WorkspaceIssue, 'id' | 'due_date'>;
@@ -53,8 +54,8 @@ export function IssueDueDate({ issue, busy, canEdit, update }: {
           <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => save(null)} className="w-full">{t('issues.clearDueDate')}</Button>
         </div>}
       </PopoverContent>
-    </Popover> : <div aria-labelledby={`issue-due-date-heading-${issue.id}`} title={t('issues.dueDateOwnerOnly')} className="flex min-h-8 min-w-0 flex-1 items-center gap-2.5 px-1.5 text-xs text-muted-foreground">
+    </Popover> : <WithTooltip label={t('issues.dueDateOwnerOnly')}><div aria-labelledby={`issue-due-date-heading-${issue.id}`} className="flex min-h-8 min-w-0 flex-1 items-center gap-2.5 px-1.5 text-xs text-muted-foreground">
       <CalendarDays className="size-4 shrink-0" />{issue.due_date ? <time dateTime={issue.due_date}>{label}</time> : label}
-    </div>}
+    </div></WithTooltip>}
   </section>;
 }

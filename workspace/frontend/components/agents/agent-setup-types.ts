@@ -111,6 +111,31 @@ export const DEVICE_KEY = '__device_key__';
 export const SIGN_IN = '__sign_in__';
 export const AUTO_MODEL = '__auto__';
 export const CUSTOM_MODEL = '__custom__';
+// The connector's own rule for a model id (cli-models.js MODEL_ID_RE): no
+// spaces, so a display name such as "Opus 5.5 with 1M context" is caught here
+// and not on the agent's first reply.
+const MODEL_ID_RE = /^[\w.:@/[\]-]{1,128}$/;
+/** Whether a typed model is empty (Auto) or has the shape of a model id. */
+export function isModelIdOrEmpty(value: string): boolean {
+  const id = value.trim();
+  return !id || MODEL_ID_RE.test(id);
+}
+
+/**
+ * What is wrong with a typed model, or null when it can be sent: a device
+ * model's display name typed in place of its id ("label", with that id), or
+ * anything that is not shaped like an id at all ("format").
+ */
+export function modelProblem(value: string, deviceModels: { id: string; label?: string }[] = []):
+  { kind: 'label'; id: string } | { kind: 'format' } | null {
+  const typed = value.trim().toLowerCase();
+  if (!typed) return null;
+  if (!deviceModels.some((m) => m.id.toLowerCase() === typed)) {
+    const named = deviceModels.find((m) => m.label?.trim().toLowerCase() === typed);
+    if (named) return { kind: 'label', id: named.id };
+  }
+  return isModelIdOrEmpty(value) ? null : { kind: 'format' };
+}
 /** How long "Detecting…" may stay up before it gives way to a retry. */
 export const DETECT_DEADLINE_MS = 45_000;
 /** Types whose endpoint is one device-wide config file of their own, so every

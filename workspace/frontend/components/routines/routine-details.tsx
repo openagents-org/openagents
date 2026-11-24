@@ -15,6 +15,7 @@ import { workspaceApi } from "@/lib/api";
 import { useWorkspace } from "@/lib/workspace-context";
 import { useT, useFormatters } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/dialogs-provider";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AgentAvatar } from "@/components/agents/agent-avatar";
 import { RoutineDialog } from "./routine-dialog";
@@ -37,6 +38,7 @@ export function RoutineDetails({
   onLinkThread: (r: RoutineItem) => void;
 }) {
   const t = useT();
+  const confirm = useConfirm();
   const { formatSchedule, timeUntil } = useRoutineFormat();
   const { formatDateTime } = useFormatters();
   const {
@@ -130,14 +132,16 @@ export function RoutineDetails({
             {routine.name}
           </h2>
           {routine.sourceChannelName ? (
-            <button
-              className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+            <Button
+              variant="ghost"
+              size="xs"
+              className="mt-3 -ml-2 text-muted-foreground"
               onClick={() => onOpenThread(routine)}
             >
-              <Hash className="size-3" />
+              <Hash data-icon="inline-start" />
               {source?.title || routine.sourceChannelName}
-              <ChevronRight className="size-3" />
-            </button>
+              <ChevronRight data-icon="inline-end" />
+            </Button>
           ) : (
             <Button
               variant="link"
@@ -332,12 +336,9 @@ export function RoutineDetails({
             className="text-destructive"
             aria-label={t("routines.cancel")}
             disabled={busy}
-            onClick={() => {
-              if (window.confirm(t("routineHub.deleteConfirm")))
-                void act(async () => {
-                  await workspaceApi.cancelRoutine(routine.id);
-                  onClose();
-                });
+            onClick={async () => {
+              const ok = await confirm({ title: t("routineHub.deleteConfirm"), confirmText: t("common.delete"), destructive: true });
+              if (ok) void act(async () => { await workspaceApi.cancelRoutine(routine.id); onClose(); });
             }}
           >
             <Trash2 />

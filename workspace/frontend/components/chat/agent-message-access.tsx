@@ -78,11 +78,11 @@ export function AgentOwnershipBadge({ agent, compact = false, model }: { agent: 
   const ownerName = access?.owner_display_name || context.humanNames[owner.toLowerCase()] ||
     (mine && currentUser.name !== owner ? currentUser.name : null) || owner;
   const label = `${ownerName}${mine ? ` (${t('threads.you')})` : ''}`;
-  return <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground" title={t('messageAgentAccess.owner', { name: label })}>
+  return <WithTooltip label={t('messageAgentAccess.owner', { name: label })}><span className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-xs text-muted-foreground">
     {!compact && !mine && <span className="max-w-44 truncate">{t('messageAgentAccess.owner', { name: label })}</span>}
     {status && <Badge variant="secondary">{status}</Badge>}
     {mine && model && <Badge variant="secondary" className="max-w-64 font-normal text-muted-foreground" title={model}><span className="truncate">{model}</span></Badge>}
-  </span>;
+  </span></WithTooltip>;
 }
 
 export function AgentSharingAction({ agentName }: { agentName: string }) {

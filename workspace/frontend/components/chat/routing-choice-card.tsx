@@ -13,6 +13,7 @@ import { agentLabel } from '@/lib/helpers';
 import { Button } from '@/components/ui/button';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
 import { ConversationBadge, RoutedAgentBadge } from './routing-badge';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 interface RoutingChoice {
   status: string;
@@ -116,7 +117,7 @@ export function RoutingChoiceCard({ message, agents, conversation = false }: { m
             {filtered?.map(agent => <Button key={agent.name} variant="ghost" disabled={busy} aria-label={agent.label}
               className="h-auto w-full justify-start gap-2.5 px-2.5 py-2 text-xs font-normal focus-visible:bg-muted" onClick={() => void choose(agent.name)}>
               <AgentAvatar name={agent.name} size={24} /><span className="min-w-0 flex-1 truncate text-left">{agent.label}</span>
-              {agent.online && <span title={t('routing.onlineInThread')} className="size-1.5 shrink-0 rounded-full bg-success/80" />}
+              {agent.online && <WithTooltip label={t('routing.onlineInThread')}><span aria-label={t('routing.onlineInThread')} className="size-1.5 shrink-0 rounded-full bg-success/80" /></WithTooltip>}
             </Button>)}
             {filtered?.length === 0 && <p className="px-3 py-5 text-center text-xs text-muted-foreground">{options?.length ? t('routing.noMatches') : t('routing.noOnlineAgents')}</p>}
           </div>

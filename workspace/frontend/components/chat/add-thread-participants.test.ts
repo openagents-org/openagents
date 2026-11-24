@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 afterEach(async () => { if (root) await act(async () => root.unmount()); document.body.innerHTML = ''; });
 function button(text: string) {
-  const node = [...document.querySelectorAll('button')].find((item) => item.textContent?.includes(text));
+  const node = [...document.querySelectorAll('button')].find((item) => (item.closest('label') ?? item).textContent?.includes(text));
   if (!node) throw new Error(`Missing ${text}`);
   return node;
 }

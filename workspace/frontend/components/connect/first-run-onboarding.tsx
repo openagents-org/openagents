@@ -1,6 +1,6 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Check, Loader2 } from 'lucide-react';
+import { Check } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
@@ -17,6 +17,8 @@ import { getAccountProfile, updateAccountProfile } from '@/lib/account-api';
 import type { PairingCode } from '@/lib/types';
 import dynamic from 'next/dynamic';
 import { ConnectAgentView } from './connect-agent-view';
+import { Spinner } from '@/components/ui/spinner';
+import { Separator } from '@/components/ui/separator';
 
 const WelcomePage = dynamic(() => import('./welcome-scroll').then(module => module.WelcomeScroll), { ssr: false });
 
@@ -127,7 +129,7 @@ function OnboardingSteps({ current, thisComputer = false }: { current: number; t
                   {label}
                 </span>
               </div>
-              {n < steps.length && <span className="w-6 h-px bg-border" />}
+              {n < steps.length && <Separator className="data-horizontal:w-6" />}
             </div>
           );
         })}
@@ -270,7 +272,7 @@ function RemoteNodeOnboardingStep({ onBack, footer, requireNewNode = false }: { 
             </div>
           ) : (
             <div className="flex items-center justify-center py-14 text-muted-foreground">
-              <Loader2 className="size-5 animate-spin" />
+              <Spinner aria-hidden="true" className="size-5" />
             </div>
           )}
 

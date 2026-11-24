@@ -5,6 +5,7 @@ import { Globe, Hand, Moon, Play, Plus, RefreshCw, Users, X } from 'lucide-react
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { InputGroup, InputGroupAddon, InputGroupInput } from '@/components/ui/input-group';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -68,10 +69,10 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
       </InputGroup>
 
       {tab.sharedWith.length > 0 && (
-        <div className="hidden shrink-0 items-center gap-1 lg:flex" title={tab.sharedWith.join(', ')}>
+        <WithTooltip label={tab.sharedWith.join(', ')}><div className="hidden shrink-0 items-center gap-1 lg:flex">
           <Users className="size-3.5 text-muted-foreground" />
           <span className="text-xs text-muted-foreground">{tab.sharedWith.length}</span>
-        </div>
+        </div></WithTooltip>
       )}
 
       <Button
@@ -126,19 +127,20 @@ export function BrowserStatusBar({ tab, liveState, controlling, quality, onQuali
         {liveState === 'live' ? t('browser.live') : liveState === 'unavailable' ? t('browser.unavailableTitle') : liveState === 'asleep' ? t('browser.sleepingTitle') : t('browser.opening')}
         <span className="hidden text-muted-foreground/60 sm:inline">· {t('browser.cloudBrowser')}</span>
       </span>
-      {liveState === 'live' && <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
+      {liveState === 'live' && <WithTooltip label={controlling ? t('browser.controlInstructions') : undefined}><span className="min-w-0 truncate">
         {controlling ? t('browser.youAreInControl') : t('browser.watching')}
-      </span>}
+      </span></WithTooltip>}
       {quality && onQuality && (
-        <div role="group" aria-label={t('browser.streamQuality')} className="ml-auto inline-flex shrink-0 items-center rounded-md border border-border p-0.5 md:ml-0">
+        <ToggleGroup type="single" variant="outline" size="sm" value={quality} aria-label={t('browser.streamQuality')} className="ml-auto shrink-0 md:ml-0"
+          onValueChange={(next) => { if (next) onQuality(next as StreamQuality); }}>
           {(['high', 'low'] as const).map((option) => (
-            <button key={option} type="button" aria-pressed={quality === option} onClick={() => onQuality(option)}
-              title={t(option === 'high' ? 'browser.streamHighHint' : 'browser.streamLowHint')}
-              className={cn('rounded-sm px-1.5 py-0.5 leading-none transition-colors', quality === option ? 'bg-muted font-medium text-foreground' : 'hover:text-foreground')}>
-              {t(option === 'high' ? 'browser.streamHigh' : 'browser.streamLow')}
-            </button>
+            <WithTooltip key={option} label={t(option === 'high' ? 'browser.streamHighHint' : 'browser.streamLowHint')}>
+              <ToggleGroupItem value={option} className="h-6 px-1.5 text-xs">
+                {t(option === 'high' ? 'browser.streamHigh' : 'browser.streamLow')}
+              </ToggleGroupItem>
+            </WithTooltip>
           ))}
-        </div>
+        </ToggleGroup>
       )}
       <span className="ml-auto hidden min-w-0 items-center gap-1.5 md:inline-flex">
         <span className="truncate">

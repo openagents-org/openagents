@@ -29,6 +29,8 @@ export interface ConfirmDialogProps {
   busy?: boolean
   /** Extra controls between the copy and the actions (an opt-in checkbox…). */
   children?: React.ReactNode
+  /** Room for a shell command on one line (install / update prompts). */
+  wide?: boolean
   onConfirm: () => void
   onCancel: () => void
 }
@@ -49,6 +51,7 @@ export function ConfirmDialog({
   destructive = true,
   busy = false,
   children,
+  wide = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps): React.JSX.Element {
@@ -58,7 +61,7 @@ export function ConfirmDialog({
     <AlertDialog open={open} onOpenChange={(o) => !o && !busy && onCancel()}>
       {/* Default width, not `sm`: these carry install commands and paths
           that wrap badly at 20rem. */}
-      <AlertDialogContent>
+      <AlertDialogContent className={wide ? "data-[size=default]:sm:max-w-xl" : undefined}>
         <AlertDialogHeader>
           {/* Wrapped, not raw: the header grid reserves its media column off
               the `alert-dialog-media` slot, so a bare node would land in the
