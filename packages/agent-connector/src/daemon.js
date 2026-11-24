@@ -140,10 +140,31 @@ function installFailureOf(stdout) {
  * is all a 400-char head of it ever showed; the line that names the problem
  * ("Error: Cannot find module '…'") comes after.
  */
-function probeCrashSummary(stderr) {
+function probeCrashSummary(stderr, { code = null, signal = null } = {}) {
   const lines = String(stderr || '').split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
   const telling = lines.find((l) => /^\w*Error\b|Cannot find module/.test(l));
-  return telling || lines.join('\n') || 'probe failed';
+  const said = telling || lines.join('\n');
+  // A child that was killed (or died without a word) used to read as just
+  // "probe failed"; how it ended is said even next to a stray warning.
+  const ended = signal
+    ? `The test process was stopped (${signal}) before it reported a result`
+    : (said ? '' : code == null
+      ? 'The test process ended before it reported a result'
+      : `The test process exited with code ${code} before it reported a result`);
+  return [ended, said].filter(Boolean).join(': ');
+}
+
+/**
+ * The JSON verdict `agn probe --json` printed, or null. It is the last line
+ * of stdout: anything a dependency printed first (a deprecation notice) left
+ * the whole of stdout unparseable, and a real verdict was reported as a crash.
+ */
+function parseProbeOutput(stdout) {
+  const text = String(stdout || '').trim();
+  try { return JSON.parse(text); } catch {}
+  const last = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
+  if (!last || last[0] !== '{') return null;
+  try { return JSON.parse(last); } catch { return null; }
 }
 
 /**
@@ -233,8 +254,7 @@ class Daemon {
       let r;
       for (let attempt = 0; attempt < 2; attempt++) {
         r = await this._runAgn(['probe', name, '--json']);
-        parsed = null;
-        try { parsed = JSON.parse(r.stdout.trim()); } catch {}
+        parsed = parseProbeOutput(r.stdout);
         // The child found no agent of that name while this daemon has one: it
         // read daemon.yaml mid-save (Windows). Ask once more instead of
         // keeping "No agent named '<name>' on this device" for an hour.
@@ -247,9 +267,11 @@ class Daemon {
         // this device's OpenAgents install, not in the agent.
         parsed = {
           type, ok: false, method: 'none', code: 'probe_error',
-          message: redactDiagnostic(probeCrashSummary(r.stderr), 400),
+          message: redactDiagnostic(probeCrashSummary(r.stderr, r), 400),
           guidance: [
-            'The OpenAgents test could not start on this device. Restart OpenAgents and test again; if it keeps failing, reinstall OpenAgents.',
+            r.signal
+              ? 'The test was stopped before it finished, usually because OpenAgents was restarting or quitting. Test again.'
+              : 'The OpenAgents test could not start on this device. Restart OpenAgents and test again; if it keeps failing, reinstall OpenAgents.',
           ],
           at: new Date().toISOString(),
         };
@@ -1487,7 +1509,7 @@ async _runNodeCommand(n, cmd) {
       child.stdout.on('data', (d) => { stdout += d.toString(); });
       child.stderr.on('data', (d) => { stderr += d.toString(); });
       child.on('error', (e) => finish({ code: 1, stdout, stderr: stderr || e.message }));
-      child.on('close', (code) => finish({ code, stdout, stderr }));
+      child.on('close', (code, signal) => finish({ code, signal, stdout, stderr }));
     });
   }
 
@@ -2711,4 +2733,4 @@ Daemon.IMPORT_BATCH = 50;
 // Tools whose imported sessions the same tool's agent continues (see _importLocalSession).
 Daemon.RESUMABLE_IMPORTS = new Set(['claude', 'codex', 'opencode']);
 
-module.exports = { Daemon, filesystemRoots };
+module.exports = { Daemon, filesystemRoots, probeCrashSummary, parseProbeOutput };

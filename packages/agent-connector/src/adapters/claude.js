@@ -21,7 +21,7 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise, CREDIT_EXHAUSTED, REGION_BLOCKED } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
@@ -1201,6 +1201,19 @@ class ClaudeAdapter extends BaseAdapter {
     // below keys on — but only the redacted text is quoted: a `result` error
     // is the provider's own message, and providers echo the key they rejected.
     const msg = this._redact(raw);
+    // Both answer 403, which the auth rule below read as a bad key: a region
+    // the provider does not serve, and a relay account with no balance left
+    // ("403 organization balance exhausted").
+    const lower = raw.toLowerCase();
+    if (REGION_BLOCKED.test(lower)) {
+      return `Claude could not reach the model: ${msg}\n\n` +
+        'The provider refused requests from this device\'s network, usually because it does not serve this region. ' +
+        'The key or sign-in was not the problem: route Claude through a proxy in a supported region (HTTPS_PROXY), or point the agent at a different endpoint.';
+    }
+    if (CREDIT_EXHAUSTED.test(lower)) {
+      return `Claude's provider account is out of credit: ${msg}\n\n` +
+        'Add credit to that account, or switch this agent to a different API key or endpoint in the launcher.';
+    }
     if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(raw)) {
       return `Claude authentication failed: ${msg}\n\n` +
         'Check this agent\'s API key and Base URL in the launcher — the key may be invalid or expired.';
