@@ -478,7 +478,9 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         ` ${baseUrl}/v1/browser/tabs` +
         ` -d '{"url":"URL","network":"${workspaceId}",` +
         `"source":"openagents:${agentName}","channel":"${channelName}"}'\`\n` +
-        'Every cloud tab saves its login state. Keep its id for future work.\n\n' +
+        'Every cloud tab saves its login state. Keep its id for future work.\n' +
+        'If opening a tab returns 429 with `error_code` `browser_tab_limit`, the workspace already has its maximum of tabs awake: ' +
+        'reuse one of the `awake_tabs` it lists, close one you no longer need, or retry after `retry_after_seconds`. Tell the user if you must wait.\n\n' +
         '**Navigate:**\n' +
         `\`${curl} -s -X POST -H "${h}" -H "Content-Type: application/json"` +
         ` ${baseUrl}/v1/browser/tabs/{tab_id}/navigate` +

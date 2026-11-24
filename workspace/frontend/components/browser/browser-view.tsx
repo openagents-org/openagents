@@ -20,6 +20,7 @@ import { useBrowserControl } from './use-browser-control';
 import { useBrowserSession } from './use-browser-session';
 import { BrowserTabStrip } from './browser-tab-strip';
 import { BrowserPlaceholder, BrowserStatusBar, BrowserToolbar, type LiveState } from './browser-chrome';
+import { useStreamQuality } from '@/lib/browser-stream-quality';
 import { BrowserViewport } from './browser-viewport';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
@@ -29,6 +30,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
  */
 export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) {
   const t = useT();
+  const stream = useStreamQuality();
   const confirm = useConfirm();
   const {
     browserTabs, browserContexts, browserTabLimits, agents,
@@ -266,6 +268,7 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           sendInput={sendInput}
           agentActive={activity.active}
           activityLabel={activityLabel}
+          quality={stream.quality}
         />
       )}
       {!tab && (
@@ -278,7 +281,8 @@ export function BrowserView({ artifactTabId }: { artifactTabId?: string } = {}) 
           onNewTab={() => setDialogOpen(true)}
         />
       )}
-      {tab && <BrowserStatusBar tab={tab} liveState={liveState} controlling={controlling} />}
+      {tab && <BrowserStatusBar tab={tab} liveState={liveState} controlling={controlling}
+        quality={tab.liveUrl && !stream.forced ? stream.quality : undefined} onQuality={stream.setQuality} />}
 
       <NewBrowserTabDialog open={dialogOpen} onOpenChange={setDialogOpen} />
     </div>
