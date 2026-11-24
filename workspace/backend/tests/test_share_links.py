@@ -425,8 +425,8 @@ def test_signing_in_from_the_owner_link_keeps_the_workspace(client, db, monkeypa
     assert db.get(ChannelHumanMember, (channel.id, "alex@acme.test")) is not None, "they're in the kept conversation"
     member = db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").one()
     assert member.owner_email == "alex@acme.test"
-    listed = client.get("/v1/workspaces", headers={"Authorization": "Bearer alex"}).json()["data"]
-    assert data["workspaceId"] in [w.get("workspaceId") or w.get("id") for w in listed]
+    rooms = client.get("/v1/rooms", headers={"Authorization": "Bearer alex"}).json()["data"]["rooms"]
+    assert data["workspaceId"] in [r["workspace"]["id"] for r in rooms], "saved to their rooms"
 
     # A forwarded owner link can't take it over later.
     r = client.post("/v1/guest-links/claim", json={"network": data["workspaceId"]},
@@ -496,7 +496,7 @@ def test_owner_link_opens_the_light_room(client, no_push):
     assert room["thread"]["name"] == data["channel"]["name"]
     assert room["owner"]["name"] == "Alex"
     assert room["link"]["id"] == data["link"]["id"]
-    assert room["share"] == {"claimed": False, "movedTo": None}
+    assert room["share"] == {"claimed": False, "movedTo": None, "keptAsWorkspace": False}
     assert _room(client, data, token=_token(data)).status_code == 404, "the guest token is not the owner link"
     msgs = client.get(f"/v1/guest-links/room/messages?network={data['slug']}",
                       headers={"X-Workspace-Token": data["token"]}).json()["data"]["messages"]
@@ -878,3 +878,52 @@ def test_the_agent_is_shown_by_its_own_name(client, db, no_push):
     info = client.get(f"/v1/guest-links/public/{_token(data)}").json()["data"]
     assert info["agents"][0]["displayName"] == "pr-reviewer"
     assert " " not in info["agents"][0]["name"]
+
+
+# --- a person's rooms ---------------------------------------------------------
+
+def test_saved_rooms_list_apart_from_workspaces_until_kept(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex", "eve")
+    alex = {"Authorization": "Bearer alex"}
+    data = _published(client)
+    owner = {"X-Workspace-Token": data["token"]}
+    assert client.get("/v1/rooms", headers=alex).json()["data"]["rooms"] == []
+    client.post("/v1/guest-links/claim", json={"network": data["slug"]}, headers={**owner, **alex})
+
+    rooms = client.get("/v1/rooms", headers=alex).json()["data"]["rooms"]
+    assert [r["workspace"]["slug"] for r in rooms] == [data["slug"]]
+    assert rooms[0]["liveLink"]["url"] == data["guestUrl"] and rooms[0]["keptAsWorkspace"] is False
+    listed = [w["slug"] for w in client.get("/v1/workspaces", headers=alex).json()["data"]]
+    assert data["slug"] not in listed, "a room isn't a workspace until kept"
+
+    # Signed in, the owner opens and manages it without the private link.
+    assert client.get(f"/v1/guest-links/room?network={data['slug']}", headers=alex).status_code == 200
+    assert client.get(f"/v1/guest-links/room?network={data['slug']}", headers={"Authorization": "Bearer eve"}).status_code == 404
+
+    kept = client.post(f"/v1/rooms/{data['slug']}/keep-as-workspace", headers=alex)
+    assert kept.status_code == 200, kept.text
+    assert data["slug"] in [w["slug"] for w in client.get("/v1/workspaces", headers=alex).json()["data"]]
+    assert client.get("/v1/rooms", headers=alex).json()["data"]["rooms"][0]["keptAsWorkspace"] is True
+
+
+def test_owner_can_delete_a_room(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex", "eve")
+    data = _published(client)
+    owner = {"X-Workspace-Token": data["token"]}
+    client.post("/v1/guest-links/claim", json={"network": data["slug"]}, headers={**owner, "Authorization": "Bearer alex"})
+    assert client.delete(f"/v1/rooms/{data['slug']}", headers={"Authorization": "Bearer eve"}).status_code == 404
+    assert client.delete(f"/v1/rooms/{data['slug']}", headers={"Authorization": "Bearer alex"}).status_code == 200
+    assert client.get(f"/v1/guest-links/public/{_token(data)}").status_code == 404
+    assert client.get("/v1/rooms", headers={"Authorization": "Bearer alex"}).json()["data"]["rooms"] == []
+
+
+def test_a_signed_in_owner_can_merge_a_room_without_the_private_link(client, db, monkeypatch, no_push):
+    _people(db, monkeypatch, "alex")
+    data = _published(client)
+    _join(client, data, ["guest_turns", "relocate"])
+    owner = {"X-Workspace-Token": data["token"]}
+    client.post("/v1/guest-links/claim", json={"network": data["slug"]}, headers={**owner, "Authorization": "Bearer alex"})
+    team = _team(client, db)
+    r = client.post("/v1/guest-links/import", json={"network": data["slug"], "target": team["workspaceId"]},
+                    headers={"Authorization": "Bearer alex"})
+    assert r.status_code == 200, r.text

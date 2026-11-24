@@ -380,9 +380,10 @@ class RelocationAccept(BaseModel):
 
 
 @router.get("/guest-links/room")
-def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok(svc.describe_room(db, workspace, channel))
     except svc.LinkError as e:
         return _fail(e)
@@ -391,9 +392,10 @@ def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: O
 @router.get("/guest-links/room/messages")
 def owner_room_messages(network: str, after: Optional[str] = Query(None), before: Optional[str] = Query(None),
                         limit: int = Query(100), db: Session = Depends(get_db),
-                        x_workspace_token: Optional[str] = Header(None)):
+                        x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok(svc.channel_messages(db, workspace, channel, after, limit, before))
     except svc.LinkError as e:
         return _fail(e)
@@ -401,9 +403,10 @@ def owner_room_messages(network: str, after: Optional[str] = Query(None), before
 
 @router.post("/guest-links/room/messages")
 def owner_room_post(network: str, body: GuestMessage, background_tasks: BackgroundTasks,
-                    db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None)):
+                    db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
     except svc.LinkError as e:
         return _fail(e)
     content = (body.content or "").strip()
@@ -453,7 +456,7 @@ def import_conversation(body: ImportRequest, db: Session = Depends(get_db),
     if source is None:
         return json_response(ResponseCode.NOT_FOUND, "This owner link isn't valid")
     try:
-        return _ok(svc.import_into(db, source, x_workspace_token, user, body.target))
+        return _ok(svc.import_into(db, source, x_workspace_token, user, body.target, authorization))
     except svc.LinkError as e:
         return _fail(e)
 
@@ -477,10 +480,11 @@ class RequestDecision(BaseModel):
 
 
 @router.get("/guest-links/room/requests")
-def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     """Guests' requests waiting for the owner's decision."""
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok({"requests": svc.pending_requests(db, workspace, channel)})
     except svc.LinkError as e:
         return _fail(e)
@@ -488,9 +492,10 @@ def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace
 
 @router.post("/guest-links/room/requests/{request_id}")
 def owner_room_decide(network: str, request_id: str, body: RequestDecision, background_tasks: BackgroundTasks,
-                      db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None)):
+                      db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         req, release = svc.decide_request(db, workspace, channel, request_id, body.decision, "owner",
                                           svc.owner_name_for(db, workspace, channel))
     except svc.LinkError as e:
@@ -630,18 +635,20 @@ async def guest_browser_screenshot(token: str, tab_id: str, db: Session = Depend
 
 
 @router.get("/guest-links/room/resources")
-def room_resources(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+def room_resources(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok(svc.thread_resources(db, workspace, channel))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.get("/guest-links/room/files/{file_id}")
-def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _file_response(*svc.thread_file(db, workspace, channel, file_id))
     except svc.LinkError as e:
         return _fail(e)
@@ -649,9 +656,10 @@ def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_works
 
 @router.get("/guest-links/room/browsers/{tab_id}/screenshot")
 async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depends(get_db),
-                                  x_workspace_token: Optional[str] = Header(None)):
+                                  x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         tab = svc.thread_browser(db, workspace, channel, tab_id)
     except svc.LinkError as e:
         return _fail(e)
@@ -662,9 +670,10 @@ async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depen
 # Guests of the thread: list, and remove one (owner room, or the full workspace).
 
 @router.get("/guest-links/room/guests")
-def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok({"guests": svc.list_guests(db, workspace, channel)})
     except svc.LinkError as e:
         return _fail(e)
@@ -672,9 +681,10 @@ def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: 
 
 @router.delete("/guest-links/room/guests/{guest_id}")
 def room_remove_guest(network: str, guest_id: str, db: Session = Depends(get_db),
-                      x_workspace_token: Optional[str] = Header(None)):
+                      x_workspace_token: Optional[str] = Header(None),
+        authorization: Optional[str] = Header(None)):
     try:
-        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok({"guest": svc.remove_guest(db, workspace, channel, guest_id)})
     except svc.LinkError as e:
         return _fail(e)
@@ -700,5 +710,43 @@ def workspace_remove_guest(guest_id: str, network: str, channel: str, db: Sessio
         return err
     try:
         return _ok({"guest": svc.remove_guest(db, workspace, _workspace_channel(db, workspace, channel), guest_id)})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+
+# ---------------------------------------------------------------------------
+# A person's rooms
+# ---------------------------------------------------------------------------
+
+@router.get("/rooms")
+def list_my_rooms(db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
+    """Rooms the signed-in person owns: not workspaces until they say so."""
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to see your rooms")
+    return _ok({"rooms": svc.my_rooms(db, user)})
+
+
+@router.post("/rooms/{network}/keep-as-workspace")
+def room_keep_as_workspace(network: str, db: Session = Depends(get_db),
+                           x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    user = resolve_current_user(db, authorization) if authorization else None
+    if user is None:
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to keep this room as a workspace")
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
+        return _ok(svc.keep_as_workspace(db, workspace, channel, user))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/rooms/{network}")
+def room_delete(network: str, db: Session = Depends(get_db),
+                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    try:
+        workspace, _channel = svc.owner_room(db, network, x_workspace_token, authorization)
+        svc.delete_room(db, workspace)
+        return _ok({"deleted": True})
     except svc.LinkError as e:
         return _fail(e)

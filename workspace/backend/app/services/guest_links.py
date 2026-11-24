@@ -802,17 +802,32 @@ def share_thread(db: Session, workspace: Workspace) -> Optional[Channel]:
                                             Channel.name == name)).scalar_one_or_none()
 
 
-def owner_room(db: Session, network: str, token: Optional[str]):
-    """(workspace, channel) for the owner link, or a LinkError (410 says where it went)."""
+def room_owner_user(db: Session, workspace: Workspace, authorization: Optional[str]):
+    """The signed-in person, if they own (or administer) this room."""
+    if not authorization:
+        return None
+    from app.access import _role_for_email, resolve_current_user
+    user = resolve_current_user(db, authorization)
+    if user is None:
+        return None
+    return user if _role_for_email(db, workspace, user.email.strip().lower()) in ("owner", "admin") else None
+
+
+def owner_room(db: Session, network: str, token: Optional[str], authorization: Optional[str] = None):
+    """(workspace, channel) for the room's owner, or a LinkError (410 says where it went).
+
+    The owner is whoever holds the private owner link (the workspace token) or,
+    once they saved the room to their account, the signed-in account itself.
+    """
     from app.routers.network import _resolve_workspace
     workspace = _resolve_workspace(db, network) if network else None
     share = (workspace.settings or {}).get("openagents_share") if workspace else None
-    if workspace is None or not isinstance(share, dict) or not token:
+    if workspace is None or not isinstance(share, dict):
         raise LinkError(404, "This owner link isn't valid")
-    current = secrets.compare_digest(str(token), str(workspace.password_hash or ""))
-    retired = share.get("retired_token_hash") and secrets.compare_digest(
+    current = bool(token) and secrets.compare_digest(str(token), str(workspace.password_hash or ""))
+    retired = bool(token) and share.get("retired_token_hash") and secrets.compare_digest(
         _sha("owner:" + str(token)), str(share.get("retired_token_hash")))
-    if not (current or retired):
+    if not (current or retired or room_owner_user(db, workspace, authorization)):
         raise LinkError(404, "This owner link isn't valid")
     moved = share.get("moved_to")
     if moved:
@@ -836,7 +851,8 @@ def describe_room(db: Session, workspace: Workspace, channel: Channel) -> dict:
         "owner": {"name": owner_name},
         "agents": channel_agents(db, workspace, channel),
         "link": serialize_link(links[0]) if links else None,
-        "share": {"claimed": bool(workspace.creator_email), "movedTo": None},
+        "share": {"claimed": bool(workspace.creator_email), "movedTo": None,
+                  "keptAsWorkspace": bool(((workspace.settings or {}).get("openagents_share") or {}).get("kept_as_workspace"))},
     }
 
 
@@ -852,7 +868,8 @@ def owner_name_for(db: Session, workspace: Workspace, channel: Channel) -> str:
 RELOCATE_CAPABILITY = "relocate"
 
 
-def import_into(db: Session, source: Workspace, token: Optional[str], user, target_id: str) -> dict:
+def import_into(db: Session, source: Workspace, token: Optional[str], user, target_id: str,
+                authorization: Optional[str] = None) -> dict:
     """Move the shared conversation into one of the person's workspaces.
 
     The thread (with its history), the agent and the guest link move; the guest
@@ -866,7 +883,7 @@ def import_into(db: Session, source: Workspace, token: Optional[str], user, targ
     from app.routers.network import _resolve_workspace
     from app.routers.workspaces import _emit_agent_control_event
 
-    workspace, channel = owner_room(db, str(source.id), token)
+    workspace, channel = owner_room(db, str(source.id), token, authorization)
     target = _resolve_workspace(db, target_id) if target_id else None
     if target is None or target.status == "deleted" or str(target.id) == str(workspace.id):
         raise LinkError(404, "Workspace not found")
@@ -1306,3 +1323,73 @@ def remove_guest(db: Session, workspace: Workspace, channel: Channel, guest_id: 
             req.decided_at = _now()
         db.commit()
     return {"id": guest.id, "name": guest.display_name, "removed": True}
+
+
+# ---------------------------------------------------------------------------
+# A person's rooms (like gists: not workspaces until they decide so)
+# ---------------------------------------------------------------------------
+
+def is_room(workspace: Workspace) -> bool:
+    """A Share workspace that hasn't been made a full workspace."""
+    share = (workspace.settings or {}).get("openagents_share")
+    return isinstance(share, dict) and not share.get("kept_as_workspace")
+
+
+def _set_share_flag(db: Session, workspace: Workspace, **values) -> None:
+    settings = copy.deepcopy(workspace.settings or {})
+    share = dict(settings.get("openagents_share") or {})
+    share.update(values)
+    settings["openagents_share"] = share
+    workspace.settings = settings
+
+
+def my_rooms(db: Session, user) -> List[dict]:
+    """Rooms this person saved or published while signed in, newest activity first."""
+    from app.models import WorkspaceMembership
+    email = user.email.strip().lower()
+    ids = {w for (w,) in db.execute(select(WorkspaceMembership.workspace_id).where(
+        WorkspaceMembership.user_id == user.id, WorkspaceMembership.role.in_(("owner", "admin")))).all()}
+    rows = db.execute(select(Workspace).where(
+        Workspace.status == "active",
+        (Workspace.id.in_(ids)) | (Workspace.creator_email == email),
+    )).scalars().all()
+    out = []
+    for ws in rows:
+        share = (ws.settings or {}).get("openagents_share")
+        if not isinstance(share, dict) or share.get("moved_to"):
+            continue
+        channel = share_thread(db, ws)
+        if channel is None:
+            continue
+        room = describe_room(db, ws, channel)
+        live = next((l for l in links_for(db, str(ws.id), channel.name)
+                     if l.revoked_at is None and (l.expires_at is None or _aware(l.expires_at) > _now())), None)
+        room.update({
+            "lastActivityAt": channel.last_event_at,
+            "liveLink": serialize_link(live) if live else None,
+            "guestCount": len([g for g in list_guests(db, ws, channel) if not g["removed"]]),
+            "pendingRequests": len(pending_requests(db, ws, channel)),
+            "keptAsWorkspace": bool(share.get("kept_as_workspace")),
+        })
+        out.append(room)
+    out.sort(key=lambda r: r.get("lastActivityAt") or 0, reverse=True)
+    return out
+
+
+def keep_as_workspace(db: Session, workspace: Workspace, channel: Channel, user) -> dict:
+    """Turn a room into a full workspace of theirs (it then shows among their workspaces)."""
+    if not workspace.creator_email:
+        claim(db, workspace, workspace.password_hash, user)
+    _set_share_flag(db, workspace, kept_as_workspace=True)
+    db.commit()
+    return {"workspace": {"id": str(workspace.id), "slug": workspace.slug, "name": workspace.name},
+            "channel": {"name": channel.name, "title": channel.title}}
+
+
+def delete_room(db: Session, workspace: Workspace) -> None:
+    """Delete a room: its links stop working, the conversation is gone for guests."""
+    for link in db.execute(select(ThreadGuestLink).where(ThreadGuestLink.workspace_id == str(workspace.id))).scalars():
+        if link.revoked_at is None:
+            link.revoked_at = _now()
+    workspace.status = "deleted"
+    db.commit()
