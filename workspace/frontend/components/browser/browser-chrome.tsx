@@ -9,6 +9,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useFormatters, useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 import type { BrowserTab } from '@/lib/types';
+import type { StreamQuality } from '@/lib/browser-stream-quality';
 import { whoLabel, type PermanentEntry } from './tab-model';
 
 export type LiveState = 'live' | 'connecting' | 'unavailable' | 'asleep' | 'none';
@@ -100,7 +101,14 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
 }
 
 /** Whether the page is live, who is driving, who opened it and when. */
-export function BrowserStatusBar({ tab, liveState, controlling }: { tab: BrowserTab; liveState: LiveState; controlling: boolean }) {
+export function BrowserStatusBar({ tab, liveState, controlling, quality, onQuality }: {
+  tab: BrowserTab;
+  liveState: LiveState;
+  controlling: boolean;
+  /** Shown as a choice only where the person may pick (not in small previews). */
+  quality?: StreamQuality;
+  onQuality?: (quality: StreamQuality) => void;
+}) {
   const t = useT();
   const { timeAgoShort: timeAgo } = useFormatters();
   return (
@@ -121,6 +129,17 @@ export function BrowserStatusBar({ tab, liveState, controlling }: { tab: Browser
       {liveState === 'live' && <span className="min-w-0 truncate" title={controlling ? t('browser.controlInstructions') : undefined}>
         {controlling ? t('browser.youAreInControl') : t('browser.watching')}
       </span>}
+      {quality && onQuality && (
+        <div role="group" aria-label={t('browser.streamQuality')} className="ml-auto inline-flex shrink-0 items-center rounded-md border border-border p-0.5 md:ml-0">
+          {(['high', 'low'] as const).map((option) => (
+            <button key={option} type="button" aria-pressed={quality === option} onClick={() => onQuality(option)}
+              title={t(option === 'high' ? 'browser.streamHighHint' : 'browser.streamLowHint')}
+              className={cn('rounded-sm px-1.5 py-0.5 leading-none transition-colors', quality === option ? 'bg-muted font-medium text-foreground' : 'hover:text-foreground')}>
+              {t(option === 'high' ? 'browser.streamHigh' : 'browser.streamLow')}
+            </button>
+          ))}
+        </div>
+      )}
       <span className="ml-auto hidden min-w-0 items-center gap-1.5 md:inline-flex">
         <span className="truncate">
           {t('browser.openedBy', { who: tab.createdBy?.startsWith('human:') ? t('browser.you') : whoLabel(tab.createdBy) })}

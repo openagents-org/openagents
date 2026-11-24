@@ -352,6 +352,57 @@ def _context_to_dict(ctx: BrowserContext) -> dict:
     }
 
 
+
+# Browser Fabric refuses a new or woken session when the workspace already has
+# its maximum of awake tabs (and none is idle enough to put to sleep), or when
+# the whole service is full. Its message alone left agents guessing; say what
+# happened, which tabs are awake, and what to do next.
+_TAB_LIMIT = re.compile(r"Concurrent tab limit reached \((\d+)/(\d+)\)")
+_SERVER_FULL = re.compile(r"Server at capacity")
+
+
+def _tab_limit_response(db: Session, workspace, error: Exception, exclude_tab: Optional[str] = None):
+    """A 429 an agent can act on, or None when `error` is not a capacity refusal."""
+    text = str(error)
+    limit = _TAB_LIMIT.search(text)
+    full = _SERVER_FULL.search(text)
+    if not limit and not full:
+        return None
+    awake = db.execute(
+        select(BrowserTab)
+        .where(BrowserTab.workspace_id == str(workspace.id))
+        .where(BrowserTab.status == "active")
+        .order_by(BrowserTab.last_active_at.asc().nullsfirst())
+    ).scalars().all()
+    tabs = [{
+        "id": t.id, "title": t.title, "url": t.url, "created_by": t.created_by,
+        "last_active_at": t.last_active_at.isoformat() if t.last_active_at else None,
+        "saved": bool(t.context_id),
+    } for t in awake if t.id != exclude_tab][:20]
+    if limit:
+        message = (
+            f"This workspace already has {limit.group(1)} of {limit.group(2)} browser tabs awake, "
+            "and none has been idle long enough to put to sleep automatically. "
+            "Close a tab you no longer need (DELETE /v1/browser/tabs/{tab_id}; a saved tab keeps its "
+            "login and can be reopened later with its context_id), reuse one of the open tabs, "
+            "or wait about a minute and retry: a tab left idle for 60 seconds is put to sleep to make room."
+        )
+        code = "browser_tab_limit"
+    else:
+        message = (
+            "The browser service is at capacity right now. Wait a minute and retry, or close a tab "
+            "you no longer need (DELETE /v1/browser/tabs/{tab_id}) or reuse one of the open tabs."
+        )
+        code = "browser_service_full"
+    data = {
+        "error_code": code,
+        "awake_tabs": tabs,
+        "retry_after_seconds": 60,
+    }
+    if limit:
+        data.update({"awake": int(limit.group(1)), "limit": int(limit.group(2))})
+    return json_response(ResponseCode.TOO_MANY_REQUESTS, message, data=data)
+
 def _get_tab(db: Session, tab_id: str) -> Optional[BrowserTab]:
     return db.execute(
         select(BrowserTab).where(BrowserTab.id == tab_id)
@@ -683,7 +734,7 @@ async def open_tab(
     except UnsafeURLError as e:
         return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except RuntimeError as e:
-        return json_response(ResponseCode.BAD_REQUEST, str(e))
+        return _tab_limit_response(db, workspace, e) or json_response(ResponseCode.BAD_REQUEST, str(e))
     except Exception as e:
         logger.error("Failed to open browser tab: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to open browser tab")
@@ -1272,6 +1323,9 @@ async def reconnect_tab(
         return json_response(ResponseCode.BAD_REQUEST, str(e), data={"error_code": e.code})
     except Exception as e:
         db.commit()  # keep any tombstone recorded above
+        limited = _tab_limit_response(db, workspace, e, exclude_tab=tab.id)
+        if limited:
+            return limited
         logger.error("Reconnect failed: %s", e)
         return json_response(ResponseCode.INTERNAL_ERROR, "Failed to reconnect browser tab")
 
