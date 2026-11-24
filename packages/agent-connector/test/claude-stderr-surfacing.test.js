@@ -95,4 +95,17 @@ describe('ClaudeAdapter._formatClaudeError', () => {
     );
     assert.strictEqual(adapter._formatClaudeError(''), 'Claude error: Claude returned an error.');
   });
+  // Daily errors dashboard, 2026-11-24: both answer 403 and read as a bad key.
+  test('says a region block is not a key problem', () => {
+    const out = adapter._formatClaudeError("API Error: Request blocked before it reached Anthropic's API (HTTP 403) · the network this request came from isn't allowed: usually an unsupported region");
+    assert.match(out, /^Claude could not reach the model: /);
+    assert.match(out, /proxy/);
+    assert.doesNotMatch(out, /key may be invalid/);
+  });
+
+  test('says a spent relay account is out of credit', () => {
+    const out = adapter._formatClaudeError('Failed to authenticate. API Error: 403 organization balance exhausted（CRE-f7e299a8f4）');
+    assert.match(out, /out of credit/);
+    assert.doesNotMatch(out, /key may be invalid/);
+  });
 });

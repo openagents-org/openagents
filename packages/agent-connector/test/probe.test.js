@@ -1210,3 +1210,71 @@ describe('an Aider direct test sends the model LiteLLM would', () => {
     });
   });
 });
+
+// Daily errors dashboard, 2026-11-24.
+describe('failures that used to read as an unknown CLI error or a bad key', () => {
+  it('reads Gemini CLI on a personal Google account as an ineligible account', () => {
+    const out = 'An unexpected critical error occurred:IneligibleTierError: This client is no longer supported for Gemini Code Assist for individuals. To continue using Gemini, please migrate to the Antigravity CLI';
+    assert.equal(classifyFailure(out), CODE.ACCOUNT_INELIGIBLE);
+    // The account record dumped before the error mentions no billing that wins.
+    assert.equal(
+      classifyFailure("{ tierId: 'free-tier', tierName: 'Gemini Code Assist for individuals', billing: 'none' }\nError: This client is no longer supported for Gemini Code Assist for individuals."),
+      CODE.ACCOUNT_INELIGIBLE,
+    );
+    const g = buildGuidance(CODE.ACCOUNT_INELIGIBLE, { name: 'gemini', label: 'Gemini CLI' }, {}).join(' ');
+    assert.match(g, /GEMINI_API_KEY/);
+    assert.match(g, /Antigravity/);
+  });
+
+  it('reads a plan\'s own spend or usage cap as out of credit', () => {
+    assert.equal(
+      classifyFailure("You've hit your monthly spend limit. Switch to another model, or manage usage credits at https://claude.ai/settings/usage, to continue"),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(
+      classifyFailure("ERROR: You've hit your usage limit. Upgrade to Plus to continue using Codex (https://chatgpt.com/explore/plus), or try again at Dec 14th, 2026 3:30 PM."),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(
+      classifyFailure('API Error: 400 Your account (2104615010) does not have a valid AgentPlan subscription, or your subscription has expired.'),
+      CODE.OUT_OF_CREDIT,
+    );
+  });
+
+  it('reads "organization balance exhausted" at 403 as out of credit, not a rejected key', () => {
+    assert.equal(
+      classifyFailure('Failed to authenticate. API Error: 403 organization balance exhausted（CRE-f7e299a8f4）'),
+      CODE.OUT_OF_CREDIT,
+    );
+  });
+
+  it('reads Anthropic refusing the region as a network block, not a rejected key', () => {
+    const out = "API Error: Request blocked before it reached Anthropic's API (HTTP 403) · the network this request came from isn't allowed: usually an unsupported region, or a VPN";
+    assert.equal(classifyFailure(out), CODE.REGION_BLOCKED);
+    const g = buildGuidance(CODE.REGION_BLOCKED, { name: 'claude', label: 'Claude Code' }, {}).join(' ');
+    assert.match(g, /proxy/);
+    assert.doesNotMatch(g, /key was rejected/);
+  });
+
+  it('reads a model the relay retired as a bad model', () => {
+    assert.equal(
+      classifyFailure('ERROR: unexpected status 404 Not Found: 模型 gpt-5.6-sol 已下线，请改用 gpt-6.1-sol；The model gpt-5.6-sol has been retired'),
+      CODE.BAD_MODEL,
+    );
+    assert.equal(classifyFailure('unexpected status 404 Not Found: The model gpt-5.6-sol has been retired'), CODE.BAD_MODEL);
+  });
+
+  it('keeps the retired-model and region rules to what they name', () => {
+    assert.equal(classifyFailure('HTTP 404: 该模型已下线'), CODE.BAD_MODEL);
+    assert.notEqual(classifyFailure('The model provider has been removed from config'), CODE.BAD_MODEL);
+    assert.notEqual(classifyFailure('Bedrock: unsupported region us-west-9 in config'), CODE.REGION_BLOCKED);
+    assert.equal(classifyFailure('HTTP 403: {"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not supported"}}'), CODE.REGION_BLOCKED);
+  });
+
+  it('leaves a deprecated-setting warning alone', () => {
+    assert.equal(
+      classifyFailure('warning: model_reasoning_summary is deprecated and will be removed', { timedOut: true }),
+      CODE.TIMEOUT,
+    );
+  });
+});
