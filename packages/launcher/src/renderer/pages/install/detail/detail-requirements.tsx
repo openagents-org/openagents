@@ -10,6 +10,7 @@ import {
 
 import { platformsOf, runtimeOf } from "../entry-meta"
 import { RailCard, RailRow } from "./detail-section"
+import { CommandText } from "./command-text"
 
 function detectPlatform(): "macos" | "linux" | "windows" {
   if (typeof navigator === "undefined") return "linux"
@@ -100,10 +101,9 @@ export function DependenciesCard({
   return (
     <RailCard title={t("agents.dependencies.title")}>
       {command && (
-        // Wraps at the spaces, not inside the package name: break-all split
-        // "@anthropic-ai/claude-code" mid-token in a rail this narrow.
+        // Wraps between arguments, not inside the package name (see CommandText).
         <code className="block font-mono text-xs leading-relaxed wrap-anywhere whitespace-pre-wrap">
-          {command}
+          <CommandText command={command} />
         </code>
       )}
       {tags.length > 0 && (

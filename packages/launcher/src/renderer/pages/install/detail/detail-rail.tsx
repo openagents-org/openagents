@@ -7,7 +7,6 @@ import type {
   InstalledAgentRecord,
 } from "@renderer/types"
 
-import { RailCard } from "./detail-section"
 import { DependenciesCard, SystemRequirementsCard } from "./detail-requirements"
 import { UnmanagedNotice } from "./detail-unmanaged-notice"
 
@@ -38,15 +37,18 @@ export function DetailRail({
   const unmanaged = entry.installed && entry.managed === false
 
   return (
-    <aside className={cn("flex flex-col gap-3", className)}>
+    // Cards keep their own height: in the rail's height-capped scroller a
+    // flex column squeezed them, and Card's overflow-hidden cut off the rows
+    // and the ring along the bottom.
+    <aside className={cn("flex flex-col gap-3 *:shrink-0", className)}>
+      {/* The notice is an Alert, already a bordered box of its own; inside a
+          RailCard it drew a second frame around itself. */}
       {unmanaged && (
-        <RailCard>
-          <UnmanagedNotice
-            entry={entry}
-            binaryPath={binaryPath}
-            target={updateTarget}
-          />
-        </RailCard>
+        <UnmanagedNotice
+          entry={entry}
+          binaryPath={binaryPath}
+          target={updateTarget}
+        />
       )}
 
       <SystemRequirementsCard entry={entry} updatedAt={installed?.installedAt} />
