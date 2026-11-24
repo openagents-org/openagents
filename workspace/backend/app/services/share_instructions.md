@@ -26,6 +26,7 @@ Prepare all of the following, then show it to the person exactly as it will be p
 - **Link expiry**: never (default), 1 day, 7 days or 30 days.
 - **Who can ask the agent**: guests' requests **run right away** (default), **wait for the person's approval** each time, or **guests can't ask the agent at all** (they can still read and comment).
 - **Can guests post?** yes (default), or **read-only** (guests can only read).
+- **Who can open the room**: **anyone with the link** (default), or **only people invited by email** (they sign in with that address; list their emails).
 
 All of these can be changed later from the owner link.
 
@@ -55,11 +56,13 @@ curl -sS -X POST "{API}/v1/share/publish" -H "Content-Type: application/json" -d
   ],
   "link_expires_at": null,
   "guest_agent_access": "open",
-  "guests_can_post": true
+  "guests_can_post": true,
+  "access": "link",
+  "invited_emails": []
 }
 ```
 
-`link_expires_at` is an ISO-8601 time, or `null` for never. `guest_agent_access` is `"open"`, `"approval"` or `"off"`. The response's `data` has `guestUrl` (for teammates), `ownerUrl` (private: full control of the workspace), `token` (the workspace credential) and `agentName`.
+`link_expires_at` is an ISO-8601 time, or `null` for never. `guest_agent_access` is `"open"`, `"approval"` or `"off"`. `access` is `"link"` or `"invited"`; with `"invited"`, list the emails in `invited_emails` (each gets an email with the link). The response's `data` has `guestUrl` (for teammates), `ownerUrl` (private: full control of the workspace), `token` (the workspace credential) and `agentName`.
 
 ### Add the approved files
 

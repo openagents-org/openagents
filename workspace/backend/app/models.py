@@ -746,6 +746,10 @@ class ThreadGuestLink(Base):
     # "none": a guest's request to the agent runs at once. "owner": it waits
     # until the owner approves it (ThreadGuestRequest).
     approval_mode = Column(Text, nullable=False, default="none", server_default=text("'none'"))
+    # Like Google Docs: "link" — anyone with the link; "invited" — only people
+    # signed in with one of invited_emails (lowercased).
+    access = Column(Text, nullable=False, default="link", server_default=text("'link'"))
+    invited_emails = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     publish_key_hash = Column(Text, unique=True, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
@@ -795,6 +799,7 @@ class ThreadGuest(Base):
     id = Column(Text, primary_key=True, default=_uuid)
     link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
     display_name = Column(Text, nullable=False)
+    email = Column(Text, nullable=True)   # set for invite-only rooms: the signed-in invitee
     session_hash = Column(Text, unique=True, nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     post_window_started_at = Column(DateTime(timezone=True), nullable=True)

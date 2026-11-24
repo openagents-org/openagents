@@ -225,6 +225,10 @@ def publish(db: Session, body, owner) -> dict:
     access = (getattr(body, "guest_agent_access", None) or "open").strip().lower()
     if access not in AGENT_ACCESS:
         raise LinkError(400, "guest_agent_access must be 'open', 'approval' or 'off'")
+    access_mode = (getattr(body, "access", None) or "link").strip().lower()
+    if access_mode not in ("link", "invited"):
+        raise LinkError(400, "access must be 'link' or 'invited'")
+    invited = normalize_emails(getattr(body, "invited_emails", None) or [])
     key_hash = _sha("share-publish:" + key)
 
     existing = db.execute(select(ThreadGuestLink).where(
@@ -298,6 +302,8 @@ def publish(db: Session, body, owner) -> dict:
         created_by=f"human:{owner_email}" if owner_email else "share:anonymous",
         owner_name=owner_name,
         can_post=getattr(body, "guests_can_post", True) is not False,
+        access=access_mode,
+        invited_emails=invited,
         approval_mode=AGENT_ACCESS[access],
         publish_key_hash=key_hash,
         expires_at=expires_at,
@@ -314,6 +320,8 @@ def publish(db: Session, body, owner) -> dict:
             raise
         return _publish_result(db, winner, created=False)
     db.refresh(link)
+    if invited:
+        send_invites(link, title, owner_name, invited)
     logger.info("share: published workspace=%s channel=%s signed_in=%s expires=%s",
                 wid, channel_name, owner is not None, expires_at.isoformat() if expires_at else "never")
     return _publish_result(db, link, created=True)
@@ -330,13 +338,37 @@ def serialize_link(link: ThreadGuestLink) -> dict:
         "url": guest_url(link.token),
         "canPost": bool(link.can_post),
         "approvalMode": link.approval_mode or "none",
+        "access": link.access or "link",
+        "invitedEmails": list(link.invited_emails or []),
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "revokedAt": _aware(link.revoked_at).isoformat() if link.revoked_at else None,
         "createdAt": _aware(link.created_at).isoformat() if link.created_at else None,
     }
 
 
-def live_link(db: Session, token: str) -> Tuple[ThreadGuestLink, Workspace, Channel]:
+def viewer_email(db: Session, authorization: Optional[str]) -> Optional[str]:
+    if not authorization:
+        return None
+    from app.access import resolve_current_user
+    user = resolve_current_user(db, authorization)
+    return user.email.strip().lower() if user else None
+
+
+def check_invited(db: Session, link: ThreadGuestLink, workspace: Workspace, authorization: Optional[str]) -> Optional[str]:
+    """For invite-only rooms: the signed-in invitee's email, or a LinkError. The owner always passes."""
+    if (link.access or "link") != "invited":
+        return None
+    email = viewer_email(db, authorization)
+    if not email:
+        raise LinkError(401, "This room is invite-only. Sign in with the email it was shared with.",
+                        data={"access": "invited"})
+    if email in [e.lower() for e in (link.invited_emails or [])] or room_owner_user(db, workspace, authorization):
+        return email
+    raise LinkError(403, "You don't have access to this room. Ask the person who shared it to invite you.",
+                    data={"access": "invited", "email": email})
+
+
+def live_link(db: Session, token: str, authorization: Optional[str] = None) -> Tuple[ThreadGuestLink, Workspace, Channel]:
     """The link, its workspace and thread — or a LinkError saying why not.
 
     404 covers unknown and revoked alike (a revoked link reveals nothing);
@@ -357,6 +389,7 @@ def live_link(db: Session, token: str) -> Tuple[ThreadGuestLink, Workspace, Chan
     )).scalar_one_or_none()
     if channel is None or (channel.status or "active") == "deleted":
         raise LinkError(404, "This link doesn't exist or was turned off")
+    check_invited(db, link, workspace, authorization)
     return link, workspace, channel
 
 
@@ -439,9 +472,26 @@ def guest_blocked_text(db: Session, workspace: Workspace, channel: Channel, memb
     return f"Your message was posted, but {name} wasn't asked to work."
 
 
-def describe(db: Session, token: str, session: Optional[str]) -> dict:
-    link, workspace, channel = live_link(db, token)
+def guest_for_user(db: Session, link: ThreadGuestLink, email: str, name: Optional[str] = None,
+                   create: bool = False) -> Optional[ThreadGuest]:
+    """In an invite-only room the account is the identity: one guest per email, on any device."""
+    guest = db.execute(select(ThreadGuest).where(ThreadGuest.link_id == link.id,
+                                                 ThreadGuest.email == email)).scalar_one_or_none()
+    if guest is None and create:
+        guest = ThreadGuest(link_id=link.id, email=email, display_name=clean_name(name, 40) or email.split("@")[0],
+                            session_hash=_sha(secrets.token_urlsafe(32)), last_seen_at=_now())
+        db.add(guest)
+        db.flush()
+    return guest
+
+
+def describe(db: Session, token: str, session: Optional[str], authorization: Optional[str] = None) -> dict:
+    link, workspace, channel = live_link(db, token, authorization)
     guest = guest_for_session(db, link, session)
+    if guest is None and (link.access or "link") == "invited":
+        email = viewer_email(db, authorization)
+        g = guest_for_user(db, link, email) if email else None
+        guest = g if g is not None and g.revoked_at is None else None
     # A conversation moved into someone's team workspace shouldn't tell guests
     # that workspace's name; the small Share workspace's own name is fine.
     is_share_ws = bool((workspace.settings or {}).get("openagents_share"))
@@ -453,15 +503,28 @@ def describe(db: Session, token: str, session: Optional[str]) -> dict:
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "canPost": bool(link.can_post),
         "approvalMode": link.approval_mode or "none",
+        "access": link.access or "link",
         "pinnedArtifact": pinned_for_share(db, workspace, channel),
         "guest": {"id": guest.id, "name": guest.display_name} if guest else None,
     }
 
 
-def create_guest(db: Session, token: str, name: Optional[str]) -> dict:
-    link, _workspace, _channel = live_link(db, token)
+def create_guest(db: Session, token: str, name: Optional[str], authorization: Optional[str] = None) -> dict:
+    link, _workspace, _channel = live_link(db, token, authorization)
     if not link.can_post:
         raise LinkError(403, "This link is read-only")
+    if (link.access or "link") == "invited":
+        # The signed-in invitee: the same guest on every device; a session for this browser.
+        email = viewer_email(db, authorization)
+        guest = guest_for_user(db, link, email, name, create=True)
+        if guest.revoked_at is not None:
+            raise LinkError(403, "The owner removed you from this conversation. You can still read it.")
+        if clean_name(name, 40):
+            guest.display_name = clean_name(name, 40)
+        session = secrets.token_urlsafe(32)
+        guest.session_hash = _sha(session)
+        db.commit()
+        return {"guest": {"id": guest.id, "name": guest.display_name}, "session": session}
     display = clean_name(name, 40)
     if not display or has_unsafe_chars(display):
         raise LinkError(400, "Choose a name of 1-40 characters")
@@ -476,8 +539,9 @@ def create_guest(db: Session, token: str, name: Optional[str]) -> dict:
     return {"guest": {"id": guest.id, "name": guest.display_name}, "session": session}
 
 
-def list_messages(db: Session, token: str, after: Optional[str], limit: int, before: Optional[str] = None) -> dict:
-    link, workspace, channel = live_link(db, token)
+def list_messages(db: Session, token: str, after: Optional[str], limit: int, before: Optional[str] = None,
+                  authorization: Optional[str] = None) -> dict:
+    link, workspace, channel = live_link(db, token, authorization)
     return channel_messages(db, workspace, channel, after, limit, before)
 
 
@@ -624,12 +688,17 @@ def check_mentions(db: Session, workspace: Workspace, channel: Channel, content:
         raise LinkError(403, "Guests can only ask the agents in this thread")
 
 
-def prepare_guest_post(db: Session, token: str, session: Optional[str], content: str):
+def prepare_guest_post(db: Session, token: str, session: Optional[str], content: str,
+                       authorization: Optional[str] = None):
     """Authorize a guest post; returns (link, workspace, channel, guest, content)."""
-    link, workspace, channel = live_link(db, token)
+    link, workspace, channel = live_link(db, token, authorization)
     if not link.can_post:
         raise LinkError(403, "This link is read-only")
     guest = guest_for_session(db, link, session)
+    if guest is None and (link.access or "link") == "invited":
+        guest = guest_for_user(db, link, viewer_email(db, authorization), create=True)
+        if guest.revoked_at is not None:
+            raise LinkError(403, "The owner removed you from this conversation. You can still read it.")
     if guest is None:
         removed = db.execute(select(ThreadGuest).where(
             ThreadGuest.session_hash == _sha(session or ""))).scalar_one_or_none() if session else None
@@ -1120,7 +1189,7 @@ def decide_request(db: Session, workspace: Workspace, channel: Channel, request_
 # A guest takes a copy into their own workspace
 # ---------------------------------------------------------------------------
 
-def fork_for_guest(db: Session, token: str, user, target_id: Optional[str]) -> dict:
+def fork_for_guest(db: Session, token: str, user, target_id: Optional[str], authorization: Optional[str] = None) -> dict:
     """Copy what the guest can see into a private thread in one of their workspaces.
 
     The copy holds the same messages the guest page shows (member emails
@@ -1131,7 +1200,7 @@ def fork_for_guest(db: Session, token: str, user, target_id: Optional[str]) -> d
     from app.models import ChannelHumanMember
     from app.routers.network import _resolve_workspace
 
-    link, workspace, channel = live_link(db, token)
+    link, workspace, channel = live_link(db, token, authorization)
     email = user.email.strip().lower()
     if target_id:
         target = _resolve_workspace(db, target_id)
@@ -1428,3 +1497,82 @@ def set_pinned(db: Session, workspace: Workspace, channel: Channel, kind: Option
         raise LinkError(404, "That artifact isn't in this thread")
     db.commit()
     return {"kind": kind, "id": ref_id}
+
+
+# ---------------------------------------------------------------------------
+# Who can open the room: anyone with the link, or invited emails only
+# ---------------------------------------------------------------------------
+
+ACCESS_MODES = ("link", "invited")
+_EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+MAX_INVITES = 200
+
+
+def _owned_link(db: Session, workspace_id: str, link_id: str) -> ThreadGuestLink:
+    link = db.get(ThreadGuestLink, link_id)
+    if link is None or str(link.workspace_id) != str(workspace_id) or link.revoked_at is not None:
+        raise LinkError(404, "Link not found")
+    return link
+
+
+def set_access(db: Session, workspace_id: str, link_id: str, access: str) -> ThreadGuestLink:
+    if access not in ACCESS_MODES:
+        raise LinkError(400, "access must be 'link' or 'invited'")
+    link = _owned_link(db, workspace_id, link_id)
+    link.access = access
+    db.commit()
+    return link
+
+
+def normalize_emails(raw) -> List[str]:
+    out = []
+    for e in raw or []:
+        e = str(e or "").strip().lower()
+        if not e:
+            continue
+        if not _EMAIL.match(e) or e.endswith("@" + GUEST_DOMAIN):
+            raise LinkError(400, f"Not an email address: {e}")
+        if e not in out:
+            out.append(e)
+    return out
+
+
+def add_invites(db: Session, workspace: Workspace, link_id: str, emails: List[str], inviter: str) -> tuple:
+    """Invite people by email; returns (link, newly added). Each new invitee gets an email with the link."""
+    link = _owned_link(db, str(workspace.id), link_id)
+    current = [e.lower() for e in (link.invited_emails or [])]
+    new = [e for e in normalize_emails(emails) if e not in current]
+    if len(current) + len(new) > MAX_INVITES:
+        raise LinkError(400, f"At most {MAX_INVITES} people per room")
+    link.invited_emails = current + new
+    db.commit()
+    channel = db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id),
+                                               Channel.name == link.channel_name)).scalar_one_or_none()
+    send_invites(link, channel.title if channel else "a room", inviter, new)
+    return link, new
+
+
+def send_invites(link: ThreadGuestLink, title: str, inviter: str, emails: List[str]) -> None:
+    for email in emails:
+        try:
+            from app.services.email import send_email
+            from html import escape
+            send_email(email, f"{inviter} invited you to “{title}” on OpenAgents",
+                       f"<p>{escape(inviter)} invited you to the room <b>{escape(title)}</b>, "
+                       f"where you can talk with their agent.</p>"
+                       f"<p><a href=\"{guest_url(link.token)}\">Open the room</a></p>"
+                       f"<p>Sign in with {escape(email)} to open it.</p>")
+        except Exception:
+            logger.warning("share: invite email failed", exc_info=True)
+
+
+def remove_invite(db: Session, workspace: Workspace, link_id: str, email: str) -> ThreadGuestLink:
+    """Uninvite: they lose access to an invite-only room at once (and can't post if it opens to the link later)."""
+    link = _owned_link(db, str(workspace.id), link_id)
+    email = (email or "").strip().lower()
+    link.invited_emails = [e for e in (link.invited_emails or []) if e.lower() != email]
+    for g in db.execute(select(ThreadGuest).where(ThreadGuest.link_id == link.id, ThreadGuest.email == email)).scalars():
+        if g.revoked_at is None:
+            g.revoked_at = _now()
+    db.commit()
+    return link

@@ -119,6 +119,8 @@ class PublishRequest(BaseModel):
     agent_display_name: Optional[str] = None   # ignored: the agent is shown by agent_name
     guest_agent_access: Optional[str] = "open"  # open | approval | off
     guests_can_post: Optional[bool] = True
+    access: Optional[str] = "link"              # link | invited
+    invited_emails: List[str] = Field(default_factory=list)
     owner_name: Optional[str] = None
     workspace_name: Optional[str] = None
     excerpts: List[Excerpt] = Field(default_factory=list)
@@ -156,6 +158,7 @@ class LinkPatch(BaseModel):
     expires_at: Optional[str] = None
     approval_mode: Optional[str] = None
     can_post: Optional[bool] = None
+    access: Optional[str] = None
 
 
 class ClaimRequest(BaseModel):
@@ -232,6 +235,8 @@ def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depend
             link = svc.set_approval_mode(db, str(workspace.id), link_id, body.approval_mode or "")
         if "can_post" in body.model_fields_set:
             link = svc.set_can_post(db, str(workspace.id), link_id, bool(body.can_post))
+        if "access" in body.model_fields_set:
+            link = svc.set_access(db, str(workspace.id), link_id, body.access or "")
         if link is None:
             return _fail(svc.LinkError(400, "Nothing to change"))
         return _ok({"link": svc.serialize_link(link)})
@@ -265,35 +270,40 @@ class GuestMessage(BaseModel):
 
 
 @router.get("/guest-links/public/{token}")
-def describe_link(token: str, db: Session = Depends(get_db), x_guest_session: Optional[str] = Header(None)):
+def describe_link(token: str, db: Session = Depends(get_db), x_guest_session: Optional[str] = Header(None),
+                  authorization: Optional[str] = Header(None)):
     try:
-        return _ok(svc.describe(db, token, x_guest_session))
+        return _ok(svc.describe(db, token, x_guest_session, authorization))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.post("/guest-links/public/{token}/guests")
-def create_guest(token: str, body: GuestCreate, db: Session = Depends(get_db)):
+def create_guest(token: str, body: GuestCreate, db: Session = Depends(get_db),
+                 authorization: Optional[str] = Header(None)):
     try:
-        return _ok(svc.create_guest(db, token, body.name))
+        return _ok(svc.create_guest(db, token, body.name, authorization))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.get("/guest-links/public/{token}/messages")
 def guest_messages(token: str, after: Optional[str] = Query(None), before: Optional[str] = Query(None),
-                   limit: int = Query(100), db: Session = Depends(get_db)):
+                   limit: int = Query(100), db: Session = Depends(get_db),
+                   authorization: Optional[str] = Header(None)):
     try:
-        return _ok(svc.list_messages(db, token, after, limit, before=before))
+        return _ok(svc.list_messages(db, token, after, limit, before=before, authorization=authorization))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.post("/guest-links/public/{token}/messages")
 def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks,
-               db: Session = Depends(get_db, scope="function"), x_guest_session: Optional[str] = Header(None)):
+               db: Session = Depends(get_db, scope="function"), x_guest_session: Optional[str] = Header(None),
+               authorization: Optional[str] = Header(None)):
     try:
-        link, workspace, channel, guest, content = svc.prepare_guest_post(db, token, x_guest_session, body.content)
+        link, workspace, channel, guest, content = svc.prepare_guest_post(db, token, x_guest_session, body.content,
+                                                                          authorization)
     except svc.LinkError as e:
         return _fail(e)
 
@@ -516,7 +526,7 @@ def fork_shared_thread(token: str, body: ForkRequest, db: Session = Depends(get_
     if user is None:
         return json_response(ResponseCode.UNAUTHORIZED, "Sign in to copy this conversation")
     try:
-        return _ok(svc.fork_for_guest(db, token, user, body.target))
+        return _ok(svc.fork_for_guest(db, token, user, body.target, authorization))
     except svc.LinkError as e:
         return _fail(e)
 
@@ -607,27 +617,27 @@ async def _screenshot(db: Session, workspace, tab):
 
 
 @router.get("/guest-links/public/{token}/resources")
-def guest_resources(token: str, db: Session = Depends(get_db)):
+def guest_resources(token: str, db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
     try:
-        _link, workspace, channel = svc.live_link(db, token)
+        _link, workspace, channel = svc.live_link(db, token, authorization)
         return _ok(svc.thread_resources(db, workspace, channel))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.get("/guest-links/public/{token}/files/{file_id}")
-def guest_file(token: str, file_id: str, db: Session = Depends(get_db)):
+def guest_file(token: str, file_id: str, db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
     try:
-        _link, workspace, channel = svc.live_link(db, token)
+        _link, workspace, channel = svc.live_link(db, token, authorization)
         return _file_response(*svc.thread_file(db, workspace, channel, file_id))
     except svc.LinkError as e:
         return _fail(e)
 
 
 @router.get("/guest-links/public/{token}/browsers/{tab_id}/screenshot")
-async def guest_browser_screenshot(token: str, tab_id: str, db: Session = Depends(get_db)):
+async def guest_browser_screenshot(token: str, tab_id: str, db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
     try:
-        _link, workspace, channel = svc.live_link(db, token)
+        _link, workspace, channel = svc.live_link(db, token, authorization)
         tab = svc.thread_browser(db, workspace, channel, tab_id)
     except svc.LinkError as e:
         return _fail(e)
@@ -765,5 +775,53 @@ def room_pin(network: str, body: PinBody, db: Session = Depends(get_db),
     try:
         workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok({"pinnedArtifact": svc.set_pinned(db, workspace, channel, body.kind, body.id)})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+
+class InviteBody(BaseModel):
+    emails: List[str]
+
+
+@router.get("/guest-links/{link_id}/invites")
+def list_invites(link_id: str, network: str, db: Session = Depends(get_db),
+                 x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        link = svc._owned_link(db, str(workspace.id), link_id)
+        return _ok({"access": link.access or "link", "emails": list(link.invited_emails or [])})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/{link_id}/invites")
+def add_invites(link_id: str, network: str, body: InviteBody, db: Session = Depends(get_db),
+                x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """Invite people by email (they get an email with the link and sign in with that address)."""
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    user = resolve_current_user(db, authorization) if authorization else None
+    try:
+        link0 = svc._owned_link(db, str(workspace.id), link_id)
+        inviter = (getattr(user, "display_name", None) or (user.email.split("@")[0] if user else None)
+                   or link0.owner_name or "Someone")
+        link, new = svc.add_invites(db, workspace, link_id, body.emails, inviter)
+        return _ok({"link": svc.serialize_link(link), "added": new})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/guest-links/{link_id}/invites")
+def remove_invite(link_id: str, network: str, email: str, db: Session = Depends(get_db),
+                  x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"link": svc.serialize_link(svc.remove_invite(db, workspace, link_id, email))})
     except svc.LinkError as e:
         return _fail(e)

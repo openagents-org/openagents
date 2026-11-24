@@ -946,3 +946,52 @@ def test_the_artifact_the_owner_has_open_opens_for_guests(client, db, no_push):
     assert client.get(f"/v1/guest-links/room?network={data['slug']}", headers=h).json()["data"]["pinnedArtifact"]["id"] == fid
     client.put(url, json={"kind": None}, headers=h)
     assert client.get(f"/v1/guest-links/public/{token}").json()["data"]["pinnedArtifact"] is None
+
+
+# --- invite-only rooms (like Google Docs "restricted") -------------------------
+
+def test_invite_only_rooms_need_an_invited_sign_in(client, db, monkeypatch, no_push):
+    import app.services.email as email_mod
+    sent = []
+    monkeypatch.setattr(email_mod, "send_email", lambda to, subject, html: sent.append((to, subject)) or True)
+    _people(db, monkeypatch, "maya", "eve", "alex")
+    data = _published(client, access="invited", invited_emails=["Maya@acme.test"])
+    assert data["link"]["access"] == "invited" and data["link"]["invitedEmails"] == ["maya@acme.test"]
+    assert [s[0] for s in sent] == ["maya@acme.test"], "invitees get an email with the link"
+    token = _token(data)
+
+    anon = client.get(f"/v1/guest-links/public/{token}")
+    assert anon.status_code == 401 and anon.json()["data"]["access"] == "invited"
+    assert client.get(f"/v1/guest-links/public/{token}/messages").status_code == 401
+    assert client.get(f"/v1/guest-links/public/{token}/resources").status_code == 401
+    eve = {"Authorization": "Bearer eve"}
+    assert client.get(f"/v1/guest-links/public/{token}", headers=eve).status_code == 403
+
+    maya = {"Authorization": "Bearer maya"}
+    info = client.get(f"/v1/guest-links/public/{token}", headers=maya)
+    assert info.status_code == 200 and info.json()["data"]["access"] == "invited"
+    # Signed in, the account is the guest: no name prompt, same guest on any device.
+    r = client.post(f"/v1/guest-links/public/{token}/messages", json={"content": "hi from maya"}, headers=maya)
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["metadata"]["guest"]["name"] == "maya"
+    again = client.post(f"/v1/guest-links/public/{token}/messages", json={"content": "second device"}, headers=maya)
+    assert again.json()["data"]["metadata"]["guest"]["id"] == r.json()["data"]["metadata"]["guest"]["id"]
+
+    # The owner switches to anyone-with-the-link and back; uninviting cuts access.
+    owner = {"X-Workspace-Token": data["token"]}
+    url = f"/v1/guest-links/{data['link']['id']}"
+    q = f"?network={data['workspaceId']}"
+    assert client.patch(url + q, json={"access": "link"}, headers=owner).json()["data"]["link"]["access"] == "link"
+    assert client.get(f"/v1/guest-links/public/{token}").status_code == 200
+    client.patch(url + q, json={"access": "invited"}, headers=owner)
+    added = client.post(url + "/invites" + q, json={"emails": ["eve@acme.test", "maya@acme.test", "bad"]}, headers=owner)
+    assert added.status_code == 400, "a bad address is refused"
+    added = client.post(url + "/invites" + q, json={"emails": ["eve@acme.test", "maya@acme.test"]}, headers=owner)
+    assert added.json()["data"]["added"] == ["eve@acme.test"]
+    assert client.get(f"/v1/guest-links/public/{token}", headers=eve).status_code == 200
+    client.delete(url + "/invites" + q + "&email=maya@acme.test", headers=owner)
+    assert client.get(f"/v1/guest-links/public/{token}", headers=maya).status_code == 403
+    listed = client.get(url + "/invites" + q, headers=owner).json()["data"]
+    assert listed == {"access": "invited", "emails": ["eve@acme.test"]}
+    assert client.post(url + "/invites" + q, json={"emails": ["x@acme.test"]},
+                       headers={"X-Workspace-Token": token}).status_code == 403, "guests can't invite"
