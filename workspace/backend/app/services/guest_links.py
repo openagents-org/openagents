@@ -222,6 +222,9 @@ def publish(db: Session, body, owner) -> dict:
     """
     key, title, agent_name, agent_type = _validate_publish(body)
     expires_at = _parse_expiry(body.link_expires_at)
+    access = (getattr(body, "guest_agent_access", None) or "open").strip().lower()
+    if access not in AGENT_ACCESS:
+        raise LinkError(400, "guest_agent_access must be 'open', 'approval' or 'off'")
     key_hash = _sha("share-publish:" + key)
 
     existing = db.execute(select(ThreadGuestLink).where(
@@ -250,7 +253,9 @@ def publish(db: Session, body, owner) -> dict:
     db.add(WorkspaceMember(
         workspace_id=wid,
         agent_name=agent_name,
-        display_name=clean_name(body.agent_display_name, 60) or None,
+        # Shown by its own name (letters, digits, - and _, no spaces), the
+        # handle people type to ask it; never a generic label like "Claude Code".
+        display_name=None,
         owner_email=owner_email,
         role="master",
         agent_type=agent_type or None,
@@ -273,7 +278,7 @@ def publish(db: Session, body, owner) -> dict:
     db.add(ChannelMember(channel_id=channel.id, agent_name=agent_name))
 
     owner_source = f"human:{owner_email}" if owner_email else "human:owner"
-    agent_label = clean_name(body.agent_display_name, 60) or agent_name
+    agent_label = agent_name
     ts = int(time.time() * 1000) - (len(body.excerpts or []) + 2)
     for item in body.excerpts or []:
         if item.author == "owner":
@@ -292,7 +297,8 @@ def publish(db: Session, body, owner) -> dict:
         token=secrets.token_urlsafe(24),
         created_by=f"human:{owner_email}" if owner_email else "share:anonymous",
         owner_name=owner_name,
-        can_post=True,
+        can_post=getattr(body, "guests_can_post", True) is not False,
+        approval_mode=AGENT_ACCESS[access],
         publish_key_hash=key_hash,
         expires_at=expires_at,
     )
@@ -406,6 +412,8 @@ def guest_may_run(db: Session, workspace_id, channel: Optional[Channel], member,
             or str(link.workspace_id) != str(workspace_id) or link.channel_name != channel.name
             or (link.expires_at is not None and _aware(link.expires_at) <= _now())):
         return False
+    if (link.approval_mode or "none") == "off":
+        return False   # the owner doesn't let guests use the agent
     if GUEST_CAPABILITY not in (getattr(member, "capabilities", None) or []):
         # The connected client can't run a guest's turn read-only (an older
         # launcher): it would run with the owner's full rights. Never route.
@@ -423,6 +431,8 @@ def guest_blocked_text(db: Session, workspace: Workspace, channel: Channel, memb
         return None
     name = member.display_name or member.agent_name
     owner = link.owner_name or "The person who shared it"
+    if (link.approval_mode or "none") == "off":
+        return f"{owner} doesn't let guests ask {name}. Your message was posted as a comment."
     if GUEST_CAPABILITY not in (getattr(member, "capabilities", None) or []):
         return (f"Your message was posted, but {name} can't take requests from guests yet. "
                 f"{owner} needs to update the OpenAgents launcher on their computer.")
@@ -620,6 +630,10 @@ def prepare_guest_post(db: Session, token: str, session: Optional[str], content:
         raise LinkError(403, "This link is read-only")
     guest = guest_for_session(db, link, session)
     if guest is None:
+        removed = db.execute(select(ThreadGuest).where(
+            ThreadGuest.session_hash == _sha(session or ""))).scalar_one_or_none() if session else None
+        if removed is not None and removed.link_id == link.id and removed.revoked_at is not None:
+            raise LinkError(403, "The owner removed you from this conversation. You can still read it.")
         raise LinkError(401, "Your guest session ended. Enter your name again to post.")
     text = (content or "").strip()
     if not text:
@@ -746,7 +760,11 @@ def revoke(db: Session, workspace_id: str, link_id: str) -> ThreadGuestLink:
     return link
 
 
-APPROVAL_MODES = ("none", "owner")
+# "none": guests' requests run at once; "owner": each waits for the owner's
+# approval; "off": guests can't ask the agent at all (their messages are comments).
+APPROVAL_MODES = ("none", "owner", "off")
+# What people say at setup → what's stored.
+AGENT_ACCESS = {"open": "none", "approval": "owner", "off": "off"}
 
 
 def set_approval_mode(db: Session, workspace_id: str, link_id: str, mode: str) -> ThreadGuestLink:
@@ -1238,3 +1256,53 @@ def thread_browser(db: Session, workspace: Workspace, channel: Channel, tab_id: 
     if tab is None:
         raise LinkError(404, "Browser not found")
     return tab
+
+
+# ---------------------------------------------------------------------------
+# The owner's controls over guests
+# ---------------------------------------------------------------------------
+
+def set_can_post(db: Session, workspace_id: str, link_id: str, can_post: bool) -> ThreadGuestLink:
+    link = db.get(ThreadGuestLink, link_id)
+    if link is None or str(link.workspace_id) != str(workspace_id) or link.revoked_at is not None:
+        raise LinkError(404, "Link not found")
+    link.can_post = bool(can_post)
+    db.commit()
+    return link
+
+
+def list_guests(db: Session, workspace: Workspace, channel: Channel) -> List[dict]:
+    link_ids = [l.id for l in links_for(db, str(workspace.id), channel.name)]
+    if not link_ids:
+        return []
+    rows = db.execute(select(ThreadGuest).where(ThreadGuest.link_id.in_(link_ids))
+                      .order_by(ThreadGuest.created_at)).scalars().all()
+    return [{
+        "id": g.id, "name": g.display_name,
+        "joinedAt": _aware(g.created_at).isoformat() if g.created_at else None,
+        "lastSeenAt": _aware(g.last_seen_at).isoformat() if g.last_seen_at else None,
+        "removed": g.revoked_at is not None,
+    } for g in rows]
+
+
+def remove_guest(db: Session, workspace: Workspace, channel: Channel, guest_id: str) -> dict:
+    """The guest can still read (it's a link) but can no longer post or ask the agent.
+
+    Their pending requests are declined. Turning the link off and making a new
+    one is how to shut someone out entirely.
+    """
+    guest = db.get(ThreadGuest, guest_id)
+    link = db.get(ThreadGuestLink, guest.link_id) if guest else None
+    if (guest is None or link is None or str(link.workspace_id) != str(workspace.id)
+            or link.channel_name != channel.name):
+        raise LinkError(404, "Guest not found")
+    if guest.revoked_at is None:
+        guest.revoked_at = _now()
+        for req in db.execute(select(ThreadGuestRequest).where(
+            ThreadGuestRequest.guest_id == guest.id, ThreadGuestRequest.status == "pending",
+        )).scalars():
+            req.status = "declined"
+            req.decided_by = "owner"
+            req.decided_at = _now()
+        db.commit()
+    return {"id": guest.id, "name": guest.display_name, "removed": True}

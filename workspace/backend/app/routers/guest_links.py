@@ -16,6 +16,8 @@
   GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
   POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
   GET    /v1/guest-links/requests?network=&channel=     the same, from the full workspace (owner/admin)
+  GET    /v1/guest-links/{room|guests?network=&channel=}/guests     the thread's guests (owner)
+  DELETE .../guests/{id}                                        remove a guest: read-only from then on
   GET    /v1/guest-links/{public/{token}|room}/resources               the thread's artifacts and routines
   GET    /v1/guest-links/{public/{token}|room}/files/{id}              a file the thread shows (artifact or attachment)
   GET    /v1/guest-links/{public/{token}|room}/browsers/{id}/screenshot  a browser session the thread shows
@@ -114,7 +116,9 @@ class PublishRequest(BaseModel):
     title: str
     agent_name: str
     agent_type: Optional[str] = None
-    agent_display_name: Optional[str] = None
+    agent_display_name: Optional[str] = None   # ignored: the agent is shown by agent_name
+    guest_agent_access: Optional[str] = "open"  # open | approval | off
+    guests_can_post: Optional[bool] = True
     owner_name: Optional[str] = None
     workspace_name: Optional[str] = None
     excerpts: List[Excerpt] = Field(default_factory=list)
@@ -151,6 +155,7 @@ def _owner_workspace(db: Session, network: str, token: Optional[str], authorizat
 class LinkPatch(BaseModel):
     expires_at: Optional[str] = None
     approval_mode: Optional[str] = None
+    can_post: Optional[bool] = None
 
 
 class ClaimRequest(BaseModel):
@@ -225,6 +230,8 @@ def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depend
             link = svc.set_expiry(db, str(workspace.id), link_id, body.expires_at)
         if "approval_mode" in body.model_fields_set:
             link = svc.set_approval_mode(db, str(workspace.id), link_id, body.approval_mode or "")
+        if "can_post" in body.model_fields_set:
+            link = svc.set_can_post(db, str(workspace.id), link_id, bool(body.can_post))
         if link is None:
             return _fail(svc.LinkError(400, "Nothing to change"))
         return _ok({"link": svc.serialize_link(link)})
@@ -649,3 +656,49 @@ async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depen
     except svc.LinkError as e:
         return _fail(e)
     return await _screenshot(db, workspace, tab)
+
+
+
+# Guests of the thread: list, and remove one (owner room, or the full workspace).
+
+@router.get("/guest-links/room/guests")
+def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok({"guests": svc.list_guests(db, workspace, channel)})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/guest-links/room/guests/{guest_id}")
+def room_remove_guest(network: str, guest_id: str, db: Session = Depends(get_db),
+                      x_workspace_token: Optional[str] = Header(None)):
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token)
+        return _ok({"guest": svc.remove_guest(db, workspace, channel, guest_id)})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.get("/guest-links/guests")
+def workspace_guests(network: str, channel: str, db: Session = Depends(get_db),
+                     x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"guests": svc.list_guests(db, workspace, _workspace_channel(db, workspace, channel))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/guest-links/guests/{guest_id}")
+def workspace_remove_guest(guest_id: str, network: str, channel: str, db: Session = Depends(get_db),
+                           x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    workspace, err = _owner_workspace(db, network, x_workspace_token, authorization)
+    if err:
+        return err
+    try:
+        return _ok({"guest": svc.remove_guest(db, workspace, _workspace_channel(db, workspace, channel), guest_id)})
+    except svc.LinkError as e:
+        return _fail(e)

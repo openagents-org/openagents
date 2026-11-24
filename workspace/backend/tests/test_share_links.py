@@ -147,7 +147,7 @@ def test_guest_reads_without_a_name_and_posts_after_choosing_one(client, db, no_
     assert body["thread"]["title"] == "PR reviewer"
     assert body["owner"]["name"] == "Alex"
     assert body["guest"] is None and body["canPost"] is True
-    assert body["agents"] == [{"name": "pr-reviewer", "displayName": "Claude Code", "type": "claude",
+    assert body["agents"] == [{"name": "pr-reviewer", "displayName": "pr-reviewer", "type": "claude",
                                "online": False, "acceptsGuests": False}]
 
     assert _post(client, token, None, "hello").status_code == 401
@@ -622,9 +622,14 @@ def test_an_offline_agent_learns_about_the_move_when_it_next_joins(client, db, m
 
 
 def test_addressing_the_agent_by_the_name_people_see_runs_it(client, db, no_push):
-    """Found in testing: a guest typed "@Claude Code hi" and nothing ran."""
+    """Found in testing: a guest typed "@Claude Code hi" and nothing ran.
+
+    Share agents are shown by their handle now, but an owner can still give an
+    agent a display name in the Workspace after keeping it."""
     data = _published(client)
     _join(client, data, ["guest_turns"])
+    db.query(WorkspaceMember).filter_by(workspace_id=data["workspaceId"], agent_name="pr-reviewer").update({"display_name": "Claude Code"})
+    db.commit()
     g = _guest(client, _token(data))
     r = _post(client, _token(data), g["session"], "@Claude Code hi")
     stored = db.get(EventRecord, r.json()["data"]["id"])
@@ -808,3 +813,68 @@ def test_guests_see_the_threads_artifacts_and_routines(client, db, no_push):
     client.delete(f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}", headers=h)
     assert client.get(f"/v1/guest-links/public/{token}/resources").status_code == 404
     assert client.get(f"/v1/guest-links/public/{token}/files/{fid}").status_code == 404
+
+
+# --- the owner's permissions over guests --------------------------------------
+
+def test_owner_chooses_at_setup_how_guests_may_use_the_agent(client, db, no_push):
+    off = _published(client, guest_agent_access="off")
+    assert off["link"]["approvalMode"] == "off"
+    _join(client, off, ["guest_turns"])
+    g = _guest(client, _token(off))
+    r = _post(client, _token(off), g["session"], "@pr-reviewer please")
+    assert r.status_code == 200
+    assert db.get(EventRecord, r.json()["data"]["id"]).metadata_.get("target_agents") == ["__no_response__"]
+    notices = [m["payload"]["content"] for m in _messages(client, _token(off)) if "doesn't let guests" in m["payload"].get("content", "")]
+    assert notices == ["Alex doesn't let guests ask pr-reviewer. Your message was posted as a comment."]
+
+    appr = _published(client, guest_agent_access="approval")
+    assert appr["link"]["approvalMode"] == "owner"
+    ro = _published(client, guests_can_post=False)
+    assert ro["link"]["canPost"] is False
+    assert client.post(f"/v1/guest-links/public/{_token(ro)}/guests", json={"name": "Sam"}).status_code == 403
+    assert _publish(client, guest_agent_access="sometimes").status_code == 400
+
+
+def test_owner_can_switch_access_and_posting_later(client, db, no_push):
+    data = _published(client)
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    url = f"/v1/guest-links/{data['link']['id']}?network={data['workspaceId']}"
+    assert client.patch(url, json={"approval_mode": "off"}, headers=owner).json()["data"]["link"]["approvalMode"] == "off"
+    g = _guest(client, _token(data))
+    r = _post(client, _token(data), g["session"], "@pr-reviewer hi")
+    assert db.get(EventRecord, r.json()["data"]["id"]).metadata_.get("target_agents") == ["__no_response__"]
+    assert client.patch(url, json={"approval_mode": "none"}, headers=owner).status_code == 200
+    r = _post(client, _token(data), g["session"], "@pr-reviewer hi again")
+    assert db.get(EventRecord, r.json()["data"]["id"]).metadata_.get("target_agents") == ["pr-reviewer"]
+    ro = client.patch(url, json={"can_post": False}, headers=owner).json()["data"]["link"]
+    assert ro["canPost"] is False and ro["approvalMode"] == "none"
+    assert _post(client, _token(data), g["session"], "anyone?").status_code == 403
+    assert client.get(f"/v1/guest-links/public/{_token(data)}").json()["data"]["canPost"] is False
+
+
+def test_owner_can_remove_a_guest(client, db, no_push):
+    data = _published(client, guest_agent_access="approval")
+    _join(client, data, ["guest_turns"])
+    owner = {"X-Workspace-Token": data["token"]}
+    token = _token(data)
+    g = _guest(client, token)
+    _post(client, token, g["session"], "@pr-reviewer pending one")
+    guests = client.get(f"/v1/guest-links/room/guests?network={data['slug']}", headers=owner).json()["data"]["guests"]
+    assert [x["name"] for x in guests] == ["Maya"] and guests[0]["removed"] is False
+    r = client.delete(f"/v1/guest-links/room/guests/{g['guest']['id']}?network={data['slug']}", headers=owner)
+    assert r.status_code == 200
+    blocked = _post(client, token, g["session"], "still me")
+    assert blocked.status_code == 403 and "removed you" in blocked.json()["message"]
+    assert client.get(f"/v1/guest-links/room/requests?network={data['slug']}", headers=owner).json()["data"]["requests"] == []
+    assert client.get(f"/v1/guest-links/public/{token}/messages").status_code == 200, "they can still read"
+    assert client.delete(f"/v1/guest-links/room/guests/{g['guest']['id']}?network={data['slug']}",
+                         headers={"X-Workspace-Token": token}).status_code == 404, "a guest can't remove anyone"
+
+
+def test_the_agent_is_shown_by_its_own_name(client, db, no_push):
+    data = _published(client, agent_display_name="Claude Code")
+    info = client.get(f"/v1/guest-links/public/{_token(data)}").json()["data"]
+    assert info["agents"][0]["displayName"] == "pr-reviewer"
+    assert " " not in info["agents"][0]["name"]
