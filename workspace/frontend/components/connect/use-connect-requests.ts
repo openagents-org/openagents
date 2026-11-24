@@ -64,15 +64,27 @@ export function useConnectRequests({ nodes, loaded, localNodeId, onRefresh, open
 }
 
 /** An add that came up says so, with the way to the agent it made. */
-export function useJoinedNotice(skip: boolean): (agentName: string) => void {
+/** Announces an agent that came online. When `onImport` is given and returns
+ *  an opener (its tool keeps local sessions: Claude Code, Codex…), the notice
+ *  also offers importing them. */
+export function useJoinedNotice(skip: boolean, onImport?: (agentName: string) => (() => void) | null): (agentName: string) => void {
   const t = useT();
   const { setSelectedAgentName } = useLayout();
   const { refreshAgents } = useWorkspace();
   return (name) => {
     if (skip) return;
-    toast.success(t('connect.agentJoined', { name }), {
-      // The profile reads the workspace's agent list, which may not have it yet.
-      action: { label: t('connect.viewAgent'), onClick: () => { void refreshAgents().finally(() => setSelectedAgentName(name)); } },
-    });
+    // The profile reads the workspace's agent list, which may not have it yet.
+    const view = { label: t('connect.viewAgent'), onClick: () => { void refreshAgents().finally(() => setSelectedAgentName(name)); } };
+    const openImport = onImport?.(name);
+    if (openImport) {
+      toast.success(t('connect.agentJoined', { name }), {
+        description: t('importSessions.joinedHint'),
+        action: { label: t('importSessions.action'), onClick: openImport },
+        cancel: view,
+        duration: 15000,
+      });
+      return;
+    }
+    toast.success(t('connect.agentJoined', { name }), { action: view });
   };
 }

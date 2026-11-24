@@ -26,6 +26,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
+const { pendingImport } = require('../session-imports');
 const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT, networkErrorText } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
 
@@ -197,6 +198,44 @@ class CodexAdapter extends BaseAdapter {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelThreads));
     } catch {}
+  }
+
+  /**
+   * A channel that is an imported local Codex session (src/session-imports.js)
+   * continues it from its first turn. `codex exec resume <id>` appends to the
+   * rollout it resumes, so the user's own file is copied first under a new id
+   * (the id rewritten in its name and records) into the CODEX_HOME this agent
+   * runs with, and the copy is what the channel resumes. A rollout that is
+   * gone leaves the channel to start fresh with the imported thread history.
+   */
+  _adoptImportedThread(msgChannel) {
+    if (Object.prototype.hasOwnProperty.call(this._channelThreads, msgChannel)) return;
+    // Once per channel: a copy that later fails to resume is dropped like any
+    // stale thread, and the channel goes on fresh rather than re-importing.
+    this._adoptedImports = this._adoptedImports || new Set();
+    if (this._adoptedImports.has(msgChannel)) return;
+    const entry = pendingImport(this.workspaceId, this.agentName, msgChannel, 'codex');
+    if (!entry || !entry.file) return;
+    this._adoptedImports.add(msgChannel);
+    try {
+      const env = this.agentEnv || process.env;
+      const home = env.CODEX_HOME || path.join(os.homedir(), '.codex');
+      const text = fs.readFileSync(entry.file, 'utf-8');
+      const complete = text.slice(0, text.lastIndexOf('\n') + 1);
+      const newId = require('crypto').randomUUID();
+      const now = new Date();
+      const pad = (v) => String(v).padStart(2, '0');
+      const dir = path.join(home, 'sessions', String(now.getFullYear()), pad(now.getMonth() + 1), pad(now.getDate()));
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
+      fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      fs.writeFileSync(path.join(dir, `rollout-${stamp}-${newId}.jsonl`), complete.split(entry.session_id).join(newId), { mode: 0o600 });
+      this._channelThreads[msgChannel] = newId;
+      try { require('../session-imports').recordCopy(newId); } catch { /* only hides it from the import picker */ }
+      this._saveSessions();
+      this._log(`Channel ${msgChannel} continues imported Codex session ${entry.session_id} as ${newId}`);
+    } catch (e) {
+      this._log(`Imported session ${entry.session_id} unavailable for ${msgChannel} (${e.message}); starting fresh`);
+    }
   }
 
   // ------------------------------------------------------------------
@@ -460,6 +499,8 @@ class CodexAdapter extends BaseAdapter {
 
     const context = this._buildSystemContext(msgChannel);
     const fullPrompt = `${context}\n\n---\n\nUser message:\n${content}${this._attachmentInstructions(attachments)}`;
+
+    this._adoptImportedThread(msgChannel);
 
     // Run up to 2 attempts: first with resume, then fresh if stale
     let relocated = false;

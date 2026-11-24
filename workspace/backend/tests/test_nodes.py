@@ -361,6 +361,35 @@ class TestNodeRuntimes:
         assert hist[0]["result"]["data"]["dirs"] == ["ubuntu"]
 
 
+class TestListLocalSessions:
+    """The device owner's own past CLI sessions are private: only that person,
+    signed in, may ask the device to list them."""
+
+    def test_owner_lists_sessions_and_reads_the_result(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_local_sessions", "args": {"type": "codex"}}, headers=_owner())
+        assert r.status_code == 200, r.text
+        cmd_id = r.json()["data"]["commandId"]
+        sessions = [{"id": "s1", "type": "codex", "title": "Add pagination", "cwd": "/work/api", "updatedAt": "2026-11-02T09:00:00Z", "messageCount": 2}]
+        assert client.post(f"/v1/nodes/commands/{cmd_id}/result", json={"ok": True, "data": {"type": "codex", "sessions": sessions}},
+                           headers=_tok(ws["device_token"])).status_code == 200
+        hist = client.get(f"/v1/nodes/{node_id}/commands", headers=_owner()).json()["data"]
+        assert hist[0]["result"]["data"]["sessions"] == sessions
+
+    def test_machine_credentials_cannot_list_sessions(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_local_sessions", "args": {"type": "claude"}}, headers=_tok(ws["device_token"]))
+        assert r.status_code == 403
+
+    def test_only_supported_types(self, client):
+        ws = _make_workspace(client)
+        node_id = _connect_node(client, ws)
+        r = client.post(f"/v1/nodes/{node_id}/commands", json={"action": "list_local_sessions", "args": {"type": "aider"}}, headers=_owner())
+        assert r.status_code == 400
+
+
 def _soft_delete(db, workspace_id):
     ws = db.query(Workspace).filter(Workspace.id == workspace_id).one()
     ws.status = "deleted"

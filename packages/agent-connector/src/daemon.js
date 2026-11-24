@@ -712,6 +712,64 @@ class Daemon {
   }
 
   /**
+   * import_local_session: upload one of the owner's local CLI sessions as a
+   * workspace thread, in batches (the first creates the thread), and, when
+   * `agent` is an agent of the same tool on this device, record the import so
+   * the agent continues the real session on that thread from a copy.
+   * Returns {channel, title, resumable}.
+   */
+  async _importLocalSession(n, args, commandId) {
+    // One import at a time: several picked at once would all read and upload
+    // together.
+    const run = () => this._importOne(n, args, commandId);
+    const next = (this._importQueue || Promise.resolve()).then(run, run);
+    this._importQueue = next.catch(() => {});
+    return next;
+  }
+
+  /** Where this device's agents work: sessions run there are theirs, not the owner's. */
+  _agentWorkdirs() {
+    let agents = [];
+    try { agents = this.config.getAgents() || []; } catch {}
+    return agents.map((a) => resolveAgentWorkdir(a.path) || defaultAgentWorkdir(a.name)).filter(Boolean);
+  }
+
+  async _importOne(n, args, commandId) {
+    const { runLocalSessions } = require('./local-sessions-worker');
+    const type = String(args.type || '');
+    const session = await runLocalSessions('readLocalSession', [type, String(args.id || '')]);
+    if (!session) throw new Error('That session is no longer on this device');
+    const agentName = String(args.agent || '').trim();
+    const client = this._nodeClientFor(n);
+    const BATCH = Daemon.IMPORT_BATCH;
+    // The workspace takes the session, tool and agent from the command the
+    // owner started; every call names it.
+    const head = { command_id: commandId, title: session.title, cwd: session.cwd, truncated: session.truncated, total: session.total };
+    const batches = [];
+    for (let i = 0; i < Math.max(session.messages.length, 1); i += BATCH) batches.push(session.messages.slice(i, i + BATCH));
+    const first = await client.importSession(n.node_id, n.token, { ...head, messages: batches[0], final: batches.length === 1 });
+    const channel = first && first.channel;
+    if (!channel) throw new Error('The workspace did not create a thread for the import');
+    if (first.existing) return { channel, title: first.title || session.title, resumable: false, existing: true };
+    for (let i = 1; i < batches.length; i++) {
+      await client.importSession(n.node_id, n.token, { command_id: commandId, channel, messages: batches[i], final: i === batches.length - 1 });
+    }
+    // Native continuation: Claude Code forks the session, Codex resumes a
+    // copy under a new id. OpenCode gets the full transcript as context on the
+    // first turn (forking its sessions breaks Anthropic models' thinking
+    // blocks). Hermes can only resume by writing into the original session,
+    // so it works from the thread's history instead.
+    let resumable = false;
+    const agentCfg = agentName ? this.config.getAgent(agentName) : null;
+    if (agentCfg && this._agentOnNodeWorkspace(agentCfg, n) && (agentCfg.type || 'openclaw') === type
+        && Daemon.RESUMABLE_IMPORTS.has(type)) {
+      require('./session-imports').recordImport(n.workspace_id, agentName, channel, { type, session_id: session.id, file: session.file });
+      resumable = true;
+    }
+    return { channel, title: (first && first.title) || session.title, resumable };
+  }
+
+  /**
    * True if agent `a` is bound to the node's currently-connected workspace.
    * A missing network never matches (guards against undefined === undefined
    * leaking local-only agents when a node field is also unset).
@@ -1339,6 +1397,22 @@ async _runNodeCommand(n, cmd) {
         data = this._listDir(args.path);
         ok = true;
         message = `Listed ${data.dirs.length} folder(s)`;
+      } else if (action === 'list_local_sessions') {
+        // The owner's own past CLI sessions, for the workspace's import
+        // picker (src/local-sessions.js). Titles only.
+        const { runLocalSessions } = require('./local-sessions-worker');
+        const sessions = await runLocalSessions('listLocalSessions', [args.type, {
+          limit: Number(args.limit) || 200,
+          excludeCwds: this._agentWorkdirs(),
+          excludeIds: require('./session-imports').copiedIds(),
+        }]);
+        data = { type: args.type, sessions };
+        ok = true;
+        message = `Found ${sessions.length} session(s)`;
+      } else if (action === 'import_local_session') {
+        data = await this._importLocalSession(n, args, cmd.commandId);
+        ok = true;
+        message = `Imported "${data.title}"`;
       } else {
         message = `Unknown action '${action}'`;
       }
@@ -2632,5 +2706,9 @@ async _runNodeCommand(n, cmd) {
     return pids;
   }
 }
+
+Daemon.IMPORT_BATCH = 50;
+// Tools whose imported sessions the same tool's agent continues (see _importLocalSession).
+Daemon.RESUMABLE_IMPORTS = new Set(['claude', 'codex', 'opencode']);
 
 module.exports = { Daemon, filesystemRoots };
