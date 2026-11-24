@@ -270,7 +270,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       {/* Phone: the artifact in a sheet over the conversation. */}
       {resourceSource && !wide && (
         <Sheet open={!!openSelection} onOpenChange={(open) => { if (!open) setSelection(null); }}>
-          <SheetContent side="bottom" showCloseButton={false} className="h-[88dvh] gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)]">
+          <SheetContent side="bottom" showCloseButton={false} className="h-[88dvh] gap-0 rounded-t-xl p-0 pb-[env(safe-area-inset-bottom)] data-[side=bottom]:h-[88dvh]">
             <SheetHeader className="sr-only">
               <SheetTitle>{openSelection ? (openSelection.kind === 'file' ? openSelection.name : openSelection.title) : t('artifactPanel.title')}</SheetTitle>
               <SheetDescription>{t('artifactPanel.title')}</SheetDescription>
