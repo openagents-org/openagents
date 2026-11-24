@@ -156,7 +156,10 @@ function parseClaude(lines) {
 // ── Codex ──────────────────────────────────────────────────────────────────
 
 // Codex puts AGENTS.md and environment details in user-role messages.
-const CODEX_INJECTED = /^\s*<(environment_context|user_instructions|permissions|turn_aborted)\b|^\s*# AGENTS\.md instructions/;
+const CODEX_INJECTED = /^\s*<(environment_context|user_instructions|permissions|turn_aborted|recommended_plugins|user_shell_command)\b|^\s*# AGENTS\.md instructions|^\s*The following is the Codex agent history\b/;
+// A user-role message that is nothing but <snake_case>…</snake_case> blocks
+// is context the CLI added (newer versions add new kinds), not typing.
+const ONLY_TAG_BLOCKS = /^(?:\s*<([a-z][a-z0-9_]*)\b[^>]*>[\s\S]*?<\/\1>\s*)+$/;
 
 function codexText(content) {
   if (!Array.isArray(content)) return typeof content === 'string' ? content : '';
@@ -179,7 +182,7 @@ function parseCodex(lines) {
     const at = o.timestamp || null;
     if (p.type === 'message' && (p.role === 'user' || p.role === 'assistant')) {
       const text = codexText(p.content);
-      if (!text.trim() || (p.role === 'user' && CODEX_INJECTED.test(text))) continue;
+      if (!text.trim() || (p.role === 'user' && (CODEX_INJECTED.test(text) || ONLY_TAG_BLOCKS.test(text)))) continue;
       messages.push({ role: p.role, text, at });
     } else if (p.type === 'function_call' || p.type === 'custom_tool_call' || p.type === 'local_shell_call') {
       let input = p.arguments || p.input || p.action || {};
@@ -205,7 +208,18 @@ function idFromFile(type, file) {
 
 // Sessions an OpenAgents agent ran (a workspace thread), not the person's
 // own: they start with the workspace briefing, or run in an agent's folder.
-const OPENAGENTS_RUN = /connected to an OpenAgents workspace|^You previously worked in this channel|^You are agent '[^']+'/;
+const OPENAGENTS_RUN = /connected to an OpenAgents workspace|^You previously worked in this channel|^You are agent '[^']+'|^OWNER-REVIEWED SHARED INSTRUCTIONS/;
+
+// The readiness check the device runs on an agent (src/probe.js sends "hi"
+// and nothing else). Each one leaves a session behind; on a device that has
+// run for a while they outnumber the person's own many times over.
+const PROBE_PROMPT = 'hi';
+function isProbe(s) {
+  if (s.title.trim().toLowerCase() !== PROBE_PROMPT) return false;
+  // Exactly: "hi" was all the person (the check) typed. Without that detail,
+  // a short session that opened with "hi".
+  return s.typedTurns != null ? s.typedTurns <= 1 : (s.messageCount == null || s.messageCount <= 2);
+}
 
 function ranByOpenAgents(firstPrompt, cwd, env) {
   if (OPENAGENTS_RUN.test(firstPrompt || '')) return true;
@@ -263,6 +277,9 @@ function listFileSessions(type, { env, limit }) {
       cwd: s.cwd,
       updatedAt: new Date(mtime).toISOString(),
       messageCount: s.count,
+      // How many times the person typed, in the opening lines read: lets a
+      // readiness check ("hi" alone) be told from a chat that began with hi.
+      typedTurns: s.messages.filter((m) => m.role === 'user').length,
     });
   }
   return out;
@@ -447,9 +464,11 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
   const folders = excludeCwds.filter(Boolean).map((d) => path.resolve(d));
   const skip = new Set(excludeIds);
   const inFolder = (cwd) => !!cwd && folders.some((d) => path.resolve(cwd) === d || path.resolve(cwd).startsWith(d + path.sep));
-  return reader(type).list({ env, limit: Math.min(max * 2, 2000), run })
-    .filter((s) => !skip.has(s.id) && !inFolder(s.cwd))
-    .slice(0, max);
+  // Read past what gets left out, so the picker still fills up.
+  return reader(type).list({ env, limit: Math.min(max * 10, 5000), run })
+    .filter((s) => !skip.has(s.id) && !inFolder(s.cwd) && !isProbe(s))
+    .slice(0, max)
+    .map(({ typedTurns, ...rest }) => rest); // eslint-disable-line no-unused-vars
 }
 
 /** One session as a conversation, or null if it isn't there:
