@@ -26,7 +26,8 @@ import type { NodeCommand, WorkspaceNode } from '@/lib/types';
 
 export const IMPORTABLE_TYPES = ['claude', 'codex', 'opencode', 'hermes'] as const;
 export type ImportableType = typeof IMPORTABLE_TYPES[number];
-const TOOL_LABELS: Record<ImportableType, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', hermes: 'Hermes' };
+export const IMPORT_TOOL_LABELS: Record<ImportableType, string> = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', hermes: 'Hermes' };
+const TOOL_LABELS = IMPORT_TOOL_LABELS;
 
 export function isImportableType(type: string | null | undefined): type is ImportableType {
   return !!type && (IMPORTABLE_TYPES as readonly string[]).includes(type);

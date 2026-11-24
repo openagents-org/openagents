@@ -257,6 +257,7 @@ export const messages = {
     importFailed: 'Couldn’t import this session.',
     action: 'Import past sessions',
     actionHint: 'Bring in your own {tool} sessions from this device as threads.',
+    onboardingOffer: 'Bring in your past {tool} sessions from this device?',
     joinedHint: 'Bring in your past sessions from this device to continue them here.',
   },
 

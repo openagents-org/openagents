@@ -251,6 +251,7 @@ export const messages: Messages = {
     importFailed: '无法导入这个会话。',
     action: '导入过往会话',
     actionHint: '把这台设备上你自己的 {tool} 会话导入为对话。',
+    onboardingOffer: '要把这台设备上过往的 {tool} 会话导入进来吗？',
     joinedHint: '把这台设备上的过往会话导入进来，在这里继续。',
   },
 

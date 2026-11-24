@@ -14,7 +14,7 @@ import { NodeCard, PendingAgent } from './node-card';
 import { PairAnotherDevice } from './pair-another-device';
 import { usePendingAgents } from './use-pending-agents';
 import { useConnectRequests, useJoinedNotice } from './use-connect-requests';
-import { ImportSessionsDialog, isImportableType, type ImportableType } from '@/components/agents/import-sessions-dialog';
+import { IMPORT_TOOL_LABELS, isImportableType } from '@/components/agents/import-sessions-dialog';
 import { WorkspaceAgentSetup } from './workspace-agent-setup';
 import { NodesRoster } from './nodes-roster';
 
@@ -102,12 +102,11 @@ export function NodesTab({
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
   const [retrying, setRetrying] = useState<{ nodeId: string; pending: PendingAgent } | null>(null);
   // Onboarding opens a thread with a new agent instead of announcing it.
-  // Right after an agent joins: offer bringing in its tool's past sessions.
-  const [importing, setImporting] = useState<{ node: WorkspaceNode; type: ImportableType; agent: string } | null>(null);
+  // Right after an agent joins: offer bringing in its tool's past sessions
+  // (the dialog itself lives in the app shell: ImportSessionsHost).
   const announceJoined = useJoinedNotice(autoAddAgent, (name) => {
-    const node = nodes.find((n) => n.agents.some((a) => a.name === name));
-    const type = node?.agents.find((a) => a.name === name)?.type;
-    return node && isImportableType(type) ? () => setImporting({ node, type, agent: name }) : null;
+    const type = nodes.flatMap((n) => n.agents).find((a) => a.name === name)?.type;
+    return isImportableType(type) ? IMPORT_TOOL_LABELS[type] : null;
   });
   const { pending, addPending: queuePending, removePending } = usePendingAgents(nodes, announceJoined);
   // A new agent's device opens to show it spinning up.
@@ -306,10 +305,6 @@ export function NodesTab({
           onChanged={onRefresh}
         />
       ))}
-      {importing && (
-        <ImportSessionsDialog open onOpenChange={(open) => { if (!open) setImporting(null); }}
-          node={importing.node} type={importing.type} agentName={importing.agent} />
-      )}
     </NodesRoster>
   );
 }
