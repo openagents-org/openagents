@@ -750,3 +750,20 @@ def room_delete(network: str, db: Session = Depends(get_db),
         return _ok({"deleted": True})
     except svc.LinkError as e:
         return _fail(e)
+
+
+
+class PinBody(BaseModel):
+    kind: Optional[str] = None   # "file" | "browser" | null to close
+    id: Optional[str] = None
+
+
+@router.put("/guest-links/room/pin")
+def room_pin(network: str, body: PinBody, db: Session = Depends(get_db),
+             x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """The artifact the owner has open: guests see it open when they arrive."""
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
+        return _ok({"pinnedArtifact": svc.set_pinned(db, workspace, channel, body.kind, body.id)})
+    except svc.LinkError as e:
+        return _fail(e)

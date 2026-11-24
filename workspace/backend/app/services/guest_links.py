@@ -453,6 +453,7 @@ def describe(db: Session, token: str, session: Optional[str]) -> dict:
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "canPost": bool(link.can_post),
         "approvalMode": link.approval_mode or "none",
+        "pinnedArtifact": pinned_for_share(db, workspace, channel),
         "guest": {"id": guest.id, "name": guest.display_name} if guest else None,
     }
 
@@ -851,6 +852,7 @@ def describe_room(db: Session, workspace: Workspace, channel: Channel) -> dict:
         "owner": {"name": owner_name},
         "agents": channel_agents(db, workspace, channel),
         "link": serialize_link(links[0]) if links else None,
+        "pinnedArtifact": pinned_for_share(db, workspace, channel),
         "share": {"claimed": bool(workspace.creator_email), "movedTo": None,
                   "keptAsWorkspace": bool(((workspace.settings or {}).get("openagents_share") or {}).get("kept_as_workspace"))},
     }
@@ -1393,3 +1395,36 @@ def delete_room(db: Session, workspace: Workspace) -> None:
             link.revoked_at = _now()
     workspace.status = "deleted"
     db.commit()
+
+
+# ---------------------------------------------------------------------------
+# The artifact open for everyone (the thread's pinned artifact)
+# ---------------------------------------------------------------------------
+
+def pinned_for_share(db: Session, workspace: Workspace, channel: Channel) -> Optional[dict]:
+    """The thread's pinned artifact, if it's one the share pages can show."""
+    ref = channel.pinned_artifact if isinstance(channel.pinned_artifact, dict) else None
+    if not ref or ref.get("kind") not in ("file", "browser") or not ref.get("id"):
+        return None
+    if ref["kind"] == "file":
+        if not any(f.id == ref["id"] for f in _thread_files(db, workspace, channel)):
+            return None
+    elif not any(t.id == ref["id"] for t in _thread_browsers(db, workspace, channel)):
+        return None
+    return {"kind": ref["kind"], "id": ref["id"]}
+
+
+def set_pinned(db: Session, workspace: Workspace, channel: Channel, kind: Optional[str], ref_id: Optional[str]) -> Optional[dict]:
+    """Open an artifact for everyone who opens the link (or close it: kind None)."""
+    if not kind:
+        channel.pinned_artifact = None
+        db.commit()
+        return None
+    if kind not in ("file", "browser") or not ref_id:
+        raise LinkError(400, "kind must be 'file' or 'browser' with an id")
+    channel.pinned_artifact = {"kind": kind, "id": ref_id}
+    if pinned_for_share(db, workspace, channel) is None:
+        db.rollback()
+        raise LinkError(404, "That artifact isn't in this thread")
+    db.commit()
+    return {"kind": kind, "id": ref_id}

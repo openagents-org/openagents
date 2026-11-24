@@ -927,3 +927,22 @@ def test_a_signed_in_owner_can_merge_a_room_without_the_private_link(client, db,
     r = client.post("/v1/guest-links/import", json={"network": data["slug"], "target": team["workspaceId"]},
                     headers={"Authorization": "Bearer alex"})
     assert r.status_code == 200, r.text
+
+
+def test_the_artifact_the_owner_has_open_opens_for_guests(client, db, no_push):
+    data = _published(client)
+    h = {"X-Workspace-Token": data["token"]}
+    fid = client.post("/v1/files", files={"file": ("page.html", b"<h1>hi</h1>", "text/html")},
+                      data={"network": data["workspaceId"], "channel_name": data["channel"]["name"]}, headers=h).json()["data"]["id"]
+    other = client.post("/v1/files", files={"file": ("x.txt", b"x", "text/plain")},
+                        data={"network": data["workspaceId"]}, headers=h).json()["data"]["id"]
+    token = _token(data)
+    assert client.get(f"/v1/guest-links/public/{token}").json()["data"]["pinnedArtifact"] is None
+    url = f"/v1/guest-links/room/pin?network={data['slug']}"
+    assert client.put(url, json={"kind": "file", "id": other}, headers=h).status_code == 404, "only the thread's artifacts"
+    assert client.put(url, json={"kind": "file", "id": fid}, headers={"X-Workspace-Token": token}).status_code == 404
+    assert client.put(url, json={"kind": "file", "id": fid}, headers=h).status_code == 200
+    assert client.get(f"/v1/guest-links/public/{token}").json()["data"]["pinnedArtifact"] == {"kind": "file", "id": fid}
+    assert client.get(f"/v1/guest-links/room?network={data['slug']}", headers=h).json()["data"]["pinnedArtifact"]["id"] == fid
+    client.put(url, json={"kind": None}, headers=h)
+    assert client.get(f"/v1/guest-links/public/{token}").json()["data"]["pinnedArtifact"] is None

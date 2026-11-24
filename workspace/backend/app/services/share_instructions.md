@@ -70,6 +70,13 @@ curl -sS -X POST "{API}/v1/files" -H "X-Workspace-Token: <token>" \
   -F "file=@<path>" -F "network=<workspaceId>" -F "channel_name=<channel.name>" -F "source=openagents:<agentName>"
 ```
 
+If one of them is the main result (for example the web page or report the work produced), open it for everyone so guests land on it — use the file `id` from the upload reply:
+
+```sh
+curl -sS -X PUT "{API}/v1/guest-links/room/pin?network=<workspaceId>" -H "X-Workspace-Token: <token>" \
+  -H "Content-Type: application/json" -d '{"kind": "file", "id": "<file id>"}'
+```
+
 ## 4. Start the shared agent on this computer
 
 1. Make a folder for it: `~/.openagents/shared/<agentName>/`. If you aren't allowed to write there, ask the person to allow it; don't put it inside their project.
