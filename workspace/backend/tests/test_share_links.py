@@ -778,7 +778,7 @@ def test_guests_see_the_threads_artifacts_and_routines(client, db, no_push):
 
     token = _token(data)
     res = client.get(f"/v1/guest-links/public/{token}/resources").json()["data"]
-    assert [f["name"].endswith("report.md") for f in res["files"]] == [True]
+    assert [f["name"] for f in res["files"]] == ["report.md"], "without the upload timestamp"
     assert [b["id"] for b in res["browsers"]] == ["tab-1"]
     assert [r["name"] for r in res["routines"]] == ["Daily PR sweep"]
     assert "context" not in res["routines"][0] and "message" not in res["routines"][0]

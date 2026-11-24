@@ -1186,7 +1186,8 @@ def thread_resources(db: Session, workspace: Workspace, channel: Channel) -> dic
 
     files = [{
         "id": f.id,
-        "name": f.filename.rsplit("/", 1)[-1],
+        # Uploads are stored as "20261124_002319_report.md"; people see "report.md".
+        "name": re.sub(r"^\d{8}_\d{6}_", "", f.filename.rsplit("/", 1)[-1]),
         "path": f.filename,
         "contentType": f.content_type,
         "size": f.size,
