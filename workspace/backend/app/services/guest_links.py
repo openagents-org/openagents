@@ -305,6 +305,7 @@ def publish(db: Session, body, owner) -> dict:
         access=access_mode,
         invited_emails=invited,
         approval_mode=AGENT_ACCESS[access],
+        allow_guest_agents=getattr(body, "guests_can_bring_agents", True) is not False,
         publish_key_hash=key_hash,
         expires_at=expires_at,
     )
@@ -339,6 +340,7 @@ def serialize_link(link: ThreadGuestLink) -> dict:
         "canPost": bool(link.can_post),
         "approvalMode": link.approval_mode or "none",
         "access": link.access or "link",
+        "allowGuestAgents": bool(link.allow_guest_agents),
         "invitedEmails": list(link.invited_emails or []),
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "revokedAt": _aware(link.revoked_at).isoformat() if link.revoked_at else None,
@@ -412,6 +414,8 @@ def channel_agents(db: Session, workspace: Workspace, channel: Channel) -> List[
         WorkspaceMember.status != "removed",
     )).scalars().all()
     from app.routers.network import effective_agent_status
+    from app.services.room_agents import brought_by
+    brought = brought_by(db, members)
     now = _now()
     out = []
     for m in members:
@@ -424,6 +428,8 @@ def channel_agents(db: Session, workspace: Workspace, channel: Channel) -> List[
             # False when the connected launcher is too old to run a guest's
             # turn read-only; a guest's request then gets a notice instead.
             "acceptsGuests": GUEST_CAPABILITY in (m.capabilities or []),
+            # Set for an agent a guest brought: that guest's display name.
+            "broughtBy": brought.get(m.agent_name),
         })
     return out
 
@@ -495,15 +501,19 @@ def describe(db: Session, token: str, session: Optional[str], authorization: Opt
     # A conversation moved into someone's team workspace shouldn't tell guests
     # that workspace's name; the small Share workspace's own name is fine.
     is_share_ws = bool((workspace.settings or {}).get("openagents_share"))
+    mine = set(db.execute(select(WorkspaceMember.agent_name).where(
+        WorkspaceMember.workspace_id == str(workspace.id), WorkspaceMember.status != "removed",
+        WorkspaceMember.owner_email == guest_address(guest.id))).scalars()) if guest else set()
     return {
         "thread": {"name": channel.name, "title": channel.title},
         "workspace": {"name": workspace.name if is_share_ws else f"Shared by {link.owner_name or 'the owner'}"},
         "owner": {"name": link.owner_name or "Owner"},
-        "agents": channel_agents(db, workspace, channel),
+        "agents": [{**a, "mine": a["name"] in mine} for a in channel_agents(db, workspace, channel)],
         "expiresAt": _aware(link.expires_at).isoformat() if link.expires_at else None,
         "canPost": bool(link.can_post),
         "approvalMode": link.approval_mode or "none",
         "access": link.access or "link",
+        "allowGuestAgents": bool(link.allow_guest_agents and link.can_post),
         "pinnedArtifact": pinned_for_share(db, workspace, channel),
         "guest": {"id": guest.id, "name": guest.display_name} if guest else None,
     }
@@ -766,6 +776,7 @@ def create_link(db: Session, workspace: Workspace, channel_name: str, raw_expiry
         created_by=created_by,
         owner_name=previous.owner_name,
         can_post=True,
+        allow_guest_agents=previous.allow_guest_agents,
         expires_at=_parse_expiry(raw_expiry),
     )
     db.add(link)
@@ -965,7 +976,8 @@ def import_into(db: Session, source: Workspace, token: Optional[str], user, targ
 
     agents = [m for m in db.execute(select(WorkspaceMember).where(
         WorkspaceMember.workspace_id == str(workspace.id), WorkspaceMember.status != "removed",
-    )).scalars().all() if any(p.agent_name == m.agent_name for p in (channel.participants or []))]
+    )).scalars().all() if any(p.agent_name == m.agent_name for p in (channel.participants or []))
+        and not is_guest_email(m.owner_email)]   # guests' own agents don't move with it
     for m in agents:
         # An offline agent can move too: it learns where it lives the next
         # time its launcher joins (pending_relocation, in the join reply).
@@ -1386,6 +1398,8 @@ def remove_guest(db: Session, workspace: Workspace, channel: Channel, guest_id: 
         raise LinkError(404, "Guest not found")
     if guest.revoked_at is None:
         guest.revoked_at = _now()
+        from app.services.room_agents import remove_agents_of_guest
+        remove_agents_of_guest(db, workspace, channel, guest.id)
         for req in db.execute(select(ThreadGuestRequest).where(
             ThreadGuestRequest.guest_id == guest.id, ThreadGuestRequest.status == "pending",
         )).scalars():

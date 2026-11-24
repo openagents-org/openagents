@@ -19,6 +19,7 @@ import { claimShare, pinRoomArtifact, roomGuestLinksClient, roomToThreadInfo, th
 import { liveLink } from '@/lib/guest-links';
 import { roomResourceSource } from '@/lib/share-resources';
 import { GuestLinkDialog, type GuestLinkSection } from './guest-link-dialog';
+import { AddAgentDialog } from '@/components/guest-thread/add-agent-dialog';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
 /**
@@ -39,6 +40,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   const [linkFocus, setLinkFocus] = useState<GuestLinkSection | null>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [ownerSheetOpen, setOwnerSheetOpen] = useState(false);
+  const [addAgentOpen, setAddAgentOpen] = useState(false);
   const [guestCount, setGuestCount] = useState<number | null>(null);
   const [savedHere, setSavedHere] = useState(false);
   const [phoneWarned, dismissPhoneWarning] = useDismissed(`oa-owner-warned:${slug}`);
@@ -188,7 +190,15 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
         ownerPanel={ownerPanel}
         topBanner={topBanner}
         onPinChange={changePin}
+        agentActions={{
+          canAdd: true,
+          onAdd: () => setAddAgentOpen(true),
+          // Not the agent the room was shared for: turning the link off is how to stop that.
+          canRemove: (agent) => agent.name !== data.agents[0]?.name,
+          onRemove: room.removeAgent,
+        }}
       />
+      <AddAgentDialog open={addAgentOpen} onOpenChange={setAddAgentOpen} viewer="owner" firstAgent={firstAgent?.name ?? null} onAdd={room.addAgent} />
       <Sheet open={ownerSheetOpen} onOpenChange={setOwnerSheetOpen}>
         <SheetContent side="bottom" className="max-h-[88dvh] gap-0 overflow-y-auto rounded-t-xl p-4 pb-[max(1rem,env(safe-area-inset-bottom))]" data-owner-sheet="">
           <SheetHeader className="p-0 pb-3">
@@ -199,7 +209,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
           {user && <Button variant="ghost" size="sm" asChild className="mt-2 self-start"><a href="/rooms"><LayoutList data-icon="inline-start" />{t('rooms.myRooms')}</a></Button>}
         </SheetContent>
       </Sheet>
-      <GuestPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} url={currentLink ? guestPreviewUrl(currentLink.url) : null} />
+      <GuestPreviewDialog open={previewOpen} onOpenChange={setPreviewOpen} url={currentLink ? guestPreviewUrl(currentLink.url) : null} inviteOnly={currentLink?.access === 'invited'} />
       <GuestLinkDialog
         open={linkOpen}
         onOpenChange={setLinkOpen}

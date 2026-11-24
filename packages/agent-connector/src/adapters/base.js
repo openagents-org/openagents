@@ -235,6 +235,7 @@ class BaseAdapter {
     // thread (OpenAgents Share). Each channel runs one turn at a time, so a
     // per-channel flag is exact. Adapters read it through _effectiveMode().
     this._guestChannels = new Set();
+    this._scopedOwner = null;   // set on a limited connection (see _isRestrictedTurn)
     // Workspace-selected model id (WorkspaceMember.model). Synced from
     // discover at startup and via the `model.set` control event; null means
     // the agent CLI runs with its own default.
@@ -402,6 +403,19 @@ class BaseAdapter {
    * heartbeat loops keep retrying and a later success clears it. Extracted from
    * run() so the failure-reporting can be unit-tested without the poll loop.
    */
+  /**
+   * Whether this turn runs as a guest's (read-only). Guests always do. On a
+   * limited connection (an agent a guest brought into someone's room) so does
+   * everyone but that guest: the room's owner, other guests, other agents.
+   */
+  _isRestrictedTurn(msg) {
+    if (this._scopedOwner) {
+      const email = String((msg && msg.senderEmail) || '').toLowerCase();
+      return !(msg && msg.senderType === 'human' && email && email === this._scopedOwner);
+    }
+    return isGuestMessage(msg);
+  }
+
   async _joinWorkspace() {
     try {
       const joinResult = await this.client.joinNetwork(this.agentName, this.token, {
@@ -413,10 +427,18 @@ class BaseAdapter {
         // read-only. The server routes guests' requests only to such clients.
         capabilities: [
           ...(this.supportsGuestRuns ? ['guest_turns'] : []),
+          // "scoped_turns": on a limited connection (an agent a guest brought
+          // into someone's room), only that guest's turns run with full
+          // rights; everyone else's run as guest turns.
+          ...(this.supportsGuestRuns ? ['scoped_turns'] : []),
           ...(this._onRelocate ? ['relocate'] : []),
         ],
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
+      // OpenAgents Share: this agent was brought into someone else's room.
+      // Its own person is owner_address; nobody else gets more than a guest.
+      const scoped = joinResult && joinResult.scoped;
+      this._scopedOwner = scoped ? String(scoped.owner_address || '').toLowerCase() || '\u0000none' : null;
       // OpenAgents Share: the conversation moved while this agent was offline.
       if (joinResult && joinResult.relocation && this._onRelocate) {
         const relocation = joinResult.relocation;
@@ -1694,7 +1716,7 @@ class BaseAdapter {
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
           this._channelTriggerId[channel] = current.messageId || null;
-          if (isGuestMessage(current)) {
+          if (this._isRestrictedTurn(current)) {
             if (!this.supportsGuestRuns) {
               await this.sendResponse(channel, GUEST_DECLINED_TEXT);
             } else {

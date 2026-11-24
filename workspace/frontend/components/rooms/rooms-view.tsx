@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Image from 'next/image';
-import { Check, Copy, ExternalLink, FolderInput, LayoutGrid, LayoutList, Link2, LogIn, MoreHorizontal, RefreshCw, Settings2, Trash2, Users } from 'lucide-react';
+import { Check, Copy, ExternalLink, FolderInput, Globe, LayoutGrid, LayoutList, Link2, Lock, LogIn, MoreHorizontal, RefreshCw, Settings2, Trash2, Users } from 'lucide-react';
 import { toast } from 'sonner';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { useGuestLinks } from '@/components/chat/guest-link-panel';
@@ -271,6 +271,12 @@ function RoomRow({ room, creds, navigate, onChanged, onDeleted }: {
             {agent && <span data-room-agent="">{agentDisplayName(agent)}</span>}
             <span>{room.lastActivityAt ? t('rooms.activity', { time: timeAgoShort(new Date(room.lastActivityAt).toISOString()) }) : t('rooms.noActivity')}</span>
             <span className="inline-flex items-center gap-1"><Users className="size-3" />{t('rooms.guests', { count: room.guestCount })}</span>
+            {room.liveLink && (
+              <span className="inline-flex items-center gap-1" data-room-access={room.liveLink.access === 'invited' ? 'invited' : 'link'}>
+                {room.liveLink.access === 'invited' ? <Lock className="size-3" /> : <Globe className="size-3" />}
+                {room.liveLink.access === 'invited' ? t('rooms.accessInvited') : t('rooms.accessLink')}
+              </span>
+            )}
             <span className={cn('inline-flex items-center gap-1', status.live ? 'text-foreground/70' : 'text-muted-foreground/70')} data-room-link={status.live ? 'live' : 'off'}>
               <Link2 className="size-3" />{status.text}
             </span>

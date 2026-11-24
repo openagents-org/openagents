@@ -177,3 +177,13 @@ it('adds a room to one of the person’s workspaces', async () => {
   expect(((imp[1] as RequestInit).headers as Record<string, string>)['X-Workspace-Token']).toBeUndefined();
   expect(navigate).toHaveBeenCalledWith('/team/threads/share-a-2');
 });
+
+it('shows each room’s access: anyone with the link, or invite-only', async () => {
+  const invitedLink = { ...LINK, id: 'l9', access: 'invited', invitedEmails: ['maya@example.com'] };
+  serve(server([ROOMS[0], { ...ROOMS[1], workspace: { id: 'w-z', slug: 'room-z', name: 'Z' }, liveLink: invitedLink, link: invitedLink }]));
+  await render();
+  expect(host.querySelector('[data-room="room-a"] [data-room-access]')?.getAttribute('data-room-access')).toBe('link');
+  const z = host.querySelector('[data-room="room-z"] [data-room-access]')!;
+  expect(z.getAttribute('data-room-access')).toBe('invited');
+  expect(z.textContent).toBe('rooms.accessInvited');
+});

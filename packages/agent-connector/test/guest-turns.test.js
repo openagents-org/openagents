@@ -116,7 +116,7 @@ describe('guest messages', () => {
 
   it('says on join whether it can take guest turns', async () => {
     for (const [adapter, expected] of [
-      [mkClaude(), ['guest_turns']],
+      [mkClaude(), ['guest_turns', 'scoped_turns']],
       [hermetic(new BaseAdapter({ workspaceId: 'ws', channelName: 'general', token: 'tok', agentName: 'bot' })), []],
     ]) {
       let sent;
@@ -156,5 +156,28 @@ describe('guest turn errors', () => {
     assert.equal(owner[owner.indexOf('--resume') + 1], 'owner-session');
     adapter._rememberSession({ msgChannel: 'share-abc', spawnMode: 'execute' }, 'owner-2');
     assert.equal(adapter._channelSessions['share-abc'], 'owner-2');
+  });
+});
+
+describe('an agent a guest brought into someone else\'s room', () => {
+  it('runs only its own guest with full rights; everyone else as a guest', async () => {
+    const adapter = mkClaude();
+    adapter.client.joinNetwork = async () => ({ session_id: 's',
+      scoped: { channel: 'share-abc', owner_address: 'guest-1@guest.invalid' } });
+    adapter._reportStatus = () => {};
+    let caps;
+    const join = adapter.client.joinNetwork;
+    adapter.client.joinNetwork = async (n, t, opts) => { caps = opts.capabilities; return join(); };
+    await adapter._joinWorkspace();
+    assert.ok(caps.includes('scoped_turns'));
+    const modes = [];
+    adapter._handleMessage = async (msg) => { modes.push(adapter._effectiveMode(msg.sessionId)); };
+    await adapter._channelWorker('share-abc', guestMsg());                        // its own guest
+    await adapter._channelWorker('share-abc', ownerMsg());                        // the room's owner
+    await adapter._channelWorker('share-abc', guestMsg({ senderEmail: 'guest-2@guest.invalid',
+      senderName: 'guest-2@guest.invalid' }));                                    // another guest
+    await adapter._channelWorker('share-abc', { ...ownerMsg(), senderType: 'agent',
+      senderName: 'pr-reviewer', senderEmail: undefined });                       // another agent
+    assert.deepEqual(modes, ['execute', 'guest', 'guest', 'guest']);
   });
 });

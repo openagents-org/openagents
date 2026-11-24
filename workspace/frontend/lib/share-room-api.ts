@@ -8,7 +8,7 @@
 import { getApiBaseUrl } from '@/lib/api-base';
 import type { ONMEvent } from '@/lib/types';
 import type { GuestLink, GuestLinksClient, ThreadGuestRecord } from '@/lib/guest-links';
-import { request, type GuestApiOptions, type GuestMessagesPage, type GuestThreadAgent, type GuestThreadInfo, type PinnedArtifact } from '@/lib/guest-thread-api';
+import { request, type AddedAgent, type GuestApiOptions, type GuestMessagesPage, type GuestThreadAgent, type GuestThreadInfo, type PinnedArtifact } from '@/lib/guest-thread-api';
 
 export interface MovedTo {
   slug: string;
@@ -66,6 +66,7 @@ export function roomToThreadInfo(room: ShareRoom): GuestThreadInfo {
     approvalMode: room.link?.approvalMode ?? 'none',
     guestsCanPost: room.link?.canPost ?? true,
     pinnedArtifact: room.pinnedArtifact ?? null,
+    allowGuestAgents: room.link?.allowGuestAgents ?? false,
     guest: null,
   };
 }
@@ -164,6 +165,30 @@ export function roomGuestLinksClient(creds: RoomCredentials, options: GuestApiOp
       const data = await request<{ guest: ThreadGuestRecord }>(url(`/v1/guest-links/room/guests/${encodeURIComponent(guestId)}?${q({ network: creds.slug })}`, options), { method: 'DELETE', headers: roomHeaders(creds) }, options);
       return data.guest;
     },
+    async updateAllowGuestAgents(id, allow) {
+      const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {
+        method: 'PATCH', headers: roomHeaders(creds, null, true), body: JSON.stringify({ allow_guest_agents: allow }),
+      }, options);
+      return data.link;
+    },
+    async updateAccess(id, access) {
+      const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {
+        method: 'PATCH', headers: roomHeaders(creds, null, true), body: JSON.stringify({ access }),
+      }, options);
+      return data.link;
+    },
+    async addInvites(id, emails) {
+      const data = await request<{ link: GuestLink; added?: string[] }>(url(`/v1/guest-links/${encodeURIComponent(id)}/invites?${q({ network: creds.slug })}`, options), {
+        method: 'POST', headers: roomHeaders(creds, null, true), body: JSON.stringify({ emails }),
+      }, options);
+      return { link: data.link, added: data.added || [] };
+    },
+    async removeInvite(id, email) {
+      const data = await request<{ link: GuestLink }>(url(`/v1/guest-links/${encodeURIComponent(id)}/invites?${q({ network: creds.slug, email })}`, options), {
+        method: 'DELETE', headers: roomHeaders(creds),
+      }, options);
+      return data.link;
+    },
     async updateApprovalMode(id, mode) {
       const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {
         method: 'PATCH', headers: roomHeaders(creds, null, true), body: JSON.stringify({ approval_mode: mode }),
@@ -171,6 +196,22 @@ export function roomGuestLinksClient(creds: RoomCredentials, options: GuestApiOp
       return data.link;
     },
   };
+}
+
+// ── Agents in the room ──
+
+/** The owner adds another agent of theirs to the room. */
+export function addRoomAgent(creds: RoomCredentials, agent: { name: string; type: string }, options: GuestApiOptions = {}): Promise<AddedAgent> {
+  return request<AddedAgent>(url(`/v1/guest-links/room/agents?${q({ network: creds.slug })}`, options), {
+    method: 'POST', headers: roomHeaders(creds, null, true), body: JSON.stringify(agent),
+  }, options);
+}
+
+/** The owner removes an agent (not the one the room was shared for). */
+export function removeRoomAgent(creds: RoomCredentials, name: string, options: GuestApiOptions = {}): Promise<unknown> {
+  return request(url(`/v1/guest-links/room/agents/${encodeURIComponent(name)}?${q({ network: creds.slug })}`, options), {
+    method: 'DELETE', headers: roomHeaders(creds),
+  }, options);
 }
 
 // ── The artifact open for guests ──

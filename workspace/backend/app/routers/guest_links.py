@@ -119,6 +119,7 @@ class PublishRequest(BaseModel):
     agent_display_name: Optional[str] = None   # ignored: the agent is shown by agent_name
     guest_agent_access: Optional[str] = "open"  # open | approval | off
     guests_can_post: Optional[bool] = True
+    guests_can_bring_agents: Optional[bool] = True
     access: Optional[str] = "link"              # link | invited
     invited_emails: List[str] = Field(default_factory=list)
     owner_name: Optional[str] = None
@@ -159,6 +160,7 @@ class LinkPatch(BaseModel):
     approval_mode: Optional[str] = None
     can_post: Optional[bool] = None
     access: Optional[str] = None
+    allow_guest_agents: Optional[bool] = None
 
 
 class ClaimRequest(BaseModel):
@@ -237,6 +239,9 @@ def patch_link(link_id: str, body: LinkPatch, network: str, db: Session = Depend
             link = svc.set_can_post(db, str(workspace.id), link_id, bool(body.can_post))
         if "access" in body.model_fields_set:
             link = svc.set_access(db, str(workspace.id), link_id, body.access or "")
+        if "allow_guest_agents" in body.model_fields_set:
+            from app.services.room_agents import set_allow_guest_agents
+            link = set_allow_guest_agents(db, str(workspace.id), link_id, bool(body.allow_guest_agents))
         if link is None:
             return _fail(svc.LinkError(400, "Nothing to change"))
         return _ok({"link": svc.serialize_link(link)})
@@ -823,5 +828,58 @@ def remove_invite(link_id: str, network: str, email: str, db: Session = Depends(
         return err
     try:
         return _ok({"link": svc.serialize_link(svc.remove_invite(db, workspace, link_id, email))})
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+# ---------------------------------------------------------------------------
+# More agents in the room: the owner's, and guests' own (limited connections)
+# ---------------------------------------------------------------------------
+
+class AgentBody(BaseModel):
+    name: str
+    type: Optional[str] = "claude"
+
+
+@router.post("/guest-links/room/agents")
+def room_add_agent(network: str, body: AgentBody, db: Session = Depends(get_db),
+                   x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    from app.services import room_agents
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
+        return _ok(room_agents.add_owner_agent(db, workspace, channel, body.name, body.type or "claude"))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/guest-links/room/agents/{name}")
+def room_remove_agent(network: str, name: str, db: Session = Depends(get_db),
+                      x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    from app.services import room_agents
+    try:
+        workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
+        return _ok(room_agents.remove_owner_agent(db, workspace, channel, name))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.post("/guest-links/public/{token}/agents")
+def guest_bring_agent(token: str, body: AgentBody, db: Session = Depends(get_db),
+                      x_guest_session: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    """A guest brings their own agent. The connection token in the reply is shown once."""
+    from app.services import room_agents
+    try:
+        return _ok(room_agents.bring_guest_agent(db, token, x_guest_session, authorization,
+                                                 body.name, body.type or "claude"))
+    except svc.LinkError as e:
+        return _fail(e)
+
+
+@router.delete("/guest-links/public/{token}/agents/{name}")
+def guest_remove_agent(token: str, name: str, db: Session = Depends(get_db),
+                       x_guest_session: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
+    from app.services import room_agents
+    try:
+        return _ok(room_agents.remove_guest_agent(db, token, x_guest_session, authorization, name))
     except svc.LinkError as e:
         return _fail(e)

@@ -516,6 +516,12 @@ class Node(Base):
     # revocation. Stored raw for parity with workspaces.password_hash; hashing
     # both is a later hardening pass.
     token = Column(Text, nullable=True, unique=True, index=True)
+    # A limited connection (OpenAgents Share: an agent a guest brought into a
+    # room): it may only run scope_agent and only in the thread scope_channel —
+    # join, heartbeat, read that thread, post there as that agent. NULL = the
+    # usual full device connection.
+    scope_channel = Column(Text, nullable=True)
+    scope_agent = Column(Text, nullable=True)
     name = Column(Text, nullable=True)                  # display name (defaults to hostname)
     hostname = Column(Text, nullable=True)
     device_type = Column(Text, default="unknown")       # server | laptop | desktop | unknown
@@ -749,6 +755,8 @@ class ThreadGuestLink(Base):
     # Like Google Docs: "link" — anyone with the link; "invited" — only people
     # signed in with one of invited_emails (lowercased).
     access = Column(Text, nullable=False, default="link", server_default=text("'link'"))
+    # Guests may bring their own agents into the room (limited connections).
+    allow_guest_agents = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
     invited_emails = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     publish_key_hash = Column(Text, unique=True, nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)

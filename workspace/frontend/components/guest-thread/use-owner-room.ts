@@ -5,7 +5,9 @@ import { GuestThreadError } from '@/lib/guest-thread-api';
 import { nextPollDelay, optimisticOwnerMessage, type PendingSend } from '@/lib/guest-thread';
 import type { ShareRequestStatus } from '@/lib/share-requests';
 import {
+  addRoomAgent,
   decideRoomRequest,
+  removeRoomAgent,
   fetchEarlierRoomMessages,
   fetchRoomRequests,
   fetchRoom,
@@ -165,6 +167,17 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
     }
   }, [creds, endWith, loadRequests]);
 
+  // ── Agents the owner adds ──
+  const addAgent = useCallback(async (agent: { name: string; type: string }) => {
+    const result = await addRoomAgent(creds, agent);
+    void refresh();
+    return result;
+  }, [creds, refresh]);
+  const removeAgent = useCallback(async (name: string) => {
+    await removeRoomAgent(creds, name);
+    void refresh();
+  }, [creds, refresh]);
+
   const send = useCallback((pending: PendingSend): SendResult => {
     void deliver(pending);
     return 'sent';
@@ -179,6 +192,7 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
     status, room, movedTo, creds,
     messages: feed.messages, hasOlder: feed.hasOlder, olderState: feed.olderState, loadOlder: feed.loadOlder, sendTick: feed.sendTick,
     reload: load, refresh, send, retry,
+    addAgent, removeAgent,
     requests: requests.filter((r) => !decisions[r.id]), decisions, decide,
   };
 }

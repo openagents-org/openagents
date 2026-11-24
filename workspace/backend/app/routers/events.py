@@ -7,6 +7,7 @@ GET  /v1/events    Poll events (filter by after, target, channel, type)
 """
 
 import asyncio
+import contextvars
 import hashlib
 import json as _json
 import logging
@@ -175,6 +176,10 @@ def _invalidate_poll_cache(workspace_id: str, event_type: str = ""):
             pass
 
 
+# The limited connection (Node) a poll was served for, if any; see poll_events.
+_SCOPED_POLL: contextvars.ContextVar = contextvars.ContextVar("scoped_poll", default=None)
+
+
 def _resolve_and_auth_cached(db, network, token, authorization):
     """Resolve a workspace id and authorize the caller, serving the
     workspace-token path from Redis so the hot poll path never touches
@@ -220,7 +225,8 @@ def _resolve_and_auth_cached(db, network, token, authorization):
         device_workspace_id = db.execute(
             select(Node.workspace_id)
             .join(Workspace, Workspace.id == Node.workspace_id)
-            .where(Node.token == token, _workspace_filter(network), Workspace.status != "deleted")
+            .where(Node.token == token, _workspace_filter(network), Workspace.status != "deleted",
+                   Node.scope_channel.is_(None))
         ).scalar_one_or_none()
         if device_workspace_id is not None:
             return str(device_workspace_id), None, True, None
@@ -815,13 +821,60 @@ def poll_events(
     Supports filtering by target, channel, type, and cursor-based pagination
     using the `after` parameter (event ID — events are sorted by timestamp).
     """
+    token = _SCOPED_POLL.set(None)
+    try:
+        response = _poll_events_impl(network=network, after=after, before=before, target=target, channel=channel, type=type, target_agents=target_agents, conversation=conversation, search=search, member=member, exclude_message_types=exclude_message_types, sort=sort, limit=limit, db=db, x_workspace_token=x_workspace_token, authorization=authorization)
+        scoped = _SCOPED_POLL.get()
+    finally:
+        _SCOPED_POLL.reset(token)
+    if scoped is not None:
+        from app.services.room_agents import scrub_for_scoped
+        response = scrub_for_scoped(response, scoped)
+    return response
+
+
+def _poll_events_impl(
+    network: str = Query(..., description="Network (workspace) ID or slug"),
+    after: Optional[str] = Query(None, description="Return events after this event ID"),
+    before: Optional[str] = Query(None, description="Return events before this event ID"),
+    target: Optional[str] = Query(None, description="Filter by target address"),
+    channel: Optional[str] = Query(None, description="Filter by channel name"),
+    type: Optional[str] = Query(None, description="Filter by event type prefix"),
+    target_agents: Optional[str] = Query(None, description="Filter to events routed to this agent (metadata.target_agents contains it, plus untargeted events). Server-side counterpart of the adapter's client-side target filter."),
+    conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
+    search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
+    member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
+    exclude_message_types: Optional[str] = Query(None, description="Comma-separated payload.message_type values to exclude (e.g. 'thinking,status,todos'). Events without a message_type are always kept."),
+    sort: Optional[str] = Query(None, description="Sort order: 'asc' (default) or 'desc'"),
+    limit: int = Query(50, ge=1, le=500, description="Max events to return"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Poll events from the network.
+
+    Supports filtering by target, channel, type, and cursor-based pagination
+    using the `after` parameter (event ID — events are sorted by timestamp).
+    """
     # Resolve workspace + authorize. Served from Redis for the workspace-token
     # path so an at-head poll (the common idle case) never checks out a Postgres
     # connection — the DB `SELECT workspace` used to run on every poll, before
     # the cache, so even a cached-empty response cost a pooled connection.
     workspace_id, err, legacy_machine, resolved_workspace = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
     if err is not None:
-        return err
+        # OpenAgents Share: an agent a guest brought into a room holds a
+        # limited connection. It reads only its thread (and its own control
+        # events), with people's addresses hidden (the wrapper scrubs them).
+        from app.services.room_agents import scoped_poll_node
+        scoped = scoped_poll_node(db, network, x_workspace_token, authorization)
+        if scoped is None:
+            return err
+        _SCOPED_POLL.set(scoped)
+        workspace_id, legacy_machine, resolved_workspace = str(scoped.workspace_id), True, None
+        if not ((type or "").startswith("workspace.agent.control") and target == f"openagents:{scoped.scope_agent}"):
+            channel, target = scoped.scope_channel, None
+        conversation, member, search = None, None, None
 
     # v1.1 visibility: people do not read private threads they are not in.
     # Machines (token-only callers: agents, daemons) are exempt. Deny a

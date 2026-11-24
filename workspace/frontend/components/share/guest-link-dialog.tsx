@@ -13,7 +13,7 @@ import { useT } from '@/lib/i18n';
  * in the same dialog frame as the workspace's Share dialog.
  */
 /** A part of the guest-link settings the dialog can open at. */
-export type GuestLinkSection = 'requests' | 'post' | 'expiry' | 'guests';
+export type GuestLinkSection = 'access' | 'requests' | 'post' | 'agents' | 'expiry' | 'guests';
 
 export function GuestLinkDialog({ open, onOpenChange, channel, agentName, links, error, setLinks, client, focus, onPreview }: {
   open: boolean;

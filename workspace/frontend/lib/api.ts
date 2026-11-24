@@ -2954,6 +2954,36 @@ class WorkspaceApi {
     return data.guest;
   }
 
+  async updateGuestLinkAllowGuestAgents(id: string, allow: boolean): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ allow_guest_agents: allow }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkAccess(id: string, access: 'link' | 'invited'): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ access }),
+    });
+    return data.link;
+  }
+
+  async addGuestLinkInvites(id: string, emails: string[]): Promise<{ link: GuestLink; added: string[] }> {
+    const data = await this.request<{ link: GuestLink; added?: string[] }>(`/v1/guest-links/${encodeURIComponent(id)}/invites?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'POST',
+      body: JSON.stringify({ emails }),
+    });
+    return { link: data.link, added: data.added || [] };
+  }
+
+  async removeGuestLinkInvite(id: string, email: string): Promise<GuestLink> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), email });
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}/invites?${params}`, { method: 'DELETE' });
+    return data.link;
+  }
+
   async updateGuestLinkApprovalMode(id: string, mode: 'none' | 'owner' | 'off'): Promise<GuestLink> {
     const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
       method: 'PATCH',

@@ -1,6 +1,9 @@
 'use client';
 
-import { use, useMemo } from 'react';
+import { use, useCallback, useMemo, useRef, useState } from 'react';
+import { AddAgentDialog } from '@/components/guest-thread/add-agent-dialog';
+import { goToCentralLogin } from '@/lib/auth-redirects';
+import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { guestResourceSource } from '@/lib/share-resources';
 import { GuestLinkState } from '@/components/guest-thread/guest-link-state';
 import { GuestThreadView } from '@/components/guest-thread/guest-thread-view';
@@ -19,14 +22,40 @@ export default function SharedThreadPage({ params, searchParams }: {
   const query = searchParams ? use(searchParams) : {};
   // `?preview=1`: the owner's preview — read only, no name prompt, nothing posts.
   const preview = (Array.isArray(query.preview) ? query.preview[0] : query.preview) === '1';
-  const thread = useGuestThread(token, { preview });
+  const { user, idToken, loading, signIn, signOut } = useOpenAgentsAuth();
+  const idTokenRef = useRef(idToken);
+  idTokenRef.current = idToken;
+  const getIdToken = useCallback(() => idTokenRef.current, []);
+  // Invite-only rooms: the signed-in account is the guest (its bearer goes on every call).
+  const thread = useGuestThread(token, {
+    preview,
+    auth: { idToken: getIdToken, signedIn: !!user && !!idToken, ready: !loading, displayName: user?.displayName || user?.email || null },
+  });
   const resourceSource = useMemo(() => guestResourceSource(token), [token]);
+  const [addAgentOpen, setAddAgentOpen] = useState(false);
 
   if (thread.status !== 'ready' || !thread.info) {
-    return <GuestLinkState state={thread.status === 'ready' ? 'loading' : thread.status} onRetry={() => { void thread.reload(); }} />;
+    return (
+      <GuestLinkState
+        state={thread.status === 'ready' ? 'loading' : thread.status}
+        onRetry={() => { void thread.reload(); }}
+        email={thread.deniedEmail}
+        preview={preview}
+        onSignIn={() => goToCentralLogin(() => { void signIn(); })}
+        onSwitchAccount={() => { void signOut().finally(() => goToCentralLogin(() => { void signIn(); })); }}
+      />
+    );
   }
 
+  const info = thread.info;
+  // Guests may bring their own agent when the owner allows it (and remove what they brought).
+  const canBring = !preview && !thread.removed && info.canPost && !!info.allowGuestAgents;
+  const openAddAgent = () => {
+    if (thread.needsName()) thread.requestName(() => setAddAgentOpen(true));
+    else setAddAgentOpen(true);
+  };
   return (
+    <>
     <GuestThreadView
       info={thread.info}
       messages={thread.messages}
@@ -45,6 +74,17 @@ export default function SharedThreadPage({ params, searchParams }: {
       removed={!preview && thread.removed}
       preview={preview}
       pinStorageKey={`oa-share-pin-closed:${token}`}
+      agentActions={preview ? undefined : {
+        canAdd: canBring,
+        onAdd: openAddAgent,
+        canRemove: (agent) => !!agent.mine,
+        onRemove: thread.removeAgent,
+      }}
     />
+    {canBring && (
+      <AddAgentDialog open={addAgentOpen} onOpenChange={setAddAgentOpen} viewer="guest" firstAgent={info.agents[0]?.name ?? null}
+        onAdd={thread.bringAgent} onNeedName={() => { setAddAgentOpen(false); thread.requestName(() => setAddAgentOpen(true)); }} />
+    )}
+    </>
   );
 }

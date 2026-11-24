@@ -344,16 +344,18 @@ function ownerServer(room: Record<string, unknown> = ROOM, extra?: (url: string,
 }
 const wait = (ms: number) => act(async () => { await new Promise((r) => setTimeout(r, ms)); });
 
-it('keeps the owner panel in the sidebar: owner-page warning, copy link, preview, and the policy at a glance', async () => {
+it('keeps the sharing block at the bottom of the sidebar: owner note, policy at a glance, copy link, preview', async () => {
   localStorage.clear();
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
   serve(ownerServer({ ...ROOM, link: { ...LINK, approvalMode: 'owner' } }, (url) => (url.includes('/v1/guest-links?') ? ok({ links: [{ ...LINK, approvalMode: 'owner' }] }) : null)));
   await open();
   const panel = host.querySelector('[data-owner-panel-slot] [data-owner-panel]')!;
-  expect(panel.textContent).toContain('shareRoom.ownerPage');
+  expect(panel.querySelector('[data-owner-note]')?.textContent).toBe('shareRoom.ownerNote');
+  // Below Threads, Agents and People: in the sidebar footer, above the identity row.
+  expect(panel.closest('[data-sidebar="footer"]')).not.toBeNull();
   const values = Object.fromEntries([...panel.querySelectorAll('[data-owner-policy-row]')].map((row) => [row.getAttribute('data-owner-policy-row'), row.querySelector('[data-owner-policy-value]')!.textContent]));
-  expect(values).toEqual({ requests: 'shareRoom.policyRequestsOwner', post: 'shareRoom.policyPostYes', expiry: 'shareRoom.policyLinkNever', guests: '1' });
+  expect(values).toEqual({ access: 'shareRoom.policyAccessLink', requests: 'shareRoom.policyRequestsOwner', post: 'shareRoom.policyPostYes', agents: 'roomAgents.policyGuestAgentsOff', expiry: 'shareRoom.policyLinkNever', guests: '1' });
   await act(async () => { (panel.querySelector('[data-owner-copy-link]') as HTMLElement).click(); });
   expect(writeText).toHaveBeenCalledWith(LINK.url);
   expect(panel.querySelector('[data-owner-copy-link]')?.textContent).toBe('shareRoom.guestLinkCopied');
@@ -464,4 +466,75 @@ it('"Don’t show to guests" unpins but keeps the artifact open for the owner', 
   expect(pin).toEqual([{ kind: null }]);
   expect(host.querySelector('[data-share-artifact-panel]')).not.toBeNull();
   expect(host.querySelector('[data-guests-see="off"]')).not.toBeNull();
+});
+
+const COMMANDS = ['npm i -g @openagents-org/agent-launcher', 'agn create helper --path ~/helper', 'agn connect helper tok-xyz'];
+
+it('lets the owner add an agent: name checked as typed, then the commands to connect it', async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
+  const posts: unknown[] = [];
+  serve(ownerServer(ROOM, (url, init) => {
+    if (url.includes('/room/agents') && init?.method === 'POST') { posts.push(JSON.parse(String(init.body))); return ok({ agent: { name: 'helper', type: 'claude', broughtBy: null }, commands: COMMANDS }); }
+    return null;
+  }));
+  await open();
+  await act(async () => { (host.querySelector('[data-add-agent-button]') as HTMLElement).click(); });
+  const dialog = host.querySelector('[data-add-agent-dialog="owner"]')!;
+  expect(dialog.querySelector('[data-add-agent-explain]')?.textContent).toBe('roomAgents.ownerExplain:{"agent":"claude-code"}');
+  const input = dialog.querySelector('[data-add-agent-name]') as HTMLInputElement;
+  const setValue = async (value: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await setValue('my helper');
+  expect(dialog.querySelector('[data-add-agent-name-error]')?.textContent).toBe('roomAgents.name_spaces:{"max":48}');
+  expect((dialog.querySelector('[data-add-agent-submit]') as HTMLButtonElement).disabled).toBe(true);
+  await setValue('helper');
+  expect(dialog.querySelector('[data-add-agent-name-error]')).toBeNull();
+  await act(async () => { (dialog.querySelector('[data-add-agent-submit]') as HTMLElement).click(); });
+  await wait(0);
+  expect(posts).toEqual([{ name: 'helper', type: 'claude' }]);
+  const call = fetchMock.mock.calls.find((c) => String(c[0]).includes('/room/agents'))!;
+  expect(call[0]).toBe('https://api.test/v1/guest-links/room/agents?network=alex-share');
+  expect(((call[1] as RequestInit).headers as Record<string, string>)['X-Workspace-Token']).toBe('ws-token');
+  expect(host.querySelector('[data-add-agent-commands]')?.textContent).toBe(COMMANDS.join('\n'));
+  // The owner's reply carries no one-time token.
+  expect(host.querySelector('[data-add-agent-token-once]')).toBeNull();
+  await act(async () => { (host.querySelector('[data-add-agent-copy="agent"]') as HTMLElement).click(); });
+  expect(writeText).toHaveBeenCalledWith(`roomAgents.pasteIntro\n\n${COMMANDS.join('\n')}`);
+});
+
+it('lets the owner remove an added agent but not the one the room was shared for', async () => {
+  const deletes: string[] = [];
+  const room = { ...ROOM, agents: [...ROOM.agents, { name: 'maya-bot', displayName: 'maya-bot', type: 'codex', online: false, acceptsGuests: false, broughtBy: 'Maya' }] };
+  serve(ownerServer(room, (url, init) => {
+    if (url.includes('/room/agents/') && init?.method === 'DELETE') { deletes.push(url); return ok({ name: 'maya-bot', removed: true }); }
+    return null;
+  }));
+  await open();
+  expect(host.querySelector('[data-agent-row="claude-code"] [data-agent-remove]')).toBeNull();
+  const row = host.querySelector('[data-agent-row="maya-bot"]')!;
+  expect(row.querySelector('[data-agent-brought-by]')?.textContent).toBe('roomAgents.broughtBy:{"name":"Maya"}');
+  await act(async () => { (row.querySelector('[data-agent-remove]') as HTMLElement).click(); });
+  expect(deletes).toEqual([]);
+  await act(async () => { (host.querySelector('[data-agent-remove-confirm="maya-bot"]') as HTMLElement).click(); });
+  await wait(0);
+  expect(deletes).toEqual(['https://api.test/v1/guest-links/room/agents/maya-bot?network=alex-share']);
+});
+
+it('lets the owner allow guests to bring their own agents from the link settings', async () => {
+  const patches: unknown[] = [];
+  serve(ownerServer(ROOM, (url, init) => {
+    if (init?.method === 'PATCH') { patches.push(JSON.parse(String(init.body))); return ok({ link: { ...LINK, allowGuestAgents: true } }); }
+    return null;
+  }));
+  await open();
+  await act(async () => { (host.querySelector('[data-owner-policy-row="agents"]') as HTMLElement).click(); });
+  await wait(100);
+  expect(host.querySelector('[data-guest-link-agents]')?.getAttribute('data-guest-link-agents')).toBe('off');
+  await act(async () => { (host.querySelector('[data-allow-agents-switch]') as HTMLElement).click(); });
+  await wait(0);
+  expect(patches).toEqual([{ allow_guest_agents: true }]);
+  expect(host.querySelector('[data-guest-link-agents]')?.getAttribute('data-guest-link-agents')).toBe('on');
 });

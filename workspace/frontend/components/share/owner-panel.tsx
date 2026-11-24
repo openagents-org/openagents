@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { BookmarkPlus, Check, ChevronRight, Copy, ExternalLink, Eye, LogIn, ShieldAlert, X } from 'lucide-react';
+import { BookmarkPlus, Bot, Check, ChevronRight, Clock, Copy, ExternalLink, Eye, Globe, Lock, LogIn, MessageSquare, Plus, ShieldAlert, Users, X } from 'lucide-react';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 import { STRIP } from '@/components/chat/chat-view-banners';
 import { Alert, AlertAction, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
@@ -22,9 +23,10 @@ export function guestPreviewUrl(linkUrl: string, origin = typeof window !== 'und
 }
 
 /**
- * The owner's panel, always in view at the top of the owner room's sidebar:
- * this is the owner page (don't share it), copy the guest link, preview it,
- * and how guests may use the agent — each line opens that setting.
+ * The owner's "Sharing" block at the bottom of the owner room's sidebar,
+ * like a condensed Google Docs share dialog: who can open it, how guests may
+ * use the agent, the link's lifetime and guests — each line opens that
+ * setting — plus Copy guest link and Preview, and a small "owner page" note.
  */
 export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCard }: {
   /** The live guest link, or null when it's off. */
@@ -32,7 +34,7 @@ export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCa
   guestCount: number | null;
   onOpenSettings: (section: GuestLinkSection | null) => void;
   onPreview: () => void;
-  /** The "not saved yet" / "saved" card under the panel. */
+  /** The "not saved yet" / "saved" line under the block. */
   saveCard?: React.ReactNode;
 }) {
   const t = useT();
@@ -53,58 +55,70 @@ export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCa
   };
 
   const mode = link?.approvalMode ?? 'none';
-  const rows: { section: GuestLinkSection; label: string; value: string; tone?: 'muted' | 'warning' }[] = [
-    { section: 'requests', label: t('shareRoom.policyRequests'), value: mode === 'owner' ? t('shareRoom.policyRequestsOwner') : mode === 'off' ? t('shareRoom.policyRequestsOff') : t('shareRoom.policyRequestsNone') },
-    { section: 'post', label: t('shareRoom.policyPost'), value: !link || link.canPost ? t('shareRoom.policyPostYes') : t('shareRoom.policyPostNo') },
-    { section: 'expiry', label: t('shareRoom.policyLink'), value: !link ? t('shareRoom.policyLinkOff') : link.expiresAt ? t('shareRoom.policyLinkExpires', { date: formatDateTime(link.expiresAt) }) : t('shareRoom.policyLinkNever'), tone: !link ? 'warning' : undefined },
-    { section: 'guests', label: t('shareRoom.policyGuests'), value: guestCount === null ? '…' : String(guestCount) },
+  const invited = link?.access === 'invited';
+  const rows: { section: GuestLinkSection; icon: React.ReactNode; label: string; value: string; tone?: 'warning' }[] = [
+    { section: 'access', icon: invited ? <Lock /> : <Globe />, label: t('shareRoom.policyAccess'), value: invited ? t('shareRoom.policyAccessInvited') : t('shareRoom.policyAccessLink') },
+    { section: 'requests', icon: <Bot />, label: t('shareRoom.policyRequests'), value: mode === 'owner' ? t('shareRoom.policyRequestsOwner') : mode === 'off' ? t('shareRoom.policyRequestsOff') : t('shareRoom.policyRequestsNone') },
+    { section: 'post', icon: <MessageSquare />, label: t('shareRoom.policyPost'), value: !link || link.canPost ? t('shareRoom.policyPostYes') : t('shareRoom.policyPostNo') },
+    { section: 'agents', icon: <Plus />, label: t('roomAgents.policyGuestAgents'), value: link?.allowGuestAgents && link.canPost ? t('roomAgents.policyGuestAgentsOn') : t('roomAgents.policyGuestAgentsOff') },
+    { section: 'expiry', icon: <Clock />, label: t('shareRoom.policyLink'), value: !link ? t('shareRoom.policyLinkOff') : link.expiresAt ? t('shareRoom.policyLinkExpires', { date: formatDateTime(link.expiresAt) }) : t('shareRoom.policyLinkNever'), tone: !link ? 'warning' : undefined },
+    { section: 'guests', icon: <Users />, label: t('shareRoom.policyGuests'), value: guestCount === null ? '…' : String(guestCount) },
   ];
 
   return (
     <div className="flex flex-col gap-2" data-owner-panel="">
-      <div className="rounded-lg border border-warning/30 bg-warning/10 p-2.5 text-warning">
-        <p className="flex items-start gap-1.5 text-xs font-medium leading-snug"><ShieldAlert className="mt-px size-3.5 shrink-0" />{t('shareRoom.ownerPage')}</p>
-        <p className="mt-1 pl-5 text-[11px] leading-snug text-warning/80">{t('shareRoom.ownerPageHelp')}</p>
+      <div className="flex flex-col gap-2 rounded-xl border bg-background/70 p-2 shadow-xs">
+        <span className="px-1 pt-0.5 text-xs font-medium text-sidebar-foreground/70">{t('shareRoom.sharingHeading')}</span>
+        <ul className="flex flex-col" data-owner-policy="">
+          {rows.map((row) => (
+            <li key={row.section}>
+              <button type="button" onClick={() => onOpenSettings(row.section)} aria-label={t('shareRoom.policyChange', { setting: row.label })}
+                className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none [&_svg]:size-3.5 [&_svg]:shrink-0"
+                data-owner-policy-row={row.section}>
+                <span className="text-muted-foreground">{row.icon}</span>
+                <span className="shrink-0 text-muted-foreground">{row.label}</span>
+                <span className={cn('min-w-0 flex-1 truncate text-right font-medium', row.tone === 'warning' && 'text-warning')} title={row.value} data-owner-policy-value="">{row.value}</span>
+                <ChevronRight className="text-muted-foreground/60" />
+              </button>
+            </li>
+          ))}
+        </ul>
+        {link ? (
+          <div className="flex flex-col gap-1">
+            <div className="flex gap-1.5">
+              <Button size="sm" onClick={() => void copy()} className="min-w-0 flex-1" data-owner-copy-link="">
+                {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}<span className="truncate">{copied ? t('shareRoom.guestLinkCopied') : t('shareRoom.copyGuestLink')}</span>
+              </Button>
+              <WithTooltip label={t('shareRoom.previewAsGuest')}>
+                <Button size="sm" variant="outline" className="shrink-0 bg-background" onClick={onPreview} data-owner-preview="">
+                  <Eye data-icon="inline-start" />{t('shareRoom.previewShort')}
+                </Button>
+              </WithTooltip>
+            </div>
+            {copied && (
+              <Button size="xs" variant="link" className="h-auto self-center py-0.5 text-xs" onClick={onPreview} data-owner-see-guests="">
+                {t('shareRoom.seeWhatGuestsSee')}
+              </Button>
+            )}
+          </div>
+        ) : (
+          <button type="button" className="rounded-md border border-dashed px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent" onClick={() => onOpenSettings(null)} data-owner-no-link="">
+            {t('shareRoom.noLink')}
+          </button>
+        )}
+        <WithTooltip label={t('shareRoom.ownerPageHelp')}>
+          <span className="flex min-w-0 items-center gap-1 px-1 text-[11px] text-warning" tabIndex={0} data-owner-note="">
+            <ShieldAlert className="size-3 shrink-0" /><span className="truncate">{t('shareRoom.ownerNote')}</span>
+          </span>
+        </WithTooltip>
       </div>
-      {link ? (
-        <div className="flex flex-col gap-1">
-          <Button size="sm" onClick={() => void copy()} className="w-full" data-owner-copy-link="">
-            {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copied ? t('shareRoom.guestLinkCopied') : t('shareRoom.copyGuestLink')}
-          </Button>
-          {copied ? (
-            <Button size="xs" variant="link" className="h-auto self-center py-0.5 text-xs" onClick={onPreview} data-owner-see-guests="">
-              <Eye data-icon="inline-start" />{t('shareRoom.seeWhatGuestsSee')}
-            </Button>
-          ) : (
-            <Button size="sm" variant="outline" className="w-full bg-background" onClick={onPreview} data-owner-preview="">
-              <Eye data-icon="inline-start" />{t('shareRoom.previewAsGuest')}
-            </Button>
-          )}
-        </div>
-      ) : (
-        <button type="button" className="rounded-md border border-dashed px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent" onClick={() => onOpenSettings(null)} data-owner-no-link="">
-          {t('shareRoom.noLink')}
-        </button>
-      )}
-      <ul className="flex flex-col rounded-lg border bg-background/60 py-1" data-owner-policy="">
-        {rows.map((row) => (
-          <li key={row.section}>
-            <button type="button" onClick={() => onOpenSettings(row.section)} aria-label={t('shareRoom.policyChange', { setting: row.label })}
-              className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none" data-owner-policy-row={row.section}>
-              <span className="shrink-0 text-muted-foreground">{row.label}</span>
-              <span className={cn('min-w-0 flex-1 truncate text-right font-medium', row.tone === 'warning' && 'text-warning')} title={row.value} data-owner-policy-value="">{row.value}</span>
-              <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-            </button>
-          </li>
-        ))}
-      </ul>
       {saveCard}
     </div>
   );
 }
 
 /**
- * Under the owner panel: the room isn't in an account yet (lose the link,
+ * Next to the sharing block: the room isn't in an account yet (lose the link,
  * lose the room) with a way to save it — or a quiet "saved" line.
  */
 export function SaveCard({ saved, signedIn, onSave }: { saved: boolean; signedIn: boolean; onSave: () => void }) {
@@ -118,12 +132,13 @@ export function SaveCard({ saved, signedIn, onSave }: { saved: boolean; signedIn
     );
   }
   return (
-    <div className="flex flex-col gap-2 rounded-lg border bg-background/60 p-2.5" data-owner-not-saved="">
-      <div>
-        <p className="text-xs font-medium">{t('shareRoom.notSaved')}</p>
-        <p className="mt-0.5 text-[11px] leading-snug text-muted-foreground">{t('shareRoom.notSavedBody')}</p>
-      </div>
-      <Button size="sm" variant="outline" className="w-full" onClick={onSave} data-owner-save="">
+    <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 py-1 pr-1 pl-2.5" data-owner-not-saved="">
+      <WithTooltip label={t('shareRoom.notSavedBody')}>
+        <span className="min-w-0 flex-1 truncate text-xs" tabIndex={0}>
+          {t('shareRoom.notSavedShort')}<span className="sr-only">. {t('shareRoom.notSavedBody')}</span>
+        </span>
+      </WithTooltip>
+      <Button size="xs" variant="outline" className="shrink-0 bg-background" onClick={onSave} data-owner-save="">
         {signedIn ? <BookmarkPlus data-icon="inline-start" /> : <LogIn data-icon="inline-start" />}
         {signedIn ? t('shareRoom.saveToRoomsShort') : t('shareRoom.signInToSave')}
       </Button>
@@ -168,14 +183,14 @@ export function DismissibleStrip({ icon, children, action, onDismiss, tone = 'mu
 }
 
 /** A live, scaled-down guest page (read-only preview) with "Open in new tab". */
-export function GuestPreviewDialog({ open, onOpenChange, url }: { open: boolean; onOpenChange: (open: boolean) => void; url: string | null }) {
+export function GuestPreviewDialog({ open, onOpenChange, url, inviteOnly = false }: { open: boolean; onOpenChange: (open: boolean) => void; url: string | null; inviteOnly?: boolean }) {
   const t = useT();
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl" data-guest-preview-dialog="">
         <DialogHeader>
           <DialogTitle>{t('shareRoom.previewTitle')}</DialogTitle>
-          <DialogDescription>{t('shareRoom.previewBody')}</DialogDescription>
+          <DialogDescription data-guest-preview-label="">{inviteOnly ? t('shareRoom.previewInviteOnly') : t('shareRoom.previewBody')}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           {url && (

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import React, { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GuestLink } from '@/lib/guest-links';
 
 const state = vi.hoisted(() => ({
@@ -33,6 +33,9 @@ vi.mock('@/lib/api', () => {
       updateGuestLinkCanPost: vi.fn(),
       listThreadGuests: vi.fn(async () => []),
       removeThreadGuest: vi.fn(),
+      updateGuestLinkAccess: vi.fn(),
+      addGuestLinkInvites: vi.fn(),
+      removeGuestLinkInvite: vi.fn(),
     },
   };
 });
@@ -218,4 +221,63 @@ it('lists the thread’s guests and removes one after confirming', async () => {
   await click(document.querySelector('[data-guest-remove-confirm="g1"]')!);
   expect(workspaceApi.removeThreadGuest).toHaveBeenCalledWith('share-abc', 'g1');
   expect(document.querySelector('[data-guest-row="g1"] [data-guest-removed]')).not.toBeNull();
+});
+
+describe('general access and invites', () => {
+  beforeEach(() => {
+    Element.prototype.scrollIntoView = vi.fn();
+    Element.prototype.hasPointerCapture = vi.fn(() => false);
+    Element.prototype.releasePointerCapture = vi.fn();
+  });
+  async function type(value: string, key?: string) {
+    const input = document.querySelector('[data-invite-input]') as HTMLInputElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    if (key) await act(async () => { input.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })); });
+  }
+
+  it('switches the link to "Restricted — only people you invite"', async () => {
+    vi.mocked(workspaceApi.updateGuestLinkAccess).mockImplementation(async (id, access) => ({ ...LIVE, id, access }));
+    await render();
+    expect(document.querySelector('[data-guest-link-access]')?.getAttribute('data-guest-link-access')).toBe('link');
+    const trigger = document.querySelector('[data-access-select]') as HTMLElement;
+    await act(async () => { trigger.focus(); trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    for (let i = 0; i < 3; i++) await act(async () => { await Promise.resolve(); });
+    await click(document.querySelector('[data-access-option="invited"]')!);
+    expect(workspaceApi.updateGuestLinkAccess).toHaveBeenCalledWith('link-1', 'invited');
+    expect(document.querySelector('[data-guest-link-access]')?.getAttribute('data-guest-link-access')).toBe('invited');
+  });
+
+  it('adds people as chips, refuses a bad address, invites, and removes an invitee', async () => {
+    const restricted = { ...LIVE, access: 'invited' as const, invitedEmails: ['sam@example.com'] };
+    vi.mocked(workspaceApi.listGuestLinks).mockResolvedValue([restricted]);
+    vi.mocked(workspaceApi.addGuestLinkInvites).mockImplementation(async (id, emails) => ({ link: { ...restricted, invitedEmails: ['sam@example.com', ...emails] }, added: emails }));
+    vi.mocked(workspaceApi.removeGuestLinkInvite).mockImplementation(async () => ({ ...restricted, invitedEmails: ['maya@example.com'] }));
+    await render();
+    expect([...document.querySelectorAll('[data-invited]')].map((el) => el.getAttribute('data-invited'))).toEqual(['sam@example.com']);
+    await type('Maya@Example.com,');
+    expect(document.querySelector('[data-invite-chip="maya@example.com"]')).not.toBeNull();
+    await type('not-an-email', 'Enter');
+    expect(document.querySelector('[data-invite-error]')?.textContent).toBe('share.inviteInvalid:{"email":"not-an-email"}');
+    expect(workspaceApi.addGuestLinkInvites).not.toHaveBeenCalled();
+    await type('');
+    await click(document.querySelector('[data-invite-send]')!);
+    expect(workspaceApi.addGuestLinkInvites).toHaveBeenCalledWith('link-1', ['maya@example.com']);
+    expect(document.querySelector('[data-invite-chip]')).toBeNull();
+    expect([...document.querySelectorAll('[data-invited]')].map((el) => el.getAttribute('data-invited'))).toEqual(['sam@example.com', 'maya@example.com']);
+    expect(text()).toContain('share.inviteSent');
+    await click(document.querySelector('[data-invite-remove="sam@example.com"]')!);
+    expect(workspaceApi.removeGuestLinkInvite).toHaveBeenCalledWith('link-1', 'sam@example.com');
+    expect([...document.querySelectorAll('[data-invited]')].map((el) => el.getAttribute('data-invited'))).toEqual(['maya@example.com']);
+  });
+
+  it('shows the server’s reason when an invite is refused', async () => {
+    vi.mocked(workspaceApi.addGuestLinkInvites).mockRejectedValue(Object.assign(new (ApiError as unknown as new (s: number) => Error)(400), { serverMessage: 'Not a valid email: x@y' }));
+    await render();
+    await type('maya@example.com', 'Enter');
+    await click(document.querySelector('[data-invite-send]')!);
+    expect(document.querySelector('[data-invite-error]')?.textContent).toBe('Not a valid email: x@y');
+  });
 });

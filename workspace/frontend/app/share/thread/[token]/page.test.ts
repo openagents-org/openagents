@@ -486,3 +486,161 @@ it('shows the owner’s preview read-only: no session, no name prompt, nothing p
   expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
   expect(localStorage.getItem('oa-guest-session:tok')).toBe('secret');
 });
+
+function failWith(status: number, data: unknown, message = 'no') {
+  return new Response(JSON.stringify({ code: status, message, data }), { status });
+}
+
+it('asks a signed-out visitor of an invite-only room to sign in', async () => {
+  serve(() => failWith(401, { access: 'invited' }));
+  await open();
+  expect(host.querySelector('[data-guest-link-state="invite_signin"]')?.textContent).toContain('guestThread.inviteOnlyTitle');
+  expect(host.querySelector('[data-invite-sign-in]')).not.toBeNull();
+});
+
+it('tells a signed-in visitor who isn’t invited which account was checked', async () => {
+  auth.value = { ...auth.value, user: { email: 'sam@example.com' }, idToken: 'id-tok' };
+  try {
+    // Without credentials the room asks to sign in; with them, it checks the account.
+    serve((_url, init) => (((init?.headers || {}) as Record<string, string>).Authorization
+      ? failWith(403, { access: 'invited', email: 'sam@example.com' })
+      : failWith(401, { access: 'invited' })));
+    await open();
+    expect(host.querySelector('[data-guest-link-state="invite_denied"]')?.textContent).toContain('guestThread.inviteDeniedTitle:{"email":"sam@example.com"}');
+    expect(host.querySelector('[data-invite-switch]')).not.toBeNull();
+    // Asked first without credentials, then as the signed-in account.
+    expect(((fetchMock.mock.calls[0][1] as RequestInit).headers as Record<string, string> | undefined)?.Authorization).toBeUndefined();
+    const last = fetchMock.mock.calls.at(-1)!;
+    expect(((last[1] as RequestInit).headers as Record<string, string>).Authorization).toBe('Bearer id-tok');
+  } finally {
+    auth.value = { ...auth.value, user: null, idToken: null };
+  }
+});
+
+it('lets an invited, signed-in guest in with their account: bearer on every call, no name prompt', async () => {
+  auth.value = { ...auth.value, user: { email: 'maya@example.com' }, idToken: 'id-tok' };
+  try {
+    serve((url, init) => {
+      if (init?.method === 'POST') {
+        const body = JSON.parse(String(init.body));
+        return ok({ id: 'e20', type: 'workspace.message', source: 'human:guest-g-7@guest.invalid', target: 'channel/channel-1', payload: { content: body.content, sender_name: 'maya' }, metadata: { guest: { id: 'g-7', name: 'maya' }, client_key: body.idempotency_key }, timestamp: 20, visibility: 'channel' });
+      }
+      if (url.endsWith('/resources')) return ok({ files: [], browsers: [], routines: [] });
+      return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok({ ...INFO, access: 'invited', guest: null });
+    });
+    await open();
+    expect(host.querySelector('[data-invite-only-badge]')?.textContent).toBe('guestThread.inviteOnlyBadge');
+    const textarea = host.querySelector('textarea')!;
+    await typeInto(textarea, 'hello');
+    await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+    await settle();
+    // No name prompt: the account is the identity.
+    expect(host.textContent).not.toContain('guestThread.nameTitle');
+    const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+    const headers = (post[1] as RequestInit).headers as Record<string, string>;
+    expect(headers.Authorization).toBe('Bearer id-tok');
+    expect(headers['X-Guest-Session']).toBeUndefined();
+    // Once the room says it's invite-only, every call carries the account.
+    for (const call of fetchMock.mock.calls.slice(1)) {
+      expect([String(call[0]), ((call[1] as RequestInit).headers as Record<string, string> | undefined)?.Authorization]).toEqual([String(call[0]), 'Bearer id-tok']);
+    }
+    expect(host.querySelector('[data-guest-message="e20"]')?.textContent).toContain('guestThread.you');
+  } finally {
+    auth.value = { ...auth.value, user: null, idToken: null };
+  }
+});
+
+it('never tells an open link who is signed in', async () => {
+  auth.value = { ...auth.value, user: { email: 'maya@example.com' }, idToken: 'id-tok' };
+  try {
+    serve((url) => (url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO)));
+    await open();
+    for (const call of fetchMock.mock.calls) {
+      const headers = ((call[1] as RequestInit | undefined)?.headers || {}) as Record<string, string>;
+      expect(headers.Authorization).toBeUndefined();
+    }
+  } finally {
+    auth.value = { ...auth.value, user: null, idToken: null };
+  }
+});
+
+const AGENT_COMMANDS = ['npm i -g @openagents-org/agent-launcher', 'agn create mine --path ~/mine', 'agn connect mine gtok-once'];
+function agentServer(extra?: (url: string, init?: RequestInit) => Response | null, info: Record<string, unknown> = {}) {
+  return (url: string, init?: RequestInit) => {
+    const hit = extra?.(url, init);
+    if (hit) return hit;
+    if (url.endsWith('/resources')) return ok({ files: [], browsers: [], routines: [] });
+    return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok({ ...INFO, allowGuestAgents: true, ...info });
+  };
+}
+async function typeName(value: string) {
+  const input = document.querySelector('[data-add-agent-name]') as HTMLInputElement;
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+}
+
+it('offers guests "Add agent" only when the owner allows it', async () => {
+  serve(agentServer(undefined, { allowGuestAgents: false }));
+  await open();
+  expect(host.querySelector('[data-add-agent-button]')).toBeNull();
+});
+
+it('asks a guest without a name for one before adding an agent', async () => {
+  serve(agentServer());
+  await open();
+  await act(async () => { (host.querySelector('[data-add-agent-button]') as HTMLElement).click(); });
+  await settle();
+  expect(document.body.textContent).toContain('guestThread.nameTitle');
+  expect(document.querySelector('[data-add-agent-dialog]')).toBeNull();
+});
+
+it('lets a named guest bring an agent, shows the one-time commands, and says when a name is taken', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  let taken = true;
+  const posts: Array<{ body: unknown; headers: Record<string, string> }> = [];
+  serve(agentServer((url, init) => {
+    if (url.endsWith('/agents') && init?.method === 'POST') {
+      posts.push({ body: JSON.parse(String(init.body)), headers: init.headers as Record<string, string> });
+      if (taken) { taken = false; return new Response(JSON.stringify({ code: 409, message: 'taken' }), { status: 409 }); }
+      return ok({ agent: { name: 'mine', type: 'claude', broughtBy: 'Maya', mine: true }, token: 'gtok-once', commands: AGENT_COMMANDS });
+    }
+    return null;
+  }));
+  await open();
+  await act(async () => { (host.querySelector('[data-add-agent-button]') as HTMLElement).click(); });
+  await settle();
+  expect(document.querySelector('[data-add-agent-explain]')?.textContent).toBe('roomAgents.guestExplain');
+  await typeName('mine');
+  await act(async () => { (document.querySelector('[data-add-agent-submit]') as HTMLElement).click(); });
+  await settle();
+  expect(document.querySelector('[data-add-agent-error]')?.textContent).toBe('roomAgents.nameTaken:{"name":"mine"}');
+  await act(async () => { (document.querySelector('[data-add-agent-submit]') as HTMLElement).click(); });
+  await settle();
+  expect(posts.map((p) => p.body)).toEqual([{ name: 'mine', type: 'claude' }, { name: 'mine', type: 'claude' }]);
+  expect(posts[0].headers['X-Guest-Session']).toBe('secret');
+  expect(document.querySelector('[data-add-agent-commands]')?.textContent).toBe(AGENT_COMMANDS.join('\n'));
+  expect(document.querySelector('[data-add-agent-token-once]')?.textContent).toBe('roomAgents.tokenOnce');
+});
+
+it('shows who brought an agent and lets a guest remove only their own', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  const deletes: string[] = [];
+  serve(agentServer((url, init) => {
+    if (url.includes('/agents/') && init?.method === 'DELETE') { deletes.push(url); return ok({ name: 'mine', removed: true }); }
+    return null;
+  }, { agents: [
+    ...INFO.agents,
+    { name: 'mine', displayName: 'mine', type: 'claude', online: true, broughtBy: 'Maya', mine: true },
+    { name: 'sams-bot', displayName: 'sams-bot', type: 'codex', online: false, broughtBy: 'Sam', mine: false },
+  ] }));
+  await open();
+  expect(host.querySelector('[data-agent-row="sams-bot"] [data-agent-brought-by]')?.textContent).toBe('roomAgents.broughtBy:{"name":"Sam"}');
+  expect(host.querySelector('[data-agent-row="sams-bot"] [data-agent-remove]')).toBeNull();
+  expect(host.querySelector('[data-agent-row="claude-code"] [data-agent-remove]')).toBeNull();
+  await act(async () => { (host.querySelector('[data-agent-row="mine"] [data-agent-remove]') as HTMLElement).click(); });
+  await act(async () => { (host.querySelector('[data-agent-remove-confirm="mine"]') as HTMLElement).click(); });
+  await settle();
+  expect(deletes).toEqual(['https://api.test/v1/guest-links/public/tok/agents/mine']);
+});

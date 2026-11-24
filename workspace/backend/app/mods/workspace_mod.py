@@ -2248,6 +2248,15 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             event.metadata["target_agents"] = ["__no_response__"]
             return event
 
+    # An agent a guest brought into a room (OpenAgents Share) only replies:
+    # what it posts never starts another agent, so a guest can't drive the
+    # owner's agents through it.
+    if event.source.startswith("openagents:"):
+        from app.services.room_agents import is_guest_agent as _guest_agent
+        if _guest_agent(db.get(WorkspaceMember, (str(workspace.id), event.source[len("openagents:"):]))):
+            event.metadata["target_agents"] = ["__no_response__"]
+            return event
+
     # An agent's failure report ends its turn; it is never a request. Routed
     # like a reply it reached another agent, whose answer @-ing the failed one
     # ran it again — with nothing counting hops, a Codex on a 429 posted an

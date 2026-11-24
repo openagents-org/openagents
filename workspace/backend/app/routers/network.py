@@ -21,7 +21,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import config
 from app.database import get_db
@@ -42,7 +42,7 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 # Request models
 # ---------------------------------------------------------------------------
 
-KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns", "relocate"})
+KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns", "relocate", "scoped_turns"})
 
 
 class JoinRequest(BaseModel):
@@ -142,6 +142,12 @@ def _check_lifecycle_auth(
     """
     if _verify_workspace_access(workspace, token, authorization):
         return None
+    if token and not authorization:
+        # A guest's agent in a room (limited connection): only as itself.
+        from app.services.room_agents import scoped_node
+        node = scoped_node(object_session(workspace), workspace.id, token)
+        if node is not None:
+            return None if node.scope_agent == agent_name else json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
     if config.ENFORCE_AGENT_LIFECYCLE_AUTH:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
     logger.warning(
@@ -308,6 +314,8 @@ def join_network(
     relocation = pending_relocation(db, workspace, body.agent_name, result.metadata.get("session_id"))
     if relocation:
         response["relocation"] = relocation
+    from app.services.room_agents import join_extras
+    response.update(join_extras(db, workspace, body.token, body.agent_name))
     return success_response(response)
 
 

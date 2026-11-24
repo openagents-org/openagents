@@ -466,7 +466,10 @@ def verify_workspace_access(
             )
         ).scalar_one_or_none()
         if node is not None:
-            return True
+            # A limited connection (scope_channel set) is never workspace-wide
+            # trust; the few things it may do are allowed explicitly
+            # (scoped_node / AuthMod / the event poll / heartbeat).
+            return not node.scope_channel
 
     # 2. Member identity (membership row or legacy email match).
     if db is not None:

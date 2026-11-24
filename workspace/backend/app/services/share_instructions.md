@@ -27,6 +27,7 @@ Prepare all of the following, then show it to the person exactly as it will be p
 - **Who can ask the agent**: guests' requests **run right away** (default), **wait for the person's approval** each time, or **guests can't ask the agent at all** (they can still read and comment).
 - **Can guests post?** yes (default), or **read-only** (guests can only read).
 - **Who can open the room**: **anyone with the link** (default), or **only people invited by email** (they sign in with that address; list their emails).
+- **Can guests bring their own agents?** yes (default: a guest can add their own agent to the room; it runs on the guest's computer, can only read and post in this room, and can't start your agent), or no.
 
 All of these can be changed later from the owner link.
 
@@ -58,7 +59,8 @@ curl -sS -X POST "{API}/v1/share/publish" -H "Content-Type: application/json" -d
   "guest_agent_access": "open",
   "guests_can_post": true,
   "access": "link",
-  "invited_emails": []
+  "invited_emails": [],
+  "guests_can_bring_agents": true
 }
 ```
 
@@ -106,5 +108,5 @@ Tell the person, briefly:
 
 - **Send this to your team:** the `guestUrl`.
 - **Keep this private:** the `ownerUrl`. It is full control of the workspace. Opening it and signing in (or creating a free account) keeps the workspace in their OpenAgents account; until then it exists only behind that link.
-- From the owner link they can copy the guest link again, change its expiry or turn it off (the share icon in the thread header).
+- From the owner link they can copy the guest link again, change its expiry or turn it off, and add more of their own agents to the room (**Add agent**).
 - The shared agent answers while this computer is on and the launcher is running. Stop it with `npx -y {LAUNCHER} stop <agentName>`.

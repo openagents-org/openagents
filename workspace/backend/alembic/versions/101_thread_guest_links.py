@@ -27,6 +27,7 @@ def upgrade():
         sa.Column('can_post', sa.Boolean(), nullable=False, server_default=sa.text('TRUE')),
         sa.Column('approval_mode', sa.Text(), nullable=False, server_default=sa.text("'none'")),
         sa.Column('access', sa.Text(), nullable=False, server_default=sa.text("'link'")),
+        sa.Column('allow_guest_agents', sa.Boolean(), nullable=False, server_default=sa.text('TRUE')),
         sa.Column('invited_emails', JSONB(), nullable=False, server_default=sa.text("'[]'")),
         sa.Column('publish_key_hash', sa.Text(), nullable=True, unique=True),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
@@ -64,10 +65,14 @@ def upgrade():
     )
     op.create_index('idx_thread_guest_requests_link', 'thread_guest_requests', ['link_id', 'status'])
     op.add_column('workspace_members', sa.Column('capabilities', JSONB(), nullable=True))
+    op.add_column('nodes', sa.Column('scope_channel', sa.Text(), nullable=True))
+    op.add_column('nodes', sa.Column('scope_agent', sa.Text(), nullable=True))
 
 
 def downgrade():
     op.drop_column('workspace_members', 'capabilities')
+    op.drop_column('nodes', 'scope_agent')
+    op.drop_column('nodes', 'scope_channel')
     op.drop_index('idx_thread_guest_requests_link', table_name='thread_guest_requests')
     op.drop_table('thread_guest_requests')
     op.drop_index('idx_thread_guests_link', table_name='thread_guests')

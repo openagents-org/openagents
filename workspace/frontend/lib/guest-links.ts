@@ -12,6 +12,12 @@ export interface GuestLink {
   canPost: boolean;
   /** `owner`: a guest's request to the agent waits for the owner's approval. */
   approvalMode?: ApprovalMode;
+  /** Who can open it: anyone with the link, or only invited (signed-in) people. */
+  access?: LinkAccess;
+  /** Invite-only: the invited emails (owner's view). */
+  invitedEmails?: string[];
+  /** Guests may bring their own agents into the room. */
+  allowGuestAgents?: boolean;
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string | null;
@@ -19,6 +25,7 @@ export interface GuestLink {
 
 /** How guests may use the agent: right away, after the owner approves, or not at all. */
 export type ApprovalMode = 'none' | 'owner' | 'off';
+export type LinkAccess = 'link' | 'invited';
 
 /** A guest of the thread, as the owner sees them. */
 export interface ThreadGuestRecord {
@@ -42,6 +49,13 @@ export interface GuestLinksClient {
   /** Guests can post (false = a read-only link). */
   updateCanPost?(id: string, canPost: boolean): Promise<GuestLink>;
   listGuests?(channel: string): Promise<ThreadGuestRecord[]>;
+  /** Guests may bring their own agents. */
+  updateAllowGuestAgents?(id: string, allow: boolean): Promise<GuestLink>;
+  /** General access: anyone with the link, or only invited people. */
+  updateAccess?(id: string, access: LinkAccess): Promise<GuestLink>;
+  /** Invite by email; returns the updated link and who was newly added. */
+  addInvites?(id: string, emails: string[]): Promise<{ link: GuestLink; added: string[] }>;
+  removeInvite?(id: string, email: string): Promise<GuestLink>;
   removeGuest?(channel: string, guestId: string): Promise<ThreadGuestRecord>;
 }
 

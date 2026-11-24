@@ -23,7 +23,8 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 | Spend: local agent | Proposed | No money cap (tokens are the sharer's own plan and we can't price them). Controls are count-based limits above, the on/off of the local launcher, expiry and revoke. A per-link daily run cap is the next lever if needed. |
 | Spend: cloud (Acenta) | Open, hosted-only | Owner sets a dollar cap for the cloud workspace; reserve before dispatch, settle after; pause at the cap with the thread still readable. Never move local work to cloud silently. Not in step 1. |
 | Offline sharer | Proposed | The thread stays readable and postable. The guest page says the agent is offline and answers when the sharer's computer is back. |
-| Fork, bring-your-agent, claim UI, cloud | Later | Steps 3–5 of the handoff. |
+| Fork, bring-your-agent, claim UI | Built | See the sections below. |
+| Cloud | Later | Step 5 of the handoff. |
 
 ## How it works (step 1)
 
@@ -48,16 +49,18 @@ The owner can switch a guest link to **I approve each request** (`approval_mode:
 
 A signed-in guest can take a private copy of the conversation (the messages they can see, no agent, no link back) into a new or existing workspace of theirs and continue there with their own agents. The original is untouched.
 
-## Proposal: guests bring their own agent (not built)
+## More agents in a room
 
-The handoff's "Maya brings an agent" needs Maya's launcher to join Alex's thread. Today every launcher credential (workspace token, device token) is full trust for the whole workspace: it can read every thread, post as anyone and manage members. Handing one to a guest would give them far more than this thread. A safe version needs a new **thread-scoped agent credential**:
+**The owner's agents.** From the room the owner adds another of their agents (**Add agent**: a name without spaces and a type). The reply carries the three launcher commands; the agent connects with the room's workspace token, runs on the owner's computer and is asked like the first one (`@name`). Guests' requests to it follow the same rules (read-only turns, the owner's approval setting). The owner can remove any agent except the one the room was shared for.
 
-- minted from a guest session (one-time code shown in "Bring my agent"), bound to one link, one thread and one agent name;
-- accepted only by join (that name), heartbeat, the thread's message poll and posting into that thread as that agent;
-- never by workspace-wide reads, other threads, members, files, approvals or settings; revoked with the link or by the owner;
-- the guest's agent runs under the guest's own launcher and account, so its spend is theirs; the owner decides whether guests may bring agents at all.
+**Guests' agents.** When the owner allows it (`allow_guest_agents`, on by default, switchable later), a guest can bring their own agent. It gets a **limited connection** (a `nodes` row with `scope_channel` + `scope_agent`), never the workspace token:
 
-That touches the core auth path (`access.resolve_machine_token`, the events router's caching and visibility), so it should be designed and reviewed on its own before building. Until then, "use it yourself" can be served by a fork that copies the approved context into the guest's own workspace.
+- accepted only to join / heartbeat / leave as that agent name, to read that thread (plus its own control events) and to post there as that agent; everything else refuses it because `verify_workspace_access` never counts a limited connection as workspace trust (`access.py`, `access_model.is_machine_caller`, the events poll fast path, `nodes._machine_token_ok`);
+- what it reads has people's addresses replaced (guests' own guest addresses stay);
+- it stops working the moment the guest is removed, the link is turned off, expires or turns read-only, the owner switches guest agents off, or the agent is removed (`room_agents.scoped_node`);
+- what it posts never starts another agent, so a guest can't drive the owner's agent through it;
+- anyone in the room may ask it. Its own guest's turns run normally on the guest's computer; everyone else's (the owner, other guests, other agents) run as guest turns, which the guest's launcher enforces. The join reply says whose agent it is (`scoped.owner_address`), and others' requests are routed only to a launcher advertising `scoped_turns`;
+- up to 3 per guest, 12 agents per room; guests' agents stay behind when the room moves into a workspace.
 
 ## Thread resources on the share pages
 
@@ -86,6 +89,8 @@ Guests and the owner room see the same strip a Workspace thread shows above its 
 | GET | `/v1/guest-links/{public/{token}\|room}/files/{id}` | a file the thread shows (artifact or attachment) |
 | GET | `/v1/guest-links/{public/{token}\|room}/browsers/{id}/screenshot` | a browser session the thread shows |
 | POST | `/v1/guest-links/room/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
+| POST / DELETE | `/v1/guest-links/room/agents[/{name}]?network=` `{name, type}` | owner: add / remove one of their agents |
+| POST / DELETE | `/v1/guest-links/public/{token}/agents[/{name}]` `{name, type}` | guest session: bring / remove their own agent (limited connection token in the reply, shown once) |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
 | GET | `/v1/guest-links/public/{token}/messages?after= \| ?before= &limit=` | anyone with the link |
@@ -114,4 +119,4 @@ Person A (sharer) needs Node.js and Claude Code. Person B (guest) needs only a b
 - Guest turns rely on Claude Code's WebFetch to read PRs. On a machine where WebFetch isn't available the reviewer says it can't fetch the diff.
 - Only Claude Code runs guest turns; other agent types reply that they can't take guest requests yet.
 - Keeping a workspace needs a sign-in round trip from the owner link; there is no "sign up first, then share" path inside the agent session yet.
-- Production needs the user's OK for migration 101 (two new tables, one nullable column on `workspace_members`) before promotion.
+- Production needs the user's OK for migration 101 (three new tables, nullable columns on `workspace_members` and `nodes`) before promotion.

@@ -156,7 +156,7 @@ export function ShareResourceShelf({ resources, agents, source, selected, onOpen
                 <span className="shrink-0"><AgentAvatar name={agent.name} size={28} status={agent.online ? 'online' : 'offline'} showStatus /></span>
                 <span className="min-w-0 flex-1 py-0.5">
                   <span className="block truncate text-xs font-medium leading-4">{agentDisplayName(agent)}</span>
-                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{[agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · ')}</span>
+                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{[agent.broughtBy ? t('roomAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · ')}</span>
                 </span>
               </li>
             ))}

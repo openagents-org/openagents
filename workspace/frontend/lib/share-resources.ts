@@ -4,7 +4,7 @@
  * come from. Kept free of React so it can be unit tested.
  */
 import { getApiBaseUrl } from '@/lib/api-base';
-import { request, type GuestApiOptions } from '@/lib/guest-thread-api';
+import { guestHeaders, request, type GuestApiOptions } from '@/lib/guest-thread-api';
 import { roomHeaders, type RoomCredentials } from '@/lib/share-room-api';
 import type { RoutineItem } from '@/lib/types';
 
@@ -123,9 +123,9 @@ export function guestResourceSource(token: string, options: GuestApiOptions = {}
   const fetchImpl = (...args: Parameters<typeof fetch>) => (options.fetchImpl ?? fetch)(...args);
   return {
     key: `guest:${token}`,
-    fetchResources: async () => toShareResources(await request(`${base()}/resources`, { method: 'GET' }, options)),
-    fetchFile: (id, signal) => bytes(`${base()}/files/${encodeURIComponent(id)}`, {}, signal, fetchImpl),
-    fetchScreenshot: (id, signal) => bytes(`${base()}/browsers/${encodeURIComponent(id)}/screenshot`, {}, signal, fetchImpl),
+    fetchResources: async () => toShareResources(await request(`${base()}/resources`, { method: 'GET', headers: guestHeaders(token) }, options)),
+    fetchFile: (id, signal) => bytes(`${base()}/files/${encodeURIComponent(id)}`, guestHeaders(token) || {}, signal, fetchImpl),
+    fetchScreenshot: (id, signal) => bytes(`${base()}/browsers/${encodeURIComponent(id)}/screenshot`, guestHeaders(token) || {}, signal, fetchImpl),
   };
 }
 

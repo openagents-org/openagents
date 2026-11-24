@@ -1,7 +1,7 @@
 'use client';
 
 import Image from 'next/image';
-import { ArrowRightLeft, Clock, Link2Off, WifiOff } from 'lucide-react';
+import { ArrowRightLeft, Clock, Eye, Link2Off, Lock, LogIn, UserRoundX, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from '@/components/ui/empty';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -10,8 +10,16 @@ import { useT } from '@/lib/i18n';
 /** Full-page loading / not found / expired / failed states for a thread link
  * (and, for the owner link, "moved to your workspace").
  * Each is final until the person acts — no spinner loops, no auto-retry. */
-export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref }: {
-  state: 'loading' | 'not_found' | 'expired' | 'error' | 'moved';
+export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref, email, onSignIn, onSwitchAccount, preview = false }: {
+  state: 'loading' | 'not_found' | 'expired' | 'error' | 'moved' | 'invite_signin' | 'invite_denied';
+  /** Invite-only, not invited: the signed-in account it checked. */
+  email?: string | null;
+  /** Invite-only: sign in (central login, back here). */
+  onSignIn?: () => void;
+  /** Invite-only, wrong account: sign out and in with another. */
+  onSwitchAccount?: () => void;
+  /** The owner's preview of what a signed-out guest sees. */
+  preview?: boolean;
   onRetry?: () => void;
   /** `owner`: the copy speaks about the private owner link. */
   variant?: 'guest' | 'owner';
@@ -20,7 +28,11 @@ export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref }:
 }) {
   const t = useT();
   if (state === 'loading') return <ThreadSkeleton label={t('guestThread.loading')} />;
-  const copy = state === 'moved'
+  const copy = state === 'invite_signin'
+    ? { icon: <Lock />, title: t('guestThread.inviteOnlyTitle'), body: t('guestThread.inviteOnlyBody') }
+    : state === 'invite_denied'
+    ? { icon: <UserRoundX />, title: email ? t('guestThread.inviteDeniedTitle', { email }) : t('guestThread.inviteDeniedTitleNoEmail'), body: t('guestThread.inviteDeniedBody') }
+    : state === 'moved'
     ? { icon: <ArrowRightLeft />, title: t('shareRoom.movedTitle'), body: t('shareRoom.movedBody') }
     : state === 'not_found' && variant === 'owner'
     ? { icon: <Link2Off />, title: t('shareRoom.notFoundTitle'), body: t('shareRoom.notFoundBody') }
@@ -34,6 +46,11 @@ export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref }:
     <div className="flex min-h-dvh flex-col bg-background p-0 lg:bg-sidebar lg:p-2">
       <div className="flex flex-1 flex-col items-center justify-center p-6 lg:rounded-xl lg:border lg:bg-background">
         <Brand />
+        {preview && (
+          <p className="mt-4 flex items-center gap-1.5 rounded-full border bg-muted/50 px-3 py-1 text-xs text-muted-foreground" data-preview-signed-out="">
+            <Eye className="size-3.5" />{t('guestThread.previewSignedOut')}
+          </p>
+        )}
         <Empty className="mt-6 max-w-md flex-none" data-guest-link-state={state}>
           <EmptyHeader>
             <EmptyMedia variant="icon">{copy.icon}</EmptyMedia>
@@ -42,10 +59,12 @@ export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref }:
           </EmptyHeader>
           <EmptyContent className="flex-row justify-center gap-2">
             {state === 'error' && onRetry && <Button onClick={onRetry}>{t('guestThread.tryAgain')}</Button>}
+          {state === 'invite_signin' && onSignIn && <Button onClick={onSignIn} disabled={preview} data-invite-sign-in=""><LogIn data-icon="inline-start" />{t('guestThread.inviteSignIn')}</Button>}
+          {state === 'invite_denied' && onSwitchAccount && <Button onClick={onSwitchAccount} data-invite-switch="">{t('guestThread.inviteSwitch')}</Button>}
             {state === 'moved' && movedHref && (
               <Button asChild><a href={movedHref} data-moved-open="">{t('shareRoom.open')}</a></Button>
             )}
-            <Button variant={state === 'error' || (state === 'moved' && movedHref) ? 'outline' : 'default'} asChild>
+            <Button variant={state === 'error' || state === 'invite_signin' || state === 'invite_denied' || (state === 'moved' && movedHref) ? 'outline' : 'default'} asChild>
               <a href="/">{t('guestThread.goToOpenAgents')}</a>
             </Button>
           </EmptyContent>

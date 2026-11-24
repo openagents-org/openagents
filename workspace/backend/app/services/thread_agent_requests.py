@@ -14,6 +14,11 @@ def request_access(db, workspace_id, channel, member, email):
     if not member or member.status == "removed" or not email:
         return "no"
     from app.services.guest_links import guest_may_run, is_guest_email
+    from app.services.room_agents import guest_agent_may_run, is_guest_agent
+    if is_guest_agent(member):
+        # An agent a guest brought into a room: anyone there may ask it (its
+        # launcher holds everyone but its own guest to read-only turns).
+        return "yes" if guest_agent_may_run(db, workspace_id, channel, member, email) else "no"
     if is_guest_email(email):
         # A guest of a shared thread may run that thread's agents while its
         # link is live, and nothing else; no grant or sharing rule applies.

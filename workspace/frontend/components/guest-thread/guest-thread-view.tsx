@@ -2,7 +2,8 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Image from 'next/image';
-import { AlertTriangle, Bot, Eye, Laptop, Menu, MessageSquare, PanelRight, Users } from 'lucide-react';
+import { AlertTriangle, Bot, Eye, Laptop, Lock, Menu, MessageSquare, PanelRight, Plus, Users, X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { STRIP as BANNER_STRIP } from '@/components/chat/chat-view-banners';
 import { IntermediateSteps } from '@/components/chat/intermediate-steps';
@@ -24,6 +25,7 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarProvider,
@@ -104,6 +106,8 @@ interface GuestThreadViewProps {
   pinStorageKey?: string;
   /** Guest page in the owner's preview: read only, nothing posts. */
   preview?: boolean;
+  /** Add or remove the room's agents (owner: theirs; guest: their own, when allowed). */
+  agentActions?: AgentActions;
 }
 
 /** Was the owner's open artifact closed by this guest (this tab, this link)? */
@@ -132,7 +136,7 @@ function selectionForPin(pin: PinnedArtifact | null | undefined, resources: Shar
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null, removed = false, ownerPanel, topBanner, onPinChange, pinStorageKey, preview = false }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null, removed = false, ownerPanel, topBanner, onPinChange, pinStorageKey, preview = false, agentActions }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -243,6 +247,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       identity={identity}
       expiresAt={isOwner ? undefined : info.expiresAt}
       ownerPanel={ownerPanel}
+      agentActions={agentActions}
       notice={isOwner ? t('shareRoom.ownerNotice') : removed ? t('guestThread.removedNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
     />
   );
@@ -252,7 +257,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       open
       onOpenChange={() => {}}
       className="h-dvh min-h-0 bg-background lg:bg-sidebar"
-      // A little wider with the owner panel, so its policy lines read in full.
+      // A little wider with the owner's sharing block, so its lines read in full.
       style={{ '--sidebar-width': ownerPanel ? '17rem' : '15rem' } as React.CSSProperties}
     >
       <Sidebar collapsible="none" className="hidden h-full shrink-0 lg:flex" aria-label={info.workspace.name}>
@@ -277,6 +282,11 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
             <div className="flex w-0 flex-1 items-center gap-1">
               <h1 className="font-heading min-w-0 truncate px-1 text-base font-medium text-foreground" title={title}>{title}</h1>
               <ThreadCounters agents={info.agents} people={people} />
+              {info.access === 'invited' && (
+                <Badge variant="secondary" className="hidden shrink-0 gap-1 sm:inline-flex" data-invite-only-badge="">
+                  <Lock aria-hidden="true" />{t('guestThread.inviteOnlyBadge')}
+                </Badge>
+              )}
             </div>
             {headerActions && (
               <div role="toolbar" aria-label={title} className="ml-auto flex shrink-0 items-center gap-1">
@@ -418,7 +428,61 @@ function Logo({ size }: { size: number }) {
 
 /** The workspace sidebar, cut down to this one thread: brand, the thread,
  * its agents and people, and who you are. */
-function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity, expiresAt, notice, ownerPanel }: {
+/** What the viewer may do with the room's agents (add one; remove some). */
+export interface AgentActions {
+  canAdd: boolean;
+  onAdd: () => void;
+  canRemove: (agent: GuestThreadAgent) => boolean;
+  onRemove: (name: string) => Promise<void>;
+}
+
+/** One agent in the sidebar: who brought it, and a remove that asks once more. */
+function AgentRow({ agent, rowClass, onRemove }: { agent: GuestThreadAgent; rowClass: string; onRemove?: () => Promise<void> }) {
+  const t = useT();
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const timer = setTimeout(() => setConfirming(false), 4000);
+    return () => clearTimeout(timer);
+  }, [confirming]);
+  const remove = async () => {
+    if (!onRemove) return;
+    if (!confirming) { setConfirming(true); return; }
+    setBusy(true); setFailed(false);
+    try { await onRemove(); } catch { setFailed(true); } finally { setBusy(false); setConfirming(false); }
+  };
+  const name = agentDisplayName(agent);
+  return (
+    <SidebarMenuItem className="group/agent" data-agent-row={agent.name}>
+      <SidebarMenuButton asChild className={cn(rowClass, agent.broughtBy && 'h-auto py-1', onRemove && 'pr-8')}>
+        <div title={agent.online ? t('guestThread.online') : t('guestThread.offline')}>
+          <AgentAvatar name={agent.name} size={20} showStatus status={agent.online ? 'online' : 'offline'} className="[&_svg]:size-full!" />
+          <span className="grid min-w-0 flex-1 leading-tight">
+            <span className="truncate">{name}</span>
+            {agent.broughtBy && <span className="truncate text-xs text-muted-foreground" data-agent-brought-by="">{t('roomAgents.broughtBy', { name: agent.broughtBy })}</span>}
+            {failed && <span className="truncate text-xs text-destructive" role="alert">{t('roomAgents.removeFailed')}</span>}
+          </span>
+          {!agent.online && !onRemove && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('guestThread.offline')}</span>}
+        </div>
+      </SidebarMenuButton>
+      {onRemove && (confirming ? (
+        <Button size="xs" variant="destructive" className="absolute top-1/2 right-1 h-6 -translate-y-1/2 px-2 text-xs" disabled={busy} onClick={() => void remove()} data-agent-remove-confirm={agent.name}>
+          {busy ? <Spinner /> : t('roomAgents.removeConfirm')}
+        </Button>
+      ) : (
+        <WithTooltip label={t('roomAgents.remove', { name })}>
+          <SidebarMenuAction showOnHover className="[@media(hover:none)]:opacity-100" aria-label={t('roomAgents.remove', { name })} onClick={() => void remove()} data-agent-remove={agent.name}>
+            <X />
+          </SidebarMenuAction>
+        </WithTooltip>
+      ))}
+    </SidebarMenuItem>
+  );
+}
+
+function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity, expiresAt, notice, ownerPanel, agentActions }: {
   workspaceName: string;
   subtitle: string;
   title: string;
@@ -431,6 +495,7 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
   notice: string;
   /** Owner room: the owner's panel, above the thread. */
   ownerPanel?: ReactNode;
+  agentActions?: AgentActions;
 }) {
   const t = useT();
   const { formatDateTime } = useFormatters();
@@ -448,7 +513,6 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
       </SidebarHeader>
 
       <SidebarContent>
-        {ownerPanel && <div className="px-3 pt-3" data-owner-panel-slot="">{ownerPanel}</div>}
         <SidebarGroup className="px-1.5">
           <SidebarGroupLabel className="px-2">{t('guestThread.threads')}</SidebarGroupLabel>
           <SidebarGroupContent>
@@ -467,19 +531,22 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
 
         <div className="px-3"><Separator /></div>
         <SidebarGroup className="px-1.5">
-          <SidebarGroupLabel className="px-2">{t('nav.agentsWithCount', { online, total: agents.length })}</SidebarGroupLabel>
+          {/* Laid out as the workspace's agents header: the label, then "+" to add one. */}
+          <div className="flex items-center">
+            <SidebarGroupLabel className="min-w-0 flex-1 px-2">{t('nav.agentsWithCount', { online, total: agents.length })}</SidebarGroupLabel>
+            {agentActions?.canAdd && (
+              <WithTooltip label={t('roomAgents.add')}>
+                <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={t('roomAgents.add')} onClick={agentActions.onAdd} data-add-agent-button="">
+                  <Plus />
+                </Button>
+              </WithTooltip>
+            )}
+          </div>
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {agents.map((agent) => (
-                <SidebarMenuItem key={agent.name}>
-                  <SidebarMenuButton asChild className={row}>
-                    <div title={agent.online ? t('guestThread.online') : t('guestThread.offline')}>
-                      <AgentAvatar name={agent.name} size={20} showStatus status={agent.online ? 'online' : 'offline'} className="[&_svg]:size-full!" />
-                      <span className="truncate">{agentDisplayName(agent)}</span>
-                      {!agent.online && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('guestThread.offline')}</span>}
-                    </div>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <AgentRow key={agent.name} agent={agent} rowClass={row}
+                  onRemove={agentActions?.canRemove(agent) ? () => agentActions.onRemove(agent.name) : undefined} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
@@ -514,6 +581,8 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
       </SidebarContent>
 
       <SidebarFooter className="gap-1 px-1.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+        {/* Owner room: the sharing settings, at hand above who you are. */}
+        {ownerPanel && <div className="px-1.5 pb-1" data-owner-panel-slot="">{ownerPanel}</div>}
         <p className="px-2 text-xs text-muted-foreground lg:hidden" data-share-notice="">{notice}</p>
         {expiresAt !== undefined && (
           <p className="px-2 text-xs text-muted-foreground" data-guest-link-expiry="">
@@ -588,7 +657,7 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
               media: <AgentAvatar name={agent.name} size={28} showStatus status={agent.online ? 'online' : 'offline'} />,
               title: agentDisplayName(agent),
               // The name is the handle; the runtime ("Claude Code") is the secondary label.
-              description: [agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · '),
+              description: [agent.broughtBy ? t('roomAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · '),
             }))}
             add={null}
           />
