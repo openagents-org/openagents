@@ -9,9 +9,12 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader } from '@/components/ui/empty';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
+import { useWorkspace } from '@/lib/workspace-context';
 import { nodeCommandErrorKey } from '@/lib/node-command-error';
 import type { NodeAgent, WorkspaceNode } from '@/lib/types';
 import { NodeAgentItem } from './node-agent-item';
+import { isImportableType } from '@/components/agents/import-sessions-dialog';
+import { openImportSessions } from '@/components/agents/import-sessions-host';
 import { NodeOfflineHelp } from './node-offline-help';
 import { NodePendingAgent } from './node-pending-agent';
 import { NodeSummary } from './node-summary';
@@ -61,7 +64,10 @@ export function NodeCard({
 }) {
   const t = useT();
   const confirm = useConfirm();
+  const { currentUser } = useWorkspace();
   const [busy, setBusy] = useState(false);
+  // Its local sessions are the pairer's alone (the server enforces it too).
+  const ownsDevice = !!node.ownerEmail && node.ownerEmail.trim().toLowerCase() === (currentUser.id || '').trim().toLowerCase();
 
   const online = node.status === 'online';
   const roster = node.agents || [];
@@ -198,6 +204,7 @@ export function NodeCard({
                   onToggle={(action) => void toggleAgent(a, action)}
                   onEdit={() => onEditAgent(a)}
                   onRemove={() => void queue('remove_agent', { name: a.name })}
+                  onImport={isImportableType(a.type) && ownsDevice ? () => openImportSessions(a.name) : undefined}
                 />
               ))}
             </div>

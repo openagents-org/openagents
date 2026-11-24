@@ -965,6 +965,8 @@ declare global {
         sessionId?: string | null,
         /** What to call a new tab until its page names the workspace. */
         title?: string | null,
+        /** Open "Import past sessions" for this agent once the workspace loads. */
+        importAgent?: string | null,
       ): Promise<void>
       setWorkspaceViewBounds(bounds: ViewBounds): Promise<void>
       /** Push the launcher's theme/language to the hosted workspace. */

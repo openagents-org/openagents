@@ -1,5 +1,5 @@
 'use client';
-import { Pencil, RotateCcw, Trash2, X } from 'lucide-react';
+import { History, Pencil, RotateCcw, Trash2, X } from 'lucide-react';
 import { AgentIcon } from '@/components/icons/agent-icons';
 import { AgentSharingButton } from '@/components/sharing/agent-sharing-button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,7 @@ export function NodeAgentItem({
   onToggle,
   onEdit,
   onRemove,
+  onImport,
 }: {
   agent: NodeAgent;
   online: boolean;
@@ -37,6 +38,8 @@ export function NodeAgentItem({
   onToggle: (action: AgentToggle['action']) => void;
   onEdit: () => void;
   onRemove: () => void;
+  /** Its tool keeps local sessions and the device is yours: bring them in. */
+  onImport?: () => void;
 }) {
   const t = useT();
   const running = a.status === 'running';
@@ -108,6 +111,12 @@ export function NodeAgentItem({
           <Button size="sm" variant="ghost" disabled={busy} onClick={onEdit}>
             <Pencil data-icon="inline-start" />{t('connect.nodeEdit')}
           </Button>
+          {onImport && (
+            <WithTooltip label={t('importSessions.action')}><Button size="icon-sm" variant="ghost" disabled={busy || !online} onClick={onImport}
+              aria-label={t('importSessions.action')} data-testid="node-agent-import">
+              <History />
+            </Button></WithTooltip>
+          )}
           <AgentSharingButton agentName={a.name} />
           <WithTooltip label={t('connect.remove')}><Button
                 size="icon-sm"

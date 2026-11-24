@@ -21,6 +21,8 @@ export interface WorkspaceTarget {
   name?: string | null
   /** Select this thread after the workspace has loaded. */
   sessionId?: string | null
+  /** Offer importing this just-added agent's past sessions once it loads. */
+  importAgent?: string | null
   /**
    * This device's access token for it, so a workspace the account is not a
    * member of still opens — exactly as a shared link would.

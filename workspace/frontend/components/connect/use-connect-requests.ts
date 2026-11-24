@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useLayout, type EditAgentRequest } from '@/components/layout/layout-context';
+import { openImportSessions } from '@/components/agents/import-sessions-host';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { NodeAgent, WorkspaceNode } from '@/lib/types';
@@ -63,23 +64,27 @@ export function useConnectRequests({ nodes, loaded, localNodeId, onRefresh, open
   }, [editAgentPending, consumeEditAgent, loaded, nodes, refetchedFor, refetching, t]);
 }
 
-/** An add that came up says so, with the way to the agent it made. */
-/** Announces an agent that came online. When `onImport` is given and returns
- *  an opener (its tool keeps local sessions: Claude Code, Codex…), the notice
- *  also offers importing them. */
-export function useJoinedNotice(skip: boolean, onImport?: (agentName: string) => (() => void) | null): (agentName: string) => void {
+/** Announces an agent that came online. When `canImport` says its tool
+ *  keeps local sessions (Claude Code, Codex…), the notice also offers
+ *  importing them. During onboarding (`skip`), which opens a thread with the
+ *  agent instead of announcing it, that offer is still made on its own. */
+export function useJoinedNotice(skip: boolean, canImport?: (agentName: string) => string | null): (agentName: string) => void {
   const t = useT();
   const { setSelectedAgentName } = useLayout();
   const { refreshAgents } = useWorkspace();
   return (name) => {
-    if (skip) return;
+    const tool = canImport?.(name) || null;
+    const importAction = { label: t('importSessions.action'), onClick: () => openImportSessions(name) };
+    if (skip) {
+      if (tool) toast(t('importSessions.onboardingOffer', { tool }), { action: importAction, duration: 30000 });
+      return;
+    }
     // The profile reads the workspace's agent list, which may not have it yet.
     const view = { label: t('connect.viewAgent'), onClick: () => { void refreshAgents().finally(() => setSelectedAgentName(name)); } };
-    const openImport = onImport?.(name);
-    if (openImport) {
+    if (tool) {
       toast.success(t('connect.agentJoined', { name }), {
         description: t('importSessions.joinedHint'),
-        action: { label: t('importSessions.action'), onClick: openImport },
+        action: importAction,
         cancel: view,
         duration: 15000,
       });
