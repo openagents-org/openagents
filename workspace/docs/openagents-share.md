@@ -59,6 +59,10 @@ The handoff's "Maya brings an agent" needs Maya's launcher to join Alex's thread
 
 That touches the core auth path (`access.resolve_machine_token`, the events router's caching and visibility), so it should be designed and reviewed on its own before building. Until then, "use it yourself" can be served by a fork that copies the approved context into the guest's own workspace.
 
+## Thread resources on the share pages
+
+Guests and the owner room see the same strip a Workspace thread shows above its messages: **Artifacts** (files shared in the thread, browser sessions shown there), **Agents** and **Routines** (read-only; their instructions stay private). Files open in a viewer (images, PDF, markdown, tables, HTML in a sandboxed frame, download otherwise); browser sessions as view-only screenshots; message attachments render inline. Everything is scoped to that one thread. When sharing from Claude Code, the agent can include files the session produced; they are uploaded into the thread after publishing.
+
 ## API
 
 | Method | Path | Who |
@@ -78,6 +82,9 @@ That touches the core auth path (`access.resolve_machine_token`, the events rout
 | GET | `/v1/guest-links/room/requests?network=` | owner link token: guests' requests waiting for approval |
 | GET / POST | `/v1/guest-links/requests[/{id}]?network=&channel=` | workspace owner/admin: the same after keeping or moving |
 | POST | `/v1/guest-links/public/{token}/fork` `{target?}` | signed-in guest: a private copy in their workspace |
+| GET | `/v1/guest-links/{public/{token}\|room}/resources` | the thread's files, browser sessions and routines |
+| GET | `/v1/guest-links/{public/{token}\|room}/files/{id}` | a file the thread shows (artifact or attachment) |
+| GET | `/v1/guest-links/{public/{token}\|room}/browsers/{id}/screenshot` | a browser session the thread shows |
 | POST | `/v1/guest-links/room/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |
