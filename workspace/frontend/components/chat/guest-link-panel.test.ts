@@ -30,6 +30,9 @@ vi.mock('@/lib/api', () => {
       updateGuestLinkExpiry: vi.fn(),
       revokeGuestLink: vi.fn(),
       updateGuestLinkApprovalMode: vi.fn(),
+      updateGuestLinkCanPost: vi.fn(),
+      listThreadGuests: vi.fn(async () => []),
+      removeThreadGuest: vi.fn(),
     },
   };
 });
@@ -176,4 +179,43 @@ it('lets the owner choose whether guests’ requests wait for their approval', a
   // Picking the current mode again sends nothing.
   await click(document.querySelector('[data-approval-choice="owner"]')!);
   expect(workspaceApi.updateGuestLinkApprovalMode).toHaveBeenCalledTimes(1);
+});
+
+it('offers three choices for guests’ requests, including not asking the agent at all', async () => {
+  vi.mocked(workspaceApi.updateGuestLinkApprovalMode).mockImplementation(async (id, mode) => ({ ...LIVE, id, approvalMode: mode }));
+  await render();
+  expect([...document.querySelectorAll('[data-approval-choice]')].map((el) => el.getAttribute('data-approval-choice'))).toEqual(['none', 'owner', 'off']);
+  expect(text()).toContain('share.approvalOff:{"agent":"PR Reviewer"}');
+  await click(document.querySelector('[data-approval-choice="off"]')!);
+  expect(workspaceApi.updateGuestLinkApprovalMode).toHaveBeenCalledWith('link-1', 'off');
+  expect(document.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('off');
+});
+
+it('makes the link read-only with the "Guests can post" switch', async () => {
+  vi.mocked(workspaceApi.updateGuestLinkCanPost).mockImplementation(async (id, canPost) => ({ ...LIVE, id, canPost }));
+  await render();
+  expect(document.querySelector('[data-guest-link-can-post]')?.getAttribute('data-guest-link-can-post')).toBe('on');
+  await click(document.querySelector('[data-can-post-switch]')!);
+  expect(workspaceApi.updateGuestLinkCanPost).toHaveBeenCalledWith('link-1', false);
+  expect(document.querySelector('[data-guest-link-can-post]')?.getAttribute('data-guest-link-can-post')).toBe('off');
+  expect(text()).toContain('share.canPostOffBody');
+  // The request choice doesn't apply to a read-only link.
+  expect((document.querySelector('[data-approval-choice="none"]') as HTMLButtonElement).disabled).toBe(true);
+});
+
+it('lists the thread’s guests and removes one after confirming', async () => {
+  vi.mocked(workspaceApi.listThreadGuests).mockResolvedValue([
+    { id: 'g1', name: 'Maya', joinedAt: null, lastSeenAt: null, removed: false },
+    { id: 'g2', name: 'Sam', joinedAt: null, lastSeenAt: null, removed: true },
+  ]);
+  vi.mocked(workspaceApi.removeThreadGuest).mockResolvedValue({ id: 'g1', name: 'Maya', joinedAt: null, lastSeenAt: null, removed: true });
+  await render();
+  expect(workspaceApi.listThreadGuests).toHaveBeenCalledWith('share-abc');
+  expect(document.querySelector('[data-guest-row="g2"] [data-guest-removed]')?.textContent).toBe('share.guestRemoved');
+  await click(document.querySelector('[data-guest-remove="g1"]')!);
+  expect(workspaceApi.removeThreadGuest).not.toHaveBeenCalled();
+  expect(text()).toContain('share.guestRemoveConfirm:{"name":"Maya"}');
+  await click(document.querySelector('[data-guest-remove-confirm="g1"]')!);
+  expect(workspaceApi.removeThreadGuest).toHaveBeenCalledWith('share-abc', 'g1');
+  expect(document.querySelector('[data-guest-row="g1"] [data-guest-removed]')).not.toBeNull();
 });

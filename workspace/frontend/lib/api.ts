@@ -2,7 +2,7 @@ import { normalizePolicyRequirements } from './approvals';
 import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
-import type { GuestLink } from './guest-links';
+import type { GuestLink, ThreadGuestRecord } from './guest-links';
 import type { ShareRequest as GuestRequestRecord } from './share-room-api';
 import type {
   AgentCatalogDetail,
@@ -2933,7 +2933,28 @@ class WorkspaceApi {
     return data.link;
   }
 
-  async updateGuestLinkApprovalMode(id: string, mode: 'none' | 'owner'): Promise<GuestLink> {
+  async updateGuestLinkCanPost(id: string, canPost: boolean): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ can_post: canPost }),
+    });
+    return data.link;
+  }
+
+  /** OpenAgents Share: the thread's guests (owner/admin). */
+  async listThreadGuests(channel: string): Promise<ThreadGuestRecord[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ guests?: ThreadGuestRecord[] }>(`/v1/guest-links/guests?${params}`);
+    return data?.guests || [];
+  }
+
+  async removeThreadGuest(channel: string, guestId: string): Promise<ThreadGuestRecord> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ guest: ThreadGuestRecord }>(`/v1/guest-links/guests/${encodeURIComponent(guestId)}?${params}`, { method: 'DELETE' });
+    return data.guest;
+  }
+
+  async updateGuestLinkApprovalMode(id: string, mode: 'none' | 'owner' | 'off'): Promise<GuestLink> {
     const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
       method: 'PATCH',
       body: JSON.stringify({ approval_mode: mode }),

@@ -17,7 +17,18 @@ export interface GuestLink {
   createdAt: string | null;
 }
 
-export type ApprovalMode = 'none' | 'owner';
+/** How guests may use the agent: right away, after the owner approves, or not at all. */
+export type ApprovalMode = 'none' | 'owner' | 'off';
+
+/** A guest of the thread, as the owner sees them. */
+export interface ThreadGuestRecord {
+  id: string;
+  name: string;
+  joinedAt: string | null;
+  lastSeenAt: string | null;
+  /** Removed by the owner: can still read, can no longer post. */
+  removed: boolean;
+}
 
 /** Where the owner's link calls go: the workspace API (signed-in owner) or
  * the owner room (workspace token from the owner link). */
@@ -28,6 +39,10 @@ export interface GuestLinksClient {
   revoke(id: string): Promise<GuestLink>;
   /** Whether guests' requests to the agent wait for the owner (absent: not offered). */
   updateApprovalMode?(id: string, mode: ApprovalMode): Promise<GuestLink>;
+  /** Guests can post (false = a read-only link). */
+  updateCanPost?(id: string, canPost: boolean): Promise<GuestLink>;
+  listGuests?(channel: string): Promise<ThreadGuestRecord[]>;
+  removeGuest?(channel: string, guestId: string): Promise<ThreadGuestRecord>;
 }
 
 /** Threads made by `POST /v1/share/publish` are named `share-<hex>`. */

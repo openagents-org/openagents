@@ -140,3 +140,11 @@ it('polls resources every 15s and again when the thread moves on', async () => {
   await settle();
   expect(src.fetchResources).toHaveBeenCalledTimes(3);
 });
+
+it('names agents by their handle, with the runtime as a secondary label', async () => {
+  await act(async () => root.render(React.createElement(ShareResourceShelf, { resources: RESOURCES, agents: [{ name: 'pr-reviewer', displayName: 'PR Reviewer', type: 'claude', online: true }], source: source(), selected: null, onOpen: vi.fn() })));
+  const agentsTab = [...host.querySelectorAll('[role="tab"]')][1] as HTMLElement;
+  await act(async () => { agentsTab.dispatchEvent(new MouseEvent('mousedown', { bubbles: true })); agentsTab.click(); });
+  const tile = host.querySelector('[data-agent-tile="pr-reviewer"]')!;
+  expect(tile.textContent).toBe('pr-reviewerClaude Code · guestThread.online');
+});

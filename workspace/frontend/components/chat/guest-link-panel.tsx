@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, Link2Off, Plus } from 'lucide-react';
+import { Check, Copy, Link2Off, Plus, UserX } from 'lucide-react';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Switch } from '@/components/ui/switch';
 import { Spinner } from '@/components/ui/spinner';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { ApiError, workspaceApi } from '@/lib/api';
@@ -18,6 +19,7 @@ import {
   type ApprovalMode,
   type ExpiryChoice,
   type GuestLink,
+  type ThreadGuestRecord,
   type GuestLinksClient,
 } from '@/lib/guest-links';
 import { GuestThreadError } from '@/lib/guest-thread-api';
@@ -30,6 +32,9 @@ export const workspaceGuestLinksClient: GuestLinksClient = {
   updateExpiry: (id, expiresAt) => workspaceApi.updateGuestLinkExpiry(id, expiresAt),
   revoke: (id) => workspaceApi.revokeGuestLink(id),
   updateApprovalMode: (id, mode) => workspaceApi.updateGuestLinkApprovalMode(id, mode),
+  updateCanPost: (id, canPost) => workspaceApi.updateGuestLinkCanPost(id, canPost),
+  listGuests: (channel) => workspaceApi.listThreadGuests(channel),
+  removeGuest: (channel, guestId) => workspaceApi.removeThreadGuest(channel, guestId),
 };
 
 function isForbidden(error: unknown): boolean {
@@ -86,7 +91,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
   const t = useT();
   const { formatDateTime } = useFormatters();
   const copy = useCopyToClipboard();
-  const [busy, setBusy] = useState<null | 'expiry' | 'revoke' | 'create' | 'approval'>(null);
+  const [busy, setBusy] = useState<null | 'expiry' | 'revoke' | 'create' | 'approval' | 'post'>(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** The choice made here, so it stays highlighted (the server keeps a date). */
@@ -104,7 +109,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
   }
 
   const state = guestLinkState(links);
-  const run = async (kind: 'expiry' | 'revoke' | 'create' | 'approval', action: () => Promise<GuestLink>) => {
+  const run = async (kind: 'expiry' | 'revoke' | 'create' | 'approval' | 'post', action: () => Promise<GuestLink>) => {
     setBusy(kind); setActionError(null);
     try {
       const link = await action();
@@ -118,7 +123,11 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
     }
   };
 
-  const hint = agentName ? t('share.guestLinkHint', { agent: agentName }) : t('share.guestLinkHintNoAgent');
+  const live = state.kind === 'live' ? state.link : null;
+  // What a guest can do with this link, as set below.
+  const hint = live && !live.canPost ? t('share.guestLinkHintReadOnly')
+    : live?.approvalMode === 'off' ? t('share.guestLinkHintOff')
+    : agentName ? t('share.guestLinkHint', { agent: agentName }) : t('share.guestLinkHintNoAgent');
   const failure = actionError && <Alert variant="destructive"><AlertDescription>{actionError}</AlertDescription></Alert>;
 
   if (state.kind !== 'live') {
@@ -149,6 +158,11 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
     const update = client.updateApprovalMode.bind(client);
     void run('approval', () => update(link.id, mode));
   };
+  const setCanPost = (canPost: boolean) => {
+    if (!client.updateCanPost || canPost === link.canPost) return;
+    const update = client.updateCanPost.bind(client);
+    void run('post', () => update(link.id, canPost));
+  };
   const turnOff = async () => {
     const updated = await run('revoke', () => client.revoke(link.id));
     if (mounted.current) setConfirmOff(false);
@@ -164,8 +178,17 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
           {copy.isCopied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copy.isCopied ? t('common.copied') : t('share.copyLink')}
         </Button>
       </div>
+      {client.updateCanPost && (
+        <label className="flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5" data-guest-link-can-post={link.canPost ? 'on' : 'off'}>
+          <span className="grid gap-0.5">
+            <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">{t('share.canPost')}{busy === 'post' && <Spinner className="size-3.5" />}</span>
+            <span className="text-xs text-muted-foreground">{link.canPost ? t('share.canPostOnBody') : t('share.canPostOffBody')}</span>
+          </span>
+          <Switch checked={link.canPost} disabled={!!busy} onCheckedChange={setCanPost} aria-label={t('share.canPost')} data-can-post-switch="" />
+        </label>
+      )}
       {client.updateApprovalMode && (
-        <ApprovalChoice mode={link.approvalMode ?? 'none'} agentName={agentName} busy={busy === 'approval'} disabled={!!busy} onChange={setApproval} />
+        <ApprovalChoice mode={link.approvalMode ?? 'none'} agentName={agentName} busy={busy === 'approval'} disabled={!!busy || !link.canPost} onChange={setApproval} />
       )}
       <div className="flex flex-col gap-1.5">
         <span className="text-xs font-medium text-muted-foreground">{t('share.guestLinkExpiry')}</span>
@@ -182,6 +205,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
           {link.expiresAt ? t('share.guestLinkExpiresOn', { date: formatDateTime(link.expiresAt) }) : t('share.guestLinkNeverExpires')}
         </span>
       </div>
+      {client.listGuests && client.removeGuest && <GuestsSection channel={channel} client={client} />}
       {failure}
       {confirmOff ? (
         <Alert role="alertdialog" className="flex flex-col gap-2">
@@ -217,6 +241,7 @@ function ApprovalChoice({ mode, agentName, busy, disabled, onChange }: {
   const options: { value: ApprovalMode; title: string; body: string }[] = [
     { value: 'none', title: t('share.approvalNone'), body: t('share.approvalNoneBody', { agent }) },
     { value: 'owner', title: t('share.approvalOwner'), body: t('share.approvalOwnerBody') },
+    { value: 'off', title: t('share.approvalOff', { agent }), body: t('share.approvalOffBody') },
   ];
   return (
     <div className="flex flex-col gap-1.5" data-guest-link-approval={mode}>
@@ -229,7 +254,7 @@ function ApprovalChoice({ mode, agentName, busy, disabled, onChange }: {
           <label
             key={option.value}
             className={cn(
-              'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors hover:bg-muted/50',
+              'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2 transition-colors hover:bg-muted/50 has-disabled:cursor-default has-disabled:opacity-60',
               mode === option.value && 'border-primary/40 bg-muted/40',
             )}
           >
@@ -241,6 +266,74 @@ function ApprovalChoice({ mode, agentName, busy, disabled, onChange }: {
           </label>
         ))}
       </RadioGroup>
+    </div>
+  );
+}
+
+/**
+ * The thread's guests, with "Remove" (after a confirm). A removed guest can
+ * still read the thread but can no longer post or ask the agent.
+ */
+function GuestsSection({ channel, client }: { channel: string; client: GuestLinksClient }) {
+  const t = useT();
+  const [guests, setGuests] = useState<ThreadGuestRecord[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    client.listGuests!(channel)
+      .then((list) => { if (active) setGuests(list); })
+      .catch(() => { if (active) setFailed(true); });
+    return () => { active = false; };
+  }, [channel, client]);
+  const remove = async (guest: ThreadGuestRecord) => {
+    setBusy(guest.id); setError(null);
+    try {
+      const updated = await client.removeGuest!(channel, guest.id);
+      setGuests((prev) => (prev || []).map((g) => (g.id === guest.id ? { ...g, ...updated, removed: true } : g)));
+      setConfirm(null);
+    } catch {
+      setError(t('share.guestRemoveFailed'));
+    } finally {
+      setBusy(null);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-1.5" data-guest-link-guests="">
+      <span className="text-xs font-medium text-muted-foreground">{t('share.guestsHeading', { count: guests?.length ?? 0 })}</span>
+      {failed ? <p className="text-xs text-muted-foreground">{t('share.guestsLoadFailed')}</p>
+        : !guests ? <Spinner className="size-4 text-muted-foreground" />
+        : guests.length === 0 ? <p className="text-xs text-muted-foreground">{t('share.guestsEmpty')}</p>
+        : (
+          <ul className="flex max-h-48 flex-col divide-y overflow-y-auto rounded-lg border">
+            {guests.map((guest) => (
+              <li key={guest.id} className="flex flex-col gap-1.5 px-3 py-2" data-guest-row={guest.id}>
+                <div className="flex items-center gap-2">
+                  <span className={cn('min-w-0 flex-1 truncate text-sm', guest.removed && 'text-muted-foreground line-through')}>{guest.name}</span>
+                  {guest.removed
+                    ? <span className="shrink-0 text-xs text-muted-foreground" data-guest-removed="">{t('share.guestRemoved')}</span>
+                    : confirm !== guest.id && (
+                      <Button size="xs" variant="ghost" className="text-destructive" onClick={() => setConfirm(guest.id)} data-guest-remove={guest.id}>
+                        <UserX data-icon="inline-start" />{t('share.guestRemove')}
+                      </Button>
+                    )}
+                </div>
+                {confirm === guest.id && !guest.removed && (
+                  <div className="flex flex-wrap items-center gap-2" role="alertdialog">
+                    <span className="min-w-0 flex-1 text-xs text-muted-foreground">{t('share.guestRemoveConfirm', { name: guest.name })}</span>
+                    <Button size="xs" variant="destructive" disabled={busy === guest.id} onClick={() => void remove(guest)} data-guest-remove-confirm={guest.id}>
+                      {busy === guest.id && <Spinner data-icon="inline-start" />}{t('share.guestRemove')}
+                    </Button>
+                    <Button size="xs" variant="outline" disabled={busy === guest.id} onClick={() => setConfirm(null)}>{t('common.cancel')}</Button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
     </div>
   );
 }

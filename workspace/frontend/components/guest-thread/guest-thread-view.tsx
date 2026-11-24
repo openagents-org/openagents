@@ -46,6 +46,7 @@ import {
   newPendingSend,
   splitSeed,
   mentionsAgent,
+  guestOf,
   threadPeople,
   toWorkspaceAgents,
   type ThreadPerson,
@@ -91,6 +92,8 @@ interface GuestThreadViewProps {
   onDecide?: DecideRequest;
   /** Where the thread's artifacts, routines and attachment bytes come from (guest link or owner room). */
   resourceSource?: ShareResourceSource | null;
+  /** Guest page: the owner removed this guest; they can still read. */
+  removed?: boolean;
 }
 
 /**
@@ -98,7 +101,7 @@ interface GuestThreadViewProps {
  * background, the conversation in the inset card (header, banners, messages,
  * composer). On a phone: the workspace's mobile top bar, the sidebar in a sheet.
  */
-export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null }: GuestThreadViewProps) {
+export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle', onLoadOlder, viewer = 'guest', guest = null, nameRequest = null, sendTick, send, retry, join, cancelName, headerActions, requests, decisions, onDecide, resourceSource = null, removed = false }: GuestThreadViewProps) {
   const t = useT();
   const isOwner = viewer === 'owner';
   const threadViewer = useMemo<ThreadViewer>(
@@ -112,7 +115,11 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const people = useMemo(() => threadPeople(messages, info.owner.name, guest, isOwner), [messages, info.owner.name, guest, isOwner]);
   const [menuOpen, setMenuOpen] = useState(false);
   const [draft, setDraft] = useState('');
-  const [askAgent, setAskAgent] = useState<string | null>(() => (defaultAskAgent(info.agents) ? info.agents[0].name : null));
+  // The owner can stop guests asking the agent: their messages are comments then.
+  const asksOff = info.approvalMode === 'off';
+  const guestAsksOff = asksOff && !isOwner;
+  const [askAgent, setAskAgent] = useState<string | null>(() => (!guestAsksOff && defaultAskAgent(info.agents) ? info.agents[0].name : null));
+  useEffect(() => { if (guestAsksOff) setAskAgent(null); }, [guestAsksOff]);
 
   // The chip can't point at an agent that left the thread.
   useEffect(() => {
@@ -125,6 +132,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
   const statusAgent = info.agents.find((a) => a.name === askAgent) ?? info.agents[0] ?? null;
   const needsApproval = info.approvalMode === 'owner';
+  const guestsCanPost = info.guestsCanPost ?? info.canPost;
   // On a phone the waiting-requests strip carries the agent's state too, so
   // two strips don't stack: an offline agent shows as its lead, all-well hides.
   const waiting = onDecide && requests && requests.length > 0 ? requests : null;
@@ -164,7 +172,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       people={people}
       identity={identity}
       expiresAt={isOwner ? undefined : info.expiresAt}
-      notice={isOwner ? t('shareRoom.ownerNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
+      notice={isOwner ? t('shareRoom.ownerNotice') : removed ? t('guestThread.removedNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
     />
   );
 
@@ -207,7 +215,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
           <div className="flex min-h-0 flex-1">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost} needsApproval={needsApproval} className={statusFolds ? 'max-sm:hidden' : undefined} />}
+          {statusAgent && <AgentStatusBanner agent={statusAgent} ownerName={info.owner.name} isOwner={isOwner} canPost={info.canPost && !removed} guestsCanPost={guestsCanPost} needsApproval={needsApproval} asksOff={asksOff} className={statusFolds ? 'max-sm:hidden' : undefined} />}
           {waiting && onDecide && (
             <GuestRequestsBanner
               requests={waiting}
@@ -240,7 +248,11 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
 
           {/* Same reading width as the workspace's composer at its widest. */}
           <div className="mx-auto w-full max-w-6xl shrink-0 px-3 pt-1 pb-[max(0.5rem,env(safe-area-inset-bottom))] lg:px-5 lg:pb-3">
-            {info.canPost ? (
+            {removed ? (
+              <Alert role="note" className="bg-muted/40" data-guest-removed-notice="">
+                <AlertDescription>{t('guestThread.removedNotice')}</AlertDescription>
+              </Alert>
+            ) : info.canPost ? (
               <GuestComposer
                 agents={info.agents}
                 askAgent={askAgent}
@@ -249,6 +261,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
                 onDraftChange={setDraft}
                 onSubmit={handleSubmit}
                 approvalOwner={needsApproval && !isOwner ? info.owner.name : null}
+                askBlocked={guestAsksOff && statusAgent ? t('guestThread.askDisabled', { owner: info.owner.name, agent: agentDisplayName(statusAgent) }) : null}
               />
             ) : (
               <Alert role="note" className="bg-muted/40">
@@ -476,7 +489,8 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
               key: agent.name,
               media: <AgentAvatar name={agent.name} size={28} showStatus status={agent.online ? 'online' : 'offline'} />,
               title: agentDisplayName(agent),
-              description: agent.online ? t('guestThread.online') : t('guestThread.offline'),
+              // The name is the handle; the runtime ("Claude Code") is the secondary label.
+              description: [agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · '),
             }))}
             add={null}
           />
@@ -490,7 +504,7 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
  * Where the agent runs and what this viewer can do, as a workspace thread
  * banner: a quiet strip while all is well, a warning when the agent can't answer.
  */
-function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval, className }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean; needsApproval: boolean; className?: string }) {
+function AgentStatusBanner({ agent, ownerName, isOwner, canPost, guestsCanPost, needsApproval, asksOff, className }: { agent: GuestThreadAgent; ownerName: string; isOwner: boolean; canPost: boolean; guestsCanPost: boolean; needsApproval: boolean; asksOff: boolean; className?: string }) {
   const t = useT();
   const params = { agent: agentDisplayName(agent), owner: ownerName };
   const warning = !agent.online || agent.acceptsGuests === false;
@@ -498,9 +512,10 @@ function AgentStatusBanner({ agent, ownerName, isOwner, canPost, needsApproval, 
     ? !agent.online ? t('shareRoom.offlineNotice', params) : agent.acceptsGuests === false ? t('shareRoom.noGuestRuns', params) : t('shareRoom.runsOn', params)
     : !agent.online ? t('guestThread.offlineNotice', params) : agent.acceptsGuests === false ? t('guestThread.noGuestRuns', params) : t('guestThread.runsOn', params);
   const notice = isOwner
-    ? (needsApproval ? t('shareRoom.ownerApprovalNotice') : t('shareRoom.ownerNotice'))
-    : !canPost ? null : needsApproval ? t('guestThread.approvalNotice', params) : t('guestThread.guestNotice');
-  const approvalFirst = needsApproval && !warning && !!notice;
+    ? (!guestsCanPost ? t('shareRoom.ownerReadOnlyNotice') : asksOff ? t('shareRoom.ownerAgentOffNotice', params) : needsApproval ? t('shareRoom.ownerApprovalNotice') : t('shareRoom.ownerNotice'))
+    : !canPost ? null : asksOff ? t('guestThread.agentOffNotice', params) : needsApproval ? t('guestThread.approvalNotice', params) : t('guestThread.guestNotice');
+  // On a phone the rule for guests' requests (it changes what a message does) wins the one line.
+  const approvalFirst = (needsApproval || asksOff || (isOwner && !guestsCanPost)) && !warning && !!notice;
   return (
     <Alert
       role="status"
@@ -562,10 +577,11 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
     const req = shareRequestOf(message);
     return req ? requestStatus(req, decisions, seen) : undefined;
   };
+  const guestAsksOff = info.approvalMode === 'off';
   const working = useMemo(() => workingAgent(groups, info.agents, (m) => {
     const req = shareRequestOf(m);
     return req ? requestStatus(req, decisions, seen) : undefined;
-  }), [groups, info.agents, decisions, seen]);
+  }, guestAsksOff), [groups, info.agents, decisions, seen, guestAsksOff]);
   const lastKey = groups.length ? groupKey(groups[groups.length - 1]) : '';
   const firstKey = seed[0]?.messageId ?? (groups.length ? groupKey(groups[0]) : '');
 
@@ -678,7 +694,7 @@ function GuestMessageList({ info, messages, hasOlder, olderState, onLoadOlder, a
  * it is online, and nothing has come back yet. Steps already show their own
  * activity, so this only covers the gap before the first one.
  */
-function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThreadAgent[], statusOf: (m: WorkspaceMessage) => ShareRequestStatus | undefined): string | null {
+function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThreadAgent[], statusOf: (m: WorkspaceMessage) => ShareRequestStatus | undefined, guestAsksOff = false): string | null {
   // Decision notices don't count as an answer.
   let index = groups.length - 1;
   while (index >= 0) {
@@ -690,6 +706,8 @@ function workingAgent(groups: ReturnType<typeof groupMessages>, agents: GuestThr
   if (!last || last.type !== 'chat') return null;
   const m = last.message;
   if (m.senderType === 'agent' || m.metadata?.send_status === 'failed') return null;
+  // A guest's message is only a comment when the owner doesn't let guests ask.
+  if (guestAsksOff && guestOf(m)) return null;
   // A held request runs only once approved.
   const held = statusOf(m);
   if (held && held !== 'approved') return null;

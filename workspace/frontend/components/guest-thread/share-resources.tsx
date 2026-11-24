@@ -17,7 +17,7 @@ import { Spinner } from '@/components/ui/spinner';
 import { TabsContent } from '@/components/ui/tabs';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 import type { GuestThreadAgent } from '@/lib/guest-thread-api';
-import { agentDisplayName } from '@/lib/guest-thread';
+import { agentDisplayName, agentTypeLabel } from '@/lib/guest-thread';
 import { useT } from '@/lib/i18n';
 import { artifactCount, routineForFormat, type ShareBrowser, type ShareFile, type ShareResourceSource, type ShareResources } from '@/lib/share-resources';
 import { cn } from '@/lib/utils';
@@ -155,7 +155,7 @@ export function ShareResourceShelf({ resources, agents, source, selected, onOpen
                 <span className="shrink-0"><AgentAvatar name={agent.name} size={28} status={agent.online ? 'online' : 'offline'} showStatus /></span>
                 <span className="min-w-0 flex-1 py-0.5">
                   <span className="block truncate text-xs font-medium leading-4">{agentDisplayName(agent)}</span>
-                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{agent.online ? t('guestThread.online') : t('guestThread.offline')}</span>
+                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{[agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · ')}</span>
                 </span>
               </li>
             ))}

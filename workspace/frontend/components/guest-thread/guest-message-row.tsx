@@ -114,12 +114,13 @@ export const GuestMessageRow = memo(function GuestMessageRow({ message, agents, 
           <div className="flex flex-wrap items-center gap-2 text-xs text-destructive" role="alert">
             <AlertCircle className="size-3.5" />
             <span>
-              {sendError === 'rate_limited' ? t('guestThread.rateLimited')
+              {sendError === 'removed' ? t('guestThread.removedNotice')
+                : sendError === 'rate_limited' ? t('guestThread.rateLimited')
                 : sendError === 'session' ? t('guestThread.sessionExpired')
                 : sendError === 'forbidden' ? t('guestThread.forbidden')
                 : t('guestThread.sendFailed')}
             </span>
-            {onRetry && (
+            {onRetry && sendError !== 'removed' && (
               <Button variant="link" size="xs" className="h-auto p-0 text-xs" onClick={() => onRetry(message.messageId)}>
                 {t('guestThread.retry')}
               </Button>

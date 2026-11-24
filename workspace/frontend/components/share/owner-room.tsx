@@ -40,7 +40,7 @@ export function OwnerRoom({ slug, token, navigate }: { slug: string; token: stri
   const info = useMemo(() => {
     if (!data) return null;
     const base = roomToThreadInfo(data);
-    return currentLink ? { ...base, approvalMode: currentLink.approvalMode ?? 'none' } : base;
+    return currentLink ? { ...base, approvalMode: currentLink.approvalMode ?? 'none', guestsCanPost: currentLink.canPost } : base;
   }, [data, currentLink]);
 
   // Back from signing in to keep it: reopen the dialog on the choice step.

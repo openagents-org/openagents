@@ -32,7 +32,9 @@ export interface GuestThreadInfo {
   expiresAt: string | null;
   canPost: boolean;
   /** `owner`: a request to the agent waits for the owner's approval. */
-  approvalMode?: 'none' | 'owner';
+  approvalMode?: 'none' | 'owner' | 'off';
+  /** Owner room: whether guests can post on the link (`canPost` is the viewer's own). */
+  guestsCanPost?: boolean;
   guest: GuestIdentity | null;
 }
 

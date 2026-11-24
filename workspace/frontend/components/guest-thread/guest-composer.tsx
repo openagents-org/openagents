@@ -25,6 +25,8 @@ interface GuestComposerProps {
   onSubmit: () => void;
   /** Requests to the agent wait for this person's approval (null: they run right away). */
   approvalOwner?: string | null;
+  /** The owner doesn't let guests ask the agent: why (the chip is off and inert, `@` offers nobody). */
+  askBlocked?: string | null;
   className?: string;
 }
 
@@ -49,7 +51,7 @@ export function matchingAgents(agents: WorkspaceAgent[], query: string): Workspa
  * passive, so a message only runs the agent when it starts with `@<agent>`;
  * the chip adds that prefix, and the placeholder/hint say which will happen.
  */
-export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDraftChange, onSubmit, approvalOwner = null, className }: GuestComposerProps) {
+export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDraftChange, onSubmit, approvalOwner = null, askBlocked = null, className }: GuestComposerProps) {
   const t = useT();
   const textareaRef = React.useRef<HTMLTextAreaElement>(null);
   const workspaceAgents = React.useMemo(() => toWorkspaceAgents(agents), [agents]);
@@ -57,11 +59,11 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
   const [mention, setMention] = React.useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = React.useState(0);
   const target = agents.find((a) => a.name === askAgent) ?? null;
-  const runsAgent = willRunAgent(draft, !!target, target?.name ?? null, agents);
+  const runsAgent = !askBlocked && willRunAgent(draft, !!target, target?.name ?? null, agents);
   // Who the hint names: the chip's agent, else one the guest @mentioned.
   const hintAgent = target ?? agents.find((a) => mentionsAgent(draft, a.name)) ?? agents[0] ?? null;
   const canSend = draft.trim().length > 0;
-  const options = mention ? matchingAgents(workspaceAgents, mention.query) : [];
+  const options = mention && !askBlocked ? matchingAgents(workspaceAgents, mention.query) : [];
   const pickerOpen = options.length > 0;
 
   React.useLayoutEffect(() => {
@@ -98,7 +100,9 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
     }, 0);
   };
 
-  const placeholder = target
+  const placeholder = askBlocked
+    ? t('guestThread.placeholderComment')
+    : target
     ? t('guestThread.placeholderAsk', { agent: agentDisplayName(target) })
     : agents[0]
       ? t('guestThread.placeholderMention', { agent: agentDisplayName(agents[0]) })
@@ -162,7 +166,7 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
         <InputGroupAddon align="block-end">
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto no-scrollbar">
             {agents.map((agent) => {
-              const pressed = askAgent === agent.name;
+              const pressed = !askBlocked && askAgent === agent.name;
               const color = getAgentColor(agent.name, agentNames);
               return (
                 <Toggle
@@ -170,11 +174,15 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
                   variant="outline"
                   size="sm"
                   pressed={pressed}
-                  onPressedChange={(on) => onAskAgentChange(on ? agent.name : null)}
-                  title={pressed ? t('guestThread.askAgentHint', { agent: agentDisplayName(agent) }) : t('guestThread.commentHint', { agent: agentDisplayName(agent) })}
+                  onPressedChange={(on) => { if (!askBlocked) onAskAgentChange(on ? agent.name : null); }}
+                  // aria-disabled, not disabled: a disabled control dims the whole InputGroup.
+                  aria-disabled={askBlocked ? true : undefined}
+                  data-ask-blocked={askBlocked ? '' : undefined}
+                  title={askBlocked || (pressed ? t('guestThread.askAgentHint', { agent: agentDisplayName(agent) }) : t('guestThread.commentHint', { agent: agentDisplayName(agent) }))}
                   className={cn(
                     'h-8 shrink-0 gap-1.5 rounded-full ps-1 pe-3 font-normal text-muted-foreground',
                     'data-[state=on]:font-medium',
+                    askBlocked && 'cursor-not-allowed opacity-60 hover:bg-transparent',
                     pressed && cn(color.bg, color.text, color.border),
                   )}
                 >
@@ -183,6 +191,7 @@ export function GuestComposer({ agents, askAgent, onAskAgentChange, draft, onDra
                 </Toggle>
               );
             })}
+            {askBlocked && <span className="hidden min-w-0 self-center truncate text-xs text-muted-foreground sm:inline" data-ask-blocked-note="">{askBlocked}</span>}
           </div>
           <div className="ml-auto flex items-center gap-2">
             {/* aria-disabled rather than disabled: a disabled control inside the

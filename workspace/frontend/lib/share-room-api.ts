@@ -7,7 +7,7 @@
  */
 import { getApiBaseUrl } from '@/lib/api-base';
 import type { ONMEvent } from '@/lib/types';
-import type { GuestLink, GuestLinksClient } from '@/lib/guest-links';
+import type { GuestLink, GuestLinksClient, ThreadGuestRecord } from '@/lib/guest-links';
 import { request, type GuestApiOptions, type GuestMessagesPage, type GuestThreadAgent, type GuestThreadInfo } from '@/lib/guest-thread-api';
 
 export interface MovedTo {
@@ -51,6 +51,7 @@ export function roomToThreadInfo(room: ShareRoom): GuestThreadInfo {
     expiresAt: room.link?.expiresAt ?? null,
     canPost: true,
     approvalMode: room.link?.approvalMode ?? 'none',
+    guestsCanPost: room.link?.canPost ?? true,
     guest: null,
   };
 }
@@ -132,6 +133,20 @@ export function roomGuestLinksClient(creds: RoomCredentials, options: GuestApiOp
     async revoke(id) {
       const data = await request<{ link: GuestLink }>(url(linkPath(id), options), { method: 'DELETE', headers: headers(creds) }, options);
       return data.link;
+    },
+    async updateCanPost(id, canPost) {
+      const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {
+        method: 'PATCH', headers: headers(creds, null, true), body: JSON.stringify({ can_post: canPost }),
+      }, options);
+      return data.link;
+    },
+    async listGuests() {
+      const data = await request<{ guests?: ThreadGuestRecord[] }>(url(`/v1/guest-links/room/guests?${q({ network: creds.slug })}`, options), { method: 'GET', headers: headers(creds) }, options);
+      return data?.guests || [];
+    },
+    async removeGuest(_channel, guestId) {
+      const data = await request<{ guest: ThreadGuestRecord }>(url(`/v1/guest-links/room/guests/${encodeURIComponent(guestId)}?${q({ network: creds.slug })}`, options), { method: 'DELETE', headers: headers(creds) }, options);
+      return data.guest;
     },
     async updateApprovalMode(id, mode) {
       const data = await request<{ link: GuestLink }>(url(linkPath(id), options), {

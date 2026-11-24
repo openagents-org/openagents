@@ -45,6 +45,7 @@ describe('room data mapping', () => {
       expiresAt: '2026-12-01T00:00:00Z',
       canPost: true,
       approvalMode: 'none',
+      guestsCanPost: true,
       guest: null,
     });
     expect(roomToThreadInfo({ ...ROOM, link: null }).expiresAt).toBeNull();

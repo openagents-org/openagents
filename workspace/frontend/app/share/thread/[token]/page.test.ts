@@ -75,10 +75,10 @@ it('renders the thread for a guest without any workspace context', async () => {
   const text = host.textContent || '';
   expect(text).toContain('PR reviewer');
   expect(text).toContain('guestThread.seedDivider:{"owner":"Alex","agent":"Claude Code"}');
-  expect(text).toContain('Claude Code');
+  expect(text).toContain('claude-code');
   expect(text).toContain('guestThread.agentBadge');
   expect(text).toContain('guestThread.you'); // the viewer's own guest message
-  expect(text).toContain('guestThread.runsOn:{"agent":"Claude Code","owner":"Alex"}');
+  expect(text).toContain('guestThread.runsOn:{"agent":"claude-code","owner":"Alex"}');
   // "Ask Claude Code" is on by default with one agent.
   const chip = host.querySelector('[data-slot="toggle"]');
   expect(chip?.getAttribute('data-state')).toBe('on');
@@ -258,18 +258,19 @@ it('offers the thread agent when the guest types "@", and Enter picks it without
   await open();
   const textarea = host.querySelector('textarea')!;
   await typeInto(textarea, 'hey @cl');
-  const option = [...host.querySelectorAll('[data-slot="item"]')].find((el) => el.textContent?.includes('Claude Code'));
+  const option = [...host.querySelectorAll('[data-slot="item"]')].find((el) => el.textContent?.includes('claude-code'));
   expect(option).toBeTruthy();
-  expect(option!.textContent).toContain('@claude-code');
+  // The agent goes by its handle, so there's no separate "@handle" line.
+  expect(option!.textContent).toContain('claude-code');
   await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
   await settle();
   expect(textarea.value).toBe('hey @claude-code ');
   expect(fetchMock.mock.calls.some((call) => (call[1] as RequestInit | undefined)?.method === 'POST')).toBe(false);
   // Escape closes the picker.
   await typeInto(textarea, 'hey @claude-code @');
-  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('@claude-code'))).toBe(true);
+  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('collab.online'))).toBe(true);
   await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); });
-  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('@claude-code'))).toBe(false);
+  expect([...host.querySelectorAll('[data-slot="item"]')].some((el) => el.textContent?.includes('collab.online'))).toBe(false);
 });
 
 it('copies an agent message from its Copy action', async () => {
@@ -293,7 +294,7 @@ it('shows who a live message went to, and the guest’s colour seed matches the 
   serve((url) => (url.includes('/messages') ? ok({ messages: [...MESSAGES, asked], hasMore: false }) : ok(INFO)));
   await open();
   expect(host.querySelector('[data-guest-message="e3"] [data-message-audience="human"]')).not.toBeNull();
-  expect(host.querySelector('[data-guest-message="e4"] [data-message-audience="agent"]')?.textContent).toContain('Claude Code');
+  expect(host.querySelector('[data-guest-message="e4"] [data-message-audience="agent"]')?.textContent).toContain('claude-code');
   // Excerpts carry no routing line.
   expect(host.querySelector('[data-guest-message="e1"] [data-message-audience]')).toBeNull();
   // The workspace seeds a guest's avatar with their posting address.
@@ -321,9 +322,9 @@ it('says a held request waits for the owner, then shows the decision and hides t
   // No Approve/Decline for a guest.
   expect(host.querySelector('[data-share-decide]')).toBeNull();
   // The banner and the composer hint say requests wait for the owner.
-  expect(host.textContent).toContain('guestThread.approvalNotice:{"agent":"Claude Code","owner":"Alex"}');
+  expect(host.textContent).toContain('guestThread.approvalNotice:{"agent":"claude-code","owner":"Alex"}');
   await typeInto(host.querySelector('textarea')!, 'check this');
-  expect(host.querySelector('[data-composer-hint]')?.textContent).toBe('guestThread.askAgentHintApproval:{"agent":"Claude Code","owner":"Alex"}');
+  expect(host.querySelector('[data-composer-hint]')?.textContent).toBe('guestThread.askAgentHintApproval:{"agent":"claude-code","owner":"Alex"}');
 
   decided = true;
   await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
@@ -370,4 +371,66 @@ it('renders a message’s attachments with link-scoped bytes and opens them in t
   expect(panel.querySelector('table')?.textContent).toContain('1');
   // No workspace calls, and no "Request revision" for a guest.
   expect(urls().some((u) => /\/v1\/(events|workspaces|files)\b/.test(u))).toBe(false);
+});
+
+it('turns asking off when the owner doesn’t let guests ask the agent', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  serve((url, init) => {
+    if (init?.method === 'POST') {
+      const body = JSON.parse(String(init.body));
+      return ok({ id: 'e11', type: 'workspace.message', source: 'guest:g-1', target: 'channel/channel-1', payload: { content: body.content, sender_name: 'Maya' }, metadata: { guest: INFO.guest }, timestamp: 11, visibility: 'channel' });
+    }
+    return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok({ ...INFO, approvalMode: 'off' });
+  });
+  await open();
+  const chip = host.querySelector('[data-slot="toggle"]')!;
+  expect(chip.getAttribute('data-state')).toBe('off');
+  expect(chip.getAttribute('aria-disabled')).toBe('true');
+  await act(async () => { (chip as HTMLElement).click(); });
+  expect(chip.getAttribute('data-state')).toBe('off');
+  expect(host.querySelector('[data-ask-blocked-note]')?.textContent).toBe('guestThread.askDisabled:{"owner":"Alex","agent":"claude-code"}');
+  expect(host.textContent).toContain('guestThread.agentOffNotice:{"agent":"claude-code","owner":"Alex"}');
+  const textarea = host.querySelector('textarea')!;
+  expect(textarea.getAttribute('placeholder')).toBe('guestThread.placeholderComment');
+  await typeInto(textarea, 'nice @cl');
+  expect(host.querySelector('[data-slot="item"]')).toBeNull();
+  await typeInto(textarea, 'nice work');
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await settle();
+  const post = fetchMock.mock.calls.find((c) => (c[1] as RequestInit | undefined)?.method === 'POST')!;
+  expect(JSON.parse(String((post[1] as RequestInit).body)).content).toBe('nice work');
+});
+
+it('switches a removed guest to read-only and remembers it', async () => {
+  localStorage.setItem('oa-guest-session:tok', 'secret');
+  serve((url, init) => {
+    if (init?.method === 'POST') return new Response(JSON.stringify({ code: 403, message: 'The owner removed you from this conversation. You can still read it.' }), { status: 403 });
+    return url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok(INFO);
+  });
+  await open();
+  const textarea = host.querySelector('textarea')!;
+  await typeInto(textarea, 'hello');
+  await act(async () => { textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); });
+  await settle();
+  expect(host.querySelector('[data-guest-removed-notice]')?.textContent).toBe('guestThread.removedNotice');
+  expect(host.querySelector('textarea')).toBeNull();
+  expect(host.querySelector('[data-guest-message^="optimistic-"]')?.textContent).toContain('guestThread.removedNotice');
+  expect(localStorage.getItem('oa-guest-removed:tok')).toBe('1');
+});
+
+it('picks up a link made read-only when it re-reads the link info', async () => {
+  vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+  try {
+    let canPost = true;
+    serve((url) => (url.includes('/messages') ? ok({ messages: MESSAGES, hasMore: false }) : ok({ ...INFO, canPost })));
+    await open();
+    expect(host.querySelector('textarea')).not.toBeNull();
+    canPost = false;
+    await act(async () => { vi.advanceTimersByTime(30000); });
+    await settle();
+    expect(host.querySelector('textarea')).toBeNull();
+    expect(host.textContent).toContain('guestThread.readOnlyNotice');
+  } finally {
+    vi.useRealTimers();
+  }
 });

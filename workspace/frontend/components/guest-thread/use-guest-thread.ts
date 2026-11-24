@@ -34,6 +34,8 @@ export function useGuestThread(token: string) {
   const [info, setInfo] = useState<GuestThreadInfo | null>(null);
   const [guest, setGuest] = useState<GuestIdentity | null>(null);
   const [nameRequest, setNameRequest] = useState<{ reason: 'first-post' | 'session-expired' } | null>(null);
+  /** The owner removed this guest: reading still works, posting doesn't. Remembered per link in this browser. */
+  const [removed, setRemoved] = useState(() => loadRemoved(token));
 
   const sessionRef = useRef<string | null>(null);
   const guestRef = useRef<GuestIdentity | null>(null);
@@ -129,6 +131,12 @@ export function useGuestThread(token: string) {
       setNameRequest({ reason: 'session-expired' });
       return;
     }
+    if (isRemovedError(error)) {
+      saveRemoved(token);
+      setRemoved(true);
+      markFailed(optimisticMessage(pending, currentGuest, 'failed', 'removed'));
+      return;
+    }
     failedRef.current.set(pending.localId, pending);
     const kind = error instanceof GuestThreadError ? error.kind : null;
     const reason = kind === 'rate_limited' || kind === 'forbidden' ? kind : 'failed';
@@ -172,6 +180,21 @@ export function useGuestThread(token: string) {
 
   return {
     status, info, messages: feed.messages, hasOlder: feed.hasOlder, olderState: feed.olderState, loadOlder: feed.loadOlder,
-    guest, nameRequest, sendTick: feed.sendTick, reload: load, send, retry, join, cancelName, endWith,
+    guest, nameRequest, sendTick: feed.sendTick, reload: load, send, retry, join, cancelName, endWith, removed,
   };
+}
+
+const REMOVED_PREFIX = 'oa-guest-removed:';
+
+/** A 403 saying the owner removed this guest (as opposed to other refusals). */
+export function isRemovedError(error: unknown): boolean {
+  return error instanceof GuestThreadError && error.status === 403 && /removed you/i.test(error.message);
+}
+
+function loadRemoved(token: string): boolean {
+  try { return typeof window !== 'undefined' && window.localStorage.getItem(REMOVED_PREFIX + token) === '1'; } catch { return false; }
+}
+
+function saveRemoved(token: string): void {
+  try { window.localStorage.setItem(REMOVED_PREFIX + token, '1'); } catch { /* memory only */ }
 }

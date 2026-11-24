@@ -18,7 +18,8 @@ export const OPTIMISTIC_PREFIX = 'optimistic-';
 export function toWorkspaceAgents(agents: GuestThreadAgent[]): WorkspaceAgent[] {
   return agents.map((agent) => ({
     agentName: agent.name,
-    displayName: agent.displayName || null,
+    // Agents go by their handle on the share pages (`pr-reviewer`), everywhere.
+    displayName: agent.name,
     role: 'member',
     agentType: agent.type || null,
     serverHost: null,
@@ -32,8 +33,9 @@ export function toWorkspaceAgents(agents: GuestThreadAgent[]): WorkspaceAgent[] 
   }));
 }
 
+/** An agent's name on the share pages: its handle (`pr-reviewer`), the same in every surface. */
 export function agentDisplayName(agent: Pick<GuestThreadAgent, 'name' | 'displayName'>): string {
-  return agent.displayName?.trim() || agent.name;
+  return agent.name || agent.displayName?.trim() || '';
 }
 
 const AGENT_TYPE_LABELS: Record<string, string> = {
@@ -138,7 +140,7 @@ export function senderIdentity(message: WorkspaceMessage, agents: WorkspaceAgent
     const agent = agents.find((a) => a.agentName === message.senderName);
     return {
       kind: 'agent',
-      name: agent?.displayName?.trim() || message.senderName,
+      name: agent?.agentName || message.senderName,
       isSelf: false,
       agent,
       avatarSeed: message.senderName,

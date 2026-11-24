@@ -98,7 +98,7 @@ it('shows the room with the owner as "You", guests badged, and the guest link be
   const guest = host.querySelector('[data-guest-message="e2"]')!;
   expect(guest.textContent).toContain('Maya');
   expect(guest.textContent).toContain('guestThread.guestBadge');
-  expect(text).toContain('shareRoom.runsOn:{"agent":"Claude Code","owner":"Alex"}');
+  expect(text).toContain('shareRoom.runsOn:{"agent":"claude-code","owner":"Alex"}');
   expect(text).not.toContain('guestThread.guestNotice');
   expect(host.querySelector('[data-owner-keep]')).not.toBeNull();
   // The guest link controls live behind the header's share button, not in the sidebar.
@@ -213,7 +213,7 @@ it('shows waiting guest requests and approves one from the held message', async 
   expect(host.querySelector('[data-guest-requests="1"]')?.textContent).toContain('share.guestRequestsWaiting:{"count":1}');
   expect(host.textContent).toContain('shareRoom.ownerApprovalNotice');
   const card = host.querySelector('[data-guest-message="e4"] [data-share-request="pending"]')!;
-  expect(card.textContent).toContain('shareRoom.requestTitle:{"guest":"Maya","agent":"Claude Code"}');
+  expect(card.textContent).toContain('shareRoom.requestTitle:{"guest":"Maya","agent":"claude-code"}');
   await act(async () => { (card.querySelector('[data-share-decide="approve"]') as HTMLElement).click(); });
   for (let i = 0; i < 4; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
   expect(server.decisions).toEqual([{ url: 'https://api.test/v1/guest-links/room/requests/r1?network=alex-share', body: { decision: 'approve' } }]);
@@ -259,6 +259,36 @@ it('folds an offline agent into the waiting-requests strip on a phone', async ()
     return server.handler(url, init);
   });
   await open();
-  expect(host.querySelector('[data-guest-requests-lead]')?.textContent).toBe('Claude Code · guestThread.offline · ');
+  expect(host.querySelector('[data-guest-requests-lead]')?.textContent).toBe('claude-code · guestThread.offline · ');
   expect(host.querySelector('[data-agent-status="warning"]')?.className).toContain('max-sm:hidden');
+});
+
+it('says in the room when guests can’t ask the agent or the link is read-only, and lists guests to remove', async () => {
+  const removed: string[] = [];
+  let link: Record<string, unknown> = { ...LINK, approvalMode: 'off' };
+  serve((url, init) => {
+    if (url.includes('/room/guests/') && init?.method === 'DELETE') { removed.push(url); return ok({ guest: { id: 'g1', name: 'Maya', joinedAt: null, lastSeenAt: null, removed: true } }); }
+    if (url.includes('/room/guests')) return ok({ guests: [{ id: 'g1', name: 'Maya', joinedAt: null, lastSeenAt: null, removed: false }] });
+    if (url.includes('/room/requests')) return ok({ requests: [] });
+    if (url.includes('/v1/guest-links/room?')) return ok({ ...ROOM, link });
+    if (url.includes('/v1/guest-links?')) return ok({ links: [link] });
+    return roomServer()(url, init);
+  });
+  await open();
+  expect(host.textContent).toContain('shareRoom.ownerAgentOffNotice:{"agent":"claude-code","owner":"Alex"}');
+  await act(async () => { (host.querySelector('[data-owner-link-button]') as HTMLElement).click(); });
+  for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(host.querySelector('[data-guest-link-approval]')?.getAttribute('data-guest-link-approval')).toBe('off');
+  await act(async () => { (host.querySelector('[data-guest-remove="g1"]') as HTMLElement).click(); });
+  await act(async () => { (host.querySelector('[data-guest-remove-confirm="g1"]') as HTMLElement).click(); });
+  for (let i = 0; i < 3; i++) await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+  expect(removed).toEqual(['https://api.test/v1/guest-links/room/guests/g1?network=alex-share']);
+  expect(host.querySelector('[data-guest-row="g1"] [data-guest-removed]')).not.toBeNull();
+
+  // Read-only link: the banner says so.
+  link = { ...LINK, canPost: false };
+  await act(async () => root.unmount());
+  root = createRoot(host);
+  await open();
+  expect(host.textContent).toContain('shareRoom.ownerReadOnlyNotice');
 });

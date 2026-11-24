@@ -36,6 +36,7 @@ export default function SharedThreadPage({ params }: { params: Promise<{ token: 
       cancelName={thread.cancelName}
       headerActions={<ContinueInWorkspace token={token} />}
       resourceSource={resourceSource}
+      removed={thread.removed}
     />
   );
 }

@@ -45,12 +45,13 @@ const AGENTS: GuestThreadAgent[] = [{ name: 'claude-code', displayName: 'Claude 
 const WS_AGENTS = toWorkspaceAgents(AGENTS);
 
 describe('event → message identity', () => {
-  it('maps agent sources to the agent and looks up its label', () => {
+  it('maps agent sources to the agent and names it by its handle', () => {
     const m = guestEventToMessage(event({ id: 'e1', source: 'openagents:claude-code', payload: { content: 'Found it', sender_name: 'whatever' } }));
     expect(m.senderType).toBe('agent');
     expect(m.senderName).toBe('claude-code');
     const who = senderIdentity(m, WS_AGENTS, null);
-    expect(who).toMatchObject({ kind: 'agent', name: 'Claude Code', isSelf: false });
+    // The handle, never the display label: the same name in every share-page surface.
+    expect(who).toMatchObject({ kind: 'agent', name: 'claude-code', isSelf: false });
     expect(who.agent?.agentName).toBe('claude-code');
   });
 
