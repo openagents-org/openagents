@@ -838,24 +838,25 @@ def _is_failure_report(event: Event) -> bool:
 
 
 def _extract_mentions(content: str, known_agents: List[str]) -> List[str]:
-    """Parse @agent-name mentions from message text, validated against known agents."""
+    """Parse @agent-name mentions from message text, validated against known agents.
+
+    Matches known handles directly, so CJK text right after a mention
+    ("@codex看一下") still counts: a generic ``@[\\w-]+`` would swallow the CJK
+    characters (``\\w`` matches them) and miss the agent.
+    """
     if not content or not known_agents:
         return []
-    # Match @word patterns (agent names are alphanumeric + hyphens)
-    raw_mentions = re.findall(r"@([\w-]+)", content)
-    # Only return mentions that match actual workspace members
-    known_set = set(known_agents)
-    return [m for m in raw_mentions if m in known_set]
+    return _explicit_human_mentions(content, known_agents)
 
 
 def _extract_leading_mention(content: str, known_agents: List[str]) -> Optional[str]:
     """Return the agent name if the message starts with @agent-name, else None."""
     if not content or not known_agents:
         return None
-    m = re.match(r"^\s*@([\w-]+)(?![\w@.+-])", content)
-    if m and m.group(1) in set(known_agents):
-        return m.group(1)
-    return None
+    # Known handles, longest first, so "@codex看一下" (CJK right after) still matches.
+    handles = "|".join(re.escape(name) for name in sorted(known_agents, key=len, reverse=True))
+    m = re.match(rf"^\s*@({handles})(?![a-zA-Z0-9_@+-]|\.[a-zA-Z0-9_])", content)
+    return m.group(1) if m else None
 
 
 def _member_is_online(m) -> bool:
