@@ -9,16 +9,17 @@ import type { useBrowserControl } from './use-browser-control';
 import type { BrowserSession } from './use-browser-session';
 import { BrowserRecoveryCard } from './browser-recovery-card';
 import { BrowserControlLayer } from './browser-control-layer';
+import type { StreamQuality } from '@/lib/browser-stream-quality';
 
 type SendInput = ReturnType<typeof useBrowserControl>['input'];
 
 /**
  * The live view is embedded chrome-less; the workspace draws the browser around it.
- * This is the surface people take over to read and type, so ask for the sharper
- * stream: the default preset downscales a 1920px page to 1024px JPEG.
+ * Full views ask for the sharper stream by default (the low preset downscales a
+ * 1920px page to 1024px JPEG); small ones and anyone who picks it get low.
  */
-function embedUrl(liveUrl: string): string {
-  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + 'embed=1&q=high';
+export function embedUrl(liveUrl: string, quality: StreamQuality): string {
+  return liveUrl + (liveUrl.includes('?') ? '&' : '?') + `embed=1&q=${quality}`;
 }
 
 /** A local tab's screenshot, clickable and typed into while you have control. */
@@ -91,7 +92,7 @@ function ScreenshotSurface({ tab, src, controlling, keyboardRef, sendInput }: {
 }
 
 /** The page itself: the live view, a screenshot, or why there is neither. */
-export function BrowserViewport({ tab, session, controlling, controlBusy, onToggleControl, sendInput, agentActive, activityLabel }: {
+export function BrowserViewport({ tab, session, controlling, controlBusy, onToggleControl, sendInput, agentActive, activityLabel, quality }: {
   tab: BrowserTab;
   session: BrowserSession;
   controlling: boolean;
@@ -100,6 +101,7 @@ export function BrowserViewport({ tab, session, controlling, controlBusy, onTogg
   sendInput: SendInput;
   agentActive: boolean;
   activityLabel: string | null;
+  quality: StreamQuality;
 }) {
   const t = useT();
   const { sessionDead, sessionAsleep, reconnecting, recoveryError, screenshotUrl, loading, liveRevision, liveFrameRef } = session;
@@ -127,10 +129,10 @@ export function BrowserViewport({ tab, session, controlling, controlBusy, onTogg
         </div>
       ) : tab.liveUrl ? (
         <iframe
-          key={`${tab.id}:${liveRevision}`}
+          key={`${tab.id}:${liveRevision}:${quality}`}
           ref={liveFrameRef}
           onLoad={() => { if (controlling) liveFrameRef.current?.focus(); }}
-          src={embedUrl(tab.liveUrl)}
+          src={embedUrl(tab.liveUrl, quality)}
           tabIndex={controlling ? 0 : -1}
           inert={!controlling}
           className="h-full w-full border-0"

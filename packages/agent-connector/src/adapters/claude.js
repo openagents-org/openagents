@@ -21,12 +21,13 @@ const { execSync } = require('child_process');
 const { spawn } = require('../wsl');
 
 const BaseAdapter = require('./base');
-const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise } = require('./utils');
+const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle, stripCliNoise, CREDIT_EXHAUSTED, REGION_BLOCKED } = require('./utils');
 const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, workspaceSkillName } = require('./workspace-prompt');
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { isPostinstallStub } = require('../postinstall-stub');
 const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
+const { pendingImport } = require('../session-imports');
 
 const IS_WINDOWS = process.platform === 'win32';
 
@@ -520,7 +521,7 @@ class ClaudeAdapter extends BaseAdapter {
     if (sessionId && !skipResume) {
       cmd.push('--resume', sessionId);
     } else if (!skipResume && !Object.prototype.hasOwnProperty.call(this._channelSessions, channelName)) {
-      const seed = this._seedArgs();
+      const seed = this._importArgs(channelName) || this._seedArgs();
       if (seed) { cmd.push(...seed); seeded = true; }
     }
 
@@ -531,6 +532,34 @@ class ClaudeAdapter extends BaseAdapter {
 
     // ── MCP mode (default): spawn MCP server ──
     return { ...this._buildMcpCmd(cmd, channelName), seeded };
+  }
+
+  /**
+   * `--resume <id> --fork-session` for a channel that is an imported local
+   * Claude Code session (src/session-imports.js), on its first turn, or null.
+   * Same as the seed below, but per channel: the session's transcript is
+   * copied under this agent's working folder (Claude Code resumes only
+   * sessions filed under its cwd) and forked, so the user's own file is never
+   * written to. A transcript that is gone leaves the channel to start fresh
+   * with the imported thread history.
+   */
+  _importArgs(channelName) {
+    // Once per channel: a fork that fails to resume is retried fresh, not re-forked.
+    this._adoptedImports = this._adoptedImports || new Set();
+    if (this._adoptedImports.has(channelName)) return null;
+    const entry = pendingImport(this.workspaceId, this.agentName, channelName, 'claude');
+    if (!entry || !entry.file) return null;
+    this._adoptedImports.add(channelName);
+    try {
+      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
+      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
+      if (path.resolve(path.dirname(entry.file)) !== path.resolve(destDir)) snapshotTranscript(entry.file, destDir);
+      else if (!fs.existsSync(entry.file)) throw new Error('transcript is gone');
+      return ['--resume', entry.session_id, '--fork-session'];
+    } catch (e) {
+      this._log(`Imported session ${entry.session_id} unavailable for ${channelName} (${e.message}); starting fresh`);
+      return null;
+    }
   }
 
   /**
@@ -1172,6 +1201,19 @@ class ClaudeAdapter extends BaseAdapter {
     // below keys on — but only the redacted text is quoted: a `result` error
     // is the provider's own message, and providers echo the key they rejected.
     const msg = this._redact(raw);
+    // Both answer 403, which the auth rule below read as a bad key: a region
+    // the provider does not serve, and a relay account with no balance left
+    // ("403 organization balance exhausted").
+    const lower = raw.toLowerCase();
+    if (REGION_BLOCKED.test(lower)) {
+      return `Claude could not reach the model: ${msg}\n\n` +
+        'The provider refused requests from this device\'s network, usually because it does not serve this region. ' +
+        'The key or sign-in was not the problem: route Claude through a proxy in a supported region (HTTPS_PROXY), or point the agent at a different endpoint.';
+    }
+    if (CREDIT_EXHAUSTED.test(lower)) {
+      return `Claude's provider account is out of credit: ${msg}\n\n` +
+        'Add credit to that account, or switch this agent to a different API key or endpoint in the launcher.';
+    }
     if (/401|403|authenticate|invalid.*(token|key|api)|无效的?\s*(令牌|密钥|key)/i.test(raw)) {
       return `Claude authentication failed: ${msg}\n\n` +
         'Check this agent\'s API key and Base URL in the launcher — the key may be invalid or expired.';

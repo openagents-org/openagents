@@ -23,6 +23,7 @@ import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem }
 import { useAgentModelOptions } from './use-agent-model-options';
 import { WorkdirCard } from './agent-profile-workdir-card';
 import { AccessCard } from './agent-profile-access-card';
+import { ImportSessionsCard } from './agent-profile-import-card';
 import { useHostedRuntime, useNodeAgentSettings } from './use-node-agent-settings';
 
 export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {}) {
@@ -157,6 +158,7 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
       {/* A provider-hosted agent runs in the provider's sandbox: no folder of yours. */}
       {!isCloud && hosted === false && <WorkdirCard agent={agent} canManage={canManage} settings={canEditDevice ? nodeSettings : null} />}
       {canEditDevice && <AccessCard agentName={agent.agentName} settings={nodeSettings} />}
+      {canEditDevice && <ImportSessionsCard agentName={agent.agentName} settings={nodeSettings} />}
 
       <AgentDescriptionCard agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
 

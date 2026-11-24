@@ -150,6 +150,55 @@ describe("Agents page — new agent connect flow", () => {
     )
   })
 
+  // Its tool keeps sessions on this computer: once it has joined, offer
+  // bringing them in — the workspace opens on its Import past sessions picker.
+  it("offers importing a new agent's past sessions once it joins", async () => {
+    const paired = {
+      connected: true, workspaceSlug: "team-a", workspaceName: "Team A",
+      workspaces: [{ nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" }], revoked: [],
+    }
+    let joined = false
+    const api = installApi({
+      listAgents: vi.fn(async () => joined ? [makeAgent({ name: "my-new-agent", network: "team-a", state: "online" })] : []),
+      listWorkspaces: vi.fn().mockResolvedValue([{ id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" }]),
+      getNodeStatus: vi.fn().mockResolvedValue(paired),
+      refreshNodeStatus: vi.fn().mockResolvedValue(paired),
+      connectWorkspace: vi.fn(async () => { joined = true }),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await createAndReachConfigure(user, "my-new-agent")
+    await user.click(await screen.findByRole("radio", { name: /team a/i }))
+    await user.click(screen.getByRole("button", { name: /^connect$/i }))
+
+    expect((await screen.findByTestId("connect-ws-import-offer")).textContent).toContain("Claude Code")
+    await user.click(screen.getByTestId("connect-ws-import"))
+    await waitFor(() =>
+      expect(api.openExternal).toHaveBeenCalledWith("https://workspace.openagents.org/team-a?import=my-new-agent"),
+    )
+  })
+
+  it("does not offer it when an existing agent joins a workspace", async () => {
+    const paired = {
+      connected: true, workspaceSlug: "team-a", workspaceName: "Team A",
+      workspaces: [{ nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" }], revoked: [],
+    }
+    const api = installApi({
+      listAgents: vi.fn().mockResolvedValue([makeAgent({ name: "lonely", network: null })]),
+      listWorkspaces: vi.fn().mockResolvedValue([{ id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" }]),
+      getNodeStatus: vi.fn().mockResolvedValue(paired),
+      refreshNodeStatus: vi.fn().mockResolvedValue(paired),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    await user.click(await screen.findByRole("button", { name: /^join workspace$/i }))
+    await user.click(await screen.findByRole("radio", { name: /team a/i }))
+    await user.click(screen.getByRole("button", { name: /^connect$/i }))
+    await waitFor(() => expect(api.connectWorkspace).toHaveBeenCalled())
+    await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
+    expect(screen.queryByTestId("connect-ws-import-offer")).toBeNull()
+  })
+
   it("lets the user skip the connect step", async () => {
     installApi()
     const user = userEvent.setup()

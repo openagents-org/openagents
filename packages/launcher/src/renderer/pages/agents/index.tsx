@@ -16,6 +16,12 @@ import { RecommendedAgents } from "./components/recommended-agents"
 import { AgentsEmpty } from "./components/agents-empty"
 import { RemoveAgentDialog } from "./components/remove-agent-dialog"
 /** A type's marketplace page: its versions, update, uninstall and history. */
+/** The tools whose past sessions on this computer can be brought into a workspace. */
+const IMPORT_TOOLS: Record<string, string> = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode", hermes: "Hermes" }
+function importToolLabel(type: string | null | undefined): string | null {
+  return (type && IMPORT_TOOLS[type]) || null
+}
+
 function openMarketPage(type: string, returnTab?: string): void {
   useUiStore.getState().setInstallFocusAgent(type, returnTab)
   useUiStore.getState().setCurrentTab("install")
@@ -90,6 +96,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
   } | null>(null)
   const [connectWsOpen, setConnectWsOpen] = useState(false)
   const [connectWsAgent, setConnectWsAgent] = useState<string>("")
+  // The agent the form just added (and the type it was started for, until
+  // the list reports it), for the import offer once it joins a workspace.
+  const [createdAgent, setCreatedAgent] = useState<string | null>(null)
+  const [setupTypeOfCreated, setSetupTypeOfCreated] = useState<string | null>(null)
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<Agent | null>(null)
   const [search, setSearch] = useState("")
@@ -143,6 +153,15 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     openWorkspaceInBrowser,
     openAgentChat,
   } = useAgentActions(refresh, showToast, () => setRemoveTarget(null))
+
+  // Just joined a workspace from the Add agent form: open that workspace on
+  // "Import past sessions" for it. Read afresh — the bound workspace is only
+  // known once the join has gone through.
+  const openCreatedForImport = async (name: string): Promise<void> => {
+    const fresh = await window.api.listAgents().catch(() => null)
+    const agent = (fresh || agents).find((a) => a.name === name)
+    if (agent) await openWorkspace(agent, { importSessions: true })
+  }
 
   // One set of row actions for both views.
   const handlers: AgentActionHandlers = {
@@ -206,7 +225,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         justCreated.current = false
         setReturnTab(null)
       }}
-      onCreated={(name) => { justCreated.current = true; setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
+      onCreated={(name) => { justCreated.current = true; setCreatedAgent(name); setSetupTypeOfCreated(setupType); setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
       // The form stays open behind the type's page, unsaved edits and all,
       // and that page's Back returns here.
       onOpenType={(type) => openMarketPage(type, "dashboard")} /></React.Suspense>
@@ -278,6 +297,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         onClose={() => setConnectWsOpen(false)}
         showToast={showToast}
         onConnected={refresh}
+        // Only right after adding it: its tool's past sessions are worth
+        // bringing in then, not every time an agent joins a workspace.
+        importTool={connectWsAgent === createdAgent ? importToolLabel(agents.find((a) => a.name === createdAgent)?.type ?? setupTypeOfCreated) : null}
+        onImport={() => void openCreatedForImport(connectWsAgent)}
       />
 
       <RemoveAgentDialog

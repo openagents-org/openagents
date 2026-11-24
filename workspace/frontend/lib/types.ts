@@ -138,6 +138,8 @@ export interface WorkspaceNode {
   name: string;
   hostname: string | null;
   deviceType: string;
+  /** Who paired it (lowercased email); only they can import its sessions. */
+  ownerEmail?: string | null;
   os: string | null;
   launcherVersion: string | null;
   status: string;

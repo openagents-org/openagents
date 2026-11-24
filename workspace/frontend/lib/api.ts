@@ -488,13 +488,18 @@ class WorkspaceApi {
   /** Queue a remote agent-management command for a node (owner/admin only). */
   async enqueueNodeCommand(
     nodeId: string,
-    action: 'login_start' | 'login_status' | 'login_input' | 'login_cancel' | 'credential_key' | 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models',
+    action: 'login_start' | 'login_status' | 'login_input' | 'login_cancel' | 'credential_key' | 'create_agent' | 'configure_agent' | 'start_agent' | 'stop_agent' | 'remove_agent' | 'detect_runtimes' | 'list_dir' | 'probe_agent' | 'list_models' | 'list_local_sessions' | 'import_local_session',
     args: Record<string, unknown> = {},
   ): Promise<NodeCommand> {
     return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands`, {
       method: 'POST',
       body: JSON.stringify({ action, args }),
     });
+  }
+
+  /** One remote command's status (its result data only for the device's owner). */
+  async getNodeCommand(nodeId: string, commandId: string): Promise<NodeCommand> {
+    return this.request<NodeCommand>(`/v1/nodes/${nodeId}/commands/${encodeURIComponent(commandId)}`);
   }
 
   /** Recent remote commands for a node (to show pending/done status). */

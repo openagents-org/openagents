@@ -231,6 +231,8 @@ export class WorkspaceHost implements BundlePages {
    *   It grants nothing new: the page uses it exactly as a browser would from
    *   a shared link.
    * @param title what to call a new tab until its page names the workspace.
+   * @param importAgent open "Import past sessions" for this agent once loaded
+   *   (an agent just added on the Add agent page).
    */
   show(
     target: string | null,
@@ -238,6 +240,7 @@ export class WorkspaceHost implements BundlePages {
     token?: string | null,
     sessionId?: string | null,
     title?: string | null,
+    importAgent?: string | null,
   ): void {
     const window = this._deps.getWindow()
     if (!window) return
@@ -254,7 +257,7 @@ export class WorkspaceHost implements BundlePages {
       throw new Error(WORKSPACE_BUNDLE_MISSING)
     }
     this._bounds = bounds
-    if (target) this._active = this._openTab(target, token ?? null, sessionId ?? null, title ?? null)
+    if (target) this._active = this._openTab(target, token ?? null, sessionId ?? null, title ?? null, importAgent ?? null)
     else if (!this._active) this._active = this._ensureHome(true)
     this._visible = true
     this._attachActive()
@@ -513,9 +516,9 @@ export class WorkspaceHost implements BundlePages {
     return this._entries.find((entry) => entry.view.webContents === contents)
   }
 
-  private _openTab(target: string, token: string | null, sessionId: string | null, title: string | null): ViewEntry {
+  private _openTab(target: string, token: string | null, sessionId: string | null, title: string | null, importAgent: string | null = null): ViewEntry {
     const existing = findTab(this._tabs, target, this._origin())
-    if (!existing) return this._createTab(target, token, title, this._urlFor(target, token, sessionId))
+    if (!existing) return this._createTab(target, token, title, this._urlFor(target, token, sessionId, importAgent))
     // A notification for a workspace already open has no need to carry its
     // access token through the notification centre: the tab kept its own.
     if (token && token !== existing.token) {
@@ -525,7 +528,7 @@ export class WorkspaceHost implements BundlePages {
     if (title && !existing.named) existing.title = title
     // A second click on the same notification should return to its thread even
     // if the user selected another one since the first click.
-    if (sessionId) this._load(existing, this._urlFor(target, existing.token, sessionId))
+    if (sessionId || importAgent) this._load(existing, this._urlFor(target, existing.token, sessionId, importAgent))
     return existing
   }
 
@@ -706,12 +709,13 @@ export class WorkspaceHost implements BundlePages {
    * the account is not a member of still opens, with the device's own token,
    * exactly as a browser would from a shared link.
    */
-  private _urlFor(target: string, token?: string | null, sessionId?: string | null): string {
+  private _urlFor(target: string, token?: string | null, sessionId?: string | null, importAgent?: string | null): string {
     const route = `/${encodeURIComponent(target)}`
-    if (!bundleExists()) return `${webBase(this._deps.endpoint())}${route}`
+    if (!bundleExists()) return `${webBase(this._deps.endpoint())}${route}${importAgent ? `?${new URLSearchParams({ import: importAgent })}` : ""}`
     const query = new URLSearchParams()
     if (token) query.set("token", token)
     if (sessionId) query.set("thread", sessionId)
+    if (importAgent) query.set("import", importAgent)
     return workspaceBundleUrl(`${route}${query.size ? `?${query}` : ""}`)
   }
 }
