@@ -137,7 +137,11 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-/** The only part of a dialog that scrolls. */
+/**
+ * The only part of a dialog that scrolls. Its direct children never shrink
+ * (see styles/globals.css), so a flex-column body scrolls instead of
+ * squashing a Card or CodeBlock.
+ */
 function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div

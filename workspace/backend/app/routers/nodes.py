@@ -158,7 +158,10 @@ BROWSER_LOGIN_METHODS = {
     "cursor": {"default"},
     "opencode": {"chatgpt", "copilot"},
 }
-ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models"}
+ALLOWED_COMMAND_ACTIONS = {"login_start", "login_status", "login_input", "login_cancel", "credential_key", "create_agent", "configure_agent", "start_agent", "stop_agent", "remove_agent", "detect_runtimes", "list_dir", "probe_agent", "list_models", "list_local_sessions", "import_local_session"}
+# Local CLI sessions a device owner may import as threads
+# (app/routers/imported_sessions.py).
+IMPORTABLE_SESSION_TYPES = {"claude", "codex", "opencode", "hermes"}
 # Actions that operate on a single named agent (so the enqueue endpoint requires
 # a name). `detect_runtimes` / `list_dir` are node-wide and take no agent;
 # `probe_agent` smoke-tests a runtime and accepts either a type or a name.
@@ -173,13 +176,29 @@ AGENT_SCOPED_ACTIONS = {"create_agent", "configure_agent", "start_agent", "stop_
 _CREATE_DRAFT_FIELDS = ("name", "type", "workingDir", "model", "codexWireApi")
 
 
-def _format_command(cmd: NodeCommand, *, include_args: bool = False) -> dict:
+# Commands whose results hold the device owner's private session titles: only
+# the signed-in owner reads them back, never the device's credential (which
+# every agent on the device holds).
+_PRIVATE_RESULT_ACTIONS = {"list_local_sessions", "import_local_session"}
+
+
+def _signed_in_owner(db, workspace, node, token, authorization) -> bool:
+    if not authorization or repeats_machine_token(token, authorization):
+        return False
+    user = resolve_current_user(db, authorization)
+    return bool(_is_owner(user, node.owner_email) and resolve_user_role(db, workspace, authorization) is not None)
+
+
+def _format_command(cmd: NodeCommand, *, include_args: bool = False, private_ok: bool = True) -> dict:
     args = cmd.command or {}
+    result = cmd.result
+    if not private_ok and cmd.action in _PRIVATE_RESULT_ACTIONS and isinstance(result, dict):
+        result = {k: v for k, v in result.items() if k != "data"}
     out = {
         "commandId": str(cmd.id),
         "action": cmd.action,
         "status": cmd.status,
-        "result": cmd.result,
+        "result": result,
         "agentName": args.get("name"),
         "agentType": args.get("type"),
         "createdAt": cmd.created_at.isoformat() if cmd.created_at else None,
@@ -472,6 +491,17 @@ def enqueue_command(
         envelope = args["encryptedCredentials"]
         if not isinstance(envelope, dict) or envelope.get("algorithm") != "RSA-OAEP-256+A256GCM":
             return json_response(ResponseCode.BAD_REQUEST, "Invalid credential envelope")
+    if action in {"list_local_sessions", "import_local_session"}:
+        # The device owner's own past CLI sessions are private: only that
+        # person, signed in, may list or import them — never a machine
+        # credential an agent on the device could hold.
+        if not authorization or repeats_machine_token(x_workspace_token, authorization):
+            return json_response(ResponseCode.FORBIDDEN, "Sign in as the device owner to import its local sessions")
+        if args.get("type") not in IMPORTABLE_SESSION_TYPES:
+            return json_response(ResponseCode.BAD_REQUEST, "Importing sessions supports claude, codex, opencode and hermes")
+        if action == "import_local_session" and not (isinstance(args.get("id"), str) and args["id"]
+                                                     and (args.get("agent") is None or isinstance(args.get("agent"), str))):
+            return json_response(ResponseCode.BAD_REQUEST, "Pick a session to import")
     if action == "login_start" and (
         args.get("type") not in BROWSER_LOGIN_METHODS
         or args.get("method", "default") not in BROWSER_LOGIN_METHODS[args.get("type")]
@@ -589,7 +619,32 @@ def list_commands(
         .order_by(NodeCommand.created_at.desc())
         .limit(limit)
     ).scalars().all()
-    return success_response([_format_command(c) for c in cmds])
+    owner = _signed_in_owner(db, workspace, node, x_workspace_token, authorization)
+    return success_response([_format_command(c, private_ok=owner) for c in cmds])
+
+
+@_both("get", "/{node_id}/commands/{command_id}")
+def get_command(
+    node_id: str,
+    command_id: str,
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """One command's status, so a page waiting on it need not fetch the list."""
+    node = db.execute(select(Node).where(Node.id == node_id)).scalar_one_or_none()
+    if not node:
+        return json_response(ResponseCode.NOT_FOUND, "Node not found")
+    workspace = db.execute(select(Workspace).where(Workspace.id == node.workspace_id)).scalar_one_or_none()
+    if not workspace or workspace.status == "deleted":
+        return json_response(ResponseCode.NOT_FOUND, "Workspace not found")
+    if not _can_access_connection(db, workspace, node, x_workspace_token, authorization):
+        return json_response(ResponseCode.FORBIDDEN, "Only the connection owner can view its commands")
+    cmd = db.execute(select(NodeCommand).where(NodeCommand.id == command_id, NodeCommand.node_id == node.id)).scalar_one_or_none()
+    if cmd is None:
+        return json_response(ResponseCode.NOT_FOUND, "Command not found")
+    owner = _signed_in_owner(db, workspace, node, x_workspace_token, authorization)
+    return success_response(_format_command(cmd, private_ok=owner))
 
 
 @_both("get", "/{node_id}/agent-name")
@@ -667,4 +722,4 @@ def post_command_result(
     cmd.command = {k: args[k] for k in ("name", *_CREATE_DRAFT_FIELDS) if args.get(k)} if args else {}
     cmd.finished_at = _now()
     db.commit()
-    return success_response(_format_command(cmd))
+    return success_response(_format_command(cmd, private_ok=False))

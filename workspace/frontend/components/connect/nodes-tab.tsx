@@ -14,6 +14,7 @@ import { NodeCard, PendingAgent } from './node-card';
 import { PairAnotherDevice } from './pair-another-device';
 import { usePendingAgents } from './use-pending-agents';
 import { useConnectRequests, useJoinedNotice } from './use-connect-requests';
+import { IMPORT_TOOL_LABELS, isImportableType } from '@/components/agents/import-sessions-dialog';
 import { WorkspaceAgentSetup } from './workspace-agent-setup';
 import { NodesRoster } from './nodes-roster';
 
@@ -101,7 +102,12 @@ export function NodesTab({
   const [editing, setEditing] = useState<{ nodeId: string; agent: import('@/lib/types').NodeAgent } | null>(null);
   const [retrying, setRetrying] = useState<{ nodeId: string; pending: PendingAgent } | null>(null);
   // Onboarding opens a thread with a new agent instead of announcing it.
-  const announceJoined = useJoinedNotice(autoAddAgent);
+  // Right after an agent joins: offer bringing in its tool's past sessions
+  // (the dialog itself lives in the app shell: ImportSessionsHost).
+  const announceJoined = useJoinedNotice(autoAddAgent, (name) => {
+    const type = nodes.flatMap((n) => n.agents).find((a) => a.name === name)?.type;
+    return isImportableType(type) ? IMPORT_TOOL_LABELS[type] : null;
+  });
   const { pending, addPending: queuePending, removePending } = usePendingAgents(nodes, announceJoined);
   // A new agent's device opens to show it spinning up.
   const addPending = (nodeId: string, agent: Parameters<typeof queuePending>[1]) => {

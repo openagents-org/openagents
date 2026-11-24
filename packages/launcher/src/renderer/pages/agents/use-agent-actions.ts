@@ -19,7 +19,8 @@ export interface AgentActions {
   ) => Promise<void>
   renameAgent: (name: string, displayName: string) => Promise<void>
   disconnectAgent: (name: string) => Promise<void>
-  openWorkspace: (agent: Agent) => Promise<void>
+  /** `importSessions`: once there, offer bringing in its tool's past sessions. */
+  openWorkspace: (agent: Agent, opts?: { importSessions?: boolean }) => Promise<void>
   openWorkspaceInBrowser: (agent: Agent) => Promise<void>
   openAgentChat: (agent: Agent) => Promise<void>
 }
@@ -35,8 +36,17 @@ export interface AgentActions {
  * record names, else the configured one (self-hosting), and by the name the
  * agent was bound with when this device has no record of the workspace.
  */
-function agentWorkspacePage(network: string, ws: Workspace | undefined, configured: string | undefined): string {
-  return ws ? workspacePageUrl(ws, configured) : `${workspaceWebBaseUrl(configured)}/${network}`
+function agentWorkspacePage(network: string, ws: Workspace | undefined, configured: string | undefined, importAgent?: string): string {
+  const page = ws ? workspacePageUrl(ws, configured) : `${workspaceWebBaseUrl(configured)}/${network}`
+  if (!importAgent) return page
+  // The workspace opens "Import past sessions" for it (ImportSessionsHost).
+  try {
+    const url = new URL(page)
+    url.searchParams.set("import", importAgent)
+    return url.toString()
+  } catch {
+    return page
+  }
 }
 
 export function useAgentActions(
@@ -194,7 +204,8 @@ export function useAgentActions(
     }
   }
 
-  const openWorkspace = async (agent: Agent): Promise<void> => {
+  const openWorkspace = async (agent: Agent, opts?: { importSessions?: boolean }): Promise<void> => {
+    const importAgent = opts?.importSessions ? agent.name : undefined
     // An agent that isn't bound to a workspace runs "local only" in the daemon
     // and never joins the workspace channel — so it can't ever answer messages
     // sent from the web chat. Catch that here instead of opening a chat that
@@ -254,7 +265,7 @@ export function useAgentActions(
       // instead of sending the user out to a browser tab.
       const configured = typeof endpoint === "string" && endpoint ? endpoint : undefined
       if (ws && opensInApp(ws, configured, signedIn, memberOf)) {
-        useAccountStore.getState().openWorkspace({ slug, name: ws.name, token: ws.token ?? null })
+        useAccountStore.getState().openWorkspace({ slug, name: ws.name, token: ws.token ?? null, importAgent: importAgent ?? null })
         return
       }
       // Signed in, yet sent to the browser: say why, or it looks like the
@@ -267,7 +278,7 @@ export function useAgentActions(
           "info",
         )
       }
-      window.api.openExternal(agentWorkspacePage(agent.network, ws, configured))
+      window.api.openExternal(agentWorkspacePage(agent.network, ws, configured, importAgent))
     } catch (err: unknown) {
       showToast(
         t("agents.list.toast.error", { message: (err as Error).message }),

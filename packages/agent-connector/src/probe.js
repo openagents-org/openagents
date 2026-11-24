@@ -36,7 +36,7 @@ const path = require('path');
 const { spawn } = require('./wsl');
 const { getEnhancedEnv } = require('./paths');
 const { shouldUseShellForBinary, REASON } = require('./adapters/health-status');
-const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, CREDIT_EXHAUSTED, stripCliNoise, redactSecrets } = require('./adapters/utils');
+const { decodeConsoleOutput, BENIGN_CLI_OUTPUT, CREDIT_EXHAUSTED, REGION_BLOCKED, stripCliNoise, redactSecrets } = require('./adapters/utils');
 const { formatAuthGuidance } = require('./auth-guidance');
 const { isCliLogin, stripForCliLogin, typeEnvFor } = require('./env');
 const { configuredModel } = require('./agent-model');
@@ -70,6 +70,8 @@ const CODE = {
   INSTALL_INCOMPLETE: 'install_incomplete',
   ENDPOINT_INCOMPATIBLE: 'endpoint_incompatible',
   CLIENT_ONLY: 'client_only',
+  ACCOUNT_INELIGIBLE: 'account_ineligible',
+  REGION_BLOCKED: 'region_blocked',
 };
 
 const BENIGN_OUTPUT = BENIGN_CLI_OUTPUT;
@@ -144,12 +146,27 @@ function classifyOutputText(text) {
   // placeholder is what ran. Reinstalling fixes it; read as a CLI error it
   // was a stack trace with no next step.
   if (/missing optional dependency|native binary not installed|postinstall (script )?(was|did) not run/.test(text)) return CODE.INSTALL_INCOMPLETE;
+  // Gemini CLI signed in with a personal Google account: Google ended that
+  // free Code Assist tier, and the CLI says "IneligibleTierError: This client
+  // is no longer supported for Gemini Code Assist for individuals". Read as a
+  // CLI error it told people to debug it in a terminal; signing in again does
+  // not help either. Ahead of the credit rule: the account record Gemini
+  // dumps before it can mention billing.
+  if (/ineligibletier|no longer supported for gemini code assist/.test(text)) return CODE.ACCOUNT_INELIGIBLE;
   // Relays word this their own way and answer 403 rather than 402, so the
   // English-and-402 pattern alone read "out of credit" as "bad credentials"
   // — the one misreading that sends a user to re-authenticate a working key.
   // new-api relays say "Insufficient user quota" (see CREDIT_EXHAUSTED).
-  if (CREDIT_EXHAUSTED.test(text) || /credit balance|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额/.test(text)) return CODE.OUT_OF_CREDIT;
+  // A plan's own cap reads the same way to the user: Claude Code's "You've
+  // hit your monthly spend limit", Codex's "You've hit your usage limit.
+  // Upgrade to Plus…", or a coding plan that lapsed ("does not have a valid
+  // AgentPlan subscription, or your subscription has expired"). Each was
+  // reported as an unknown CLI error.
+  if (CREDIT_EXHAUSTED.test(text) || /credit balance|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额/.test(text)
+    || /\bspend(?:ing)? limit\b|hit your (?:[a-z]+ )?usage limit|subscription (?:has )?expired|(?:does not|doesn't) have an? (?:valid|active) [\w -]{0,24}subscription/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
+  // Ahead of the 403 rule below (see REGION_BLOCKED).
+  if (REGION_BLOCKED.test(text)) return CODE.REGION_BLOCKED;
   // "error sending request for url (…)" is how Codex (Rust) says the host
   // was unreachable; a Codex that could not reach chatgpt.com ran out the
   // probe clock and was reported as waiting for interactive input. "Request
@@ -178,7 +195,11 @@ function classifyOutputText(text) {
   // "Model 'x' is not available. This gateway only allows: …" is how the
   // OpenAgents gateway refuses a model; read as a CLI error it sent people to
   // a terminal to debug a model name.
-  if (/unrecognized_model|model_not_found|invalid model|no such model|model must be a (?:valid )?model id|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported|is not available)/.test(text)) return CODE.BAD_MODEL;
+  // Relays also retire a model: "模型 gpt-5.6-sol 已下线，请改用 …", "该模型已下线",
+  // "The model gpt-5.6-sol has been retired", behind a 404. The English form
+  // wants an id with a digit in it, so "the model provider has been removed"
+  // stays a provider error.
+  if (/模型.{0,40}已下线|the model [\w.:/-]*\d[\w.:/-]* has been (?:retired|discontinued|removed)|unrecognized_model|model_not_found|invalid model|no such model|model must be a (?:valid )?model id|issue with the selected model|unknown model|model.{0,40}(does not exist|not found|not exist|is not supported|is not available)/.test(text)) return CODE.BAD_MODEL;
   if (/\b50[234]\b|service (is )?(temporarily )?unavailable|temporarily unavailable|bad gateway|gateway time-?out/.test(text)) return CODE.SERVICE_UNAVAILABLE;
   return null;
 }
@@ -242,7 +263,7 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
         : `${label}'s sign-in on this device has expired. Sign in again with its CLI, then re-run the test.`);
       break;
     case CODE.OUT_OF_CREDIT:
-      lines.push(`The provider account for ${label} is out of credit or quota. Add credit, or switch the agent to a different API key or model.`);
+      lines.push(`The provider account for ${label} is out of credit, or has reached its plan's usage limit. Add credit or wait for the limit to reset (the provider's message says when), or switch the agent to a different API key or model.`);
       break;
     case CODE.RATE_LIMITED:
       lines.push(`The provider is rate-limiting ${label}. Wait a few minutes and test again.`);
@@ -262,6 +283,14 @@ function buildGuidance(code, entry, agentEnv, extra = {}) {
       break;
     case CODE.SERVICE_UNAVAILABLE:
       lines.push(`The model provider for ${label} is temporarily unavailable. Wait a few minutes and test again.`);
+      break;
+    case CODE.ACCOUNT_INELIGIBLE:
+      lines.push(`Google no longer serves ${label} to personal Google accounts (the free Gemini Code Assist for individuals tier), so signing in again will not help.`);
+      lines.push(`Set GEMINI_API_KEY for this agent (a key from Google AI Studio) in the launcher (Agents → ${label} → Configure), or switch to the Antigravity agent. With a Gemini Code Assist license, sign in with that account instead.`);
+      break;
+    case CODE.REGION_BLOCKED:
+      lines.push(`The model provider refused requests from this device's network, usually because it does not serve this region. Your key or sign-in was not the problem.`);
+      lines.push(`Route ${label} through a proxy in a supported region (HTTPS_PROXY), or point the agent at a different endpoint.`);
       break;
     case CODE.ENDPOINT_INCOMPATIBLE:
       lines.push(`${label}'s endpoint takes Responses API requests but refuses ${extra.param ? `the "${extra.param}" field` : 'a field'} that ${label} sends with every one of them, so every run fails there. ${label} has no setting to leave it out.`);

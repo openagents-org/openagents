@@ -80,6 +80,18 @@ describe('shared workspace host', () => {
       'openagents://workspace/index.html#/team?token=device-secret&thread=thread',
     )
   })
+  it('opens a workspace on Import past sessions for an agent just added, open or not', () => {
+    const host = makeHost()
+    host.show('team', bounds, 'device-secret', null, null, 'my-codex')
+    expect(contents(0).loadURL).toHaveBeenLastCalledWith(
+      'openagents://workspace/index.html#/team?token=device-secret&import=my-codex',
+    )
+    host.show('team', bounds, null, null, null, 'my-claude')
+    expect(contents(0).loadURL).toHaveBeenLastCalledWith(
+      'openagents://workspace/index.html#/team?token=device-secret&import=my-claude',
+    )
+    expect(fakes.views).toHaveLength(1)
+  })
   it('resumes on first load and preserves the live page when returning from local management', () => {
     const host = makeHost()
     host.show(null, bounds)
