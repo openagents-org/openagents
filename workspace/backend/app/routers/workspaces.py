@@ -184,13 +184,11 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     # Only documented display/behavior settings cross the API boundary.
     # Credentials and server-only settings must never ride along in this map.
     public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
-    # Report the live stream as on when the server enables it for this
-    # workspace (AGENT_STREAM_WORKSPACES allowlist or "*"), not only when the
-    # workspace opted in: web and desktop clients open GET /v1/events/live
-    # only when this flag is true.
+    # Web and desktop clients open GET /v1/events/live when this is true. It
+    # reports the server-wide setting (on by default with Redis), not a
+    # per-workspace toggle; older clients still read it from here.
     from app.services import agent_stream
-    if agent_stream.stream_enabled(ws.id, settings):
-        public_settings["realtime_stream"] = True
+    public_settings["realtime_stream"] = agent_stream.live_stream_enabled()
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,
