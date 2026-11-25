@@ -61,6 +61,12 @@ def reply_requester(db, workspace_id, source, target, metadata):
     return next(iter(requesters)) if len(requesters) == 1 else None
 
 
+# Clients display "99+" above 99, so a thread's unread count (and the
+# "your request was answered" completion time) only looks at its newest
+# UNREAD_CAP unread messages instead of up to 30 days of history.
+UNREAD_CAP = 100
+
+
 def thread_activity(db, workspace_id, channels, markers, viewer_email):
     markers = {c.name: markers[c.name] for c in channels if c.name in markers}
     result = {name: {'read_at': at, 'unread_count': 0, 'completion_at': None} for name, at in markers.items()}
@@ -94,6 +100,7 @@ def _unread_summary_query(workspace_id, markers, viewer_email, cutoff):
     clients can reject stale results without treating the cutoff as a read.
     """
     params = {'workspace_id': str(workspace_id), 'viewer_email': viewer_email, 'cutoff': cutoff,
+              'unread_cap': UNREAD_CAP,
               # Match str.strip(), including Unicode whitespace, in SQL btrim.
               'strip_chars': _PYTHON_WHITESPACE}
     values = []
@@ -123,19 +130,26 @@ def _unread_summary_query(workspace_id, markers, viewer_email, cutoff):
         CROSS JOIN LATERAL (
             SELECT count(*) AS unread_count,
                    max(CASE WHEN :viewer_email != ''
-                            AND left(e.source, 11) = 'openagents:'
-                            AND e.metadata->>'requester_email' = :viewer_email
-                       THEN e.timestamp END) AS completion_at
-            FROM events e
-            WHERE e.network_id = CAST(:workspace_id AS uuid)
-              AND e.target = marker.target
-              AND e.type = 'workspace.message.posted'
-              AND e.timestamp > marker.read_at
-              AND e.timestamp >= :cutoff
-              AND e.visibility != 'direct'
-              AND (NOT {_json_truthy(message_type)} OR {message_type} = '"chat"'::jsonb)
-              AND {_json_truthy("e.payload->'content'")}
-              AND (:viewer_email = '' OR ({sender}) IS DISTINCT FROM :viewer_email)
+                            AND left(recent.source, 11) = 'openagents:'
+                            AND recent.requester_email = :viewer_email
+                       THEN recent.timestamp END) AS completion_at
+            FROM (
+                -- Newest first, at most UNREAD_CAP rows: clients show "99+"
+                -- beyond 99, so counting further only re-read thread history.
+                SELECT e.timestamp, e.source, e.metadata->>'requester_email' AS requester_email
+                FROM events e
+                WHERE e.network_id = CAST(:workspace_id AS uuid)
+                  AND e.target = marker.target
+                  AND e.type = 'workspace.message.posted'
+                  AND e.timestamp > marker.read_at
+                  AND e.timestamp >= :cutoff
+                  AND e.visibility != 'direct'
+                  AND (NOT {_json_truthy(message_type)} OR {message_type} = '"chat"'::jsonb)
+                  AND {_json_truthy("e.payload->'content'")}
+                  AND (:viewer_email = '' OR ({sender}) IS DISTINCT FROM :viewer_email)
+                ORDER BY e.timestamp DESC
+                LIMIT :unread_cap
+            ) AS recent
         ) AS summary
     """
     return query, params
@@ -148,7 +162,7 @@ def _thread_activity_python(db, workspace_id, markers, viewer_email, result, cut
         EventRecord.visibility != 'direct',
         EventRecord.timestamp >= cutoff,
         or_(*(and_(EventRecord.target == f'channel/{name}', EventRecord.timestamp > at) for name, at in markers.items())),
-    )).scalars()
+    ).order_by(EventRecord.timestamp.desc())).scalars()
     for event in events:
         payload = event.payload or {}
         if (payload.get('message_type') or 'chat') != 'chat' or not payload.get('content'):
@@ -156,6 +170,8 @@ def _thread_activity_python(db, workspace_id, markers, viewer_email, result, cut
         if viewer_email and sender_email(event) == viewer_email:
             continue
         entry = result[event.target.removeprefix('channel/')]
+        if entry['unread_count'] >= UNREAD_CAP:
+            continue  # same cap as PostgreSQL: only the newest UNREAD_CAP count
         entry['unread_count'] += 1
         if event.source.startswith('openagents:') and viewer_email and (event.metadata_ or {}).get('requester_email') == viewer_email:
             entry['completion_at'] = max(entry['completion_at'] or 0, event.timestamp)
