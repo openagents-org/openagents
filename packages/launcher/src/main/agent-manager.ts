@@ -1706,6 +1706,13 @@ export class AgentManager extends EventEmitter {
         `WORKSPACE_NOT_REGISTERED: '${ref}' is paired but has no local entry — re-pair this device`,
       )
 
+    const config = this._connector!.config as {
+      getAgent?: (name: string) => { network?: string; node_id?: string } | undefined
+      updateAgent: (name: string, updates: Record<string, unknown>) => void
+    }
+    const binding = config.getAgent?.(agentName)
+    const slug = (known.slug || known.id) as string
+    if (binding?.network === slug && (!chosenConnection || binding.node_id === chosenConnection.node_id)) return { success: true }
     const connectWorkspace = this._connector!.connectWorkspace as (
       name: string,
       slug: string,
@@ -1713,10 +1720,10 @@ export class AgentManager extends EventEmitter {
     connectWorkspace.call(
       this._connector,
       agentName,
-      (known.slug || known.id) as string,
+      slug,
     )
-    const config = this._connector!.config as { updateAgent: (name: string, updates: Record<string, unknown>) => void }
     if (chosenConnection) config.updateAgent(agentName, { node_id: chosenConnection.node_id })
+    this._agentsCache = { value: [], at: 0 }
     this.signalReload()
     return { success: true }
   }

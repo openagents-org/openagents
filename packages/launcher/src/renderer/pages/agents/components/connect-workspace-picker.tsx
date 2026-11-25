@@ -21,12 +21,14 @@ import { WorkspaceOptionRow, type WorkspaceOption } from "./workspace-option-row
  */
 export function ConnectWorkspacePicker({
   options,
+  unavailable,
   onConnect,
   onPaired,
   onCancel,
   showToast,
 }: {
   options: WorkspaceOption[]
+  unavailable: (ref: string) => boolean
   onConnect: (slug: string) => void
   onPaired: (workspace: PairedWorkspace) => void
   onCancel: () => void
@@ -128,7 +130,7 @@ export function ConnectWorkspacePicker({
         <Button variant="outline" onClick={onCancel}>
           {t("agents.connectDialog.cancel")}
         </Button>
-        <Button data-testid="ws-connect-submit" disabled={!selected} onClick={() => connect(selected)}>
+        <Button data-testid="ws-connect-submit" disabled={!selected || unavailable(selected.slug || selected.id)} onClick={() => connect(selected)}>
           {t("agents.connectDialog.connect")}
         </Button>
       </DialogFooter>

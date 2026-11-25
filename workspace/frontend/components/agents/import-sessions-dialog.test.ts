@@ -120,6 +120,34 @@ it('keeps batch results in the dialog until every import and the thread list ref
   expect(q('#route')!.textContent).toBe('threads/detail/archived');
 });
 
+it.each(['close', 'open result'])('can %s after a mixed batch when thread refresh never settles', async (action) => {
+  const close = vi.fn();
+  ws.refresh.mockImplementationOnce(() => new Promise<void>(() => {}));
+  api.get.mockImplementation(async (_node: string, id: string) => id === 'c3'
+    ? { status: 'done', result: { ok: false, message: 'Could not read this session' } }
+    : commands.find(c => c.commandId === id));
+  await render(close);
+  for (const title of ['Add pagination', 'Fix login']) {
+    await act(async () => (q(`[aria-label="${title}"]`) as HTMLButtonElement).click());
+  }
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  const result = q('[data-testid="import-sessions-done"] button') as HTMLButtonElement;
+  expect(result.textContent).toContain('Add pagination');
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('Could not read this session');
+  if (action === 'close') {
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'common.close')!;
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+  } else {
+    await tick(5000);
+    expect(result.disabled).toBe(false);
+    await act(async () => result.click());
+    expect(ws.open).toHaveBeenCalledWith('channel-s1');
+  }
+  expect(close).toHaveBeenCalledWith(false);
+});
+
 it('says when the device cannot list its sessions', async () => {
   api.enqueue.mockImplementation(async () => {
     commands.push({ commandId: 'x', action: 'list_local_sessions', status: 'done', result: { ok: false, message: 'Importing aider sessions is not supported' } });

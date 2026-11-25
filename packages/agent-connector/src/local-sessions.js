@@ -24,7 +24,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { spawnSync } = require('child_process');
+const childProcess = require('child_process');
 const { redactSecrets } = require('./adapters/utils');
 const { claudeTranscripts, findClaudeTranscript } = require('./host-agent');
 const { openAgentsHomes, workspaceSessionIds } = require('./session-origins');
@@ -294,8 +294,22 @@ function readFileSession(type, id, { env }) {
 
 // ── OpenCode ───────────────────────────────────────────────────────────────
 
-function runOpencode(args, env) {
-  const { findOpencodeBinary } = require('./adapters/opencode');
+const OPENCODE_TIMEOUT = 'Reading OpenCode sessions timed out. Try again after other OpenCode activity has finished.';
+const OPENCODE_MIGRATED = 'This OpenCode session database uses a newer format. Session import currently reads the OpenCode 1.x format.';
+
+function remainingTime(deadline, cap) {
+  const remaining = Math.min(cap, deadline - Date.now());
+  if (remaining <= 0) throw new Error(OPENCODE_TIMEOUT);
+  return remaining;
+}
+
+function checkOpenCodeExit(result) {
+  if (result.error?.code === 'ETIMEDOUT') throw new Error(OPENCODE_TIMEOUT);
+  if (result.signal) throw new Error('Reading OpenCode sessions was interrupted.');
+}
+
+function runOpencode(args, env, deadline = Infinity) {
+  const { findOpencodeBinary, SHARED_DB_MIGRATED_RE } = require('./adapters/opencode');
   let bin = findOpencodeBinary();
   if (!bin) return null; // not installed: nothing to import
   if (process.platform === 'win32' && /\.cmd$/i.test(bin)) {
@@ -314,10 +328,15 @@ function runOpencode(args, env) {
     const quotedArgs = args.map((arg) => `"${arg}"`).join(' ');
     commandArgs = ['/d', '/v:off', '/s', '/c', `""%OA_SESSION_IMPORT_CLI%" ${quotedArgs}"`];
   }
-  const r = spawnSync(command, commandArgs, {
-    env: childEnv, encoding: 'utf-8', timeout: args[0] === 'export' ? 30000 : args[1] === 'path' ? 8000 : 20000,
+  const cap = args[0] === 'export' ? 30000 : args[1] === 'path' ? 8000 : 20000;
+  const r = childProcess.spawnSync(command, commandArgs, {
+    env: childEnv, encoding: 'utf-8', timeout: remainingTime(deadline, cap), killSignal: 'SIGKILL',
     maxBuffer: 64 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: cmdShim,
   });
+  checkOpenCodeExit(r);
+  if (r.status !== 0 && (SHARED_DB_MIGRATED_RE.test(r.stderr) || SHARED_DB_MIGRATED_RE.test(r.stdout))) {
+    throw new Error('OpenCode could not find the 1.x session table. This can happen after OpenCode 2.x or the desktop app migrates the database.');
+  }
   if (r.status !== 0 || !r.stdout) return '';
   return r.stdout;
 }
@@ -331,37 +350,70 @@ function jsonFrom(text) {
 
 const msIso = (v) => (Number(v) > 0 ? new Date(Number(v) > 1e12 ? Number(v) : Number(v) * 1000).toISOString() : null);
 
-function listOpencode({ env, limit, run }) {
-  // Only the newest root sessions need their parts inspected. Count the
-  // user/assistant texts the importer reads; tool steps are attached as notes.
+function opencodePageSql(pageSize, cursor) {
+  // SQLite's default trim only removes ASCII spaces. Match JS String.trim()
+  // for both the first real prompt and the number of importable text parts.
+  const spaces = 'char(9,10,11,12,13,32,160,5760,8192,8193,8194,8195,8196,8197,8198,8199,8200,8201,8202,8232,8233,8239,8287,12288,65279)';
+  const text = `trim(json_extract(p.data, '$.text'), ${spaces})`;
   const textParts = `FROM message m JOIN part p ON p.message_id = m.id
     WHERE m.session_id = s.id AND json_extract(p.data, '$.type') = 'text'
       AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0 AND json_type(p.data, '$.text') = 'text'
-      AND trim(json_extract(p.data, '$.text'), char(9,10,11,12,13,32)) <> ''`;
-  const sql = `SELECT s.id, s.directory, s.time_updated AS updated,
+      AND ${text} <> ''`;
+  // Hex keeps an ID in a single SQLite literal, also through a Windows .cmd shim.
+  const after = cursor ? `AND (time_updated < ${cursor.updated} OR
+    (time_updated = ${cursor.updated} AND id > CAST(X'${Buffer.from(cursor.id).toString('hex')}' AS TEXT)))` : '';
+  return `SELECT s.id, s.directory, s.time_updated AS updated,
       (SELECT COUNT(*) ${textParts} AND json_extract(m.data, '$.role') IN ('user', 'assistant')) AS message_count,
-      (SELECT substr(json_extract(p.data, '$.text'), 1, 2048)
+      (SELECT substr(${text}, 1, 2048)
         ${textParts} AND json_extract(m.data, '$.role') = 'user'
         ORDER BY m.time_created, m.id, p.time_created, p.id LIMIT 1) AS first_prompt
-    FROM (SELECT id, directory, time_updated FROM session WHERE parent_id IS NULL
-      ORDER BY time_updated DESC, id LIMIT ${limit}) s
+    FROM (SELECT id, directory, time_updated FROM session WHERE parent_id IS NULL ${after}
+      ORDER BY time_updated DESC, id LIMIT ${pageSize}) s
     ORDER BY s.time_updated DESC, s.id`.replace(/\s+/g, ' ');
-  const output = run(['db', '--format', 'json', sql], env);
-  if (output === null) return []; // no CLI installed
-  let rows = jsonFrom(output);
-  if (!Array.isArray(rows)) {
-    // `session list` knows neither the original prompt nor every project.
-    // Run the same query against the database selected by this CLI.
-    const file = path.isAbsolute(env.OPENCODE_DB || '') ? env.OPENCODE_DB : (run(['db', 'path'], env) || '').trim();
-    rows = path.isAbsolute(file) ? querySqlite(file, sql) : null;
-    if (!rows) throw new Error('Could not read the OpenCode session database. Check your OpenCode installation and try again.');
-  }
-  return rows
-    .filter((x) => x.id && x.first_prompt?.trim() && !ranByOpenAgents(x.first_prompt, x.directory, env))
-    .map((x) => ({
-      id: x.id, type: 'opencode', title: oneLine(maskSecrets(x.first_prompt)), cwd: x.directory || null,
-      updatedAt: msIso(x.updated), messageCount: x.message_count,
-    }));
+}
+
+function listOpencode({ env, limit, run, skip }) {
+  const deadline = Date.now() + 35000; // leave room for the device command's 40s deadline
+  let pageSize = Math.max(200, limit);
+  const sessions = [];
+  let cursor, database;
+  do {
+    const sql = opencodePageSql(pageSize, cursor);
+    let rows;
+    if (!database) {
+      const output = run(['db', '--format', 'json', sql], env, deadline);
+      if (output === null) return []; // no CLI installed
+      rows = jsonFrom(output);
+    }
+    if (!Array.isArray(rows)) {
+      database ||= path.isAbsolute(env.OPENCODE_DB || '') ? env.OPENCODE_DB : (run(['db', 'path'], env, deadline) || '').trim();
+      rows = path.isAbsolute(database) ? querySqlite(database, sql, deadline) : null;
+      if (!rows) {
+        const migrated = "SELECT name FROM sqlite_master WHERE type='table' AND name='session_v2' AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='session')";
+        if (path.isAbsolute(database) && querySqlite(database, migrated, deadline)?.length) {
+          throw new Error(OPENCODE_MIGRATED);
+        }
+        throw new Error('Could not read the OpenCode session database. Check the database path and read access.');
+      }
+    }
+    for (const row of rows) {
+      if (!row.id || skip.has(row.id) || !row.first_prompt?.trim() || ranByOpenAgents(row.first_prompt, row.directory, env)) continue;
+      sessions.push({
+        id: row.id, type: 'opencode', title: oneLine(maskSecrets(row.first_prompt)), cwd: row.directory || null,
+        updatedAt: msIso(row.updated), messageCount: row.message_count,
+      });
+      skip.add(row.id);
+      if (sessions.length === limit) return sessions;
+    }
+    if (rows.length < pageSize) break;
+    const last = rows[rows.length - 1];
+    if (!Number.isSafeInteger(last.updated) || typeof last.id !== 'string') throw new Error('Invalid OpenCode session cursor');
+    cursor = last;
+    // A long run of exclusions should not start a new CLI for every 200 rows.
+    pageSize = Math.min(1000, pageSize * 2);
+    remainingTime(deadline, Infinity);
+  } while (true);
+  return sessions;
 }
 
 function readOpencode(id, { env, run }) {
@@ -399,15 +451,21 @@ function hermesDbs(env) {
 
 /** Rows of a read-only query: node's built-in SQLite (Node 22.5+), else the
  *  sqlite3 CLI, else nothing. `sql` takes no user text but a checked id. */
-function querySqlite(file, sql) {
+function querySqlite(file, sql, deadline) {
+  let native;
   try {
-    const { DatabaseSync } = require('node:sqlite');
-    const db = new DatabaseSync(file, { readOnly: true });
-    try { return db.prepare(sql).all(); } finally { db.close(); }
-  } catch (e) {
-    if (e && e.code !== 'ERR_UNKNOWN_BUILTIN_MODULE' && e.code !== 'MODULE_NOT_FOUND' && !/node:sqlite/.test(String(e.message))) return null;
+    native = require('./sqlite-readonly');
+  } catch { /* older Node versions use the sqlite3 executable */ }
+  if (native && deadline === undefined) {
+    try { return native(file, sql); } catch { return null; }
   }
-  const r = spawnSync('sqlite3', ['-readonly', '-json', file, sql], { encoding: 'utf-8', timeout: 20000, maxBuffer: 64 * 1024 * 1024 });
+  // A worker-thread timeout cannot interrupt a synchronous SQLite call in C.
+  const r = childProcess.spawnSync(native ? process.execPath : 'sqlite3',
+    native ? [require.resolve('./sqlite-readonly'), file] : ['-readonly', '-json', file, sql], {
+      encoding: 'utf-8', input: native ? sql : undefined, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      timeout: remainingTime(deadline ?? Infinity, 20000), killSignal: 'SIGKILL', windowsHide: true, maxBuffer: 64 * 1024 * 1024,
+    });
+  if (deadline !== undefined) checkOpenCodeExit(r);
   if (r.status !== 0) return null;
   try { return JSON.parse(r.stdout || '[]'); } catch { return null; }
 }
@@ -491,6 +549,7 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
   const skip = workspaceSessionIds(type, env);
   for (const id of excludeIds) skip.add(id);
   // Read past what gets left out, so the picker still fills up.
+  if (type === 'opencode') return sessions.list({ env, limit: max, run, skip });
   return sessions.list({ env, limit: Math.min(max * 10, 5000), run, skip })
     .filter((s) => !skip.has(s.id) && !isProbe(s))
     .slice(0, max)

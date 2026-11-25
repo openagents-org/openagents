@@ -118,30 +118,49 @@ function claudeProjectDir(configDir, cwd) {
 
 const snapshotMarker = (file) => `${file}.openagents-snapshot`;
 
-// Older snapshots have no marker. Their JSONL is a prefix of the original and
-// still names the original working directory, even when the copy was made later.
-function preferClaudeOriginal(file, other, configDir) {
-  for (const candidate of [file, other]) {
-    try {
-      const head = Buffer.alloc(64 * 1024);
-      const fd = fs.openSync(candidate, 'r');
-      let bytes;
-      try { bytes = fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
-      const id = path.basename(file, '.jsonl');
-      let cwd;
-      for (const line of head.toString('utf8', 0, bytes).split('\n')) {
-        let row;
-        try { row = JSON.parse(line); } catch { continue; }
-        if (!row?.cwd) continue;
-        if (row.sessionId === id) { cwd = row.cwd; break; }
-        cwd ||= row.cwd;
-      }
-      if (!cwd) continue;
-      const project = claudeProjectDir(configDir, cwd);
-      for (const location of [file, other]) if (!path.relative(project, path.dirname(location))) return location;
-    } catch { /* the CLI may have moved a file during the scan */ }
+function completeTranscript(file) {
+  const data = fs.readFileSync(file);
+  return data.subarray(0, data.lastIndexOf(0x0a) + 1);
+}
+
+function completeTranscriptSize(fd, buffer) {
+  let end = fs.fstatSync(fd).size;
+  while (end > 0) {
+    const start = Math.max(0, end - buffer.length);
+    const bytes = fs.readSync(fd, buffer, 0, end - start, start);
+    const newline = buffer.subarray(0, bytes).lastIndexOf(0x0a);
+    if (newline >= 0) return start + newline + 1;
+    end = start;
   }
-  try { return fs.statSync(other).size > fs.statSync(file).size ? other : file; } catch { return file; }
+  return 0;
+}
+
+// A cross-project continuation and an old, unmarked snapshot can both start
+// with the original cwd. Only complete JSONL records establish which extends which.
+function preferClaudeOriginal(file, other, sessionId) {
+  let leftFd, rightFd;
+  try {
+    try { leftFd = fs.openSync(file, 'r'); } catch { return other; }
+    try { rightFd = fs.openSync(other, 'r'); } catch { return file; }
+    const left = Buffer.allocUnsafe(64 * 1024);
+    const right = Buffer.allocUnsafe(left.length);
+    const leftSize = completeTranscriptSize(leftFd, left);
+    const rightSize = completeTranscriptSize(rightFd, right);
+    const common = Math.min(leftSize, rightSize);
+    for (let offset = 0; offset < common; offset += left.length) {
+      const size = Math.min(left.length, common - offset);
+      const a = fs.readSync(leftFd, left, 0, size, offset);
+      const b = fs.readSync(rightFd, right, 0, size, offset);
+      if (a === size && b === size && left.subarray(0, size).equals(right.subarray(0, size))) continue;
+      // The picker can show this ID, but a direct read must not guess a branch.
+      if (sessionId) throw new Error(`Two Claude transcripts for ${sessionId} have different histories in different projects`);
+      return file;
+    }
+    return rightSize > leftSize ? other : file;
+  } finally {
+    if (leftFd !== undefined) fs.closeSync(leftFd);
+    if (rightFd !== undefined) fs.closeSync(rightFd);
+  }
 }
 
 function originalClaudeNames(dir, sessionId) {
@@ -170,7 +189,7 @@ function claudeTranscripts(configDir, sessionId, source) {
     for (const name of originalClaudeNames(project, sessionId)) {
       const file = path.join(project, name);
       const previous = originals.get(name);
-      originals.set(name, previous && path.relative(file, previous) ? preferClaudeOriginal(previous, file, configDir) : file);
+      originals.set(name, previous && path.relative(file, previous) ? preferClaudeOriginal(previous, file, sessionId) : file);
     }
   }
   return [...originals.values()];
@@ -187,18 +206,33 @@ function findClaudeTranscript(sessionId, configDir, source) {
  * complete lines: the source may be a chat that is still writing to it.
  */
 function snapshotTranscript(src, destDir) {
-  const text = fs.readFileSync(src, 'utf-8');
-  const end = text.lastIndexOf('\n');
   fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
   const dest = path.join(destDir, path.basename(src));
   if (fs.existsSync(dest) && !path.relative(fs.realpathSync(src), fs.realpathSync(dest))) return src;
-  // The CLI needs the original filename to fork. Mark only the staged path so
-  // it cannot be listed or read as the person's session, even if the source moves.
-  fs.writeFileSync(snapshotMarker(dest), '', { mode: 0o600 });
+  const data = completeTranscript(src);
+  const marker = snapshotMarker(dest);
   const temp = `${dest}.${randomUUID()}.tmp`;
   try {
-    fs.writeFileSync(temp, end >= 0 ? text.slice(0, end + 1) : '', { mode: 0o600, flag: 'wx' });
-    fs.renameSync(temp, dest);
+    fs.writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
+    if (fs.existsSync(marker) && fs.existsSync(dest)) {
+      const previous = fs.readFileSync(dest);
+      if (data.equals(previous)) return dest;
+      if (!data.subarray(0, previous.length).equals(previous)) throw new Error('The staged Claude transcript has different history');
+      fs.renameSync(temp, dest);
+    } else {
+      // Publish exclusively. A personal transcript may appear after the scan.
+      try {
+        try { fs.linkSync(temp, dest); } catch (e) {
+          if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS'].includes(e.code)) throw e;
+          fs.copyFileSync(temp, dest, fs.constants.COPYFILE_EXCL);
+        }
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        if (fs.readFileSync(dest).equals(data)) return dest;
+        throw new Error('A personal Claude transcript already exists in the agent working directory');
+      }
+      fs.writeFileSync(marker, '', { mode: 0o600 });
+    }
   } finally {
     fs.rmSync(temp, { force: true });
   }

@@ -69,7 +69,21 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [target, setTarget] = useState<string>(agentName || '');
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
-  const [importing, setImporting] = useState(false);
+  const [phase, setPhase] = useState<'idle' | 'importing' | 'refreshing'>('idle');
+  const importing = phase === 'importing';
+  const busy = phase !== 'idle';
+
+  // Discovery supplies the status of reused threads. Waiting for its optional
+  // previews must not trap the person here after the device commands finish.
+  useEffect(() => {
+    if (phase !== 'refreshing') return;
+    if (!open) { setPhase('idle'); return; }
+    let active = true;
+    const finish = () => { if (active) setPhase('idle'); };
+    const timer = setTimeout(finish, 5000);
+    void refreshAgents({ panels: false }).then(finish, finish);
+    return () => { active = false; clearTimeout(timer); };
+  }, [phase, open, refreshAgents]);
 
   // The device's sessions for the chosen tool.
   useEffect(() => {
@@ -118,7 +132,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 
   const runImport = async () => {
     const ids = [...picked];
-    setImporting(true);
+    setPhase('importing');
     setOutcomes(Object.fromEntries(ids.map((id) => [id, { state: 'running' } as Outcome])));
     await Promise.all(ids.map(async (id) => {
       let outcome: Outcome;
@@ -135,9 +149,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
       setOutcomes((prev) => ({ ...prev, [id]: outcome }));
     }));
     setPicked(new Set());
-    // Discovery refreshes the thread list, including the status of a reused thread.
-    await refreshAgents({ panels: false }).catch(() => {});
-    setImporting(false);
+    setPhase('refreshing');
   };
 
   const finished = Object.entries(outcomes).filter(([, o]) => o.state === 'done') as [string, Extract<Outcome, { state: 'done' }>][];
@@ -159,7 +171,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         </DialogHeader>
         <DialogBody className="space-y-3">
           <div className="flex gap-2">
-            <Select value={type} onValueChange={(v) => setType(v as ImportableType)} disabled={importing}>
+            <Select value={type} onValueChange={(v) => setType(v as ImportableType)} disabled={busy}>
               <SelectTrigger aria-label={t('importSessions.tool')} className="h-9 w-40"><SelectValue /></SelectTrigger>
               <SelectContent>{IMPORTABLE_TYPES.map((ty) => <SelectItem key={ty} value={ty}>{TOOL_LABELS[ty]}</SelectItem>)}</SelectContent>
             </Select>
@@ -177,7 +189,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
                 const o = outcomes[s.id];
                 return (
                   <label key={s.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/40">
-                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={importing || !!o} aria-label={s.title} className="mt-1" />
+                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={busy || !!o} aria-label={s.title} className="mt-1" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{s.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
@@ -194,7 +206,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 
           <div className="flex items-center gap-2">
             <span className="shrink-0 text-xs text-muted-foreground">{t('importSessions.agent')}</span>
-            <Select value={target} onValueChange={setTarget} disabled={importing}>
+            <Select value={target} onValueChange={setTarget} disabled={busy}>
               <SelectTrigger aria-label={t('importSessions.agent')} className="h-9 min-w-0 flex-1"><SelectValue placeholder={t('importSessions.noAgent')} /></SelectTrigger>
               <SelectContent>
                 {choices.map((c) => <SelectItem key={c.name} value={c.name}>{c.label}{c.resumes ? ` · ${t('importSessions.continues')}` : ''}</SelectItem>)}
@@ -210,7 +222,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
             <div className="rounded-md border bg-muted/30 p-2 text-sm" data-testid="import-sessions-done">
               <p className="mb-1 text-xs text-muted-foreground">{t('importSessions.imported', { count: finished.length })}</p>
               {finished.map(([id, o]) => (
-                <Button key={id} type="button" variant="link" size="xs" disabled={importing} className="h-auto w-full justify-start px-0" onClick={() => openThread(o.channel)}>
+                <Button key={id} type="button" variant="link" size="xs" disabled={busy} className="h-auto w-full justify-start px-0" onClick={() => openThread(o.channel)}>
                   <span className="truncate">{(sessions || []).find((s) => s.id === id)?.title || id}</span>
                   {o.existing && <span className="shrink-0 text-muted-foreground">{t('importSessions.alreadyImported')}</span>}
                 </Button>
@@ -220,7 +232,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={importing}>{t('common.close')}</Button>
-          <Button onClick={() => void runImport()} disabled={importing || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
+          <Button onClick={() => void runImport()} disabled={busy || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
             {importing ? <Spinner aria-hidden="true" className="size-4" /> : null}
             {t('importSessions.import', { count: picked.size })}
           </Button>

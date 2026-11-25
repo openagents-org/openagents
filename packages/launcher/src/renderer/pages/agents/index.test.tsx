@@ -232,18 +232,24 @@ describe("Agents page — new agent connect flow", () => {
   it.each(["setup", "list"])("ignores a late %s join after the list dialog reopens", async (source) => {
     const paired = {
       connected: true, workspaceSlug: "team-a", workspaceName: "Team A",
-      workspaces: [{ nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" }], revoked: [],
+      workspaces: [
+        { nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" },
+        { nodeId: "n2", workspaceId: "id-2", workspaceSlug: "team-b" },
+      ], revoked: [],
     }
     let saved = source === "list"
+    let network: string | null = null
     let finish!: () => void
     const pending = new Promise<void>(resolve => { finish = resolve })
     const api = installApi({
-      listAgents: vi.fn(async () => saved ? [makeAgent({ name: "late-agent" })] : []),
+      listAgents: vi.fn(async () => saved ? [makeAgent({ name: "late-agent", network })] : []),
       addAgent: vi.fn(async () => { saved = true }),
-      listWorkspaces: vi.fn().mockResolvedValue([{ id: "id-1", slug: "team-a", name: "Team A" }]),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A" }, { id: "id-2", slug: "team-b", name: "Team B" },
+      ]),
       getNodeStatus: vi.fn().mockResolvedValue(paired),
       refreshNodeStatus: vi.fn().mockResolvedValue(paired),
-      connectWorkspace: vi.fn(() => pending),
+      connectWorkspace: vi.fn(async () => { await pending; network = "team-a" }),
     })
     const user = userEvent.setup()
     render(<Agents showToast={showToast} />)
@@ -254,11 +260,16 @@ describe("Agents page — new agent connect flow", () => {
     await user.keyboard("{Escape}")
     await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
     await user.click(await screen.findByRole("button", { name: /^join workspace$/i }))
-    await screen.findByRole("radio", { name: /team a/i })
+    await user.click(await screen.findByRole("radio", { name: /team b/i }))
+    expect(screen.getByTestId("ws-connect-submit")).toBeDisabled()
     await act(async () => finish())
     expect(api.signalReload).toHaveBeenCalled()
     expect(api.connectWorkspace).toHaveBeenCalledTimes(1)
-    expect(screen.getByRole("radio", { name: /team a/i })).toBeInTheDocument()
+    expect(screen.getByRole("radio", { name: /team b/i })).toBeChecked()
+    expect(screen.getByTestId("ws-connect-submit")).toBeEnabled()
+    await user.dblClick(screen.getByRole("radio", { name: /team a/i }))
+    expect(screen.getByTestId("ws-connect-submit")).toBeDisabled()
+    expect(api.connectWorkspace).toHaveBeenCalledTimes(1)
     expect(screen.queryByTestId("connect-ws-import-offer")).toBeNull()
   }, 15000)
 

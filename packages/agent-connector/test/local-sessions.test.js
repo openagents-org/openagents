@@ -173,8 +173,9 @@ describe('local sessions', () => {
       part.run(key, key, seq, JSON.stringify(data));
     };
     add('synthetic', 'user', { type: 'text', text: 'prefill', synthetic: true });
-    add('mine', 'user', { type: 'text', text: '\t' });
-    add('mine', 'user', { type: 'text', text: 'Which file?' });
+    add('mine', 'user', { type: 'text', text: '\t\u00a0\u3000' });
+    add('mine', 'user', { type: 'text', text: '\u00a0'.repeat(2050) + 'Which file?' });
+    add('mine', 'assistant', { type: 'text', text: '\u2028\ufeff' });
     add('mine', 'assistant', { type: 'reasoning', text: 'intermediate' });
     add('mine', 'assistant', { type: 'tool', tool: 'read' });
     add('mine', 'assistant', { type: 'text', text: 'README.md' });
@@ -213,6 +214,59 @@ db.close();`);
         fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "%~dp0test-opencode.cjs" %*\r\n`);
         assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
       }
+    } finally { db.close(); }
+  });
+
+  it('pages past 2000 newer excluded roots, including roots with identical timestamps', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT, time_updated INTEGER);
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+        CREATE INDEX messages_by_session ON message(session_id);
+        CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);
+        CREATE INDEX parts_by_message ON part(message_id);
+        WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n < 2000)
+        INSERT INTO session SELECT printf('agent_%04d', n), '/repo', NULL, 100 FROM seq;
+        INSERT INTO session VALUES ('personal', '/repo', NULL, 100), ('older', '/repo', NULL, 99);
+        INSERT INTO message SELECT id, id, 1, '{"role":"user"}' FROM session;
+        INSERT INTO part SELECT id, id, 1, '{"type":"text","text":"A question"}' FROM session;`);
+      const excludeIds = db.prepare("SELECT id FROM session WHERE id LIKE 'agent_%'").all().map(row => row.id);
+      const run = args => JSON.stringify(db.prepare(args[3]).all());
+      assert.deepEqual(listLocalSessions('opencode', { env, run, excludeIds }).map(s => s.id), ['personal', 'older']);
+    } finally { db.close(); }
+  });
+
+  it('reports a CLI timeout without retrying the SQL and limits the read-only fallback to the remaining time', (t) => {
+    const bin = path.join(home, 'opencode.exe');
+    t.mock.method(require('../src/adapters/opencode'), 'findOpencodeBinary', () => bin);
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => now);
+    const timedOut = { status: null, error: { code: 'ETIMEDOUT' }, signal: 'SIGTERM' };
+    const spawn = t.mock.method(require('child_process'), 'spawnSync', () => timedOut);
+    assert.throws(() => listLocalSessions('opencode', { env }), /OpenCode sessions timed out/);
+    assert.equal(spawn.mock.callCount(), 1);
+    const db = path.join(home, 'fallback.db');
+    spawn.mock.mockImplementation((command, args, opts) => {
+      if (command !== bin) { assert.equal(opts.timeout, 9000); return timedOut; }
+      if (args[1] === 'path') { now += 7000; return { status: 0, stdout: db }; }
+      now += 19000;
+      return { status: 1, stdout: '' };
+    });
+    assert.throws(() => listLocalSessions('opencode', { env }), /OpenCode sessions timed out/);
+    assert.equal(spawn.mock.callCount(), 4);
+  });
+
+  it('reports a migrated OpenCode database without changing its tables', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const file = path.join(home, 'migrated.db');
+    const db = new DatabaseSync(file);
+    try {
+      db.exec('CREATE TABLE session_v2 (id TEXT)');
+      assert.throws(() => listLocalSessions('opencode', { env: { ...env, OPENCODE_DB: file }, run: () => '' }), /newer format.*1\.x/);
+      assert.deepEqual(db.prepare('SELECT name FROM sqlite_master').all().map(row => row.name), ['session_v2']);
     } finally { db.close(); }
   });
 

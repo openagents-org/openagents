@@ -2061,3 +2061,4 @@ OpenCodeAdapter._NO_SERVER = NO_SERVER;
 
 module.exports = OpenCodeAdapter;
 module.exports.findOpencodeBinary = findOpencodeBinary;
+module.exports.SHARED_DB_MIGRATED_RE = SHARED_DB_MIGRATED_RE;
