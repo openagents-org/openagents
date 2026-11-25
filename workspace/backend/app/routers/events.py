@@ -1268,9 +1268,16 @@ def list_conversations(
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     # Totals come from one incrementally maintained, workspace-wide summary;
     # visibility depends only on each pair's participants, so filter per viewer.
-    from app.services.dm_summary import visible_pairs, workspace_pairs
+    from app.services.dm_summary import SummaryWarmingError, visible_pairs, workspace_pairs
     from app.services.poll_queries import dm_rewrite_generation
-    all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    try:
+        all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    except SummaryWarmingError as exc:
+        # Release authentication's transaction immediately; never queue a DB
+        # connection behind a slow history rebuild.
+        db.rollback()
+        from fastapi import HTTPException
+        raise HTTPException(503, str(exc), headers={"Retry-After": "5"}) from exc
     viewer_addresses = _dm_addresses(viewer) if _dm_viewer_scope(viewer) else None
     pairs = [SimpleNamespace(**row) for row in visible_pairs(all_pairs, viewer_addresses, agent, limit)]
 
