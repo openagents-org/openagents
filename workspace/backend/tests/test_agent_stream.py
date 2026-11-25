@@ -223,6 +223,21 @@ class TestToggle:
     def test_toggle_must_be_boolean(self, client, workspace):
         assert self._set(client, workspace, "yes").status_code == 400
 
+    def test_server_allowlist_reports_the_stream_as_on(self, client, workspace):
+        # Clients open the live stream only when settings.realtime_stream is
+        # true, so a server-side rollout ("*" or an id) must show up there.
+        get = lambda: client.get(f"/v1/workspaces/{workspace['id']}",
+                                 headers={"X-Workspace-Token": workspace["token"]}).json()["data"]["settings"]
+        agent_stream.configure_allowlist("")
+        try:
+            assert get().get("realtime_stream") is not True
+            agent_stream.configure_allowlist("*")
+            assert get()["realtime_stream"] is True
+            agent_stream.configure_allowlist(workspace["id"])
+            assert get()["realtime_stream"] is True
+        finally:
+            agent_stream.configure_allowlist("")
+
 
 def test_hub_routes_events_and_panel_topics_to_live_streams():
     async def run():
