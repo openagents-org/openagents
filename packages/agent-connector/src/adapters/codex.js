@@ -71,6 +71,15 @@ const CODEX_SIDE_NOTE = /^warning:/i;
 // the field they came first in stderr and were quoted as the reason a run
 // failed. Quoted only when nothing else was logged.
 const CODEX_SIDE_ERROR = /\brmcp::|failed to load skill\b/;
+// A Node exception from Codex's npm launcher (bin/codex.js), thrown before the
+// native binary ever ran: its headline ("Error: Missing optional dependency
+// @openai/codex-win32-x64. Reinstall Codex: …") and then a stack. The last
+// five lines of that were all stack frames, so the channel read "> at
+// file:///…/codex.js:113:20 at ModuleJob.run" on every message of one user's
+// agents (daily errors dashboard, 2026-11-25). With a stack present, the
+// headline is the reason.
+const NODE_STACK_FRAME = /^at\s+(?:async\s+)?(?:\S+\s+\()?(?:file:|node:|[A-Za-z]:\\|\/)\S*:\d+:\d+\)?$/;
+const NODE_ERROR_HEADLINE = /^(?:[A-Z][\w$]*)?Error(?: \[[A-Z0-9_]+\])?: \S/;
 // Codex's wording when the model service could not be reached or the stream
 // dropped. Seen in the field from devices that cannot reach OpenAI, and
 // reproduced against codex-cli 0.160 behind a dead proxy: the run then fails
@@ -1074,7 +1083,9 @@ class CodexAdapter extends BaseAdapter {
         (CODEX_SIDE_NOTE.test(line) ? notes : said).push(line);
       }
     }
-    const picked = said.length ? said : errors.length ? errors : notes;
+    const headlines = said.some((l) => NODE_STACK_FRAME.test(l))
+      ? said.filter((l) => NODE_ERROR_HEADLINE.test(l)) : [];
+    const picked = headlines.length ? headlines : said.length ? said : errors.length ? errors : notes;
     const text = picked.slice(-5).join('\n');
     return text.length > FAILURE_DETAIL_CAP ? `…${text.slice(-(FAILURE_DETAIL_CAP - 1))}` : text;
   }

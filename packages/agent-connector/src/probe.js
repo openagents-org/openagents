@@ -859,7 +859,12 @@ async function probeAgentType(connector, type, opts = {}) {
       }
     } else if (refused) {
       let listed = [];
-      try { listed = (await codexAccountModels(health.binary, env)).map((m) => m.id); } catch {}
+      // Codex can list the very model the plan just refused ("glm-5.3 isn't
+      // included in this ChatGPT plan. Models this account lists: …, glm-5.3,
+      // …", daily errors dashboard, 2026-11-25); offering it back says nothing.
+      try {
+        listed = (await codexAccountModels(health.binary, env)).map((m) => m.id).filter((id) => id !== refused);
+      } catch {}
       return done({
         ok: false, method: 'cli', code: CODE.BAD_MODEL,
         message: `${refused} isn't included in this ChatGPT plan.`

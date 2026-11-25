@@ -381,6 +381,24 @@ const CONFIG_JSON_STDERR = '\x1b[91m\x1b[1mError: \x1b[0mConfig file at /workspa
   + '--- JSONC Input ---\n{"provider": {,}\n\n--- Errors ---\nValueExpected at line 1, column 15\n'
   + '   Line 1: {"provider": {,}\n                        ^\nCloseBraceExpected at line 2, column 1\n--- End ---\n';
 
+describe('OpenCode — failures the daily errors dashboard showed as undetermined (2026-11-25)', () => {
+  it('reads a trial credit that cannot cover the request as spent', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: '',
+      stdoutErr: { name: 'UnknownError', message: "Your CodeRouter free trial's $5.00 usage credit can't cover this request: it needs about $0.76 and $0.45 is left" },
+    });
+    assert.equal(cls.category, 'quota_exhausted');
+  });
+
+  it('reads a relay cutting the stream off as a provider failure, not an unreachable one', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: '',
+      stdoutErr: { name: 'UnknownError', message: '"Upstream response stream was interrupted"' },
+    });
+    assert.equal(cls.category, 'provider_server_error');
+  });
+});
+
 describe('OpenCode — a tool call the model sent without a name', () => {
   // Daily errors dashboard, 2026-11-18: six runs in a row on GLM / DeepSeek
   // models, each reported as "an undetermined reason".

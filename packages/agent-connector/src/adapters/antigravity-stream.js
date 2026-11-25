@@ -195,6 +195,13 @@ const AUTH_RE =
 // the user to sign in again is the wrong answer.
 const ELIGIBILITY_RE =
   /eligibility check failed|not (currently )?available in your (location|country|region)/i;
+// agy on a Google account that has used its allowance: "Individual quota
+// reached. Please upgrade your subscription to increase your limits. Resets in
+// 167h31m29s." It fell through to the unclassified message, which sent the
+// user to check a sign-in that works (daily errors dashboard, 2026-11-25).
+// Only agy's allowance wording: the Gemini API's 429 ("RESOURCE_EXHAUSTED: You
+// exceeded your current quota, please retry in 30s") is a per-minute throttle.
+const QUOTA_RE = /individual quota reached|\bquota reached\b/i;
 const PROVIDER_RE = /modelProvider|model provider/i;
 const MODEL_RE = /unknown model|invalid model/i;
 const TIMEOUT_RE = /print-timeout|timed? ?out/i;
@@ -222,6 +229,24 @@ function classifyAgyFailure({ code, stderr, error, secrets = [] } = {}) {
         'location. Signing in again will not change that. The other path this ' +
         'agent supports is GEMINI_API_KEY, which runs it against the Gemini API ' +
         'instead.',
+    };
+  }
+  if (QUOTA_RE.test(text)) {
+    // Its own words carry when the quota resets, which is the useful part,
+    // and that can be in stderr when the result event's error is the headline.
+    const tailText = stderrTail(stderr);
+    const said = redactSecrets(
+      !errText || tailText.includes(errText) ? tailText
+        : !tailText || errText.includes(tailText) ? errText
+          : `${errText}\n${tailText}`,
+      secrets);
+    return {
+      kind: 'quota',
+      message:
+        'Antigravity CLI refused the run because this Google account has used ' +
+        'up its quota. Wait for it to reset, or set GEMINI_API_KEY for this ' +
+        'agent to run it against the Gemini API instead.' +
+        (said ? `\n\n${said}` : ''),
     };
   }
   if (AUTH_RE.test(text)) {

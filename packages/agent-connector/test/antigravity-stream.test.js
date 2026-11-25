@@ -171,6 +171,33 @@ describe('classifyAgyFailure', () => {
     assert.match(message, /GEMINI_API_KEY/);
   });
 
+  it('reads a used-up quota as quota, with when it resets', () => {
+    // agy, verbatim (daily errors dashboard, 2026-11-25).
+    const { kind, message } = classifyAgyFailure({
+      code: 3,
+      stderr: 'Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 167h31m29s.',
+    });
+    assert.equal(kind, 'quota');
+    assert.match(message, /used up its quota/);
+    assert.match(message, /Resets in 167h31m29s/);
+    assert.doesNotMatch(message, /check the sign-in/);
+  });
+
+  it('quotes the reset time from stderr when the result error is only the headline', () => {
+    const { kind, message } = classifyAgyFailure({
+      code: 3, error: 'Individual quota reached.', stderr: 'Resets in 12h3m.',
+    });
+    assert.equal(kind, 'quota');
+    assert.match(message, /Individual quota reached\.\nResets in 12h3m\./);
+  });
+
+  it('leaves the Gemini API per-minute throttle out of the quota message', () => {
+    const { kind } = classifyAgyFailure({
+      code: 1, stderr: 'RESOURCE_EXHAUSTED: You exceeded your current quota, please retry in 30s',
+    });
+    assert.notEqual(kind, 'quota');
+  });
+
   it('classifies unknown-model failures', () => {
     const { kind } = classifyAgyFailure({ code: 1, stderr: 'ERROR: unknown model "g9-ultra"' });
     assert.equal(kind, 'model');
