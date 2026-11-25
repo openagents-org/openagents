@@ -66,4 +66,4 @@ function isPostinstallStub(file) {
   return [file, ...cmdShimTargets(file)].some(isStubFile);
 }
 
-module.exports = { isPostinstallStub, isPostinstallStubOutput };
+module.exports = { cmdShimTargets, isPostinstallStub, isPostinstallStubOutput };

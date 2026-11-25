@@ -289,17 +289,17 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       </div>
 
 
-      <ConnectWorkspaceDialog
-        open={!!workspaceJoin}
-        agentName={workspaceJoin?.agentName ?? ""}
-        onClose={() => setWorkspaceJoin(null)}
+      {workspaceJoin && <ConnectWorkspaceDialog
+        key={workspaceJoin.agentName}
+        agentName={workspaceJoin.agentName}
+        onClose={() => setWorkspaceJoin(current => current === workspaceJoin ? null : current)}
         showToast={showToast}
         onConnected={refresh}
-        importTool={workspaceJoin?.createdFromSetup
+        importTool={workspaceJoin.createdFromSetup
           ? importToolLabel(agents.find((a) => a.name === workspaceJoin.agentName)?.type ?? workspaceJoin.createdFromSetup.type)
           : null}
-        onImport={workspaceJoin ? () => void openCreatedForImport(workspaceJoin.agentName) : undefined}
-      />
+        onImport={() => void openCreatedForImport(workspaceJoin.agentName)}
+      />}
 
       <RemoveAgentDialog
         name={removeTarget}

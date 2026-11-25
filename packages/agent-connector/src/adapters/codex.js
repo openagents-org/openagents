@@ -13,6 +13,7 @@
 'use strict';
 
 const fs = require('fs');
+const { rememberWorkspaceSessions } = require('../session-origins');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -193,6 +194,7 @@ class CodexAdapter extends BaseAdapter {
         const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
         if (data && typeof data === 'object') {
           Object.assign(this._channelThreads, data);
+          rememberWorkspaceSessions('codex', Object.values(data));
           this._log(`Loaded ${Object.keys(data).length} thread(s)`);
         }
       }
@@ -203,6 +205,7 @@ class CodexAdapter extends BaseAdapter {
 
   _saveSessions() {
     try {
+      rememberWorkspaceSessions('codex', Object.values(this._channelThreads));
       const dir = path.dirname(this._sessionsFile);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelThreads));
@@ -237,9 +240,9 @@ class CodexAdapter extends BaseAdapter {
       const dir = path.join(home, 'sessions', String(now.getFullYear()), pad(now.getMonth() + 1), pad(now.getDate()));
       const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}-${pad(now.getMinutes())}-${pad(now.getSeconds())}`;
       fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+      rememberWorkspaceSessions('codex', [newId]);
       fs.writeFileSync(path.join(dir, `rollout-${stamp}-${newId}.jsonl`), complete.split(entry.session_id).join(newId), { mode: 0o600 });
       this._channelThreads[msgChannel] = newId;
-      try { require('../session-imports').recordCopy(newId); } catch { /* only hides it from the import picker */ }
       this._saveSessions();
       this._log(`Channel ${msgChannel} continues imported Codex session ${entry.session_id} as ${newId}`);
     } catch (e) {

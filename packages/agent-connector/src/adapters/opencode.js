@@ -11,6 +11,7 @@
 'use strict';
 
 const fs = require('fs');
+const { rememberWorkspaceSessions } = require('../session-origins');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
@@ -533,6 +534,7 @@ class OpenCodeAdapter extends BaseAdapter {
         const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
         if (data && typeof data === 'object') {
           Object.assign(this._channelSessions, data);
+          rememberWorkspaceSessions('opencode', Object.values(data));
           this._log(`Loaded ${Object.keys(data).length} session(s)`);
         }
       }
@@ -543,6 +545,7 @@ class OpenCodeAdapter extends BaseAdapter {
 
   _saveSessions() {
     try {
+      rememberWorkspaceSessions('opencode', Object.values(this._channelSessions));
       fs.mkdirSync(path.dirname(this._sessionsFile), { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
     } catch {}

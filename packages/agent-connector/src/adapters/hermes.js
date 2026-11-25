@@ -24,6 +24,7 @@
 
 const crypto = require('crypto');
 const fs = require('fs');
+const { rememberWorkspaceSessions } = require('../session-origins');
 const os = require('os');
 const path = require('path');
 const { execSync, execFile } = require('child_process');
@@ -302,6 +303,7 @@ class HermesAdapter extends BaseAdapter {
         const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
         if (data && typeof data === 'object') {
           Object.assign(this._channelSessions, data);
+          rememberWorkspaceSessions('hermes', Object.values(data));
           this._log(`Loaded ${Object.keys(data).length} Hermes session(s)`);
         }
       }
@@ -312,6 +314,7 @@ class HermesAdapter extends BaseAdapter {
 
   _saveSessions() {
     try {
+      rememberWorkspaceSessions('hermes', Object.values(this._channelSessions));
       fs.mkdirSync(path.dirname(this._sessionsFile), { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
     } catch {}

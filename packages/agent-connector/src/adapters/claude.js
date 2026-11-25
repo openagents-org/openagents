@@ -12,6 +12,7 @@
 'use strict';
 
 const fs = require('fs');
+const { rememberWorkspaceSessions } = require('../session-origins');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -26,7 +27,7 @@ const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, worksp
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { isPostinstallStub } = require('../postinstall-stub');
-const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
+const { claudeConfigDir, claudeProjectDir, findClaudeTranscript, snapshotTranscript } = require('../host-agent');
 const { pendingImport } = require('../session-imports');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -146,6 +147,7 @@ class ClaudeAdapter extends BaseAdapter {
         const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
         if (data && typeof data === 'object') {
           Object.assign(this._channelSessions, data);
+          rememberWorkspaceSessions('claude', Object.values(data));
           this._log(`Loaded ${Object.keys(data).length} session(s)`);
         }
       }
@@ -156,6 +158,7 @@ class ClaudeAdapter extends BaseAdapter {
 
   _saveSessions() {
     try {
+      rememberWorkspaceSessions('claude', Object.values(this._channelSessions));
       const dir = path.dirname(this._sessionsFile);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
@@ -565,6 +568,15 @@ class ClaudeAdapter extends BaseAdapter {
     return { ...this._buildMcpCmd(cmd, channelName), seeded };
   }
 
+  _forkArgs(id, transcript) {
+    const configDir = claudeConfigDir(this.agentEnv || process.env);
+    const source = findClaudeTranscript(id, configDir, transcript);
+    if (!source) throw new Error('transcript is gone');
+    const destDir = claudeProjectDir(configDir, this.workingDir || defaultAgentWorkdir(this.agentName));
+    if (path.relative(path.dirname(source), destDir)) snapshotTranscript(source, destDir);
+    return ['--resume', id, '--fork-session'];
+  }
+
   /**
    * `--resume <id> --fork-session` for a channel that is an imported local
    * Claude Code session (src/session-imports.js), on its first turn, or null.
@@ -582,11 +594,7 @@ class ClaudeAdapter extends BaseAdapter {
     if (!entry || !entry.file) return null;
     this._adoptedImports.add(channelName);
     try {
-      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
-      if (path.resolve(path.dirname(entry.file)) !== path.resolve(destDir)) snapshotTranscript(entry.file, destDir);
-      else if (!fs.existsSync(entry.file)) throw new Error('transcript is gone');
-      return ['--resume', entry.session_id, '--fork-session'];
+      return this._forkArgs(entry.session_id, entry.file);
     } catch (e) {
       this._log(`Imported session ${entry.session_id} unavailable for ${channelName} (${e.message}); starting fresh`);
       return null;
@@ -605,14 +613,7 @@ class ClaudeAdapter extends BaseAdapter {
     const seed = this._seedSession;
     if (!seed) return null;
     try {
-      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
-      if (path.resolve(path.dirname(seed.transcript)) !== path.resolve(destDir)) {
-        snapshotTranscript(seed.transcript, destDir);
-      } else if (!fs.existsSync(seed.transcript)) {
-        throw new Error('transcript is gone');
-      }
-      return ['--resume', seed.session_id, '--fork-session'];
+      return this._forkArgs(seed.session_id, seed.transcript);
     } catch (e) {
       this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
       this._seedSession = null;
@@ -1008,6 +1009,10 @@ class ClaudeAdapter extends BaseAdapter {
       let event;
       try { event = JSON.parse(line); } catch { return; }
       const eventType = event.type;
+      // An interrupted turn can leave a transcript without a result event.
+      if (eventType === 'system' && event.subtype === 'init' && event.session_id) {
+        rememberWorkspaceSessions('claude', [event.session_id]);
+      }
 
       // The user stopped this process. What it wrote before dying is still
       // queued here, and posting any of it — a thinking block, a tool status,

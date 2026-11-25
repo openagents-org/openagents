@@ -26,6 +26,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const { redactSecrets } = require('./adapters/utils');
+const { claudeTranscripts, findClaudeTranscript } = require('./host-agent');
+const { openAgentsHomes, workspaceSessionIds } = require('./session-origins');
 
 const TYPES = ['claude', 'codex', 'opencode', 'hermes'];
 const MAX_TEXT = 8000;          // per message, after masking
@@ -53,10 +55,6 @@ function oneLine(text, n = TITLE_LEN) {
 
 // ── locations ──────────────────────────────────────────────────────────────
 
-function openAgentsHome(env) {
-  return env.OPENAGENTS_HOME || path.join(os.homedir(), '.openagents');
-}
-
 function claudeHome(env = process.env) {
   return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 }
@@ -77,18 +75,7 @@ function walk(dir, match, out = [], depth = 0) {
 }
 
 function sessionFiles(type, env) {
-  if (type === 'claude') {
-    const root = path.join(claudeHome(env), 'projects');
-    let dirs = [];
-    try { dirs = fs.readdirSync(root, { withFileTypes: true }).filter((d) => d.isDirectory()); } catch { return []; }
-    const files = [];
-    for (const d of dirs) {
-      let names = [];
-      try { names = fs.readdirSync(path.join(root, d.name)); } catch { continue; }
-      for (const n of names) if (/^[0-9a-f-]{36}\.jsonl$/i.test(n)) files.push(path.join(root, d.name, n));
-    }
-    return files;
-  }
+  if (type === 'claude') return claudeTranscripts(claudeHome(env));
   if (type === 'codex') return walk(path.join(codexHome(env), 'sessions'), (n) => /^rollout-.*\.jsonl$/.test(n));
   return [];
 }
@@ -218,6 +205,7 @@ const OPENAGENTS_RUN = /connected to an OpenAgents workspace|^You previously wor
 // run for a while they outnumber the person's own many times over.
 const PROBE_PROMPT = 'hi';
 function isProbe(s) {
+  if (s.type !== 'claude' && s.type !== 'codex') return false;
   if (s.title.trim().toLowerCase() !== PROBE_PROMPT) return false;
   // Exactly: "hi" was all the person (the check) typed. Without that detail,
   // a short session that opened with "hi".
@@ -226,28 +214,10 @@ function isProbe(s) {
 
 function ranByOpenAgents(firstPrompt, cwd, env) {
   if (OPENAGENTS_RUN.test(firstPrompt || '')) return true;
-  return !!cwd && path.resolve(cwd).startsWith(path.resolve(openAgentsHome(env)) + path.sep);
-}
-
-function workspaceSessionIds(env) {
-  const dir = path.join(openAgentsHome(env), 'sessions');
-  const ids = new Set();
-  let entries;
-  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return ids; }
-  // Some adapters pass the workspace briefing as a system prompt, so it
-  // does not appear in the CLI's user messages. Their channel maps record
-  // the exact CLI IDs, even when the agent works in a shared project.
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
-    try {
-      const channels = JSON.parse(fs.readFileSync(path.join(dir, entry.name), 'utf8'));
-      if (!channels || typeof channels !== 'object' || Array.isArray(channels)) continue;
-      for (const id of Object.values(channels)) {
-        if (typeof id === 'string') ids.add(id);
-      }
-    } catch { /* a stale or partially written map */ }
-  }
-  return ids;
+  return !!cwd && openAgentsHomes(env).some((home) => {
+    const relative = path.relative(home, cwd);
+    return relative !== '..' && !relative.startsWith('..' + path.sep) && !path.isAbsolute(relative);
+  });
 }
 
 // How many of a file's lines a listing parses: enough for the first prompt.
@@ -279,8 +249,9 @@ function summarize(type, file) {
   return { ...s, count };
 }
 
-function listFileSessions(type, { env, limit }) {
+function listFileSessions(type, { env, limit, skip }) {
   const files = sessionFiles(type, env)
+    .filter((file) => !skip.has(idFromFile(type, file)))
     .map((file) => { try { return { file, mtime: fs.statSync(file).mtimeMs }; } catch { return null; } })
     .filter(Boolean)
     .sort((a, b) => b.mtime - a.mtime);
@@ -296,7 +267,7 @@ function listFileSessions(type, { env, limit }) {
       // with an older session's records).
       id: type === 'claude' ? idFromFile(type, file) : (s.id || idFromFile(type, file)),
       type,
-      title: maskSecrets(oneLine(first.text)),
+      title: oneLine(maskSecrets(first.text)),
       cwd: s.cwd,
       updatedAt: new Date(mtime).toISOString(),
       messageCount: s.count,
@@ -310,6 +281,7 @@ function listFileSessions(type, { env, limit }) {
 
 function findSessionFile(type, id, env) {
   if (!/^[0-9a-zA-Z-]{8,64}$/.test(String(id || ''))) return null;
+  if (type === 'claude') return findClaudeTranscript(id, claudeHome(env));
   return sessionFiles(type, env).find((f) => idFromFile(type, f) === id) || null;
 }
 
@@ -324,18 +296,29 @@ function readFileSession(type, id, { env }) {
 
 function runOpencode(args, env) {
   const { findOpencodeBinary } = require('./adapters/opencode');
-  const bin = findOpencodeBinary();
+  let bin = findOpencodeBinary();
   if (!bin) return null; // not installed: nothing to import
+  if (process.platform === 'win32' && /\.cmd$/i.test(bin)) {
+    const { cmdShimTargets } = require('./postinstall-stub');
+    bin = cmdShimTargets(bin).find((file) => path.basename(file).toLowerCase() === 'opencode.exe' && fs.existsSync(file)) || bin;
+  }
   const cmdShim = process.platform === 'win32' && /\.cmd$/i.test(bin);
+  // A custom batch wrapper may expand a percent expression or reparse a
+  // literal quote. Use the read-only database fallback for such arguments.
+  if (cmdShim && args.some((arg) => /["%\r\n!]/.test(arg))) return '';
   const command = cmdShim ? (process.env.ComSpec || 'cmd.exe') : bin;
-  // cmd.exe strips the outer quotes. The inner quotes preserve the shim
-  // path and arguments such as the read-only SQL as individual tokens.
-  const commandArgs = cmdShim ? ['/d', '/s', '/c', `"${[bin, ...args].map((arg) => `"${arg}"`).join(' ')}"`] : args;
+  const childEnv = { ...process.env, ...env };
+  let commandArgs = args;
+  if (cmdShim) {
+    childEnv.OA_SESSION_IMPORT_CLI = bin;
+    const quotedArgs = args.map((arg) => `"${arg}"`).join(' ');
+    commandArgs = ['/d', '/v:off', '/s', '/c', `""%OA_SESSION_IMPORT_CLI%" ${quotedArgs}"`];
+  }
   const r = spawnSync(command, commandArgs, {
-    env: { ...process.env, ...env }, encoding: 'utf-8', timeout: 30000,
+    env: childEnv, encoding: 'utf-8', timeout: args[0] === 'export' ? 30000 : args[1] === 'path' ? 8000 : 20000,
     maxBuffer: 64 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: cmdShim,
   });
-  if (r.status !== 0 || !r.stdout) return null;
+  if (r.status !== 0 || !r.stdout) return '';
   return r.stdout;
 }
 
@@ -349,31 +332,35 @@ function jsonFrom(text) {
 const msIso = (v) => (Number(v) > 0 ? new Date(Number(v) > 1e12 ? Number(v) : Number(v) * 1000).toISOString() : null);
 
 function listOpencode({ env, limit, run }) {
-  // An indexed query lists sessions and counts across projects. The CLI's
-  // session list can be scoped to its working directory's project.
-  // Use the first user text to recognize workspace runs with generated titles.
-  const sql = `SELECT s.id, s.title, s.directory, s.time_updated AS updated,
-      (SELECT COUNT(*) FROM message WHERE session_id = s.id) AS message_count,
+  // Only the newest root sessions need their parts inspected. Count the
+  // user/assistant texts the importer reads; tool steps are attached as notes.
+  const textParts = `FROM message m JOIN part p ON p.message_id = m.id
+    WHERE m.session_id = s.id AND json_extract(p.data, '$.type') = 'text'
+      AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0 AND json_type(p.data, '$.text') = 'text'
+      AND trim(json_extract(p.data, '$.text'), char(9,10,11,12,13,32)) <> ''`;
+  const sql = `SELECT s.id, s.directory, s.time_updated AS updated,
+      (SELECT COUNT(*) ${textParts} AND json_extract(m.data, '$.role') IN ('user', 'assistant')) AS message_count,
       (SELECT substr(json_extract(p.data, '$.text'), 1, 2048)
-        FROM message m JOIN part p ON p.message_id = m.id
-        WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
-          AND json_extract(p.data, '$.type') = 'text'
-          AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0
+        ${textParts} AND json_extract(m.data, '$.role') = 'user'
         ORDER BY m.time_created, m.id, p.time_created, p.id LIMIT 1) AS first_prompt
-    FROM session s WHERE s.parent_id IS NULL
-    ORDER BY s.time_updated DESC LIMIT ${Math.trunc(limit)}`.replace(/\s+/g, ' ');
-  const rows = jsonFrom(run(['db', '--format', 'json', sql], env));
-  const sessions = Array.isArray(rows) ? rows : jsonFrom(run(['session', 'list', '--format', 'json'], env));
-  if (!Array.isArray(sessions)) return [];
-  return sessions
-    .filter((x) => x && x.id)
-    .map((x) => ({ x, updated: Number((x.time && x.time.updated) || x.updated || 0) }))
-    .sort((a, b) => b.updated - a.updated)
-    .filter(({ x }) => !ranByOpenAgents(x.first_prompt || x.title, x.directory, env))
-    .slice(0, limit)
-    .map(({ x, updated }) => ({
-      id: x.id, type: 'opencode', title: maskSecrets(oneLine(x.title || x.id)), cwd: x.directory || null,
-      updatedAt: msIso(updated), messageCount: x.message_count ?? null,
+    FROM (SELECT id, directory, time_updated FROM session WHERE parent_id IS NULL
+      ORDER BY time_updated DESC, id LIMIT ${limit}) s
+    ORDER BY s.time_updated DESC, s.id`.replace(/\s+/g, ' ');
+  const output = run(['db', '--format', 'json', sql], env);
+  if (output === null) return []; // no CLI installed
+  let rows = jsonFrom(output);
+  if (!Array.isArray(rows)) {
+    // `session list` knows neither the original prompt nor every project.
+    // Run the same query against the database selected by this CLI.
+    const file = path.isAbsolute(env.OPENCODE_DB || '') ? env.OPENCODE_DB : (run(['db', 'path'], env) || '').trim();
+    rows = path.isAbsolute(file) ? querySqlite(file, sql) : null;
+    if (!rows) throw new Error('Could not read the OpenCode session database. Check your OpenCode installation and try again.');
+  }
+  return rows
+    .filter((x) => x.id && x.first_prompt?.trim() && !ranByOpenAgents(x.first_prompt, x.directory, env))
+    .map((x) => ({
+      id: x.id, type: 'opencode', title: oneLine(maskSecrets(x.first_prompt)), cwd: x.directory || null,
+      updatedAt: msIso(x.updated), messageCount: x.message_count,
     }));
 }
 
@@ -389,12 +376,12 @@ function readOpencode(id, { env, run }) {
     if (!role) continue;
     const at = msIso(info.time && info.time.created);
     for (const part of (msg.parts || [])) {
-      if (part.type === 'text' && part.text && !part.synthetic) messages.push({ role, text: part.text, at });
+      if (part.type === 'text' && typeof part.text === 'string' && part.text.trim() && !part.synthetic) messages.push({ role, text: part.text, at });
       else if (part.type === 'tool' && part.tool) messages.push({ role: 'tool', text: toolNote(part.tool, part.state && part.state.input), at });
     }
   }
   const info = exported.info || {};
-  return { id: info.id || id, cwd: info.directory || null, title: info.title || null, messages };
+  return { id: info.id || id, cwd: info.directory || null, messages };
 }
 
 // ── Hermes ─────────────────────────────────────────────────────────────────
@@ -418,11 +405,11 @@ function querySqlite(file, sql) {
     const db = new DatabaseSync(file, { readOnly: true });
     try { return db.prepare(sql).all(); } finally { db.close(); }
   } catch (e) {
-    if (e && e.code !== 'ERR_UNKNOWN_BUILTIN_MODULE' && e.code !== 'MODULE_NOT_FOUND' && !/node:sqlite/.test(String(e.message))) return [];
+    if (e && e.code !== 'ERR_UNKNOWN_BUILTIN_MODULE' && e.code !== 'MODULE_NOT_FOUND' && !/node:sqlite/.test(String(e.message))) return null;
   }
   const r = spawnSync('sqlite3', ['-readonly', '-json', file, sql], { encoding: 'utf-8', timeout: 20000, maxBuffer: 64 * 1024 * 1024 });
-  if (r.status !== 0) return [];
-  try { return JSON.parse(r.stdout || '[]'); } catch { return []; }
+  if (r.status !== 0) return null;
+  try { return JSON.parse(r.stdout || '[]'); } catch { return null; }
 }
 
 // The workspace's own Hermes runs are started with `--source tool`
@@ -438,14 +425,14 @@ const HERMES_LIST_SQL = `
 
 function listHermes({ env, limit }) {
   const rows = [];
-  for (const db of hermesDbs(env)) rows.push(...querySqlite(db, HERMES_LIST_SQL));
+  for (const db of hermesDbs(env)) rows.push(...(querySqlite(db, HERMES_LIST_SQL) || []));
   return rows
     .filter((r) => r && r.id && (r.first || r.title) && !ranByOpenAgents(r.first, r.cwd, env))
     .sort((a, b) => Number(b.updated) - Number(a.updated))
     .slice(0, limit)
     .map((r) => ({
-      id: r.id, type: 'hermes', title: maskSecrets(oneLine(r.title || r.first)), cwd: r.cwd || null,
-      updatedAt: msIso(r.updated), messageCount: Number(r.count) || null,
+      id: r.id, type: 'hermes', title: oneLine(maskSecrets(r.title || r.first)), cwd: r.cwd || null,
+      updatedAt: msIso(r.updated), messageCount: r.count == null ? null : Number(r.count),
     }));
 }
 
@@ -453,12 +440,12 @@ function readHermes(id, { env }) {
   if (!/^[A-Za-z0-9_.:-]{4,120}$/.test(String(id || ''))) return null;
   const q = String(id).replace(/'/g, "''");
   for (const db of hermesDbs(env)) {
-    const head = querySqlite(db, `SELECT id, title, cwd FROM sessions WHERE id = '${q}'`);
-    if (!head.length) continue;
+    const head = querySqlite(db, `SELECT id, title, cwd FROM sessions WHERE id = '${q}' AND source <> 'tool'`);
+    if (!head?.length) continue;
     const rows = querySqlite(db, `SELECT role, content, tool_calls, tool_name, timestamp FROM messages
       WHERE session_id = '${q}' AND COALESCE(active, 1) = 1 ORDER BY id`);
     const messages = [];
-    for (const r of rows) {
+    for (const r of rows || []) {
       const at = msIso(r.timestamp);
       if ((r.role === 'user' || r.role === 'assistant') && r.content && String(r.content).trim()) {
         messages.push({ role: r.role, text: String(r.content), at });
@@ -501,10 +488,10 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
   const max = Math.max(1, Math.min(Math.trunc(limit), 1000));
   const sessions = reader(type);
   // A project can contain both workspace runs and personal CLI sessions.
-  const skip = workspaceSessionIds(env);
+  const skip = workspaceSessionIds(type, env);
   for (const id of excludeIds) skip.add(id);
   // Read past what gets left out, so the picker still fills up.
-  return sessions.list({ env, limit: Math.min(max * 10, 5000), run })
+  return sessions.list({ env, limit: Math.min(max * 10, 5000), run, skip })
     .filter((s) => !skip.has(s.id) && !isProbe(s))
     .slice(0, max)
     .map(({ typedTurns, ...rest }) => rest); // eslint-disable-line no-unused-vars
@@ -514,15 +501,19 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
  *  {id, type, title, cwd, file, truncated, total, messages: [{role: user|assistant|tool, text, at}]}
  *  `file` is set for file-based tools (claude, codex). */
 function readLocalSession(type, id, { env = process.env, maxMessages = 400, run = runOpencode } = {}) {
-  const s = reader(type).read(id, { env, run });
+  const source = reader(type);
+  if (workspaceSessionIds(type, env).has(id)) return null;
+  const s = source.read(id, { env, run });
   if (!s) return null;
   const first = s.messages.find((m) => m.role === 'user');
+  if (ranByOpenAgents(first?.text, s.cwd, env)) return null;
+  if (type === 'opencode' && !first) throw new Error('This OpenCode session has no user messages to import');
   // A long session keeps its most recent part; the caller can attach the rest.
   const messages = s.messages.slice(-maxMessages).map((m) => ({ ...m, text: clip(maskSecrets(m.text)) }));
   return {
     id: s.id || id,
     type,
-    title: maskSecrets(oneLine(s.title || (first && first.text) || id)),
+    title: oneLine(maskSecrets(s.title || (first && first.text) || id)),
     cwd: s.cwd || null,
     file: s.file || null,
     truncated: s.messages.length > messages.length,

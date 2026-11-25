@@ -208,7 +208,7 @@ interface WorkspaceContextValue {
   refreshWorkspace: () => Promise<void>;
   workspaceLoadError: { message: string; status: number | null } | null;
   retryWorkspace: () => void;
-  refreshAgents: () => Promise<void>;
+  refreshAgents: (opts?: { panels?: boolean }) => Promise<void>;
   refreshFiles: () => Promise<void>;
   /** Queue a batch into `folder` and draw it going up; see {@link PendingUpload}. */
   enqueueUploads: (files: File[], folder: string) => void;

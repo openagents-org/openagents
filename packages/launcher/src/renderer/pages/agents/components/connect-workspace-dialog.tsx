@@ -43,7 +43,6 @@ function pairedOnly(
 }
 
 export function ConnectWorkspaceDialog({
-  open,
   agentName,
   onClose,
   showToast,
@@ -51,7 +50,6 @@ export function ConnectWorkspaceDialog({
   importTool,
   onImport,
 }: {
-  open: boolean
   agentName: string
   onClose: () => void
   showToast: (msg: string, type?: ToastType) => void
@@ -75,9 +73,7 @@ export function ConnectWorkspaceDialog({
   const [offerImport, setOfferImport] = useState(false)
 
   useEffect(() => {
-    if (!open) return
     setWorkspaces(null)
-    setOfferImport(false)
     let cancelled = false
 
     void (async () => {
@@ -116,7 +112,7 @@ export function ConnectWorkspaceDialog({
     return () => {
       cancelled = true
     }
-  }, [open, reload])
+  }, [reload])
 
   const options = workspaces || []
 
@@ -151,7 +147,7 @@ export function ConnectWorkspaceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
       {/* The handle is on the shell rather than only on the list, so "the
           dialog never opened" and "it opened with nothing to offer" stay
           separate failures for the e2e matrix. */}

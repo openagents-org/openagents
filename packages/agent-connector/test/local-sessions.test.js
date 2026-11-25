@@ -134,26 +134,86 @@ describe('local sessions', () => {
       });
     };
     const list = listLocalSessions('opencode', { env, run });
-    assert.deepEqual(list.map((x) => x.id), ['ses_new', 'ses_old']);
+    assert.deepEqual(list.map((x) => x.id), ['ses_new']);
     assert.equal(list[0].cwd, '/work/docs');
-    assert.deepEqual(list.map((x) => x.messageCount), [2, 0]);
+    assert.equal(list[0].title, 'Draft a README');
+    assert.equal(list[0].messageCount, 2);
     assert.equal(calls.length, 1);
     assert.match(calls[0], /^db --format json SELECT /);
     const s = readLocalSession('opencode', 'ses_new', { env, run });
     assert.deepEqual(s.messages.map((m) => [m.role, m.text]), [
       ['user', 'Draft a README'], ['tool', 'Used write'], ['assistant', 'Written.'],
     ]);
-    assert.equal(s.title, 'Write the README');
+    assert.equal(s.title, 'Draft a README');
     assert.ok(calls.includes('export ses_new'));
     assert.equal(readLocalSession('opencode', 'bad id;rm', { env, run }), null);
-    const olderCli = ([command]) => (command === 'session'
-      ? JSON.stringify([{ id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', time: { updated: 1762000000000 } }])
-      : null);
-    const [olderSession] = listLocalSessions('opencode', { env, run: olderCli });
-    assert.equal(olderSession.id, 'ses_old');
-    assert.equal(olderSession.messageCount, null);
+    assert.throws(() => listLocalSessions('opencode', { env, run: () => '' }), /Could not read the OpenCode session database/);
     // No CLI: nothing to import, no error.
     assert.deepEqual(listLocalSessions('opencode', { env, run: () => null }), []);
+  });
+
+  it('uses the same titles, counts and workspace exclusions for OpenCode SQL and the read-only fallback', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const file = path.join(home, 'OpenCode review.db');
+    const db = new DatabaseSync(file);
+    db.exec(`CREATE TABLE session (id TEXT, directory TEXT, parent_id TEXT, time_updated INTEGER);
+      CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+      CREATE TABLE part (id TEXT, message_id TEXT, time_created INTEGER, data TEXT);`);
+    const session = db.prepare('INSERT INTO session VALUES (?,?,?,?)');
+    for (const [index, id] of ['empty', 'synthetic', 'mine', 'mapped', 'child', 'workspace', 'hi'].entries()) {
+      session.run(id, '/projects/' + id, id === 'child' ? 'mine' : null, 1762000000000 + index);
+    }
+    const message = db.prepare('INSERT INTO message VALUES (?,?,?,?)');
+    const part = db.prepare('INSERT INTO part VALUES (?,?,?,?)');
+    let seq = 0;
+    const add = (id, role, data) => {
+      const key = String(++seq);
+      message.run(key, id, seq, JSON.stringify({ role }));
+      part.run(key, key, seq, JSON.stringify(data));
+    };
+    add('synthetic', 'user', { type: 'text', text: 'prefill', synthetic: true });
+    add('mine', 'user', { type: 'text', text: '\t' });
+    add('mine', 'user', { type: 'text', text: 'Which file?' });
+    add('mine', 'assistant', { type: 'reasoning', text: 'intermediate' });
+    add('mine', 'assistant', { type: 'tool', tool: 'read' });
+    add('mine', 'assistant', { type: 'text', text: 'README.md' });
+    add('mapped', 'user', { type: 'text', text: 'A plain user prompt' });
+    add('child', 'user', { type: 'text', text: 'child' });
+    add('workspace', 'user', { type: 'text', text: "You are agent 'writer' connected to an OpenAgents workspace." });
+    add('hi', 'user', { type: 'text', text: 'hi' });
+    const agentDir = path.join(env.OPENAGENTS_HOME, 'agents', 'writer');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'sessions-0123456789abcdef.json'), JSON.stringify({ thread: 'mapped' }));
+    try {
+      const direct = listLocalSessions('opencode', { env, run: (args) => JSON.stringify(db.prepare(args[3]).all()) });
+      assert.deepEqual(direct.map((s) => [s.id, s.title, s.messageCount]), [['hi', 'hi', 1], ['mine', 'Which file?', 2]]);
+      const calls = [];
+      const fallback = listLocalSessions('opencode', { env, run: (args) => {
+        calls.push(args.slice(0, 2));
+        return args[1] === 'path' ? file : '';
+      } });
+      assert.deepEqual(fallback, direct);
+      assert.deepEqual(calls, [['db', '--format'], ['db', 'path']]);
+      if (process.platform === 'win32') {
+        // A custom .cmd without a native target can return its DB path, even
+        // when its own path contains spaces and literal percent signs.
+        const shim = path.join(home, 'OpenCode %TEMP% shim.cmd');
+        fs.writeFileSync(shim, '@echo off\r\nif "%~1 %~2"=="db path" echo(%OA_TEST_DB%\r\n');
+        t.mock.method(require('../src/adapters/opencode'), 'findOpencodeBinary', () => shim);
+        assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+        // A wrapper that supports SQL should also work without a separate
+        // sqlite3 command; the whole query must reach it as a single argument.
+        const cli = path.join(home, 'test-opencode.cjs');
+        fs.writeFileSync(cli, `const [cmd, flag, format, sql] = process.argv.slice(2);
+if (cmd !== 'db' || flag !== '--format' || format !== 'json' || process.argv.length !== 6) process.exit(1);
+const db = new (require('node:sqlite').DatabaseSync)(process.env.OA_TEST_DB, { readOnly: true });
+console.log(JSON.stringify(db.prepare(sql).all()));
+db.close();`);
+        fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "%~dp0test-opencode.cjs" %*\r\n`);
+        assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+      }
+    } finally { db.close(); }
   });
 
   it('lists and reads Hermes sessions from its SQLite store, skipping the workspace\'s own runs', (t) => {

@@ -11,6 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { randomUUID } = require('crypto');
 
 // Checked in order; the first match wins. `session` is the env var holding
 // the host's own session id, when the host exports one.
@@ -115,17 +116,70 @@ function claudeProjectDir(configDir, cwd) {
   return path.join(configDir, 'projects', String(cwd).replace(/[^A-Za-z0-9]/g, '-'));
 }
 
-/** The transcript file of a Claude Code session, searched across projects, or null. */
-function findClaudeTranscript(sessionId, configDir) {
-  if (!/^[A-Za-z0-9-]+$/.test(String(sessionId || ''))) return null;
-  const projects = path.join(configDir, 'projects');
-  let dirs = [];
-  try { dirs = fs.readdirSync(projects); } catch { return null; }
-  for (const d of dirs) {
-    const file = path.join(projects, d, `${sessionId}.jsonl`);
-    try { if (fs.statSync(file).isFile()) return file; } catch {}
+const snapshotMarker = (file) => `${file}.openagents-snapshot`;
+
+// Older snapshots have no marker. Their JSONL is a prefix of the original and
+// still names the original working directory, even when the copy was made later.
+function preferClaudeOriginal(file, other, configDir) {
+  for (const candidate of [file, other]) {
+    try {
+      const head = Buffer.alloc(64 * 1024);
+      const fd = fs.openSync(candidate, 'r');
+      let bytes;
+      try { bytes = fs.readSync(fd, head, 0, head.length, 0); } finally { fs.closeSync(fd); }
+      const id = path.basename(file, '.jsonl');
+      let cwd;
+      for (const line of head.toString('utf8', 0, bytes).split('\n')) {
+        let row;
+        try { row = JSON.parse(line); } catch { continue; }
+        if (!row?.cwd) continue;
+        if (row.sessionId === id) { cwd = row.cwd; break; }
+        cwd ||= row.cwd;
+      }
+      if (!cwd) continue;
+      const project = claudeProjectDir(configDir, cwd);
+      for (const location of [file, other]) if (!path.relative(project, path.dirname(location))) return location;
+    } catch { /* the CLI may have moved a file during the scan */ }
   }
-  return null;
+  try { return fs.statSync(other).size > fs.statSync(file).size ? other : file; } catch { return file; }
+}
+
+function originalClaudeNames(dir, sessionId) {
+  try {
+    if (sessionId) {
+      const name = `${sessionId}.jsonl`;
+      const file = path.join(dir, name);
+      return fs.statSync(file).isFile() && !fs.existsSync(snapshotMarker(file)) ? [name] : [];
+    }
+    const names = new Set(fs.readdirSync(dir));
+    return [...names].filter((name) => /^[0-9a-f-]{36}\.jsonl$/i.test(name) && !names.has(snapshotMarker(name)));
+  } catch { return []; }
+}
+
+function claudeTranscripts(configDir, sessionId, source) {
+  const projects = path.join(configDir, 'projects');
+  const originals = new Map();
+  if (source && path.basename(source) === `${sessionId}.jsonl` && fs.existsSync(source) && !fs.existsSync(snapshotMarker(source))) {
+    originals.set(path.basename(source), source);
+  }
+  let dirs = [];
+  try { dirs = fs.readdirSync(projects, { withFileTypes: true }); } catch { /* no local projects */ }
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    const project = path.join(projects, dir.name);
+    for (const name of originalClaudeNames(project, sessionId)) {
+      const file = path.join(project, name);
+      const previous = originals.get(name);
+      originals.set(name, previous && path.relative(file, previous) ? preferClaudeOriginal(previous, file, configDir) : file);
+    }
+  }
+  return [...originals.values()];
+}
+
+/** The original transcript, including a seed supplied from a different config directory. */
+function findClaudeTranscript(sessionId, configDir, source) {
+  if (!/^[A-Za-z0-9-]+$/.test(String(sessionId || ''))) return null;
+  return claudeTranscripts(configDir, sessionId, source)[0] || null;
 }
 
 /**
@@ -137,7 +191,17 @@ function snapshotTranscript(src, destDir) {
   const end = text.lastIndexOf('\n');
   fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
   const dest = path.join(destDir, path.basename(src));
-  fs.writeFileSync(dest, end >= 0 ? text.slice(0, end + 1) : '', { mode: 0o600 });
+  if (fs.existsSync(dest) && !path.relative(fs.realpathSync(src), fs.realpathSync(dest))) return src;
+  // The CLI needs the original filename to fork. Mark only the staged path so
+  // it cannot be listed or read as the person's session, even if the source moves.
+  fs.writeFileSync(snapshotMarker(dest), '', { mode: 0o600 });
+  const temp = `${dest}.${randomUUID()}.tmp`;
+  try {
+    fs.writeFileSync(temp, end >= 0 ? text.slice(0, end + 1) : '', { mode: 0o600, flag: 'wx' });
+    fs.renameSync(temp, dest);
+  } finally {
+    fs.rmSync(temp, { force: true });
+  }
   return dest;
 }
 
@@ -201,7 +265,7 @@ function opencodeTranscript(exported, maxChars = 30000) {
 
 module.exports = {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
-  claudeConfigDir, claudeProjectDir, findClaudeTranscript, snapshotTranscript,
+  claudeConfigDir, claudeProjectDir, claudeTranscripts, findClaudeTranscript, snapshotTranscript,
   pickOpencodeSession, opencodeSessionModel, opencodeTranscript,
   HOST_SESSION_KEYS,
 };

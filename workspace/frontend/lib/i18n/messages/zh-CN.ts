@@ -235,6 +235,7 @@ export const messages: Messages = {
 
   importSessions: {
     title: '导入过往会话',
+    alreadyImported: '已导入过',
     description: '把 {device} 上你自己的会话导入工作区。每个选中的会话都会成为一个私有对话。',
     tool: '工具',
     search: '搜索会话',
