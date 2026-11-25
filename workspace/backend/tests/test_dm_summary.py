@@ -170,3 +170,14 @@ def test_aged_base_is_served_while_another_worker_rebuilds_it(db, workspace, mem
     import json
     base = json.loads(memory_cache.store[dm_summary._key('base', workspace['id'])])
     assert base['built_at'] == memory_cache.now
+
+
+def test_base_is_cached_long_and_merged_short(db, workspace, memory_cache, monkeypatch):
+    ttls = {}
+    monkeypatch.setattr(cache, 'set_bytes', lambda key, value, ttl: (memory_cache.store.__setitem__(key, value), ttls.__setitem__(key, ttl)))
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', int(memory_cache.now * 1000) - 600_000)
+    totals(db, workspace, memory_cache)
+    base_key = dm_summary._key('base', workspace['id'])
+    merged_key = dm_summary._key('merged', workspace['id'])
+    assert ttls[base_key] == dm_summary.BASE_TTL_SECONDS > dm_summary.BASE_MAX_AGE_SECONDS
+    assert ttls[merged_key] == dm_summary.TTL_SECONDS
