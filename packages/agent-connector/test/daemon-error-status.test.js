@@ -18,6 +18,7 @@ const { Daemon } = require('../src/daemon');
 const { Config } = require('../src/config');
 const { EnvManager } = require('../src/env');
 const { Registry } = require('../src/registry');
+const adapters = require('../src/adapters');
 const { REASON } = require('../src/adapters/health-status');
 
 let tmpDir;
@@ -98,6 +99,30 @@ describe('_applyAdapterStatus', () => {
 });
 
 describe('getStatus shape', () => {
+  it('persists the first agent heartbeat under the corresponding node', async (t) => {
+    const info = { ...freshInfo(), connectionId: 'node-1' };
+    daemon._processes.amp = info;
+    let before;
+    let after;
+    t.mock.method(adapters, 'createAdapter', (_type, opts) => {
+      const adapter = new adapters.BaseAdapter(opts);
+      adapter.client.joinNetwork = async () => ({ session_id: 'test-session' });
+      adapter.client.heartbeat = async () => ({ status: 'online' });
+      adapter.run = async () => {
+        await adapter._joinWorkspace();
+        before = daemon.config.getStatus().amp;
+        await adapter._heartbeat();
+        after = daemon.config.getStatus().amp;
+        adapter.stop();
+      };
+      return adapter;
+    });
+    await daemon._adapterLoop('amp', { type: 'amp' }, info, { id: 'ws1', slug: 'ws1', token: 'test' });
+    assert.equal(before.first_heartbeat_at, undefined);
+    assert.equal(after.node_id, 'node-1');
+    assert.ok(Number.isFinite(after.first_heartbeat_at));
+  });
+
   it('exposes error_reason alongside last_error', () => {
     daemon._processes.amp = {
       ...freshInfo(),

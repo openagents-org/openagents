@@ -176,8 +176,9 @@ class BaseAdapter {
    * @param {string} opts.token
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
+   * @param {(confirmedAt: number) => void} [opts.onFirstHeartbeat]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, onFirstHeartbeat, logSink }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -191,6 +192,8 @@ class BaseAdapter {
     // list / TUI can show the REAL failure instead of a swallowed log line. A
     // null reason means "healthy again" (clears any prior error).
     this._onStatus = typeof onStatus === 'function' ? onStatus : null;
+    this._onFirstHeartbeat = typeof onFirstHeartbeat === 'function' ? onFirstHeartbeat : null;
+    this._joinedWorkspace = false;
     this._lastReportedStatusKey = null;
     // Consecutive heartbeat failures — a transient single blip must not flip the
     // agent to a hard error (see HEARTBEAT_ERROR_THRESHOLD).
@@ -383,6 +386,7 @@ class BaseAdapter {
    * run() so the failure-reporting can be unit-tested without the poll loop.
    */
   async _joinWorkspace() {
+    this._joinedWorkspace = false;
     try {
       const joinResult = await this.client.joinNetwork(this.agentName, this.token, {
         network: this.workspaceId,
@@ -390,6 +394,7 @@ class BaseAdapter {
         serverHost: require('os').hostname(),
         workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
       });
+      this._joinedWorkspace = true;
       this._sessionId = (joinResult && joinResult.session_id) || null;
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
       this._reportStatus(null); // joined OK → clear any prior error
@@ -610,6 +615,11 @@ class BaseAdapter {
         this._log(`Workspace heartbeat recovered after ${recovered.count} unsuccessful attempt(s) over ${formatDuration(recovered.ms)}`);
       }
       this._reportStatus(null); // alive → clear any prior connectivity error
+      if (this._joinedWorkspace && this._onFirstHeartbeat) {
+        const notify = this._onFirstHeartbeat;
+        this._onFirstHeartbeat = null;
+        try { notify(Date.now()); } catch { /* status is best-effort */ }
+      }
     } catch (e) {
       if (e instanceof SessionRevokedError) {
         this._log(`SESSION REVOKED: another client joined as '${this.agentName}'. Stopping adapter.`, 'warn');

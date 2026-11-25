@@ -35,9 +35,18 @@ function detectHostAgent(env = process.env) {
   return null;
 }
 
-/** Whether this process runs inside a sandbox that a background daemon would inherit. */
+/**
+ * Whether this process runs inside a sandbox that a background daemon would
+ * inherit: 'sandboxed' when it surely does, 'maybe' when only the session's
+ * settings say so, null otherwise. Codex sets CODEX_SANDBOX only for commands
+ * it runs under seatbelt, but CODEX_SANDBOX_NETWORK_DISABLED from the
+ * session's permissions, so a command approved to run outside the sandbox
+ * still carries it.
+ */
 function sandboxedHost(env = process.env) {
-  return has(env.CODEX_SANDBOX) || has(env.CODEX_SANDBOX_NETWORK_DISABLED);
+  if (has(env.CODEX_SANDBOX)) return 'sandboxed';
+  if (has(env.CODEX_SANDBOX_NETWORK_DISABLED)) return 'maybe';
+  return null;
 }
 
 // Variables a host sets for the commands it runs that describe ITS session.

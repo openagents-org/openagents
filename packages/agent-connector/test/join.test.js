@@ -10,6 +10,7 @@
  */
 
 const path = require('path');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 
@@ -27,7 +28,8 @@ const {
   pickOpencodeSession, opencodeSessionModel, opencodeTranscript,
 } = require('../src/host-agent');
 const OpenCodeAdapter = require('../src/adapters/opencode');
-const { join, defaultAgentName } = require('../src/join');
+const http = require('http');
+const { join, defaultAgentName, sandboxBlocker } = require('../src/join');
 const { Config } = require('../src/config');
 const { ensureDurableInstall, compareVersions } = require('../src/durable-install');
 const autostart = require('../src/autostart');
@@ -51,9 +53,10 @@ describe('detectHostAgent', () => {
   it('returns null outside any agent', () => {
     assert.equal(detectHostAgent({ PATH: '/usr/bin', HOME: '/h' }), null);
   });
-  it('sees the Codex sandbox', () => {
-    assert.equal(sandboxedHost({ CODEX_SANDBOX: 'seatbelt' }), true);
-    assert.equal(sandboxedHost({}), false);
+  it('sees the Codex sandbox, and only suspects it from the network flag', () => {
+    assert.equal(sandboxedHost({ CODEX_SANDBOX: 'seatbelt', CODEX_SANDBOX_NETWORK_DISABLED: '1' }), 'sandboxed');
+    assert.equal(sandboxedHost({ CODEX_SANDBOX_NETWORK_DISABLED: '1' }), 'maybe');
+    assert.equal(sandboxedHost({}), null);
   });
 });
 
@@ -259,8 +262,16 @@ describe('agn join', () => {
       addAgent: (a) => config.addAgent(a),
       connectWorkspace: (name, slug) => config.setAgentNetwork(name, slug),
       getDaemonPid: () => daemon.pid,
+      getDaemonStatus: () => daemon.agents,
       stopDaemon: () => { daemon.stopped = true; daemon.pid = null; },
-      startDaemon: (args) => { daemon.started = args; daemon.pid = 777; },
+      startDaemon: (args) => {
+        daemon.started = args;
+        daemon.pid = 777;
+        const now = Date.now();
+        daemon.agents = Object.fromEntries(config.getAgents().map((a) => [
+          a.name, { state: 'running', node_id: a.node_id, started_at: new Date(now).toISOString(), first_heartbeat_at: now },
+        ]));
+      },
     };
   }
   const deps = () => ({
@@ -275,7 +286,7 @@ describe('agn join', () => {
   beforeEach(() => {
     cfgDir = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-join-cfg-'));
     config = new Config(cfgDir);
-    redeemed = []; daemon = { pid: null }; lines = []; enabled = null;
+    redeemed = []; daemon = { pid: null, agents: {} }; lines = []; enabled = null;
     fs.rmSync(path.join(tmpHome, '.openagents', 'node.json'), { force: true });
   });
 
@@ -358,9 +369,46 @@ describe('agn join', () => {
   });
 
   it("refuses inside Codex's sandbox without using the code", async () => {
-    assert.equal(await run({ CODEX_SESSION_ID: 't', CODEX_SANDBOX: 'seatbelt' }), 1);
+    let probed = false;
+    const code = await join({
+      code: 'ABCD-EFGH', flags: {}, connector: fakeConnector(), env: { CODEX_SESSION_ID: 't', CODEX_SANDBOX: 'seatbelt' },
+      print: (l) => lines.push(l), deps: { ...deps(), sandboxBlocker: async () => { probed = true; return null; } },
+    });
+    assert.equal(code, 1);
+    assert.equal(probed, false);
     assert.equal(redeemed.length, 0);
-    assert.match(lines.join('\n'), /still valid/);
+    assert.match(lines.join('\n'), /inside Codex's sandbox/);
+    assert.match(lines.join('\n'), /still unused/);
+  });
+
+  // Codex sets CODEX_SANDBOX_NETWORK_DISABLED from the session's permissions,
+  // so a command approved to run outside the sandbox still carries it.
+  const runMaybeSandboxed = (blocker, probes) => join({
+    code: 'ABCD-EFGH', flags: {}, connector: fakeConnector(), env: { CODEX_SESSION_ID: 't', CODEX_SANDBOX_NETWORK_DISABLED: '1' },
+    print: (l) => lines.push(l), deps: { ...deps(), sandboxBlocker: async (endpoint) => { probes.push(endpoint); return blocker; } },
+  });
+
+  it('joins when only the network flag is set but the command can reach the workspace and write', async () => {
+    const probes = [];
+    assert.equal(await runMaybeSandboxed(null, probes), 0, lines.join('\n'));
+    assert.deepEqual(probes, ['https://workspace-endpoint.openagents.org']);
+    assert.equal(redeemed.length, 1);
+    assert.equal(config.getAgent('codex-devbox').type, 'codex');
+  });
+
+  it('refuses without using the code when the workspace cannot be reached', async () => {
+    assert.equal(await runMaybeSandboxed('network', []), 1);
+    assert.equal(redeemed.length, 0);
+    assert.match(lines.join('\n'), /cannot reach https:\/\/workspace-endpoint\.openagents\.org/);
+    assert.match(lines.join('\n'), /still unused/);
+    assert.match(lines.join('\n'), /Full access and paste the instructions again/);
+  });
+
+  it('refuses without using the code when ~/.openagents cannot be written', async () => {
+    assert.equal(await runMaybeSandboxed('write', []), 1);
+    assert.equal(redeemed.length, 0);
+    assert.match(lines.join('\n'), /cannot write .*\.openagents/);
+    assert.match(lines.join('\n'), /Full access and paste the instructions again/);
   });
 
   it('refuses a taken name without using the code', async () => {
@@ -376,6 +424,127 @@ describe('agn join', () => {
     assert.equal(enabled, null);
     assert.equal(daemon.pid, 777);
     assert.match(lines.join('\n'), /Start at login: off \(--no-autostart\)/);
+  });
+
+  it('waits for a live agent with a fresh heartbeat from the pairing it just saved', async () => {
+    const connector = fakeConnector();
+    const future = Date.now() + 1000;
+    const starting = { state: 'running', node_id: 'node-1', started_at: new Date(future).toISOString() };
+    const previousStatuses = [
+      starting,
+      { ...starting, first_heartbeat_at: 1 },
+      { ...starting, node_id: 'other-node', first_heartbeat_at: future },
+      { ...starting, started_at: new Date(1).toISOString(), first_heartbeat_at: future },
+    ];
+    const readStatus = connector.getDaemonStatus;
+    let reads = 0;
+    connector.getDaemonStatus = () => {
+      reads++;
+      assert.doesNotMatch(lines.join('\n'), /Connected\./);
+      return previousStatuses.length
+        ? { 'codex-devbox': previousStatuses.shift() }
+        : readStatus();
+    };
+    const code = await join({
+      code: 'ABCD-EFGH', connector, env: { CODEX_SESSION_ID: 't' },
+      print: (line) => lines.push(line), deps: deps(),
+    });
+    assert.equal(code, 0, lines.join('\n'));
+    assert.equal(reads, 5);
+    assert.match(lines.join('\n'), /Connected\. This agent is now 'codex-devbox'/);
+  });
+
+  it('reports a heartbeat timeout and keeps the pairing for recovery', async () => {
+    const connector = fakeConnector();
+    connector.startDaemon = () => { daemon.pid = 777; };
+    const code = await join({
+      code: 'ABCD-EFGH', connector, env: { CODEX_SESSION_ID: 't' },
+      print: (line) => lines.push(line), deps: deps(),
+    });
+    assert.equal(code, 1);
+    assert.equal(redeemed.length, 1);
+    assert.equal(config.getAgent('codex-devbox').node_id, 'node-1');
+    assert.match(lines.join('\n'), /Paired 'codex-devbox'.*first heartbeat within \d+ seconds/);
+    assert.match(lines.join('\n'), /agn up.*saved pairing/);
+    assert.doesNotMatch(lines.join('\n'), /Connected\./);
+  });
+
+  it('reports a daemon startup failure after saving the pairing', async () => {
+    const connector = fakeConnector();
+    connector.startDaemon = () => { throw new Error('daemon log is not writable'); };
+    const code = await join({
+      code: 'ABCD-EFGH', connector, env: { CODEX_SESSION_ID: 't' },
+      print: (line) => lines.push(line), deps: deps(),
+    });
+    assert.equal(code, 1);
+    assert.equal(redeemed.length, 1);
+    assert.match(lines.join('\n'), /Paired 'codex-devbox'.*Could not start the background service \(daemon log is not writable\)/);
+    assert.doesNotMatch(lines.join('\n'), /Connected\./);
+  });
+});
+
+describe('sandboxBlocker', () => {
+  it('is null when the endpoint answers and the directory takes a file', async () => {
+    const server = http.createServer((req, res) => { res.statusCode = 404; res.end(); });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-probe-'));
+    try {
+      assert.equal(await sandboxBlocker(`http://127.0.0.1:${server.address().port}`, dir), null);
+      assert.deepEqual(fs.readdirSync(dir), []);
+    } finally {
+      server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('takes a redirect as an answer, without following it', async () => {
+    const requests = [];
+    const server = http.createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      res.writeHead(302, { Location: 'http://127.0.0.1:1/' });
+      res.end();
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-probe-'));
+    fs.writeFileSync(path.join(dir, `.join-probe-${process.pid}`), 'keep');
+    try {
+      assert.equal(await sandboxBlocker(`http://127.0.0.1:${server.address().port}`, dir), null);
+      assert.deepEqual(requests, ['HEAD /']);
+      assert.deepEqual(fs.readdirSync(dir), [`.join-probe-${process.pid}`]);
+    } finally {
+      server.close();
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps an existing file when the randomly named probe collides', async (t) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-probe-'));
+    const random = Buffer.from('e00123456789', 'hex');
+    t.mock.method(crypto, 'randomBytes', () => random);
+    const file = path.join(dir, `.join-probe-${random.toString('hex')}`);
+    fs.writeFileSync(file, 'keep');
+    try {
+      assert.equal(await sandboxBlocker('http://127.0.0.1:1', dir), 'write');
+      assert.equal(fs.readFileSync(file, 'utf-8'), 'keep');
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("is 'network' when the endpoint cannot be reached", async () => {
+    const server = http.createServer();
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    await new Promise((r) => server.close(r));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'agn-probe-'));
+    assert.equal(await sandboxBlocker(`http://127.0.0.1:${port}`, dir), 'network');
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("is 'write' when the directory cannot be written", async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'agn-probe-')), 'not-a-dir');
+    fs.writeFileSync(file, '');
+    assert.equal(await sandboxBlocker('http://127.0.0.1:1', path.join(file, 'sub')), 'write');
   });
 });
 

@@ -1792,6 +1792,8 @@ async _runNodeCommand(n, cmd) {
         last_error: info.lastError || null,
         error_reason: info.errorReason || null,
       };
+      if (info.connectionId) result[name].node_id = info.connectionId;
+      if (info.firstHeartbeatAt) result[name].first_heartbeat_at = info.firstHeartbeatAt;
     }
     return result;
   }
@@ -2228,6 +2230,11 @@ async _runNodeCommand(n, cmd) {
         seedSession: agentCfg.seed_session || null,
         // Live runtime/connectivity status → daemon.status.json (Agents list/TUI).
         onStatus: (update) => this._applyAdapterStatus(name, info, update),
+        onFirstHeartbeat: (confirmedAt) => {
+          if (this._shuttingDown || this._stoppedAgents.has(name) || this._adapters[name] !== adapter) return;
+          info.firstHeartbeatAt = confirmedAt;
+          this._writeStatus();
+        },
         logSink: (level, msg) => this._logAs(`adapter [${name}]`, level, msg),
       });
     } catch (e) {

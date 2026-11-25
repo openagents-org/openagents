@@ -22,7 +22,7 @@ const BaseAdapter = require('../src/adapters/base');
 const { SessionRevokedError } = require('../src/workspace-client');
 const { REASON } = require('../src/adapters/health-status');
 
-function makeAdapter() {
+function makeAdapter(opts = {}) {
   const calls = [];
   const a = new BaseAdapter({
     workspaceId: 'w',
@@ -31,6 +31,7 @@ function makeAdapter() {
     agentName: 'a',
     endpoint: 'http://127.0.0.1:0',
     onStatus: (u) => calls.push(u),
+    ...opts,
   });
   a._log = () => {};
   return { a, calls };
@@ -80,6 +81,28 @@ describe('_joinWorkspace', () => {
 });
 
 describe('_heartbeat', () => {
+  it('acknowledges the first successful heartbeat once, after join and any failed attempts', async () => {
+    const confirmations = [];
+    const { a } = makeAdapter({ onFirstHeartbeat: (at) => confirmations.push(at) });
+    a.client.joinNetwork = async () => { throw httpErr(401); };
+    a.client.heartbeat = async () => ({ status: 'online' });
+    await a._joinWorkspace();
+    await a._heartbeat();
+    assert.deepEqual(confirmations, []);
+
+    a.client.joinNetwork = async () => ({ session_id: 'sess-123' });
+    a.client.heartbeat = async () => { throw httpErr(503); };
+    await a._joinWorkspace();
+    await a._heartbeat();
+    assert.deepEqual(confirmations, []);
+
+    a.client.heartbeat = async () => ({ status: 'online' });
+    await a._heartbeat();
+    await a._heartbeat();
+    assert.equal(confirmations.length, 1);
+    assert.ok(Number.isFinite(confirmations[0]));
+  });
+
   it('success → reports healthy (clears prior error)', async () => {
     const { a, calls } = makeAdapter();
     a.client.heartbeat = async () => ({ ok: true });

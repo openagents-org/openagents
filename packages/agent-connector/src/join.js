@@ -14,16 +14,42 @@
  * What it prints is written for the host agent to relay to its person.
  */
 
+const crypto = require('crypto');
+const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
 const nodeCfg = require('./node-config');
+const { redactDiagnostic } = require('./adapters/health-status');
 const { AUTH_MODE_KEY, CLI_LOGIN } = require('./env');
 const { defaultAgentWorkdir } = require('./paths');
 const {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
   claudeConfigDir, findClaudeTranscript, pickOpencodeSession, opencodeSessionModel,
 } = require('./host-agent');
+
+/**
+ * Check whether the command can write to `dir` and reach `endpoint` before
+ * redeeming a pairing code. Return 'write' or 'network' for the failed check,
+ * or null if both pass. Any HTTP answer from the endpoint counts.
+ */
+async function sandboxBlocker(endpoint, dir = nodeCfg.NODE_DIR) {
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    const probe = path.join(dir, `.join-probe-${crypto.randomBytes(6).toString('hex')}`);
+    fs.writeFileSync(probe, '', { flag: 'wx' });
+    fs.rmSync(probe, { force: true });
+  } catch {
+    return 'write';
+  }
+  try {
+    // The first answer is enough: a redirect elsewhere says nothing about the API.
+    await fetch(endpoint, { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(5000) });
+  } catch {
+    return 'network';
+  }
+  return null;
+}
 
 /**
  * The OpenCode chat running this command: `{ session_id, directory, model }`,
@@ -125,6 +151,19 @@ function defaultAgentName(type, hostname, taken) {
 }
 
 const SERVICE_NAMES = { darwin: 'launchd', linux: 'systemd', win32: 'Task Scheduler' };
+const HEARTBEAT_POLL_MS = 500;
+const HEARTBEAT_TIMEOUT_MS = 45000;
+
+async function waitForAgentHeartbeat(connector, name, nodeId, configuredAt, sleep) {
+  for (let waited = 0; ; waited += HEARTBEAT_POLL_MS) {
+    const status = connector.getDaemonStatus()[name];
+    if (status?.state === 'running' && status.node_id === nodeId
+      && Date.parse(status.started_at) >= configuredAt
+      && status.first_heartbeat_at >= configuredAt && connector.getDaemonPid()) return true;
+    if (waited >= HEARTBEAT_TIMEOUT_MS) return false;
+    await sleep(HEARTBEAT_POLL_MS);
+  }
+}
 
 /**
  * @param {object} p
@@ -133,7 +172,7 @@ const SERVICE_NAMES = { darwin: 'launchd', linux: 'systemd', win32: 'Task Schedu
  * @param {object} p.connector - AgentConnector
  * @param {object} [p.env]
  * @param {(line: string) => void} p.print
- * @param {object} [p.deps] - seams for tests: ensureDurableInstall, autostart, sleep, gatherDeviceInfo
+ * @param {object} [p.deps] - seams for tests: ensureDurableInstall, autostart, sleep, gatherDeviceInfo, sandboxBlocker
  * @returns {Promise<number>} exit code
  */
 async function join({ code, flags = {}, connector, env = process.env, print, deps = {} }) {
@@ -141,6 +180,7 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   const autostart = deps.autostart || require('./autostart');
   const sleep = deps.sleep || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const gatherInfo = deps.gatherDeviceInfo || nodeCfg.gatherDeviceInfo;
+  const findBlocker = deps.sandboxBlocker || sandboxBlocker;
 
   if (!code) {
     print('Usage: agn join <pairing-code> [--name <agent-name>] [--type <agent-type>]');
@@ -164,10 +204,19 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
     return 1;
   }
   const host = detected && detected.type === type ? detected : { type, label: type, sessionId: null };
-  if (sandboxedHost(env)) {
-    print(`This is running inside ${host.label}'s sandbox. A background service started from here would stay`);
-    print('inside it, without network access, so nothing was changed and the code is still valid.');
-    print('Run the same command again outside the sandbox (approve running it with full access).');
+  const sandbox = sandboxedHost(env);
+  const blocker = sandbox === 'maybe' ? await findBlocker(connector.workspace.endpoint) : sandbox;
+  if (blocker) {
+    if (blocker === 'sandboxed') {
+      print(`This command is running inside ${host.label}'s sandbox.`);
+    } else if (blocker === 'network') {
+      print(`This command cannot reach ${redactDiagnostic(connector.workspace.endpoint)}.`);
+    } else {
+      print(`This command cannot write to ${nodeCfg.NODE_DIR}.`);
+    }
+    print('The pairing code is still unused. Retry before it expires.');
+    print('Run the command again and approve the required file and network access.');
+    print(`If it is refused again, switch this ${host.label} session to Full access and paste the instructions again.`);
     return 1;
   }
 
@@ -177,7 +226,7 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
     durable = ensureDurable({ nodeBin: process.execPath });
   } catch (e) {
     print(`Warning: could not install the launcher under ~/.openagents (${e.message}).`);
-    print('The agent will run until this machine restarts; install it for good with: curl -fsSL https://openagents.org/install.sh | bash');
+    print('Start at login requires a lasting installation. Run curl -fsSL https://openagents.org/install.sh | bash to install it.');
   }
 
   // 3. Pair this device, under a name for the agent that is free here.
@@ -231,6 +280,7 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   }
   const workDir = typeof flags.path === 'string' ? path.resolve(flags.path) : (defaultDir || defaultAgentWorkdir(name));
 
+  const configuredAt = Date.now();
   connector.addAgent({ name, type, role: 'worker', path: workDir, env: agentEnv });
   connector.connectWorkspace(name, res.workspaceSlug);
   connector.config.updateAgent(name, { node_id: res.nodeId, ...(seed ? { seed_session: seed } : {}) });
@@ -255,10 +305,26 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
       autostartNote = `off (${String(e.message || e).split('\n')[0]}): after a restart, run \`agn up\``;
     }
   }
+  const reportStartupIssue = (message) => {
+    print(`Paired '${name}' with the workspace '${res.workspaceName}'. ${message}`);
+    print(`Run 'agn status' and check ${connector.config.logFile} for details.`);
+    print("If the daemon is stopped, run 'agn up' to start it using the saved pairing.");
+    return 1;
+  };
+
   // A login service may have started the daemon already; start it if not.
   for (let i = 0; i < 15 && !connector.getDaemonPid(); i++) await sleep(200);
   if (!connector.getDaemonPid()) {
-    connector.startDaemon(durable ? [durable.cliPath, 'up', '--foreground'] : undefined);
+    try {
+      connector.startDaemon(durable ? [durable.cliPath, 'up', '--foreground'] : undefined);
+    } catch (e) {
+      return reportStartupIssue(`Could not start the background service (${redactDiagnostic(e.message)}).`);
+    }
+  }
+
+  print("Waiting for the agent's first workspace heartbeat.");
+  if (!(await waitForAgentHeartbeat(connector, name, res.nodeId, configuredAt, sleep))) {
+    return reportStartupIssue(`The workspace did not confirm the agent's first heartbeat within ${HEARTBEAT_TIMEOUT_MS / 1000} seconds.`);
   }
 
   // 6. What happened, for the host agent to pass on.
@@ -291,4 +357,4 @@ async function join({ code, flags = {}, connector, env = process.env, print, dep
   return 0;
 }
 
-module.exports = { join, pairDevice, workspaceWebUrl, defaultAgentName };
+module.exports = { join, pairDevice, workspaceWebUrl, defaultAgentName, sandboxBlocker };
