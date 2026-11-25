@@ -31,7 +31,9 @@ from app import cache
 from app.services.conversation_queries import conversation_pairs_query
 from app.models import EventRecord
 
-BASE_MAX_AGE_SECONDS = 600
+# New messages are read from the delta on every refresh; a full-history
+# rescan is reconciliation, not the freshness mechanism.
+BASE_MAX_AGE_SECONDS = 3600
 BASE_SETTLE_MS = 120_000
 MERGED_MAX_STALE_SECONDS = 5.0
 TTL_SECONDS = 1800
@@ -45,7 +47,11 @@ BASE_TTL_SECONDS = 86400
 # rebuild query its own limit.
 BASE_STATEMENT_TIMEOUT_MS = 300_000
 BASE_REBUILD_LOCK_SECONDS = 360
-BASE_REBUILD_WAIT_SECONDS = 60
+GLOBAL_REBUILD_KEY = "v1events:dm-summary:history-rebuild"
+
+
+class SummaryWarmingError(RuntimeError):
+    """Another request is rebuilding history; retry without occupying a DB slot."""
 ALL_PAIRS = 1_000_000
 
 
@@ -109,28 +115,36 @@ def _base(db, workspace_id, rewrite):
             pairs = _aggregate(db, workspace_id, EventRecord.timestamp <= watermark)
         return {"rewrite": rewrite, "built_at": time.time(), "watermark": watermark, "pairs": _pack(pairs)}
 
-    # An aged base is still exact (the delta covers everything after its
-    # watermark), so only one worker rebuilds it while the others keep using
-    # it. Rebuilding a busy workspace's base reads its whole DM history; when
-    # every concurrent request did that, one workspace ran ~20 identical
-    # 25-second scans at once.
+    # Never wait for history while holding the request's authentication DB
+    # transaction. A timed-out waiter used to start another full scan even
+    # while the first one was still running (up to five minutes).
     lock = _rebuild_lock(key)
-    if current:
-        if lock is not None and not _try_acquire(lock, 0):
-            return base
-    elif lock is not None and _try_acquire(lock, BASE_REBUILD_WAIT_SECONDS):
-        fresh = _read(key)   # a previous holder may have just built it
+    global_lock = None
+    if lock is not None:
+        if not _try_acquire(lock, 0):
+            if current:
+                return base
+            raise SummaryWarmingError("DM history is being prepared. Please retry.")
+        # Serialize full-history reads across workspaces as well: even distinct
+        # rebuilds contend on the same events-table disk pages.
+        global_lock = _rebuild_lock(GLOBAL_REBUILD_KEY)
+        if global_lock is None or not _try_acquire(global_lock, 0):
+            _release(lock)
+            if current:
+                return base
+            raise SummaryWarmingError("DM history is being prepared. Please retry.")
+    try:
+        # Re-read under the locks in case a preceding leader just finished.
+        fresh = _read(key)
         if fresh and fresh.get("rewrite") == rewrite and "watermark" in fresh and \
                 time.time() - fresh.get("built_at", 0) < BASE_MAX_AGE_SECONDS:
-            _release(lock)
             return fresh
-    else:
-        lock = None   # no Redis, or the wait ran out: build without the lock
-    try:
         base = build()
         _write(key, base, BASE_TTL_SECONDS)
         return base
     finally:
+        if global_lock is not None:
+            _release(global_lock)
         if lock is not None:
             _release(lock)
 
