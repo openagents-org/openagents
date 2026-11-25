@@ -1,6 +1,6 @@
 'use strict';
 
-const { describe, it, beforeEach, afterEach } = require('node:test');
+const { describe, it, beforeEach, afterEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -21,12 +21,13 @@ const CODEX_SID = '01a11d54-e2e8-7aa3-9fb3-579101b2b98e';
 let tmp; let saved;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-import-'));
-  saved = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME };
-  process.env.HOME = tmp; // ~/.openagents/sessions/imports_*.json land here
+  saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME };
+  mock.method(os, 'homedir', () => tmp); // keep the adapter's import and copy records in the fixture
   process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
   process.env.CODEX_HOME = path.join(tmp, 'codex');
 });
 afterEach(() => {
+  mock.restoreAll();
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   fs.rmSync(tmp, { recursive: true, force: true });
 });

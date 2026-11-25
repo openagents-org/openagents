@@ -5,6 +5,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ enqueue: vi.fn(), get: vi.fn() }));
 const ws = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), open: vi.fn() }));
+const layout = vi.hoisted(() => ({ openView: vi.fn(), openMobileDetail: vi.fn() }));
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => layout }));
 vi.mock('@/lib/api', () => ({ workspaceApi: { enqueueNodeCommand: api.enqueue, getNodeCommand: api.get } }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   agents: [
@@ -65,6 +67,8 @@ it('lists the device\'s sessions for the tool and imports the picked ones into t
   expect(done.textContent).toContain('Add pagination');
   await act(async () => done.querySelector('button')!.click());
   expect(ws.open).toHaveBeenCalledWith('channel-s1');
+  expect(layout.openView).toHaveBeenCalledWith('threads');
+  expect(layout.openMobileDetail).toHaveBeenCalled();
 });
 
 it('says when the device cannot list its sessions', async () => {

@@ -94,12 +94,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
     name: string
     type: string
   } | null>(null)
-  const [connectWsOpen, setConnectWsOpen] = useState(false)
-  const [connectWsAgent, setConnectWsAgent] = useState<string>("")
-  // The agent the form just added (and the type it was started for, until
-  // the list reports it), for the import offer once it joins a workspace.
-  const [createdAgent, setCreatedAgent] = useState<string | null>(null)
-  const [setupTypeOfCreated, setSetupTypeOfCreated] = useState<string | null>(null)
+  const [workspaceJoin, setWorkspaceJoin] = useState<{
+    agentName: string
+    createdFromSetup?: { type: string | null }
+  } | null>(null)
   const [removeTarget, setRemoveTarget] = useState<string | null>(null)
   const [renameTarget, setRenameTarget] = useState<Agent | null>(null)
   const [search, setSearch] = useState("")
@@ -171,10 +169,7 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
       setConfigureAgent({ name: a.name, type: a.type })
       setConfigureOpen(true)
     },
-    onConnect: (a) => {
-      setConnectWsAgent(a.name)
-      setConnectWsOpen(true)
-    },
+    onConnect: (a) => setWorkspaceJoin({ agentName: a.name }),
     onRename: (a) => setRenameTarget(a),
     onDisconnect: (a) => disconnectAgent(a.name),
     onOpenWorkspace: (a) => openWorkspace(a),
@@ -225,7 +220,10 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
         justCreated.current = false
         setReturnTab(null)
       }}
-      onCreated={(name) => { justCreated.current = true; setCreatedAgent(name); setSetupTypeOfCreated(setupType); setConnectWsAgent(name); setConnectWsOpen(true) }} onChanged={() => void refresh()}
+      onCreated={(name) => {
+        justCreated.current = true
+        setWorkspaceJoin({ agentName: name, createdFromSetup: { type: setupType } })
+      }} onChanged={() => void refresh()}
       // The form stays open behind the type's page, unsaved edits and all,
       // and that page's Back returns here.
       onOpenType={(type) => openMarketPage(type, "dashboard")} /></React.Suspense>
@@ -292,15 +290,15 @@ export default function Agents({ showToast, overview = false }: AgentsProps): Re
 
 
       <ConnectWorkspaceDialog
-        open={connectWsOpen}
-        agentName={connectWsAgent}
-        onClose={() => setConnectWsOpen(false)}
+        open={!!workspaceJoin}
+        agentName={workspaceJoin?.agentName ?? ""}
+        onClose={() => setWorkspaceJoin(null)}
         showToast={showToast}
         onConnected={refresh}
-        // Only right after adding it: its tool's past sessions are worth
-        // bringing in then, not every time an agent joins a workspace.
-        importTool={connectWsAgent === createdAgent ? importToolLabel(agents.find((a) => a.name === createdAgent)?.type ?? setupTypeOfCreated) : null}
-        onImport={() => void openCreatedForImport(connectWsAgent)}
+        importTool={workspaceJoin?.createdFromSetup
+          ? importToolLabel(agents.find((a) => a.name === workspaceJoin.agentName)?.type ?? workspaceJoin.createdFromSetup.type)
+          : null}
+        onImport={workspaceJoin ? () => void openCreatedForImport(workspaceJoin.agentName) : undefined}
       />
 
       <RemoveAgentDialog

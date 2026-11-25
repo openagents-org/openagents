@@ -108,15 +108,17 @@ describe('local sessions', () => {
     assert.ok(!out.includes('abc\n') && !out.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'));
   });
 
-  it('lists and reads OpenCode sessions through its CLI, leaving out agent folders', () => {
+  it('counts OpenCode messages in one query and skips workspace runs', () => {
     const calls = [];
     const run = (args) => {
       calls.push(args.join(' '));
-      if (args[0] === 'session') {
+      if (args[0] === 'db') {
         return JSON.stringify([
-          { id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', time: { updated: 1762000000000 } },
-          { id: 'ses_new', title: 'Write the README', directory: '/work/docs', time: { updated: 1763000000000 } },
-          { id: 'ses_oa', title: 'Agent run', directory: path.join(env.OPENAGENTS_HOME, 'agents', 'oc'), time: { updated: 1764000000000 } },
+          { id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', updated: 1762000000000, message_count: 0 },
+          { id: 'ses_new', title: 'Write the README', directory: '/work/docs', updated: 1763000000000, message_count: 2, first_prompt: 'Draft a README' },
+          { id: 'ses_oa', title: 'Agent run', directory: path.join(env.OPENAGENTS_HOME, 'agents', 'oc'), updated: 1764000000000, message_count: 2 },
+          { id: 'ses_workspace', title: 'Update the docs', directory: '/work/docs', updated: 1765000000000, message_count: 2,
+            first_prompt: "You are agent 'docs' connected to an OpenAgents workspace." },
         ]);
       }
       return 'some log line\n' + JSON.stringify({
@@ -134,7 +136,9 @@ describe('local sessions', () => {
     const list = listLocalSessions('opencode', { env, run });
     assert.deepEqual(list.map((x) => x.id), ['ses_new', 'ses_old']);
     assert.equal(list[0].cwd, '/work/docs');
-    assert.equal(list[0].messageCount, null);
+    assert.deepEqual(list.map((x) => x.messageCount), [2, 0]);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /^db --format json SELECT /);
     const s = readLocalSession('opencode', 'ses_new', { env, run });
     assert.deepEqual(s.messages.map((m) => [m.role, m.text]), [
       ['user', 'Draft a README'], ['tool', 'Used write'], ['assistant', 'Written.'],
@@ -142,6 +146,12 @@ describe('local sessions', () => {
     assert.equal(s.title, 'Write the README');
     assert.ok(calls.includes('export ses_new'));
     assert.equal(readLocalSession('opencode', 'bad id;rm', { env, run }), null);
+    const olderCli = ([command]) => (command === 'session'
+      ? JSON.stringify([{ id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', time: { updated: 1762000000000 } }])
+      : null);
+    const [olderSession] = listLocalSessions('opencode', { env, run: olderCli });
+    assert.equal(olderSession.id, 'ses_old');
+    assert.equal(olderSession.messageCount, null);
     // No CLI: nothing to import, no error.
     assert.deepEqual(listLocalSessions('opencode', { env, run: () => null }), []);
   });
@@ -224,11 +234,19 @@ describe('local sessions: what is left out', () => {
     assert.deepEqual(readLocalSession('claude', ID, { env }).messages.map((m) => m.role), ['user', 'assistant']);
   });
 
-  it('leaves out sessions run in an agent\'s folder and copies made to continue an import', () => {
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/x'] }).length, 0);
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work'] }).length, 0);
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/xy'] }).length, 1);
-    assert.equal(listLocalSessions('claude', { env, excludeIds: [ID] }).length, 0);
+  it('keeps personal sessions in a shared folder and skips recorded workspace runs and copies', () => {
+    const agentSession = '22222222-3333-4444-5555-666666666666';
+    const project = path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-work-x');
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, `${agentSession}.jsonl`), jsonl([
+      { sessionId: agentSession, cwd: '/work/x', type: 'user', message: { role: 'user', content: 'Fix this bug' } },
+    ]));
+    const maps = path.join(env.OPENAGENTS_HOME, 'sessions');
+    fs.mkdirSync(maps, { recursive: true });
+    fs.writeFileSync(path.join(maps, 'workspace_agent.json'), JSON.stringify({ thread: agentSession }));
+
+    assert.deepEqual(listLocalSessions('claude', { env }).map((session) => session.id), [ID]);
+    assert.deepEqual(listLocalSessions('claude', { env, excludeIds: [ID] }), []);
   });
 });
 

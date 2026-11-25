@@ -749,13 +749,6 @@ class Daemon {
     return next;
   }
 
-  /** Where this device's agents work: sessions run there are theirs, not the owner's. */
-  _agentWorkdirs() {
-    let agents = [];
-    try { agents = this.config.getAgents() || []; } catch {}
-    return agents.map((a) => resolveAgentWorkdir(a.path) || defaultAgentWorkdir(a.name)).filter(Boolean);
-  }
-
   async _importOne(n, args, commandId) {
     const { runLocalSessions } = require('./local-sessions-worker');
     const type = String(args.type || '');
@@ -1425,7 +1418,6 @@ async _runNodeCommand(n, cmd) {
         const { runLocalSessions } = require('./local-sessions-worker');
         const sessions = await runLocalSessions('listLocalSessions', [args.type, {
           limit: Number(args.limit) || 200,
-          excludeCwds: this._agentWorkdirs(),
           excludeIds: require('./session-imports').copiedIds(),
         }]);
         data = { type: args.type, sessions };

@@ -6,8 +6,7 @@
  *
  *   Claude Code  <CLAUDE_CONFIG_DIR or ~/.claude>/projects/<cwd-slug>/<id>.jsonl
  *   Codex        <CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-<ts>-<id>.jsonl
- *   OpenCode     through its CLI: `opencode session list --format json`,
- *                `opencode export <id>`
+ *   OpenCode     through its CLI: `opencode db`, `opencode export <id>`
  *   Hermes       <HERMES_HOME or ~/.hermes>/state.db (and profiles/<p>/state.db),
  *                SQLite: sessions + messages tables
  *
@@ -53,6 +52,10 @@ function oneLine(text, n = TITLE_LEN) {
 }
 
 // ── locations ──────────────────────────────────────────────────────────────
+
+function openAgentsHome(env) {
+  return env.OPENAGENTS_HOME || path.join(os.homedir(), '.openagents');
+}
 
 function claudeHome(env = process.env) {
   return env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -207,7 +210,7 @@ function idFromFile(type, file) {
 }
 
 // Sessions an OpenAgents agent ran (a workspace thread), not the person's
-// own: they start with the workspace briefing, or run in an agent's folder.
+// own: they carry the workspace briefing or run in the launcher's data directory.
 const OPENAGENTS_RUN = /connected to an OpenAgents workspace|^You previously worked in this channel|^You are agent '[^']+'|^OWNER-REVIEWED SHARED INSTRUCTIONS/;
 
 // The readiness check the device runs on an agent (src/probe.js sends "hi"
@@ -223,8 +226,28 @@ function isProbe(s) {
 
 function ranByOpenAgents(firstPrompt, cwd, env) {
   if (OPENAGENTS_RUN.test(firstPrompt || '')) return true;
-  const home = env.OPENAGENTS_HOME || path.join(os.homedir(), '.openagents');
-  return !!cwd && path.resolve(cwd).startsWith(path.resolve(home) + path.sep);
+  return !!cwd && path.resolve(cwd).startsWith(path.resolve(openAgentsHome(env)) + path.sep);
+}
+
+function workspaceSessionIds(env) {
+  const dir = path.join(openAgentsHome(env), 'sessions');
+  const ids = new Set();
+  let entries;
+  try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return ids; }
+  // Some adapters pass the workspace briefing as a system prompt, so it
+  // does not appear in the CLI's user messages. Their channel maps record
+  // the exact CLI IDs, even when the agent works in a shared project.
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith('.json')) continue;
+    try {
+      const channels = JSON.parse(fs.readFileSync(path.join(dir, entry.name), 'utf8'));
+      if (!channels || typeof channels !== 'object' || Array.isArray(channels)) continue;
+      for (const id of Object.values(channels)) {
+        if (typeof id === 'string') ids.add(id);
+      }
+    } catch { /* a stale or partially written map */ }
+  }
+  return ids;
 }
 
 // How many of a file's lines a listing parses: enough for the first prompt.
@@ -303,10 +326,14 @@ function runOpencode(args, env) {
   const { findOpencodeBinary } = require('./adapters/opencode');
   const bin = findOpencodeBinary();
   if (!bin) return null; // not installed: nothing to import
-  const r = spawnSync(bin, args, {
+  const cmdShim = process.platform === 'win32' && /\.cmd$/i.test(bin);
+  const command = cmdShim ? (process.env.ComSpec || 'cmd.exe') : bin;
+  // cmd.exe strips the outer quotes. The inner quotes preserve the shim
+  // path and arguments such as the read-only SQL as individual tokens.
+  const commandArgs = cmdShim ? ['/d', '/s', '/c', `"${[bin, ...args].map((arg) => `"${arg}"`).join(' ')}"`] : args;
+  const r = spawnSync(command, commandArgs, {
     env: { ...process.env, ...env }, encoding: 'utf-8', timeout: 30000,
-    maxBuffer: 64 * 1024 * 1024, windowsHide: true,
-    shell: process.platform === 'win32' && /\.cmd$/i.test(bin),
+    maxBuffer: 64 * 1024 * 1024, windowsHide: true, windowsVerbatimArguments: cmdShim,
   });
   if (r.status !== 0 || !r.stdout) return null;
   return r.stdout;
@@ -322,18 +349,31 @@ function jsonFrom(text) {
 const msIso = (v) => (Number(v) > 0 ? new Date(Number(v) > 1e12 ? Number(v) : Number(v) * 1000).toISOString() : null);
 
 function listOpencode({ env, limit, run }) {
-  const sessions = jsonFrom(run(['session', 'list', '--format', 'json'], env));
+  // An indexed query lists sessions and counts across projects. The CLI's
+  // session list can be scoped to its working directory's project.
+  // Use the first user text to recognize workspace runs with generated titles.
+  const sql = `SELECT s.id, s.title, s.directory, s.time_updated AS updated,
+      (SELECT COUNT(*) FROM message WHERE session_id = s.id) AS message_count,
+      (SELECT substr(json_extract(p.data, '$.text'), 1, 2048)
+        FROM message m JOIN part p ON p.message_id = m.id
+        WHERE m.session_id = s.id AND json_extract(m.data, '$.role') = 'user'
+          AND json_extract(p.data, '$.type') = 'text'
+          AND COALESCE(json_extract(p.data, '$.synthetic'), 0) = 0
+        ORDER BY m.time_created, m.id, p.time_created, p.id LIMIT 1) AS first_prompt
+    FROM session s WHERE s.parent_id IS NULL
+    ORDER BY s.time_updated DESC LIMIT ${Math.trunc(limit)}`.replace(/\s+/g, ' ');
+  const rows = jsonFrom(run(['db', '--format', 'json', sql], env));
+  const sessions = Array.isArray(rows) ? rows : jsonFrom(run(['session', 'list', '--format', 'json'], env));
   if (!Array.isArray(sessions)) return [];
   return sessions
     .filter((x) => x && x.id)
     .map((x) => ({ x, updated: Number((x.time && x.time.updated) || x.updated || 0) }))
     .sort((a, b) => b.updated - a.updated)
-    .filter(({ x }) => !ranByOpenAgents(x.title, x.directory, env))
+    .filter(({ x }) => !ranByOpenAgents(x.first_prompt || x.title, x.directory, env))
     .slice(0, limit)
     .map(({ x, updated }) => ({
       id: x.id, type: 'opencode', title: maskSecrets(oneLine(x.title || x.id)), cwd: x.directory || null,
-      // The list carries no counts; reading every session for one is too slow.
-      updatedAt: msIso(updated), messageCount: null,
+      updatedAt: msIso(updated), messageCount: x.message_count ?? null,
     }));
 }
 
@@ -457,16 +497,15 @@ function reader(type) {
 /** Newest first: [{id, type, title, cwd, updatedAt, messageCount}] (count null
  *  when the tool can't say cheaply). Sessions an OpenAgents agent ran are left
  *  out: they are already threads. `run` replaces the opencode CLI in tests. */
-function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run = runOpencode, excludeCwds = [], excludeIds = [] } = {}) {
-  const max = Math.max(1, Math.min(limit, 1000));
-  // Sessions this device's agents ran in their own folders, and the copies
-  // adapters made to continue an import, aren't the person's own.
-  const folders = excludeCwds.filter(Boolean).map((d) => path.resolve(d));
-  const skip = new Set(excludeIds);
-  const inFolder = (cwd) => !!cwd && folders.some((d) => path.resolve(cwd) === d || path.resolve(cwd).startsWith(d + path.sep));
+function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run = runOpencode, excludeIds = [] } = {}) {
+  const max = Math.max(1, Math.min(Math.trunc(limit), 1000));
+  const sessions = reader(type);
+  // A project can contain both workspace runs and personal CLI sessions.
+  const skip = workspaceSessionIds(env);
+  for (const id of excludeIds) skip.add(id);
   // Read past what gets left out, so the picker still fills up.
-  return reader(type).list({ env, limit: Math.min(max * 10, 5000), run })
-    .filter((s) => !skip.has(s.id) && !inFolder(s.cwd) && !isProbe(s))
+  return sessions.list({ env, limit: Math.min(max * 10, 5000), run })
+    .filter((s) => !skip.has(s.id) && !isProbe(s))
     .slice(0, max)
     .map(({ typedTurns, ...rest }) => rest); // eslint-disable-line no-unused-vars
 }

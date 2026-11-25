@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useLayout } from '@/components/layout/layout-context';
 import { isOwnedAgent } from '@/lib/sidebar-agents';
 import type { NodeCommand, WorkspaceNode } from '@/lib/types';
 import { Spinner } from '@/components/ui/spinner';
@@ -59,6 +60,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   const t = useT();
   const { timeAgo } = useFormatters();
   const { agents, refreshWorkspace, setCurrentSessionId, currentUser } = useWorkspace();
+  const { openView, openMobileDetail } = useLayout();
   const [type, setType] = useState<ImportableType>(initialType || 'claude');
   const [sessions, setSessions] = useState<LocalSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +137,12 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   };
 
   const finished = Object.entries(outcomes).filter(([, o]) => o.state === 'done') as [string, Extract<Outcome, { state: 'done' }>][];
-  const openThread = (channel: string) => { onOpenChange(false); setCurrentSessionId(channel); };
+  const openThread = (channel: string) => {
+    onOpenChange(false);
+    setCurrentSessionId(channel);
+    openView('threads');
+    openMobileDetail();
+  };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!importing) onOpenChange(v); }}>
