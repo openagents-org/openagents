@@ -40,7 +40,7 @@ src/
     cline.js          ClineAdapter — Cline CLI bridge (`cline --json`, one run per message)
     cline-stream.js   Pure helpers for ClineAdapter (NDJSON parser, event mapping, redaction, error/auth/version classify, arg builder, session correlation) — unit-tested
     deepseek.js       DeepSeekAdapter — DeepSeek Harness (`dsh --profile headless`) bridge, one process per message
-    deepseek-runtime.js  Pure helpers for DeepSeekAdapter (prerelease-aware version gate, argv, private cordis patch, task-file paths, stderr classification, session GC) — unit-tested
+    deepseek-runtime.js  Pure helpers for DeepSeekAdapter (prerelease-aware version floor, composed-patch check, argv, private cordis patch, task-file paths, stderr classification, session GC) — unit-tested
     commandcode.js    CommandCodeAdapter — Command Code CLI (`command-code -p --output-format json`) bridge, prompt piped over stdin, one run per message
     commandcode-stream.js  Pure helpers for CommandCodeAdapter (argv builder, NDJSON frame interpreter, exit-code classification, version gate, redaction) — unit-tested
     openworker.js     OpenWorkerAdapter — OpenWorker (andrewyng/openworker). No headless CLI: spawns one shared `openworker-server` per agent and drives a WebSocket session per channel

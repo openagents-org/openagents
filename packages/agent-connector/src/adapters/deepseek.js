@@ -47,7 +47,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync, execSync } = require('child_process');
+const { execFile, execFileSync } = require('child_process');
 // spawn() here is the WSL bridge from ../wsl: same signature as
 // child_process.spawn, and a straight pass-through unless the resolved CLI
 // lives on the other side of the Windows/WSL boundary.
@@ -71,6 +71,7 @@ const {
   buildPrivatePatch,
   classifyDshFailure,
   classifyDshVersion,
+  verifyComposedConfig,
   classifyNodeVersion,
   cleanStdout,
   defaultInstallCommand,
@@ -107,6 +108,16 @@ const STOP_GRACE_MS = 5000;
  * shipped templates.
  */
 const BOOTSTRAP_TIMEOUT_MS = 3 * 60 * 1000;
+
+/**
+ * Deadline for the `--dump-config` that checks a newer preview in preflight
+ * (_verifyComposedPatch). It composes in well under a second; this only bounds
+ * how long a broken install can keep this one agent from starting.
+ */
+const COMPOSE_CHECK_TIMEOUT_MS = 30 * 1000;
+
+/** Deadline for `dsh -V` in preflight (_readDshVersion). */
+const VERSION_PROBE_TIMEOUT_MS = 15 * 1000;
 
 /**
  * The key bootstrap's child is tracked under in `_channelProcesses`.
@@ -192,6 +203,8 @@ class DeepSeekAdapter extends BaseAdapter {
     // 3-minute waits.
     this._runTimeoutMs = opts.runTimeoutMs || RUN_TIMEOUT_MS;
     this._bootstrapTimeoutMs = opts.bootstrapTimeoutMs || BOOTSTRAP_TIMEOUT_MS;
+    this._composeCheckTimeoutMs = opts.composeCheckTimeoutMs || COMPOSE_CHECK_TIMEOUT_MS;
+    this._versionProbeTimeoutMs = opts.versionProbeTimeoutMs || VERSION_PROBE_TIMEOUT_MS;
 
     // A PRIVATE harness home per agent instance. The user's own ~/.dsh is never
     // read or written: sharing it would leak their profiles, patches and saved
@@ -299,25 +312,42 @@ class DeepSeekAdapter extends BaseAdapter {
 
   /**
    * Drop the resolved dsh so the next preflight resolves it afresh — after the
-   * daemon installed the pinned version into the managed prefix.
+   * daemon installed the supported version into the managed prefix.
    */
   forgetRuntime() {
     this._nodeBin = null;
     this._jsEntry = null;
+    this._composeVerified = null;
   }
 
-  /** `dsh -V` output, or null. Synchronous: preflight() is a sync contract. */
+  /**
+   * `dsh -V` output, or null. Asynchronous with its own deadline: preflight
+   * runs on the daemon's event loop, which every agent on the device shares,
+   * so a slow probe must not hold up their events, Stop or the heartbeat.
+   * At the deadline this resolves null at once and the child is killed.
+   */
   _readDshVersion() {
-    if (!this._jsEntry) return null;
-    try {
-      return execFileSync(this._nodeBin, [this._jsEntry, '-V'], {
-        encoding: 'utf-8',
-        timeout: 15000,
-        env: getEnhancedEnv(this.agentEnv),
-      }).trim();
-    } catch {
-      return null;
-    }
+    if (!this._jsEntry) return Promise.resolve(null);
+    return new Promise((resolve) => {
+      let child;
+      const timer = setTimeout(() => {
+        resolve(null);
+        try { child.kill('SIGKILL'); } catch { /* already gone */ }
+      }, this._versionProbeTimeoutMs);
+      try {
+        child = execFile(this._nodeBin, [this._jsEntry, '-V'], {
+          encoding: 'utf-8',
+          env: getEnhancedEnv(this.agentEnv),
+          windowsHide: true,
+        }, (err, stdout) => {
+          clearTimeout(timer);
+          resolve(err ? null : String(stdout || '').trim() || null);
+        });
+      } catch {
+        clearTimeout(timer);
+        resolve(null);
+      }
+    });
   }
 
   /**
@@ -360,7 +390,7 @@ class DeepSeekAdapter extends BaseAdapter {
    * probes meaningless, and both version probes must pass before bootstrap is
    * ever allowed to start a dsh process.
    */
-  preflight() {
+  async preflight() {
     if (!this._jsEntry) {
       const resolved = this._resolveDshCommand();
       if (resolved) { this._nodeBin = resolved[0]; this._jsEntry = resolved[1]; }
@@ -394,9 +424,9 @@ class DeepSeekAdapter extends BaseAdapter {
       || SUPPORTED_DSH_VERSION;
     const installCmd = (entry && entry.install && entry.install[this._platformKey()])
       || defaultInstallCommand(supported);
-    const gate = classifyDshVersion(this._readDshVersion(), supported, installCmd);
+    const gate = classifyDshVersion(await this._readDshVersion(), supported, installCmd);
     if (gate.compatible === false || gate.compatible === null) {
-      // repairable: the daemon installs the pinned version and asks again
+      // repairable: the daemon installs the supported version and asks again
       // (see Daemon._repairRuntime), so a stale dsh never reaches the user.
       return { ok: false, reason: REASON.VERSION_INCOMPATIBLE, message: gate.message, repairable: true };
     }
@@ -412,8 +442,110 @@ class DeepSeekAdapter extends BaseAdapter {
       };
     }
 
+    if (!gate.tested) {
+      const problem = await this._verifyComposedPatch(gate.detected);
+      if (problem) {
+        return {
+          ok: false,
+          reason: REASON.VERSION_INCOMPATIBLE,
+          message:
+            `DeepSeek Harness ${gate.detected} is newer than ${gate.supported}, the `
+            + `version this agent is written against, and its configuration changed: ${problem}. `
+            + `Reinstall with: ${installCmd}`,
+          repairable: true,
+        };
+      }
+    }
+
     this._log(`DeepSeek Harness ${gate.detected} resolved (node ${node.version})`);
     return { ok: true };
+  }
+
+  /**
+   * For a dsh newer than the one this adapter was written against: compose the
+   * headless profile with the private patch and check the result. Resolves to
+   * null when the patch composed as written, else to what did not.
+   *
+   * Remembered per dsh entry and version, so a passing preview is composed once
+   * per daemon process rather than on every preflight. `--dump-config`
+   * composes without booting (no model call, no key).
+   */
+  async _verifyComposedPatch(version) {
+    const key = `${this._jsEntry}|${version}`;
+    if (this._composeVerified === key) return null;
+    let problem;
+    try {
+      fs.mkdirSync(this._dshHome, { recursive: true, mode: 0o700 });
+      this._writePrivatePatch();
+      problem = verifyComposedConfig(await this._dumpConfig()).problem;
+    } catch (e) {
+      problem = `dsh --dump-config failed (${redactDiagnostic(String(e && e.message || e)).slice(0, 200)})`;
+    }
+    if (problem) {
+      this._log(`DeepSeek Harness ${version}: private patch check failed — ${problem}`, 'warn');
+      return problem;
+    }
+    this._log(`DeepSeek Harness ${version}: private patch composes as written`);
+    this._composeVerified = key;
+    return null;
+  }
+
+  /**
+   * `dsh --profile headless --patch <ours> --dump-config`, resolving to stdout.
+   *
+   * Asynchronous with a hard deadline. The daemon runs every agent on the
+   * device in one process, so a synchronous child here held up their events,
+   * Stop and the device heartbeat — and a timed-out execFileSync still waits
+   * for the child to exit after its SIGTERM. At the deadline this rejects at
+   * once and the process group is stopped in the background.
+   */
+  _dumpConfig() {
+    const args = buildDumpConfigArgs({ jsEntry: this._jsEntry, patchFile: this._patchFile });
+    return new Promise((resolve, reject) => {
+      let proc;
+      try {
+        proc = spawn(this._nodeBin, args, {
+          stdio: ['ignore', 'pipe', 'pipe'],
+          env: this._buildSubprocessEnv('workspace-write'),
+          cwd: this.workingDir,
+          detached: !IS_WINDOWS,
+          windowsHide: true,
+        });
+      } catch (e) {
+        reject(e);
+        return;
+      }
+      let out = '';
+      let err = '';
+      let settled = false;
+      const finish = (fn, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        fn(value);
+      };
+      const timer = setTimeout(() => {
+        finish(reject, new Error(`timed out after ${this._composeCheckTimeoutMs / 1000}s`));
+        this._stopProcess(proc).catch(() => false);
+      }, this._composeCheckTimeoutMs);
+      proc.stdout.on('data', (d) => {
+        out += d.toString();
+        if (out.length > MAX_STDOUT_BYTES) {
+          finish(reject, new Error('output too large'));
+          this._stopProcess(proc).catch(() => false);
+        }
+      });
+      proc.stderr.on('data', (d) => {
+        if (err.length < MAX_STDERR_BYTES) err += d.toString();
+      });
+      proc.stdout.on('error', () => {});
+      proc.stderr.on('error', () => {});
+      proc.on('error', (e) => finish(reject, e));
+      proc.on('close', (code) => {
+        if (code === 0) finish(resolve, out);
+        else finish(reject, new Error(`exit ${code}: ${err.trim().slice(0, 300)}`));
+      });
+    });
   }
 
   _platformKey() {
@@ -715,12 +847,12 @@ class DeepSeekAdapter extends BaseAdapter {
     try {
       if (IS_WINDOWS) {
         // /T takes the whole tree, so there is no separate group to signal.
-        try {
-          execSync(`taskkill /F /T /PID ${proc.pid}`, { timeout: 5000 });
-          return true;
-        } catch {
-          return this._hasExited(proc);
-        }
+        // Asynchronous: this also runs from timers (a compose past its
+        // deadline), and a synchronous taskkill held the shared event loop.
+        return await new Promise((resolve) => {
+          execFile('taskkill', ['/F', '/T', '/PID', String(proc.pid)], { timeout: 5000, windowsHide: true },
+            (err) => resolve(err ? this._hasExited(proc) : true));
+        });
       }
       // POSIX: signal the whole process group (the child is detached) so the
       // shell commands dsh spawned for its bash tool are reaped too.

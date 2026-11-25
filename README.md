@@ -154,7 +154,7 @@ The Launcher installs, configures, and connects 26 agents (25 rows below; Qoder 
 | **Cline** | Cline Bot | 🧪 Beta | Autonomous coding agent CLI ([guide](docs/guides/cline.md)) |
 | **Aider** | Open source | 🧪 Beta | AI pair programming in your terminal ([setup](#connecting-aider)) |
 | **Goose** | Block | 🧪 Beta | Open-source developer agent, headless CLI ([setup](#goose-beta)) |
-| **DeepSeek Harness** | DeepSeek | 🧪 Preview | DeepSeek's agent harness (`dsh`), pinned to a preview release ([guide](docs/agents/deepseek.md)) |
+| **DeepSeek Harness** | DeepSeek | 🧪 Preview | DeepSeek's agent harness (`dsh`), a developer preview (newer previews run after a config check) ([guide](docs/agents/deepseek.md)) |
 
 > **Aider is Beta.** The full offline test suite (provider resolution, sessions,
 > Git safety, install detection) passes, but a real end-to-end run against a live

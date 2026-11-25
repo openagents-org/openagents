@@ -1971,6 +1971,118 @@ describe('Daemon._probeAgent — the child reads daemon.yaml mid-save', () => {
   });
 });
 
+describe('Daemon._adapterLoop — a start that is stopped or restarted while preflight runs', () => {
+  const adapters = require('../src/adapters');
+  let realCreate;
+  beforeEach(() => { realCreate = adapters.createAdapter; });
+  afterEach(() => { adapters.createAdapter = realCreate; });
+
+  /** An adapter whose preflight answers only when the test says so. */
+  function pendingAdapter() {
+    let answer;
+    let fail;
+    const adapter = {
+      runs: 0,
+      preflight: () => new Promise((resolve, reject) => { answer = resolve; fail = reject; }),
+      run: async () => { adapter.runs += 1; },
+      stop() {},
+    };
+    adapters.createAdapter = () => adapter;
+    return { adapter, answer: (pf) => answer(pf), fail: (e) => fail(e) };
+  }
+
+  function start(daemon, name) {
+    const info = { state: 'starting' };
+    daemon._processes[name] = info;
+    const loop = daemon._adapterLoop(name, { name, type: 'deepseek' }, info, { slug: 'ws', token: 't' });
+    return { info, loop };
+  }
+
+  function makeDaemon() {
+    const daemon = new Daemon(new Config(tmpDir), new EnvManager(tmpDir), new Registry(tmpDir));
+    daemon._writeStatus = () => {};
+    daemon._log = () => {};
+    return daemon;
+  }
+
+  it('does not run an agent stopped while its preflight was pending', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._stoppedAgents.add('ds');
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 0);
+    assert.equal(daemon._adapters.ds, undefined);
+  });
+
+  it('leaves a restart to the new start instead of running the old one too', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._processes.ds = { state: 'starting' }; // what _launchAgent does on restart
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 0);
+  });
+
+  // Review of 455f9e769: a preflight that threw went through the catch and
+  // straight on to run().
+  it('does not run an agent stopped while its preflight was pending and then threw', async () => {
+    const daemon = makeDaemon();
+    const { adapter, fail } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._stoppedAgents.add('ds');
+    fail(new Error('compose crashed'));
+    await loop;
+    assert.equal(adapter.runs, 0);
+    assert.equal(daemon._adapters.ds, undefined);
+  });
+
+  it('does not run the old start of a restart whose preflight threw', async () => {
+    const daemon = makeDaemon();
+    const { adapter, fail } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._processes.ds = { state: 'starting' };
+    fail(new Error('compose crashed'));
+    await loop;
+    assert.equal(adapter.runs, 0);
+  });
+
+  it('does not run during shutdown when preflight threw', async () => {
+    const daemon = makeDaemon();
+    const { adapter, fail } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    await new Promise((r) => setImmediate(r));
+    daemon._shuttingDown = true;
+    fail(new Error('compose crashed'));
+    await loop;
+    assert.equal(adapter.runs, 0);
+  });
+
+  it('still runs a start whose preflight threw when nobody interrupted it', async () => {
+    const daemon = makeDaemon();
+    const { adapter, fail } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    fail(new Error('compose crashed'));
+    await loop;
+    assert.equal(adapter.runs, 1);
+  });
+
+  it('runs a start nobody interrupted', async () => {
+    const daemon = makeDaemon();
+    const { adapter, answer } = pendingAdapter();
+    const { loop } = start(daemon, 'ds');
+    answer({ ok: true });
+    await loop;
+    assert.equal(adapter.runs, 1);
+  });
+});
+
 describe('Daemon._repairRuntime', () => {
   const { Installer } = require('../src/installer');
   let realInstall;
