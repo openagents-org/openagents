@@ -18,8 +18,8 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, cast, func, or_, select, Text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, cast, func, or_, select, Text, union_all
+from sqlalchemy.orm import Session, aliased
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
@@ -1024,16 +1024,24 @@ def poll_events(
         if channel:
             query = query.where(EventRecord.target == f"channel/{channel}")
 
+        split_types = None
         if type:
             matching = None if type in POLL_PREFIXES else workspace_types_matching(db, workspace_id, type)
             if matching is not None and len(matching) <= 1:
                 # One concrete type (or none): equality lets PostgreSQL range-scan
                 # (network_id, type, ...) instead of reading every other type.
                 query = query.where(EventRecord.type.in_(matching))
+            elif matching is not None and (target or channel):
+                # Several types in one thread: an IN list makes PostgreSQL read
+                # and sort the whole thread (258k rows), and the prefix filter
+                # walks the workspace's timestamp index until it finds enough of
+                # this thread's rows (10-30 s once the thread goes quiet,
+                # 2026-11-25). Instead read each type's newest rows through
+                # (network_id, type, target, timestamp) and merge (see below).
+                split_types = sorted(matching)
             else:
-                # Several types: an IN list defeats ordered index scans (a
-                # thread's newest page read and sorted all 258k of its rows), so
-                # keep the prefix filter, which walks the timestamp index.
+                # Workspace-wide: the prefix filter walks the timestamp index,
+                # which finds recent messages quickly.
                 query = query.where(event_type_filter(type))
 
         if exclude_message_types:
@@ -1106,10 +1114,20 @@ def poll_events(
         # event the main query didn't get to see (at worst a harmless re-scan).
         head_snapshot = stream_head(db, workspace_id, type, channel, target) if target_agents else None
 
-        if sort == "desc":
-            query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
+        def ordered(q, model=EventRecord):
+            if sort == "desc":
+                return q.order_by(model.timestamp.desc(), model.id.desc()).limit(limit + 1)
+            return q.order_by(model.timestamp.asc(), model.id.asc()).limit(limit + 1)
+
+        if split_types:
+            # One ordered, limited index scan per type, then merge: the result is
+            # the same page the prefix filter would return.
+            parts = [ordered(query.where(EventRecord.type == t)).subquery() for t in split_types]
+            merged = union_all(*[select(part) for part in parts]).subquery()
+            merged_event = aliased(EventRecord, merged)
+            query = ordered(select(merged_event), merged_event)
         else:
-            query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
+            query = ordered(query)
         rows = db.execute(query).scalars().all()
 
         has_more = len(rows) > limit
