@@ -2033,7 +2033,11 @@ export function WorkspaceProvider({
       try { void panelRefreshersRef.current[topic]?.(); } catch { /* best effort */ }
     };
     const offWake = liveStream.onWake((topics) => {
+      // A hidden tab keeps only unread state live; panel wake-ups are dropped
+      // and the full refresh on return (useDiscoveryPolling) catches them up.
+      const hidden = document.visibilityState === 'hidden';
       for (const topic of topics) {
+        if (hidden && topic !== 'discover') continue;
         if (!panelRefreshersRef.current[topic] || timers[topic]) continue;
         const gap = MIN_GAP_MS[topic] ?? 1_500;
         const wait = Math.max(500, (lastRun[topic] ?? 0) + gap - Date.now());

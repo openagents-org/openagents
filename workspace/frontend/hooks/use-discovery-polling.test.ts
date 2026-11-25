@@ -99,3 +99,29 @@ it('becomes a slow safety refresh while the live stream is connected', async () 
   await advance(5_000);
   expect(refresh.mock.calls.length).toBe(calls + 1);
 });
+
+function setVisibility(state: 'visible' | 'hidden') {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
+  document.dispatchEvent(new Event('visibilitychange'));
+}
+
+it('keeps only unread state current in a hidden tab, then catches up on return', async () => {
+  enabled = true;
+  active.current = true;
+  await render();
+  await advance(5_000);
+  expect(refresh).toHaveBeenLastCalledWith();
+  setVisibility('hidden');
+  await advance(5_000);            // the 5 s active tick still fires once, unread only
+  expect(refresh).toHaveBeenLastCalledWith({ panels: false });
+  const callsWhileHidden = refresh.mock.calls.length;
+  await advance(25_000);           // hidden: nothing more until 30 s pass
+  expect(refresh.mock.calls.length).toBe(callsWhileHidden);
+  await advance(5_000);
+  expect(refresh.mock.calls.length).toBe(callsWhileHidden + 1);
+  expect(refresh).toHaveBeenLastCalledWith({ panels: false });
+  setVisibility('visible');
+  await advance(0);
+  expect(refresh).toHaveBeenLastCalledWith();   // full refresh right away
+  setVisibility('visible');
+});
