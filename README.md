@@ -151,36 +151,30 @@ The [OpenAgents documentation](https://openagents.org/docs/en/getting-started/ov
 [OpenAgents showcase](https://openagents.org/showcase) · [OpenAgents on X](https://x.com/OpenAgentsAI)
 
 <a name="launch-partners"></a>
+<a name="partners"></a>
 
-### Partners
-
-<div align="center">
-
-<a href="https://peakmojo.com/"><img src="docs/assets/launch_partners/peakmojo.png" alt="PeakMojo" height="30"></a> &ensp;
-<a href="https://ag2.ai/"><img src="docs/assets/launch_partners/ag2.png" alt="AG2" height="30"></a> &ensp;
-<a href="https://lobehub.com/"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="30"></a> &ensp;
-<a href="https://jaaz.app/"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="30"></a> &ensp;
-<a href="https://www.eigent.ai/"><img src="https://www.eigent.ai/nav/logo_icon.svg" alt="Eigent" height="30"></a> &ensp;
-<a href="https://youware.com/"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="30"></a> &ensp;
-<a href="https://memu.pro/"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="30"></a> &ensp;
-<a href="https://sealos.io/"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="30"></a> &ensp;
-<a href="https://zeabur.com/"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="30"></a> &ensp;
-<a href="https://z.ai/" title="Z.AI"><img src="docs/assets/launch_partners/zhipu.png" alt="Z.AI" height="30"></a> &ensp;
-<a href="https://zopia.ai/" title="Zopia"><img src="docs/assets/launch_partners/zopia.png" alt="Zopia" height="30"></a> &ensp;
-<a href="https://github.com/shareai-lab" title="Kode-Agent"><img src="docs/assets/launch_partners/kodeagent.png" alt="Kode-Agent" height="30"></a> &ensp;
-<a href="https://www.leapility.com/" title="Leapility"><img src="docs/assets/launch_partners/leapility.png" alt="Leapility" height="30"></a> &ensp;
-<a href="https://bisheng.ai/" title="BISHENG"><img src="docs/assets/launch_partners/bisheng.png" alt="BISHENG" height="30"></a> &ensp;
-<a href="https://www.sheet0.com/" title="Sheet0"><img src="docs/assets/launch_partners/sheet0.png" alt="Sheet0" height="30"></a> &ensp;
-<a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="30"></a> &ensp;
-<a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="30"></a> &ensp;
-<a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="30"></a> &ensp;
-<a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="30"></a>
-
-</div>
-
-**Trusted by** · [OpenAgents community](https://openagents.org/#community-partners)
+### Trusted by
 
 <p align="center">
+  <a href="https://peakmojo.com/"><img src="docs/assets/launch_partners/peakmojo.png" alt="PeakMojo" height="30"></a> &ensp;
+  <a href="https://ag2.ai/"><img src="docs/assets/launch_partners/ag2.png" alt="AG2" height="30"></a> &ensp;
+  <a href="https://lobehub.com/"><img src="docs/assets/launch_partners/lobehub.png" alt="LobeHub" height="30"></a> &ensp;
+  <a href="https://jaaz.app/"><img src="docs/assets/launch_partners/jaaz.png" alt="Jaaz" height="30"></a> &ensp;
+  <a href="https://www.eigent.ai/"><img src="https://www.eigent.ai/nav/logo_icon.svg" alt="Eigent" height="30"></a> &ensp;
+  <a href="https://youware.com/"><img src="docs/assets/launch_partners/youware.svg" alt="Youware" height="30"></a> &ensp;
+  <a href="https://memu.pro/"><img src="docs/assets/launch_partners/memu.svg" alt="Memu" height="30"></a> &ensp;
+  <a href="https://sealos.io/"><img src="docs/assets/launch_partners/sealos.svg" alt="Sealos" height="30"></a> &ensp;
+  <a href="https://zeabur.com/"><img src="docs/assets/launch_partners/zeabur.png" alt="Zeabur" height="30"></a> &ensp;
+  <a href="https://z.ai/" title="Z.AI"><img src="docs/assets/launch_partners/zhipu.png" alt="Z.AI" height="30"></a> &ensp;
+  <a href="https://zopia.ai/" title="Zopia"><img src="docs/assets/launch_partners/zopia.png" alt="Zopia" height="30"></a> &ensp;
+  <a href="https://github.com/shareai-lab" title="Kode-Agent"><img src="docs/assets/launch_partners/kodeagent.png" alt="Kode-Agent" height="30"></a> &ensp;
+  <a href="https://www.leapility.com/" title="Leapility"><img src="docs/assets/launch_partners/leapility.png" alt="Leapility" height="30"></a> &ensp;
+  <a href="https://bisheng.ai/" title="BISHENG"><img src="docs/assets/launch_partners/bisheng.png" alt="BISHENG" height="30"></a> &ensp;
+  <a href="https://www.sheet0.com/" title="Sheet0"><img src="docs/assets/launch_partners/sheet0.png" alt="Sheet0" height="30"></a> &ensp;
+  <a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="30"></a> &ensp;
+  <a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="30"></a> &ensp;
+  <a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="30"></a> &ensp;
+  <a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="30"></a>
   <img src="docs/assets/partners/aws.webp" alt="AWS Startups" width="145">
   <img src="docs/assets/partners/linkedin.webp" alt="LinkedIn" width="145">
   <img src="docs/assets/partners/alibaba.webp" alt="Alibaba" width="145">
@@ -206,11 +200,6 @@ The [OpenAgents documentation](https://openagents.org/docs/en/getting-started/ov
   <img src="docs/assets/partners/gdg.webp" alt="Google Developer Groups" width="145">
   <img src="docs/assets/partners/freecodecamp-wordmark.webp" alt="freeCodeCamp" width="145">
   <img src="docs/assets/partners/aaif.webp" alt="Agentic AI Foundation" width="145">
-</p>
-
-**Research collaborators**
-
-<p align="center">
   <img src="docs/assets/partners/utokyo.webp" alt="The University of Tokyo" width="145">
   <img src="docs/assets/partners/columbia.webp" alt="Columbia University" width="145">
   <img src="docs/assets/partners/upenn.webp" alt="University of Pennsylvania" width="145">
