@@ -1599,9 +1599,9 @@ async def live_event_stream(
     if error is not None:
         return error
     workspace_id, viewer, dm_scope, hidden = scope
-    if not await run_in_threadpool(agent_stream.workspace_stream_enabled, workspace_id):
+    if not agent_stream.live_stream_enabled():
         return json_response(
-            ResponseCode.NOT_FOUND, "Live stream is not enabled for this workspace",
+            ResponseCode.NOT_FOUND, "Live stream is not enabled on this server",
             data={"reason": "live_stream_disabled"},
         )
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None

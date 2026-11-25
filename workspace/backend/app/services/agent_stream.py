@@ -79,8 +79,31 @@ def configure_allowlist(raw: str) -> None:
     _ALLOW_ALL, _ALLOWED = _parse_allowlist(raw)
 
 
+_LIVE_OFF_VALUES = ("0", "false", "off", "no")
+_live_override: Optional[bool] = None
+
+
+def live_stream_enabled() -> bool:
+    """The web app's workspace stream (GET /v1/events/live), for web and desktop
+    clients. On by default wherever Redis is configured (it carries the event
+    feed); operators can turn it off with LIVE_STREAM_ENABLED=false. Clients
+    fall back to timed polling whenever it is off or a connection drops."""
+    if _live_override is not None:
+        return _live_override
+    if os.environ.get("LIVE_STREAM_ENABLED", "").strip().lower() in _LIVE_OFF_VALUES:
+        return False
+    return not cache._disabled
+
+
+def configure_live_stream(enabled: Optional[bool]) -> None:
+    """Force the live stream on/off (tests); None restores the default."""
+    global _live_override
+    _live_override = enabled
+
+
 def stream_enabled(workspace_id, settings: Optional[dict] = None) -> bool:
-    """Allowlisted, or the workspace turned on ``realtime_stream``."""
+    """Agent wake-up stream: allowlisted (AGENT_STREAM_WORKSPACES, rolled out
+    gradually), or the workspace's legacy ``realtime_stream`` setting."""
     if _ALLOW_ALL or str(workspace_id) in _ALLOWED:
         return True
     return bool((settings or {}).get("realtime_stream") is True)
