@@ -2,12 +2,13 @@
 
 import { use, useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { LogIn, Loader2, Mail, UserPlus } from 'lucide-react';
+import { LogIn, Mail, UserPlus } from 'lucide-react';
 import { Button } from '@/components/ui/reui/button';
 import { getInvitePeek, acceptInvite, inviteLandingPath, type InvitePeek } from '@/lib/invite-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
+import { Spinner } from '@/components/ui/spinner';
 
 /**
  * The invitee's landing page for /invite/{token} links. The token in the URL
@@ -83,7 +84,7 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
   }
 
   if (!peek || authLoading) {
-    return card(<Loader2 className="mx-auto size-6 animate-spin text-muted-foreground" />);
+    return card(<Spinner aria-hidden="true" className="mx-auto size-6 text-muted-foreground" />);
   }
 
   if (peek.status !== 'pending') {
@@ -134,17 +135,19 @@ export default function InvitePage({ params }: { params: Promise<{ token: string
       {user && idToken ? (
         <div className="space-y-3">
           <Button className="w-full" onClick={join} disabled={joining}>
-            {joining ? <Loader2 className="size-4 animate-spin" /> : <UserPlus className="size-4" />}
+            {joining ? <Spinner aria-hidden="true" className="size-4" /> : <UserPlus className="size-4" />}
             {t('invitePage.join', { workspace: peek.workspaceName })}
           </Button>
           <p className="text-xs text-muted-foreground">
             {t('invitePage.signedInAs', { email: user.email })}{' '}
-            <button
-              className="underline hover:text-foreground"
+            <Button
+              type="button"
+              mode="link"
+              className="text-xs whitespace-normal text-inherit underline hover:text-foreground"
               onClick={() => goToCentralLogout(signOut)}
             >
               {t('invitePage.switchAccount')}
-            </button>
+            </Button>
           </p>
           {acceptError && <p className="text-xs text-destructive">{acceptError}</p>}
         </div>

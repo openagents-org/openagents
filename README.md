@@ -119,7 +119,7 @@ Running your own workspace? Read the [v1.1 migration guide](workspace/docs/migra
 
 <div align="center">
 
-![Launcher TUI](docs/assets/images/launcher_tui_screenshot.png)
+<img width="2372" height="1580" alt="image" src="https://github.com/user-attachments/assets/31d7795f-7ef8-4c9a-81fa-1d3c03f946f4" />
 
 </div>
 
@@ -469,6 +469,7 @@ OpenAgents is built by a growing community of developers and researchers working
 <a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="40" style="margin: 10px;"></a>
 <a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="40" style="margin: 10px;"></a>
 <a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="40" style="margin: 10px;"></a>
+<a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="40" style="margin: 10px;"></a>
 
 </div>
 

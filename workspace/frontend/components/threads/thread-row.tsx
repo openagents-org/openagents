@@ -8,14 +8,15 @@ import { DmUnreadBadge } from '@/components/layout/dm-unread-badge';
 import { Kbd } from '@/components/ui/kbd';
 import type { WorkspaceAgent, WorkspaceSession } from '@/lib/types';
 import { MENTION_ACCENT, ROW_BASE, ROW_IDLE, ROW_SELECTED, UNREAD_ACCENT } from './thread-list-utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 function AvatarStack({ agents, session, max = 3 }: { agents: WorkspaceAgent[]; session: WorkspaceSession; max?: number }) {
   const t = useT();
   if (session.icon) return <span className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-muted text-lg" aria-label={t('threadSettings.icon')}>{session.icon}</span>;
   if ((session.humanCount || 0) > 1 || ((session.humanCount || 0) > 0 && agents.length > 0)) {
-    return <span className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary" title={t(agents.length ? 'threadSettings.peopleAndAgents' : 'threadSettings.groupThread')}>
+    return <WithTooltip label={t(agents.length ? 'threadSettings.peopleAndAgents' : 'threadSettings.groupThread')}><span className="relative flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
       <Users className="size-4" />{agents.length > 0 && <Bot className="absolute -right-1 -bottom-1 size-3.5 rounded bg-background p-0.5 ring-1 ring-border" />}
-    </span>;
+    </span></WithTooltip>;
   }
   const shown = agents.slice(0, max);
   const extra = agents.length - max;

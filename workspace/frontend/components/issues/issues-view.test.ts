@@ -581,8 +581,8 @@ it('adds people and agents without starting work, and omits the issue Tasks sect
   expect(participants.textContent).toContain('Research agent');
   await click([...participants.querySelectorAll('button')].find(button => button.textContent === 'Add people or agents')!);
   const dialog = host.querySelector('[role=dialog]')!;
-  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('Bob'))!);
-  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.textContent?.includes('New agent'))!);
+  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.closest('label')?.textContent?.includes('Bob'))!);
+  await click(Array.from(dialog.querySelectorAll<HTMLElement>('[role=checkbox]')).find((b) => b.closest('label')?.textContent?.includes('New agent'))!);
   mocks.api.getIssue.mockResolvedValue({ ...issue, participants: [...issue.participants,
     { source: 'human:bob@example.com', name: 'Bob' }, { source: 'openagents:new-agent', name: 'New agent' },
   ] });

@@ -17,6 +17,12 @@ vi.mock('@/lib/i18n', () => ({
   useI18n: () => ({ locale: 'en-US' }),
   useFormatters: () => ({ formatDate: () => 'Dec 3' }),
 }));
+const layout = vi.hoisted(() => ({ openView: vi.fn(), setSelectedAgentName: vi.fn(), setThreadFilter: vi.fn(), openMobileDetail: vi.fn() }));
+const setCurrentSessionId = vi.hoisted(() => vi.fn());
+vi.mock('@/components/layout/layout-context', () => ({ useLayout: () => layout }));
+vi.mock('@/lib/workspace-context', () => ({
+  useWorkspace: () => ({ currentUser: { id: 'owner@example.com', isAuthenticated: true }, setCurrentSessionId }),
+}));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const onChanged = vi.fn();
@@ -42,6 +48,8 @@ beforeEach(() => {
   api.removeHostedAgent.mockReset().mockResolvedValue(undefined);
   confirm.mockReset();
   onChanged.mockReset();
+  setCurrentSessionId.mockReset();
+  Object.values(layout).forEach((fn) => fn.mockReset());
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -251,4 +259,18 @@ it('shows the running Acenta offer only to people who still qualify', async () =
   api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer: { ...offer, endsAt: new Date(Date.now() - 1000).toISOString() } });
   await render();
   expect(container.textContent).not.toContain('connect.acentaOfferBlackFriday');
+});
+
+
+it('opens the DM with an agent right after adding it, where its welcome arrives', async () => {
+  api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agentLimit: 3, agents: [
+    { id: 'a1', name: 'Helper', agentName: 'acenta-a1', state: 'ready', tier: 'standard', url: '', here: false, workspaces: 0 },
+  ] });
+  api.connectAcentaAgent.mockResolvedValue({ agentName: 'acenta-a1' });
+  await render();
+  const add = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => /add/i.test(b.textContent || '') || /add/i.test(b.getAttribute('aria-label') || ''));
+  await act(async () => { add!.click(); });
+  expect(api.connectAcentaAgent).toHaveBeenCalledWith('a1');
+  expect(setCurrentSessionId).toHaveBeenCalledWith('dm:human:owner@example.com,openagents:acenta-a1');
+  expect(layout.openView).toHaveBeenCalledWith('threads');
 });

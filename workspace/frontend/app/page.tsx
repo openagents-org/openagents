@@ -5,11 +5,7 @@ import { desktopHost, hintTabTitle } from '@/lib/desktop-host';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
-import {
-  Plus, LogOut, Clock, Loader2,
-  Copy, Check, ArrowRight,
-  Network, Zap, Shield, MonitorSmartphone,
-} from 'lucide-react';
+import { Plus, LogOut, Clock, Copy, Check, ArrowRight, Network, Zap, Shield, MonitorSmartphone } from 'lucide-react';
 import { Button } from '@/components/ui/reui/button';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import { Input } from '@/components/ui/reui/input';
@@ -21,6 +17,7 @@ import { useCreateWorkspace } from '@/hooks/use-create-workspace';
 import { useFormatters, useT, type MessageKey } from '@/lib/i18n';
 import { DesktopWorkspaceHome } from '@/components/workspaces-home/desktop-workspace-home';
 import { landingTarget, markAutoEntered, orderWorkspaces, rememberWorkspaceTokens } from '@/lib/first-workspace';
+import { Spinner } from '@/components/ui/spinner';
 
 /** A catalogue key, translated at render time, or a raw message from an Error. */
 type ErrorMessage = { key: MessageKey } | { text: string };
@@ -411,7 +408,8 @@ function CreateWorkspaceStatus({ flow, onCheckList }: {
   onCheckList: () => void;
 }) {
   const t = useT();
-  const link = 'font-bold underline underline-offset-2 hover:text-foreground';
+  // Sized and wrapping like the sentence it sits in, not like a button.
+  const link = 'text-sm font-bold whitespace-normal text-inherit underline underline-offset-2 hover:text-foreground';
   if (flow.phase === 'slow') {
     return <p role="status" className="text-sm text-muted-foreground">{t('dashboard.createSlow')}</p>;
   }
@@ -419,7 +417,7 @@ function CreateWorkspaceStatus({ flow, onCheckList }: {
     return (
       <p role="status" className="text-sm text-muted-foreground">
         {t('dashboard.createUnconfirmed')}{' '}
-        <button type="button" onClick={onCheckList} className={link}>{t('dashboard.createCheckList')}</button>
+        <Button type="button" mode="link" onClick={onCheckList} className={link}>{t('dashboard.createCheckList')}</Button>
       </p>
     );
   }
@@ -427,7 +425,7 @@ function CreateWorkspaceStatus({ flow, onCheckList }: {
     return (
       <p role="status" className="text-sm text-muted-foreground">
         {t('dashboard.createOpening')}{' '}
-        <button type="button" onClick={flow.reopen} className={link}>{t('dashboard.createOpen')}</button>
+        <Button type="button" mode="link" onClick={flow.reopen} className={link}>{t('dashboard.createOpen')}</Button>
       </p>
     );
   }
@@ -441,7 +439,7 @@ function CreateWorkspaceStatus({ flow, onCheckList }: {
 function FullscreenSpinner() {
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
-      <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <Spinner aria-hidden="true" className="size-6 text-muted-foreground" />
     </div>
   );
 }
@@ -1003,7 +1001,7 @@ function MembershipHome({
               />
               <div className="flex items-center gap-2">
                 <BrutalBtn type="submit" disabled={createFlow.pending} color="blue">
-                  {createFlow.pending ? <Loader2 className="size-3.5 animate-spin" /> : <Plus className="size-3.5" />}
+                  {createFlow.pending ? <Spinner aria-hidden="true" className="size-3.5" /> : <Plus className="size-3.5" />}
                   {t('dashboard.createWorkspace')}
                 </BrutalBtn>
                 <button

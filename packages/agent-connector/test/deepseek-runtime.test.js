@@ -436,6 +436,9 @@ describe('failure classification', () => {
     ['auth', 'invalid_api_key provided', FAILURE.AUTH],
     ['model', 'model_not_found: deepseek-v9', FAILURE.MODEL],
     ['model', 'HTTP 429 rate limit exceeded', FAILURE.MODEL],
+    // dsh on an empty account (daily errors dashboard, 2026-11-25).
+    ['an empty balance as credit', '[llm-deepseek-api-key] model listing from https://api.deepseek.com/models loaded 2 model(s), skipped 0 row(s)\ndsh: QUOTA: Insufficient Balance (request_id: 0f3c)', FAILURE.CREDIT],
+    ['a 402 with no balance as credit, not auth', 'HTTP 402 Payment Required: Insufficient Balance', FAILURE.CREDIT],
     ['network', 'connect ECONNREFUSED 127.0.0.1:443', FAILURE.NETWORK],
     ['network', 'getaddrinfo ENOTFOUND api.deepseek.com', FAILURE.NETWORK],
     ['permission', "EACCES: permission denied, open '/etc/hosts'", FAILURE.PERMISSION],
@@ -450,6 +453,17 @@ describe('failure classification', () => {
       assert.equal(classifyDshFailure({ code: 1, stderr }).category, expected);
     });
   }
+
+  it('does not read a credit retry logged earlier as the reason', () => {
+    const stderr = 'info: 402 Payment Required, retrying with fallback key\nretry 1\nretry 2\nconnect ECONNREFUSED 127.0.0.1:443';
+    assert.equal(classifyDshFailure({ code: 1, stderr }).category, FAILURE.NETWORK);
+  });
+
+  it('says what to do about an empty balance ahead of dsh\'s words', () => {
+    const r = classifyDshFailure({ code: 1, stderr: 'dsh: QUOTA: Insufficient Balance' });
+    assert.match(r.message, /^The account behind this agent's API key has run out of balance\./);
+    assert.match(r.message, /dsh: QUOTA: Insufficient Balance$/);
+  });
 
   it('falls back to unknown with the exit code when stderr is empty', () => {
     const r = classifyDshFailure({ code: 3, stderr: '' });

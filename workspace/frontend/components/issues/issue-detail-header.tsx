@@ -8,6 +8,7 @@ import { useT } from '@/lib/i18n';
 import { issueLinkId, resourcePath } from '@/lib/resource-link';
 import { shareOrigin } from '@/lib/share-origin';
 import type { IssueDetail, IssueStatus } from '@/lib/types';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { WithTooltip } from '@/components/ui/with-tooltip';
@@ -110,14 +111,17 @@ export function IssueDetailHeader({ id, issue, busy, mutate, identity, people, p
               const access = participant?.request_access;
               const accessLabel = access ? t(participant?.owner_email?.toLowerCase() === currentUser.id.toLowerCase() ? 'messageAgentAccess.yours' : access === 'yes' ? 'messageAgentAccess.shared' : access === 'approval' ? 'messageAgentAccess.approval' : 'messageAgentAccess.notShared') : '';
               const hint = [name, owner && t('messageAgentAccess.owner', { name: owner }), accessLabel].filter(Boolean).join('\n');
-              return <span key={person} title={hint} className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-border/60 bg-muted/20 py-1 pr-2.5 pl-1 text-xs">
-                <IssueAvatar source={person} name={name} size={20} />
-                <span className="max-w-36 truncate">{name}</span>
+              return <Badge key={person} variant="outline" className="h-auto max-w-full gap-1.5 overflow-visible border-border/60 bg-muted/20 py-1 pr-2.5 pl-1 font-normal">
+                {/* The hint covers the person, not the remove button with its own tooltip. */}
+                <WithTooltip label={<span className="whitespace-pre-line">{hint}</span>}><span className="inline-flex min-w-0 items-center gap-1.5">
+                  <IssueAvatar source={person} name={name} size={20} hint={false} />
+                  <span className="max-w-36 truncate">{name}</span>
+                </span></WithTooltip>
                 {person.startsWith('openagents:') && <WithTooltip label={t('issues.removeAgent', { name })}><Button variant="ghost" size="icon-xs" disabled={busy}
                       className="-my-1 -mr-1.5 rounded-full text-muted-foreground"
                       aria-label={t('issues.removeAgent', { name })}
                       onClick={() => void mutate(() => workspaceApi.removeIssueAgent(id, person.slice('openagents:'.length)))}><X /></Button></WithTooltip>}
-              </span>;
+              </Badge>;
             })}
           </div>}
         </section>

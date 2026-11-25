@@ -18,6 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { DmUnreadMarker, UnreadDot, rowTimeClass } from './thread-row';
 import { ROW_BASE, ROW_IDLE, ROW_SELECTED, dmDisplayTitle, dmRowId } from './thread-list-utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 interface DmRowProps {
   convo: DMConversation;
@@ -78,7 +79,7 @@ export function DmRow({ convo, shortcutKey, onlinePeople, pendingDm, onSelect, o
       ) : counterpartIsPerson ? (
         <div className="relative mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full">
           <HumanAvatar email={counterpart ? addressName(counterpart) : rawTitle} />
-          {online && <span className="absolute right-0 bottom-0 size-2 rounded-full bg-success ring-2 ring-background" aria-label={t('agents.online')} title={t('agents.online')} />}
+          {online && <WithTooltip label={t('agents.online')}><span className="absolute right-0 bottom-0 size-2 rounded-full bg-success ring-2 ring-background" aria-label={t('agents.online')} /></WithTooltip>}
         </div>
       ) : (
         <div className="mt-0.5 shrink-0">

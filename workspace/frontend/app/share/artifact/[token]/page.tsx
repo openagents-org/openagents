@@ -24,7 +24,7 @@
 
 import { use, useEffect, useState } from 'react';
 import Image from 'next/image';
-import { Download, ExternalLink, Loader2, ShieldAlert } from 'lucide-react';
+import { Download, ExternalLink, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MarkdownContent } from '@/components/chat/markdown-content';
 import { SheetStage, delimiterFor } from '@/components/files/sheet-stage';
@@ -32,6 +32,7 @@ import { getApiBaseUrl } from '@/lib/api-base';
 import { useFormatters, useT } from '@/lib/i18n';
 import { withSharedAssets } from '@/lib/share-origin';
 import type { PublicShareInfo } from '@/lib/types';
+import { Spinner } from '@/components/ui/spinner';
 
 const API_URL = getApiBaseUrl();
 /** Past this, text kinds are offered as a download instead of a preview. */
@@ -151,7 +152,7 @@ export default function SharedArtifactPage({ params }: { params: Promise<{ token
     );
   }
   if (!info || !body) {
-    return <div className="flex min-h-screen items-center justify-center bg-background"><Loader2 className="size-6 animate-spin text-muted-foreground" /></div>;
+    return <div className="flex min-h-screen items-center justify-center bg-background"><Spinner aria-hidden="true" className="size-6 text-muted-foreground" /></div>;
   }
 
   const fills = body.kind === 'svg' || body.kind === 'pdf' || body.kind === 'page';
@@ -173,7 +174,7 @@ export default function SharedArtifactPage({ params }: { params: Promise<{ token
           </Button>
         )}
         <Button size="sm" onClick={() => void download()} disabled={downloading}>
-          {downloading ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+          {downloading ? <Spinner aria-hidden="true" className="size-3.5" /> : <Download className="size-3.5" />}
           {t('sharedFile.download')}
         </Button>
       </header>

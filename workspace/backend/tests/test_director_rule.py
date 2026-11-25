@@ -197,6 +197,40 @@ class TestNonDirectorRouting:
         assert not meta.get("informational")
         assert calls == [{"allowed": ["agent-alpha"], "allow_human_stop": True}]
 
+    def _set_passive(self, workspace, ch):
+        from sqlalchemy import select
+        from app.models import Channel
+        from tests.conftest import TestingSessionLocal
+        db = TestingSessionLocal()
+        row = db.execute(select(Channel).where(Channel.workspace_id == workspace["id"], Channel.name == ch)).scalar_one()
+        row.response_mode = "passive"
+        db.commit(); db.close()
+
+    def test_passive_thread_never_routes_a_plain_message(self, client, workspace, people, router):
+        calls = router(["agent-alpha"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        self._set_passive(workspace, ch)
+        meta = _post(client, workspace, channel=ch, by="ned", content="the alignment is off, redo the layout")
+        assert meta.get("informational") is True
+        assert meta.get("target_agents") == ["__no_response__"]
+        assert calls == []  # no router call at all
+
+    def test_passive_thread_still_delivers_mentions(self, client, workspace, people, router):
+        calls = router(["agent-alpha"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        self._set_passive(workspace, ch)
+        meta = _post(client, workspace, channel=ch, by="ned", content="@agent-alpha redo the layout")
+        assert meta.get("target_agents") == ["agent-alpha"]
+        assert meta.get("from_non_director") is True
+        assert calls == []
+
+    def test_message_to_a_person_is_not_routed(self, client, workspace, people, router):
+        calls = router(["agent-alpha"], decision="assign")
+        ch = _create_thread(client, workspace, name="launch", by="mia")
+        meta = _post(client, workspace, channel=ch, by="ned", content="@mia@acme.test can you fix the ripple issue?")
+        assert meta.get("informational") is True
+        assert calls == []
+
     @pytest.mark.parametrize("decision", ["stop", "ask"])
     def test_router_without_recipient_keeps_information(self, client, workspace, people, router, decision):
         router([], decision=decision)
