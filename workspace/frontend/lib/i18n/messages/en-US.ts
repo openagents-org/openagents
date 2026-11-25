@@ -1313,8 +1313,6 @@ export const messages = {
     experimental: 'Experimental',
     monitorMode: 'Monitor Mode',
     monitorModeHint: 'Show a 2x3 grid overview of recent threads instead of the thread list.',
-    realtimeStream: 'Real-time updates (beta)',
-    realtimeStreamHint: 'Deliver messages, panel updates and agent wake-ups over one live connection instead of periodic polling. Agents need connector 0.2.235 or newer; everything falls back to polling if the connection drops.',
     notificationSound: 'Notification Sound',
     notificationSoundHint: 'Play a sound for new inbox notifications and completed agent work.',
     testSound: 'Test sound',

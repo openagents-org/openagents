@@ -23,7 +23,6 @@ export default function GeneralSettingsPage() {
   const [name, setName] = useState(workspace.name);
   const [monitorMode, setMonitorMode] = useState(!!workspace.settings?.monitorMode);
   const [servicesEnabled, setServicesEnabled] = useState(workspace.settings?.services_enabled === true);
-  const [realtimeStream, setRealtimeStream] = useState(workspace.settings?.realtime_stream === true);
   const [saving, setSaving] = useState<Part | null>(null);
 
   // Deliberately without any ?token= — links we surface for sharing must
@@ -35,7 +34,6 @@ export default function GeneralSettingsPage() {
   const nameDirty = name.trim() !== workspace.name;
   const servicesDirty = servicesEnabled !== (workspace.settings?.services_enabled === true);
   const monitorDirty = monitorMode !== !!workspace.settings?.monitorMode;
-  const realtimeDirty = realtimeStream !== (workspace.settings?.realtime_stream === true);
 
   // Each card saves only its own part, so an unsaved edit in another card is
   // never sent along with it.
@@ -46,7 +44,7 @@ export default function GeneralSettingsPage() {
       await workspaceApi.updateWorkspace(
         part === 'name'
           ? { name: name.trim() }
-          : { settings: part === 'services' ? { services_enabled: servicesEnabled } : { monitorMode, realtime_stream: realtimeStream } },
+          : { settings: part === 'services' ? { services_enabled: servicesEnabled } : { monitorMode } },
       );
       await refreshWorkspace();
       toast.success(t('settings.saved'));
@@ -104,14 +102,11 @@ export default function GeneralSettingsPage() {
       <SettingsCard
         title={t('settings.experimental')}
         footer={editable && (
-          <SaveButton dirty={monitorDirty || realtimeDirty} saving={saving === 'experimental'} onClick={() => save('experimental')} />
+          <SaveButton dirty={monitorDirty} saving={saving === 'experimental'} onClick={() => save('experimental')} />
         )}
       >
         <SettingsRow label={t('settings.monitorMode')} description={t('settings.monitorModeHint')} htmlFor="general-monitor-mode">
           <Switch id="general-monitor-mode" checked={monitorMode} onCheckedChange={setMonitorMode} disabled={!editable} />
-        </SettingsRow>
-        <SettingsRow label={t('settings.realtimeStream')} description={t('settings.realtimeStreamHint')} htmlFor="general-realtime-stream">
-          <Switch id="general-realtime-stream" checked={realtimeStream} onCheckedChange={setRealtimeStream} disabled={!editable} />
         </SettingsRow>
       </SettingsCard>
     </div>
