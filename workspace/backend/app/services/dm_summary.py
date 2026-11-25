@@ -23,6 +23,9 @@ The merged result is reused for MERGED_MAX_STALE_SECONDS when DMs keep arriving.
 """
 import json
 import time
+from contextlib import contextmanager
+
+from sqlalchemy import text
 
 from app import cache
 from app.services.conversation_queries import conversation_pairs_query
@@ -32,7 +35,16 @@ BASE_MAX_AGE_SECONDS = 600
 BASE_SETTLE_MS = 120_000
 MERGED_MAX_STALE_SECONDS = 5.0
 TTL_SECONDS = 1800
-BASE_REBUILD_LOCK_SECONDS = 180
+# An aged base stays exact (the delta covers everything after its watermark),
+# so keep it far longer than it is "fresh": it must never vanish while a
+# rebuild is pending, or every request falls back to a full-history scan.
+BASE_TTL_SECONDS = 86400
+# A busy workspace's full-history aggregate can exceed the app's 30 s
+# statement timeout under load; then every rebuild failed, the base expired,
+# and all requests piled onto the same scan (2026-11-25). Give the one
+# rebuild query its own limit.
+BASE_STATEMENT_TIMEOUT_MS = 300_000
+BASE_REBUILD_LOCK_SECONDS = 360
 BASE_REBUILD_WAIT_SECONDS = 60
 ALL_PAIRS = 1_000_000
 
@@ -52,8 +64,22 @@ def _read(key):
     return value if isinstance(value, dict) else None
 
 
-def _write(key, value):
-    cache.set_bytes(key, json.dumps(value).encode("utf-8"), TTL_SECONDS)
+def _write(key, value, ttl=TTL_SECONDS):
+    cache.set_bytes(key, json.dumps(value).encode("utf-8"), ttl)
+
+
+@contextmanager
+def _statement_timeout(db, ms):
+    """Raise the transaction's statement_timeout for one query, then restore it."""
+    if db.get_bind().dialect.name != "postgresql":
+        yield
+        return
+    from app.db_timeouts import STATEMENT_TIMEOUT_MS
+    db.execute(text(f"SET LOCAL statement_timeout = {int(ms)}"))
+    yield
+    # Only on success: after a failed query the transaction is aborted, and the
+    # caller's rollback resets SET LOCAL anyway.
+    db.execute(text(f"SET LOCAL statement_timeout = {int(STATEMENT_TIMEOUT_MS)}"))
 
 
 def _aggregate(db, workspace_id, *filters):
@@ -79,8 +105,9 @@ def _base(db, workspace_id, rewrite):
 
     def build():
         watermark = int(time.time() * 1000) - BASE_SETTLE_MS
-        return {"rewrite": rewrite, "built_at": time.time(), "watermark": watermark,
-                "pairs": _pack(_aggregate(db, workspace_id, EventRecord.timestamp <= watermark))}
+        with _statement_timeout(db, BASE_STATEMENT_TIMEOUT_MS):
+            pairs = _aggregate(db, workspace_id, EventRecord.timestamp <= watermark)
+        return {"rewrite": rewrite, "built_at": time.time(), "watermark": watermark, "pairs": _pack(pairs)}
 
     # An aged base is still exact (the delta covers everything after its
     # watermark), so only one worker rebuilds it while the others keep using
@@ -101,7 +128,7 @@ def _base(db, workspace_id, rewrite):
         lock = None   # no Redis, or the wait ran out: build without the lock
     try:
         base = build()
-        _write(key, base)
+        _write(key, base, BASE_TTL_SECONDS)
         return base
     finally:
         if lock is not None:
