@@ -187,7 +187,8 @@ def test_cold_history_contender_returns_immediately_without_a_duplicate_scan(db,
     waits = []
     class RecordingLock(FakeLock):
         def acquire(self, blocking=True, blocking_timeout=None):
-            waits.append((blocking, blocking_timeout))
+            if self.name == dm_summary._key('base', workspace['id']) + ':rebuild':
+                waits.append((blocking, blocking_timeout))
             return super().acquire(blocking, blocking_timeout)
     FakeLock.held = {dm_summary._key('base', workspace['id']) + ':rebuild'}
     monkeypatch.setattr(cache, '_lazy_client', lambda: SimpleNamespace(lock=lambda name, **kw: RecordingLock(name)))
