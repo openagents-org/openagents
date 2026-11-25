@@ -175,6 +175,19 @@ def _release(lock):
 
 def workspace_pairs(db, workspace_id, generation, rewrite):
     """All DM pairs of the workspace: {(agent_a, agent_b): [last_ts, msg_count]}."""
+    from app.services import dm_pair_summary
+    table_mode = dm_pair_summary.mode()
+    if table_mode != "off" and dm_pair_summary.is_backfilled(db, workspace_id):
+        if table_mode == "on":
+            # Trigger-maintained per-pair rows: no history scan, no rebuilds.
+            return dm_pair_summary.read_pairs(db, workspace_id)
+        pairs = _cached_workspace_pairs(db, workspace_id, generation, rewrite)
+        dm_pair_summary.shadow_compare(db, workspace_id, pairs)
+        return pairs
+    return _cached_workspace_pairs(db, workspace_id, generation, rewrite)
+
+
+def _cached_workspace_pairs(db, workspace_id, generation, rewrite):
     key = _key("merged", workspace_id)
     merged = _read(key)
     if merged and (merged.get("generation") == generation
