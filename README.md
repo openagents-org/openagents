@@ -150,7 +150,9 @@ The [OpenAgents documentation](https://openagents.org/docs/en/getting-started/ov
 
 [OpenAgents showcase](https://openagents.org/showcase) · [OpenAgents on X](https://x.com/OpenAgentsAI)
 
-### Launch partners
+<a name="launch-partners"></a>
+
+### Partners
 
 <div align="center">
 
@@ -175,6 +177,47 @@ The [OpenAgents documentation](https://openagents.org/docs/en/getting-started/ov
 <a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="30"></a>
 
 </div>
+
+**Trusted by** · [OpenAgents community](https://openagents.org/#community-partners)
+
+<p align="center">
+  <img src="docs/assets/partners/aws.webp" alt="AWS Startups" width="145">
+  <img src="docs/assets/partners/linkedin.webp" alt="LinkedIn" width="145">
+  <img src="docs/assets/partners/alibaba.webp" alt="Alibaba" width="145">
+  <img src="docs/assets/partners/openai-logo.webp" alt="OpenAI" width="145">
+  <img src="docs/assets/partners/softbank.webp" alt="SoftBank" width="145">
+  <img src="docs/assets/partners/digitalocean.webp" alt="DigitalOcean" width="145">
+  <img src="docs/assets/partners/elastic.webp" alt="Elastic" width="145">
+  <img src="docs/assets/partners/jd.webp" alt="JD.com" width="145">
+  <img src="docs/assets/partners/bytecompute.webp" alt="ByteCompute" width="145">
+  <img src="docs/assets/partners/deepfox-wordmark.webp" alt="DeepFox" width="145">
+  <img src="docs/assets/partners/acenta-logo.webp" alt="Acenta" width="145">
+  <img src="docs/assets/partners/browserfabric.webp" alt="BrowserFabric" width="145">
+  <img src="docs/assets/partners/qoder.webp" alt="Qoder (Bright Zenith)" width="145">
+  <img src="docs/assets/partners/stanford-block-s.webp" alt="Stanford University" width="145">
+  <img src="docs/assets/partners/carnegie-mellon.webp" alt="Carnegie Mellon University" width="145">
+  <img src="docs/assets/partners/sjtu.webp" alt="Shanghai Jiao Tong University" width="145">
+  <img src="docs/assets/partners/hkust.webp" alt="Hong Kong University of Science and Technology" width="145">
+  <img src="docs/assets/partners/national-taiwan-seal.webp" alt="National Taiwan University" width="145">
+  <img src="docs/assets/partners/polyu.webp" alt="The Hong Kong Polytechnic University" width="145">
+  <img src="docs/assets/partners/alberta.webp" alt="University of Alberta" width="145">
+  <img src="docs/assets/partners/newcastle.webp" alt="Newcastle University" width="145">
+  <img src="docs/assets/partners/umea.webp" alt="Umeå University" width="145">
+  <img src="docs/assets/partners/gdg.webp" alt="Google Developer Groups" width="145">
+  <img src="docs/assets/partners/freecodecamp-wordmark.webp" alt="freeCodeCamp" width="145">
+  <img src="docs/assets/partners/aaif.webp" alt="Agentic AI Foundation" width="145">
+</p>
+
+**Research collaborators**
+
+<p align="center">
+  <img src="docs/assets/partners/utokyo.webp" alt="The University of Tokyo" width="145">
+  <img src="docs/assets/partners/columbia.webp" alt="Columbia University" width="145">
+  <img src="docs/assets/partners/upenn.webp" alt="University of Pennsylvania" width="145">
+  <img src="docs/assets/partners/nyu.webp" alt="New York University" width="145">
+  <img src="docs/assets/partners/seoul.webp" alt="Seoul National University" width="145">
+  <img src="docs/assets/partners/penn-state-shield.webp" alt="Penn State University" width="145">
+</p>
 
 ## Contributors
 
