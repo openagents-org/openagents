@@ -43,8 +43,8 @@ A designer spots the wrong signup link in the launch preview. They can tag Codex
 **Before publishing**, an agent can request approval in the thread. A teammate with permission can approve or decline. Save the launch brief and review checklist in **Knowledge** so the next person or agent can pick up the work.
 
 <p align="center">
-  <img src="docs/assets/readme/approval.webp" width="400" alt="Codex requests approval to publish the launch notes. Maya approves in the thread, then Codex reports that the notes are live.">
-  <img src="docs/assets/readme/knowledge.webp" width="400" alt="The Website launch folder in Knowledge holds the launch brief and the mobile sign-up review checklist.">
+  <img src="docs/assets/readme/approval.webp" width="48%" alt="Codex requests approval to publish the launch notes. Maya approves in the thread, then Codex reports that the notes are live.">
+  <img src="docs/assets/readme/knowledge.webp" width="48%" alt="The Website launch folder in Knowledge holds the launch brief and the mobile sign-up review checklist.">
 </p>
 
 ### Turn a request into a routine
@@ -54,8 +54,8 @@ A designer spots the wrong signup link in the launch preview. They can tag Codex
 The agent can schedule that request from the conversation. Routine runs have their own activity history, so an uneventful check can finish quietly. When a customer asks about team pricing, the agent can bring its draft reply back to the thread for review. To change future checks, tell the agent “Include Discord too” in that same conversation.
 
 <p align="center">
-  <img src="docs/assets/readme/routine-list.webp" width="400" alt="Three routines listed with their source threads: a weekday briefing in team-updates, issue triage every four hours in engineering, and Friday release notes in releases.">
-  <img src="docs/assets/readme/release-workflow.webp" width="400" alt="An experimental release review workflow with Draft, Review, and Publish steps.">
+  <img src="docs/assets/readme/routine-list.webp" width="48%" alt="Three routines listed with their source threads: a weekday briefing in team-updates, issue triage every four hours in engineering, and Friday release notes in releases.">
+  <img src="docs/assets/readme/release-workflow.webp" width="48%" alt="An experimental release review workflow with Draft, Review, and Publish steps.">
 </p>
 
 Turn a finding into an **Issue** with an owner. For a sequence the team repeats, an experimental **Workflow** can take release notes from draft through review to publication. [How routines work](workspace/docs/routines.md) · [Explore OpenAgents Workspace](https://openagents.org/workspace)
