@@ -171,19 +171,46 @@ def test_cursor_polls_return_exactly_the_newer_events(client, db, workspace):
     assert poll_type(client, workspace, 'workspace.message', before='d', sort='desc') == ['same-ms-after', 'cursor', 'older']
 
 
-def test_multi_type_prefix_keeps_the_prefix_filter(client, db, workspace):
-    import app.routers.events as events_mod
-    for i, kind in enumerate(['workspace.message.posted', 'workspace.message.status']):
-        db.add(EventRecord(id=f'mt-{i}', network_id=workspace['id'], source='openagents:a', target='channel/general',
-                           timestamp=now_ms() + i, type=kind, visibility='channel', payload={'content': kind}))
-    db.commit()
+def _capture_event_selects(db):
     seen = []
     from sqlalchemy import event as sa_event
     capture = lambda conn, cursor, statement, *a: seen.append(statement) if 'FROM events' in statement and 'ORDER BY' in statement else None
     sa_event.listen(db.bind, 'before_cursor_execute', capture)
+    return seen, lambda: sa_event.remove(db.bind, 'before_cursor_execute', capture)
+
+
+def _seed_two_types(db, workspace, base=None):
+    base = base or now_ms()
+    rows = [('mt-0', 'workspace.message.posted', 'general', base), ('mt-1', 'workspace.message.status', 'general', base + 1),
+            ('mt-2', 'workspace.message.posted', 'general', base + 2), ('mt-3', 'workspace.message.posted', 'other', base + 3),
+            ('mt-4', 'workspace.message.status', 'general', base + 4)]
+    for event_id, kind, ch, ts in rows:
+        db.add(EventRecord(id=event_id, network_id=workspace['id'], source='openagents:a', target=f'channel/{ch}',
+                           timestamp=ts, type=kind, visibility='channel', payload={'content': event_id}))
+    db.commit()
+
+
+def test_thread_poll_over_several_types_merges_per_type_scans(client, db, workspace):
+    _seed_two_types(db, workspace)
+    seen, stop = _capture_event_selects(db)
     try:
-        got = poll_type(client, workspace, 'workspace.message', channel='general', sort='desc')
+        newest = poll_type(client, workspace, 'workspace.message', channel='general', sort='desc')
+        oldest_two = poll_type(client, workspace, 'workspace.message', channel='general', limit=2)
+        after = poll_type(client, workspace, 'workspace.message', channel='general', after='mt-1')
     finally:
-        sa_event.remove(db.bind, 'before_cursor_execute', capture)
-    assert got == ['workspace.message.status', 'workspace.message.posted']
-    assert any('LIKE' in q for q in seen) and not any(' IN (' in q.split('ORDER BY')[0].split('events.type')[-1][:12] for q in seen)
+        stop()
+    assert newest == ['mt-4', 'mt-2', 'mt-1', 'mt-0']
+    assert oldest_two == ['mt-0', 'mt-1']
+    assert after == ['mt-2', 'mt-4']
+    assert any('UNION ALL' in q for q in seen) and not any('LIKE' in q.split('ORDER BY')[0] and 'type' in q for q in seen if 'UNION' in q)
+
+
+def test_workspace_wide_multi_type_poll_keeps_the_prefix_filter(client, db, workspace):
+    _seed_two_types(db, workspace)
+    seen, stop = _capture_event_selects(db)
+    try:
+        got = poll_type(client, workspace, 'workspace.message', sort='desc')
+    finally:
+        stop()
+    assert got[:2] == ['mt-4', 'mt-3']
+    assert any('LIKE' in q for q in seen) and not any('UNION' in q for q in seen)
