@@ -26,7 +26,7 @@ const REFUSAL = (m) => `ERROR: {"type":"error","status":400,"error":{"type":"inv
  * answers on a listed model (given with -m) and refuses anything else, as a
  * ChatGPT plan does. Its default is gpt-6.1-sol, which the plan lacks.
  */
-function fakeCodex() {
+function fakeCodex({ alsoListed = [] } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fake-codex-'));
   const bin = path.join(dir, 'codex');
   fs.writeFileSync(bin, `#!${process.execPath}
@@ -36,6 +36,7 @@ if (a[0] === 'debug' && a[1] === 'models') {
     { slug: 'gpt-6-luna', display_name: 'GPT-6-Luna', visibility: 'list', priority: 1 },
     { slug: 'gpt-5.6-luna', display_name: 'GPT-5.6-Luna', visibility: 'list', priority: 2 },
     { slug: 'internal', visibility: 'hide', priority: 0 },
+    ...${JSON.stringify(alsoListed)}.map((slug, n) => ({ slug, visibility: 'list', priority: 3 + n })),
   ] }));
   process.exit(0);
 }
@@ -99,6 +100,15 @@ describe('codex connection test on a ChatGPT plan', { skip: !POSIX && 'uses a PO
   it('names the models the account lists when the chosen one is refused', async () => {
     const r = await probeAgentType(connector(fakeCodex()), 'codex', { agentEnv: { CODEX_MODEL: 'gpt-6-sol' }, timeoutMs: 20000 });
     assert.equal(r.ok, false);
+    assert.equal(r.code, CODE.BAD_MODEL);
+    assert.equal(r.message, "gpt-6-sol isn't included in this ChatGPT plan. Models this account lists: gpt-6-luna, gpt-5.6-luna.");
+  });
+
+  it('does not offer back the model the plan just refused', async () => {
+    // Daily errors dashboard, 2026-11-25: "glm-5.3 isn't included in this
+    // ChatGPT plan. Models this account lists: …, glm-5.3, …".
+    const bin = fakeCodex({ alsoListed: ['gpt-6-sol'] });
+    const r = await probeAgentType(connector(bin), 'codex', { agentEnv: { CODEX_MODEL: 'gpt-6-sol' }, timeoutMs: 20000 });
     assert.equal(r.code, CODE.BAD_MODEL);
     assert.equal(r.message, "gpt-6-sol isn't included in this ChatGPT plan. Models this account lists: gpt-6-luna, gpt-5.6-luna.");
   });

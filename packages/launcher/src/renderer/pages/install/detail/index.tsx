@@ -194,9 +194,10 @@ export default function AgentDetail({
 
         {/* Same clearance as the document column — its top card sits flush
             against the scroller's edge and would have its hover lift sliced
-            off. */}
+            off. The left edge needs it too: Card's outline is a ring drawn
+            outside the box, and the scroller clipped it there. */}
         <DetailRail
-          className="lg:-mt-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2"
+          className="lg:-mt-1 lg:-ml-1 lg:min-h-0 lg:w-72 lg:shrink-0 lg:overflow-y-auto lg:pt-1 lg:pr-2 lg:pb-2 lg:pl-1"
           entry={entry}
           installed={detail.installed}
           binaryPath={detail.binaryPath}

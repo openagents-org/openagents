@@ -271,9 +271,12 @@ const BENIGN_CLI_OUTPUT = /claude\.ai connectors are disabled|doesn't recognize 
  * Adapters test this ahead of their 401/403 and rate-limit rules, so it is
  * kept to phrases that never describe a throttle or a bad key: no bare
  * "quota exceeded" (Gemini's per-minute limit), "billing", 额度 or 402, which
- * also turn up in rate-limit text, paths and ids. Match lower-cased text.
+ * also turn up in rate-limit text, paths and ids. CodeRouter's "Your free
+ * trial's $5.00 usage credit can't cover this request" reached OpenCode's
+ * "failed for an undetermined reason" (daily errors dashboard, 2026-11-25).
+ * Match lower-cased text.
  */
-const CREDIT_EXHAUSTED = /insufficient[_ ]?(?:[a-z]+[_ ])?(?:balance|quota|credits?|funds)\b|not enough (?:quota|credits?|balance)|no credits? (?:left|remaining)|pre-?consume quota|credit balance is too low|payment required|out of (?:credits?|balance)\b|\bbalance (?:is |has been )?exhausted\b|余额不足|额度不足|预扣费额度失败|欠费|arrearage/;
+const CREDIT_EXHAUSTED = /insufficient[_ ]?(?:[a-z]+[_ ])?(?:balance|quota|credits?|funds)\b|not enough (?:quota|credits?|balance)|credits? (?:can.?t|cannot|doesn.?t|does not) cover (?:this|the) request|no credits? (?:left|remaining)|pre-?consume quota|credit balance is too low|payment required|out of (?:credits?|balance)\b|\bbalance (?:is |has been )?exhausted\b|余额不足|额度不足|预扣费额度失败|欠费|arrearage/;
 
 /**
  * A provider turning away the device's network or region, not its

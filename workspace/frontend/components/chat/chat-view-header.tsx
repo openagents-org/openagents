@@ -66,19 +66,19 @@ export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, canShare
         )}
         {isDM ? <DmTitle dm={dm} onOpenProfile={onOpenProfile} /> : <ThreadTitle sessionId={sessionId} session={session} />}
         {!isDM && threadPrivacyApplies(sessionId) && session && (
-          <span className="inline-flex shrink-0 text-muted-foreground" title={t(session.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')} aria-label={t(session.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')}>
+          <WithTooltip label={t(session.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')}><span className="inline-flex shrink-0 text-muted-foreground" aria-label={t(session.visibility === 'private' ? 'threadAccess.private' : 'threadAccess.public')}>
             {session.visibility === 'private' ? <Lock className="size-3.5" /> : <Globe className="size-3.5" />}
-          </span>
+          </span></WithTooltip>
         )}
         {isMobile && !isDM && <ThreadParticipantCount channelName={sessionId} />}
         {sessionAgents.length > 1 && <Badge variant="secondary">{t('chat.groupBadge')}</Badge>}
       </>}
     >
       {modelAgent?.model && (
-        <Badge variant="secondary" className="hidden max-w-44 sm:inline-flex" title={t('chat.modelBadgeTitle', { agent: agentLabel(modelAgent) })}>
+        <WithTooltip label={t('chat.modelBadgeTitle', { agent: agentLabel(modelAgent) })}><Badge variant="secondary" className="hidden max-w-44 sm:inline-flex">
           <Cpu />
           <span className="truncate font-mono">{modelAgent.model}</span>
-        </Badge>
+        </Badge></WithTooltip>
       )}
 
       {/* Stop button — visible when agents are working */}

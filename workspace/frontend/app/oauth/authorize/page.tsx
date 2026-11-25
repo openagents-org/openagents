@@ -2,12 +2,13 @@
 
 import { Suspense, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
-import { Check, Loader2, LogIn, ShieldAlert } from 'lucide-react';
+import { Check, LogIn, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/reui/button';
 import { approveOAuth } from '@/lib/account-api';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
+import { Spinner } from '@/components/ui/spinner';
 
 /**
  * OAuth consent for the agent hub. The backend's /oauth/authorize validates
@@ -49,7 +50,7 @@ function Consent() {
   if (!complete) {
     body = <p className="text-sm text-muted-foreground">{t('hubApps.consentInvalid')}</p>;
   } else if (loading) {
-    body = <Loader2 className="mx-auto size-5 animate-spin text-muted-foreground" />;
+    body = <Spinner aria-hidden="true" className="mx-auto size-5 text-muted-foreground" />;
   } else if (!user) {
     body = (
       <Button onClick={() => goToCentralLogin(signIn)} className="w-full">
@@ -71,10 +72,10 @@ function Consent() {
         {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
         <div className="grid grid-cols-2 gap-3">
           <Button variant="outline" disabled={busy !== null} onClick={() => answer(false)}>
-            {busy === 'cancel' && <Loader2 className="size-4 animate-spin" />}{t('hubApps.cancel')}
+            {busy === 'cancel' && <Spinner aria-hidden="true" className="size-4" />}{t('hubApps.cancel')}
           </Button>
           <Button variant="primary" disabled={busy !== null} onClick={() => answer(true)}>
-            {busy === 'allow' && <Loader2 className="size-4 animate-spin" />}{t('hubApps.allow')}
+            {busy === 'allow' && <Spinner aria-hidden="true" className="size-4" />}{t('hubApps.allow')}
           </Button>
         </div>
       </div>
