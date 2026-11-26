@@ -117,9 +117,20 @@ _is_pgbouncer = (
     or os.environ.get("DB_PGBOUNCER", "").strip().lower() in ("1", "true", "yes")
 )
 
+# DB_PGBOUNCER_CLIENT_POOL=true keeps a small per-worker pool of client
+# connections to the pooler instead of NullPool. Use it when the pooler is
+# remote (e.g. a DigitalOcean managed pool): NullPool would pay a TCP+TLS
+# handshake on every request. pool_pre_ping still replaces connections the
+# pooler has closed. The SQLAlchemy compiled-SQL cache also stays on: it is
+# client-side, and psycopg2 never issues server-side PREPARE, so it is safe
+# behind a transaction pooler. Size the pool with DB_POOL_SIZE/DB_MAX_OVERFLOW;
+# the pooler's own size caps the real Postgres connections.
+_pgbouncer_client_pool = _is_pgbouncer and os.environ.get(
+    "DB_PGBOUNCER_CLIENT_POOL", "").strip().lower() in ("1", "true", "yes")
+
 _pool_kwargs = (
     {"poolclass": NullPool}
-    if _is_serverless or _is_sqlite or _is_pgbouncer
+    if _is_serverless or _is_sqlite or (_is_pgbouncer and not _pgbouncer_client_pool)
     # Direct-PG mode (port 5432): keep a bounded per-worker pool.
     # Sized for Railway Postgres max_connections=400 (raised from 200 via
     # ALTER SYSTEM on 2026-06-12) at 2 replicas × 2 workers
@@ -158,7 +169,7 @@ if not _is_sqlite:
 _engine_kwargs = {**_pool_kwargs}
 if _connect_args:
     _engine_kwargs["connect_args"] = _connect_args
-if _is_pgbouncer:
+if _is_pgbouncer and not _pgbouncer_client_pool:
     _engine_kwargs["execution_options"] = {"no_cache": True}
 
 engine = create_engine(config.DATABASE_URL, **_engine_kwargs)
