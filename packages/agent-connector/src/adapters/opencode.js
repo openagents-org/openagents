@@ -1926,7 +1926,8 @@ class OpenCodeAdapter extends BaseAdapter {
       // A relay that was reached and then cut the reply off: "Upstream
       // response stream was interrupted" read as "failed for an undetermined
       // reason" (daily errors dashboard, 2026-11-25). Not "could not reach".
-      || has(/\bstream (?:was )?(?:interrupted|disconnected)\b/)) {
+      // "Upstream HTTP/2 stream failed" is the same cut-off (2026-11-26).
+      || has(/\bstream (?:was )?(?:interrupted|disconnected)\b|upstream http\/2 stream failed/)) {
       category = 'provider_server_error';
     } else if (has(/expected '?function\.name'? to be a string/)) {
       // The provider streamed a tool call with no tool name, and the AI SDK

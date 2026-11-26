@@ -397,6 +397,14 @@ describe('OpenCode — failures the daily errors dashboard showed as undetermine
     });
     assert.equal(cls.category, 'provider_server_error');
   });
+
+  it('reads "Upstream HTTP/2 stream failed" the same way', () => {
+    const cls = OpenCodeAdapter._classifyFailure({
+      code: 1, signal: null, stdout: '', stderr: '',
+      stdoutErr: { name: 'UnknownError', message: '"Upstream HTTP/2 stream failed"' },
+    });
+    assert.equal(cls.category, 'provider_server_error');
+  });
 });
 
 describe('OpenCode — a tool call the model sent without a name', () => {
