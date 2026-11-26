@@ -1,0 +1,94 @@
+{
+  "version": "1.1.19",
+  "date": "2026-11-26",
+  "entries": [
+    {
+      "type": "feature",
+      "title": {
+        "en": "A short tour of the Workspace",
+        "zh": "工作区功能引导"
+      },
+      "description": {
+        "en": "It shows where to manage agents, where threads are, how to hand a task to an agent with @, how to search, and where to find help. It appears once on its own, can be skipped, and is under Feature tour in the account menu whenever you want it again.",
+        "zh": "依次介绍管理智能体、会话、用 @ 把任务交给智能体、搜索，以及在哪里找帮助。第一次会自动出现，可以跳过，之后随时可以从账号菜单的「功能引导」重新打开。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "The user guide, one click away",
+        "zh": "在应用内打开使用文档"
+      },
+      "description": {
+        "en": "Help in the Computer sidebar shows the tour again or opens the user guide; in a workspace, the guide is under User guide in the account menu. It opens in your app language.",
+        "zh": "「此电脑」侧栏新增「帮助」，可以重新查看引导或打开使用文档；在工作区里，使用文档在账号菜单中。文档按应用语言打开。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Search finds pages and settings",
+        "zh": "搜索可以找到页面和设置"
+      },
+      "description": {
+        "en": "Besides threads, files and agents, search now lists every page and setting, so \"API key\" finds Model access and \"invite\" finds Members.",
+        "zh": "除了会话、文件和智能体，搜索还能找到各个页面和设置项，例如搜「密钥」能找到「模型访问」，搜「邀请」能找到「成员」。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "The tour explains Computer and Workspace",
+        "zh": "引导会说明「此电脑」和「工作区」的分工"
+      },
+      "description": {
+        "en": "It starts at the switch between the two: Computer is where you install, sign in and configure agents, Workspace is where you work with your team and its agents. It ends at Help, where you can start it again.",
+        "zh": "引导从两者之间的切换开始：「此电脑」用来安装、登录和配置智能体，「工作区」是和成员、智能体一起协作的地方。引导最后停在「帮助」，可以随时从那里重新查看。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "How to use a saved model access",
+        "zh": "说明怎样使用已保存的模型访问"
+      },
+      "description": {
+        "en": "Settings → Model access shows how to give a saved credential to an agent and check that it works, with a button straight to Manage Agents.",
+        "zh": "「设置 → 模型访问」页会说明如何把已保存的凭据给智能体使用、如何确认生效，并提供直达「管理智能体」的按钮。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer WorkBuddy sign-in steps",
+        "zh": "WorkBuddy 登录步骤更清楚"
+      },
+      "description": {
+        "en": "Signing in from a terminal now says to type /login inside WorkBuddy (CodeBuddy), and that the international and China sites are separate accounts.",
+        "zh": "在终端里登录时，会提示在 WorkBuddy（CodeBuddy）里输入 /login，并说明国际站和国内站是两套独立账号。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "WorkBuddy no longer reads \"not signed in\" after you sign in",
+        "zh": "WorkBuddy 登录后不再提示「设备上还没有登录」"
+      },
+      "description": {
+        "en": "A WorkBuddy agent signed in with /login is recognized as signed in, and the smoke test now runs on the site (international or China) the agent is set to, so it no longer passes when real messages would fail to sign in.",
+        "zh": "通过 /login 登录的 WorkBuddy 智能体会被正确识别为已登录。冒烟测试也改为在智能体设置的站点（国际站或国内站）上运行，不会再出现测试通过、实际对话却登录失败的情况。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Buttons in notifications are spaced properly again",
+        "zh": "通知里的按钮恢复正常间距"
+      },
+      "description": {
+        "en": "Buttons such as Refresh on the new-version notice had lost their padding and size.",
+        "zh": "例如新版本提示里的「刷新」按钮，此前丢失了内边距和尺寸。"
+      }
+    }
+  ]
+}

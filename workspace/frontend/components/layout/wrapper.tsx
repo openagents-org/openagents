@@ -17,6 +17,7 @@ import { AppHeader } from './app-header';
 import { OnboardingSurfaceContext } from './onboarding-surface';
 import { MobileShell } from './mobile-shell';
 import { ImportSessionsHost } from '@/components/agents/import-sessions-host';
+import { WorkspaceTour } from '@/components/tours/workspace-tour';
 import { useLayout, RAIL_WIDTH_COLLAPSED, RAIL_WIDTH_EXPANDED } from './layout-context';
 import { cn } from '@/lib/utils';
 import { hasAddedWorkspaceAgent, shouldOpenFirstRunOnboarding } from '@/lib/first-run-entry';
@@ -310,6 +311,9 @@ export function Wrapper() {
 
       <NewThreadDialogHost />
       <ImportSessionsHost />
+      {/* Runs once by itself, on a workspace that is set up: an agent added
+          and no first-run setup on screen. The user menu reopens it. */}
+      <WorkspaceTour autoStart={hasAgents && !showOnboarding && viewMode === 'threads'} />
     </SidebarProvider>
     </div>
     </OnboardingSurfaceContext.Provider>

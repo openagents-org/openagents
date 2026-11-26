@@ -83,6 +83,7 @@ export const messages = {
     "manualStepRun": "Run this command:",
     "manualStepFallback": "If it says “agn: command not found”, run {agent}’s own sign-in instead:",
     "manualStepBrowser": "Follow the link it prints and sign in to {agent} in any browser. If it shows a code, enter it on that page.",
+    "manualStepCodebuddy": "The command opens {agent}. Type /login there and sign in with your account. Once it says you are signed in, type /exit.",
     "manualStepCheck": "Come back here and check again. This page picks up the sign-in from the device.",
     "manualUseKey": "Use an API key instead",
     "manualTip": {
@@ -90,7 +91,8 @@ export const messages = {
       "codex": "Keep --device-auth on a server or over SSH: it gives a code you enter at auth.openai.com/codex/device from any computer, instead of waiting for a browser on the device.",
       "cursor": "This is separate from signing in to the Cursor editor. You can also use a Cursor API key from cursor.com/dashboard → Integrations.",
       "opencode": "Choose OpenAI → “ChatGPT Pro/Plus (headless)” for a ChatGPT plan, or GitHub Copilot for a Copilot plan, then open the link and enter the code.",
-      "hermes": "Choose Nous Portal to sign in with a Nous account, or pick another provider and paste its key when asked."
+      "hermes": "Choose Nous Portal to sign in with a Nous account, or pick another provider and paste its key when asked.",
+      "codebuddy": "The international site (codebuddy.ai / workbuddy.ai) and the China site (codebuddy.cn / workbuddy.cn) are separate accounts. For a China-site account, first set this agent's Site to China under This computer, then sign in, or the session can't be used."
     },
     "loginMethodLabel": "Which account should {agent} use?",
     "loginMethod": {
@@ -311,6 +313,24 @@ export const messages = {
   },
 
   /** The desktop app's Workspace updates, offered without a launcher release. */
+  workspaceTour: {
+    progress: '{current} / {total}',
+    skip: 'Skip',
+    back: 'Back',
+    next: 'Next',
+    done: 'Done',
+    agentsTitle: 'Manage Agents',
+    agentsBody: 'Connect a new agent here, or open one to change its setup. To have an agent use an API key saved under Model access, pick it in that agent\'s Model & credentials.',
+    threadsTitle: 'Threads',
+    threadsBody: 'Where you talk with your team and agents. Start a new thread, or open one to pick up where you left off.',
+    mentionTitle: 'Hand work to an agent',
+    mentionBody: 'Mention an agent with @ in a message to give it the task. Mention several and they work on it together.',
+    searchTitle: 'Can\'t find something?',
+    searchBody: 'Press {shortcut} to search threads, files and agents, or jump straight to a page or setting such as Model access.',
+    helpTitle: 'Guide and tour',
+    helpBody: 'The user guide and this tour are in the account menu whenever you need them again.',
+  },
+
   desktopBundle: {
     ready: 'A new version of Workspace is available',
     readyHint: 'Refresh to start using it.',
@@ -543,12 +563,14 @@ export const messages = {
     trigger: 'Search ({shortcut})',
     label: 'Search',
     dialogTitle: 'Search workspace',
-    dialogDescription: 'Search threads, files and agents',
-    placeholder: 'Search threads, files, agents…',
+    dialogDescription: 'Search threads, files, agents, pages and settings',
+    placeholder: 'Search threads, files, agents, pages, settings…',
     empty: 'No results found.',
     groupThreads: 'Threads',
     groupFiles: 'Files',
     groupAgents: 'Agents',
+    groupPages: 'Pages',
+    groupSettings: 'Settings',
     untitledThread: 'Untitled thread',
   },
 
@@ -1352,6 +1374,8 @@ export const messages = {
     switchWorkspace: 'Switch workspace',
     inviteMembers: 'Invite members',
     sendFeedback: 'Send feedback',
+    docs: 'User guide',
+    tour: 'Feature tour',
     workspaceSettings: 'Workspace settings',
     personalSettings: 'Personal settings',
     signIn: 'Sign in',
@@ -1529,6 +1553,11 @@ export const messages = {
     modelAccessEmpty: 'No model access saved yet. Add a provider API key once and reuse it across agents.',
     modelAccessAdd: 'Add model access',
     modelAccessAddBody: 'Pick a provider and paste an API key. Verify it live before saving.',
+    modelAccessUseTitle: 'Use these with an agent',
+    modelAccessUseOpenAgents: 'Go to Manage Agents',
+    modelAccessUseStep1: 'Click Go to Manage Agents (or Manage Agents at the top left of the workspace), then add an agent or open the one you want to configure.',
+    modelAccessUseStep2: 'Under Model & credentials, pick a credential saved here, choose a model, and save.',
+    modelAccessUseStep3: 'Mention the agent in a conversation and send a message. If it replies, it is using the credential.',
     modelAccessProvider: 'Provider',
     modelAccessPickProvider: 'Choose a provider…',
     modelAccessGroupPopular: 'Popular',

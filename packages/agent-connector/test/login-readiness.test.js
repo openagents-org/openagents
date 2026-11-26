@@ -309,3 +309,47 @@ describe('commandcode', () => {
     assert.equal(r.auth_status, 'no_credentials');
   });
 });
+
+describe('codebuddy', () => {
+  // CodeBuddy has no status command; `/login` leaves a session file in the
+  // CLI's extension data directory, which says which site it is for.
+  const SESSION = 'CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info';
+  let savedLocal;
+  beforeEach(() => {
+    savedLocal = process.env.LOCALAPPDATA;
+    process.env.LOCALAPPDATA = path.join(tmpDir, 'AppData', 'Local');
+  });
+  afterEach(() => {
+    if (savedLocal === undefined) delete process.env.LOCALAPPDATA;
+    else process.env.LOCALAPPDATA = savedLocal;
+  });
+  const sessionRel = () => {
+    if (IS_WINDOWS) return path.join('AppData', 'Local', SESSION);
+    if (process.platform === 'darwin') return path.join('Library', 'Application Support', SESSION);
+    return path.join('.local', 'share', SESSION);
+  };
+  const signIn = (domain) => homeFile(sessionRel(), { auth: { domain, accessToken: 'tok' } });
+
+  it('reads a /login session as signed in on the device', () => {
+    signIn('www.codebuddy.ai');
+    const r = evaluate('codebuddy');
+    assert.equal(r.ready, true);
+    assert.equal(r.auth_mode, 'cli_login');
+  });
+
+  it('does not count a session for the other site', () => {
+    signIn('www.codebuddy.ai');
+    const r = evaluate('codebuddy', null, { CODEBUDDY_REGION: 'china' });
+    assert.equal(r.ready, false);
+    // Still unverifiable: the run has the last word.
+    assert.equal(r.auth_status, 'unknown');
+    signIn('www.codebuddy.cn');
+    assert.equal(evaluate('codebuddy', null, { CODEBUDDY_REGION: 'china' }).ready, true);
+  });
+
+  it('stays unconfirmed, not signed out, with no session at all', () => {
+    const r = evaluate('codebuddy');
+    assert.equal(r.ready, false);
+    assert.equal(r.auth_status, 'unknown');
+  });
+});

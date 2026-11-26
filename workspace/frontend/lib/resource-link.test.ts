@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { issueLinkId, requestedResource, resourcePath } from './resource-link';
+import { issueLinkId, requestedResource, requestedView, resourcePath, withoutRequestedView } from './resource-link';
 describe('resource links', () => {
   it.each(['files', 'knowledge', 'issues'] as const)('round trips %s IDs without query arguments', view => {
     const path = resourcePath('workspace', view, 'id:one/two');
@@ -18,5 +18,20 @@ describe('resource links', () => {
     expect(requestedResource('/w/files/%GG')).toBeNull();
     expect(requestedResource('/w/files/a/extra')).toBeNull();
     expect(requestedResource('/w/threads/a')).toBeNull();
+  });
+});
+
+describe('view links', () => {
+  it('reads ?view=connect from the page query or the desktop hash route', () => {
+    expect(requestedView('https://example.test/acme?token=t&view=connect')).toBe('connect');
+    expect(requestedView('app://workspace/index.html#/acme?view=connect')).toBe('connect');
+    expect(requestedView('https://example.test/acme?view=elsewhere')).toBeNull();
+    expect(requestedView('https://example.test/acme')).toBeNull();
+  });
+
+  it('drops only view= so a reload stays put', () => {
+    expect(withoutRequestedView('https://example.test/acme?token=t&view=connect')).toBe('https://example.test/acme?token=t');
+    expect(withoutRequestedView('app://workspace/index.html#/acme?view=connect')).toBe('app://workspace/index.html#/acme');
+    expect(withoutRequestedView('https://example.test/acme')).toBe('https://example.test/acme');
   });
 });

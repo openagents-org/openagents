@@ -14,7 +14,7 @@ import {
 import { useWorkspace } from '@/lib/workspace-context';
 import { useThreadViewState, type BrowserView } from './use-thread-view-state';
 import type { ArtifactReference } from '@/lib/thread-artifacts';
-import { requestedResource } from '@/lib/resource-link';
+import { requestedResource, requestedView, withoutRequestedView } from '@/lib/resource-link';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import type { FileSortKey, FileTypeFilter } from '@/components/files/file-utils';
@@ -245,6 +245,13 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const resource = requestedResource(window.location.href);
     if (resource) setViewMode(resource.view);
+    // `?view=connect` from a settings page: open Manage Agents, then drop the
+    // parameter so a reload lands on the workspace as usual.
+    const view = requestedView(window.location.href);
+    if (view) {
+      setViewMode(view);
+      window.history.replaceState(window.history.state, '', withoutRequestedView(window.location.href));
+    }
   }, []);
   const [filesSection, setFilesSection] = useState<FilesSection>('folders');
   const [filesBrowse, setFilesBrowseState] = useState<FilesBrowseState>(DEFAULT_FILES_BROWSE);

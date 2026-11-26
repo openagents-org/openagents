@@ -77,6 +77,45 @@ function loginPlan(entry, { env = process.env, platform = process.platform } = {
   };
 }
 
+/**
+ * The site a CodeBuddy sign-in must happen on, from the env the agent runs
+ * with. Launched bare, the CLI signs in against the international site; an
+ * agent pinned to the China site (CODEBUDDY_REGION=china) then has a session
+ * it cannot use. Matches the desktop app's codebuddyLoginEnv.
+ *
+ * `envs` are the candidate envs, most specific first (the agent's own, then its
+ * type's). With none naming a region, the agents of the type (`agentEnvs`)
+ * decide when they all agree; otherwise nothing is pinned.
+ */
+function loginEnvFor(type, envs = [], agentEnvs = []) {
+  if (type !== 'codebuddy') return {};
+  const { REGIONS } = require('./adapters/codebuddy-stream');
+  const regionOf = (env) => String((env && env.CODEBUDDY_REGION) || '').trim().toLowerCase();
+  let region = envs.map(regionOf).find(Boolean) || '';
+  if (!region) {
+    const named = [...new Set(agentEnvs.map(regionOf).filter(Boolean))];
+    if (named.length === 1) region = named[0];
+  }
+  return { ...(REGIONS[region] || {}) };
+}
+
+/**
+ * What to do once the CLI is open, for a CLI whose login command is the CLI
+ * itself: CodeBuddy has no login subcommand, signing in is `/login` inside it.
+ */
+function loginInstructions(type, loginEnv = {}) {
+  if (type !== 'codebuddy') return [];
+  const china = loginEnv.CODEBUDDY_INTERNET_ENVIRONMENT === 'internal';
+  return [
+    'CodeBuddy has no separate login command. Once it opens:',
+    `  1. Type /login and sign in with your ${china ? 'codebuddy.cn / workbuddy.cn (China site)' : 'codebuddy.ai / workbuddy.ai (international site)'} account.`,
+    '  2. When it says you are signed in, type /exit to come back here.',
+    china
+      ? 'This agent is set to the China site, so the CLI opens on it.'
+      : 'An account on codebuddy.cn signs in only if the agent\'s region is set to china (CODEBUDDY_REGION) first.',
+  ];
+}
+
 /** The command a workspace shows for signing an agent type in on a device. */
 function agnLoginCommand(type) {
   return `agn login ${type}`;
@@ -89,5 +128,7 @@ module.exports = {
   loginArgs,
   loginCommandOf,
   loginPlan,
+  loginEnvFor,
+  loginInstructions,
   agnLoginCommand,
 };

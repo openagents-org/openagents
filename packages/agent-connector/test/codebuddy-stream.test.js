@@ -9,6 +9,7 @@ const {
   buildCodeBuddyArgs,
   classifyCodeBuddyRun,
   classifyCodeBuddyVersion,
+  codebuddySessionState,
   interpretCodeBuddyFrame,
   parseFrame,
   redactArgs,
@@ -114,6 +115,33 @@ describe('resolveCodeBuddyEnv', () => {
     const env = resolveCodeBuddyEnv({});
     assert.ok(!('CODEBUDDY_API_KEY' in env));
     assert.ok(!('CODEBUDDY_AUTH_TOKEN' in env));
+  });
+});
+
+describe('codebuddySessionState', () => {
+  const session = (domain) => ({ auth: domain === undefined ? { accessToken: 'x' } : { domain, accessToken: 'x' } });
+
+  it('reads a session for an agent that pins no site as signed in, whichever site it is for', () => {
+    assert.equal(codebuddySessionState(session('www.codebuddy.ai'), {}), 'ready');
+    assert.equal(codebuddySessionState(session('www.codebuddy.cn'), { CODEBUDDY_REGION: 'international' }), 'ready');
+  });
+
+  it('counts only a China-site session for an agent pinned to the China site', () => {
+    const china = { CODEBUDDY_REGION: ' China ' };
+    assert.equal(codebuddySessionState(session('www.codebuddy.cn'), china), 'ready');
+    assert.equal(codebuddySessionState(session('copilot.tencent.com'), china), 'ready');
+    assert.equal(codebuddySessionState(session('staging.workbuddy.cn'), china), 'ready');
+    assert.equal(codebuddySessionState(session('www.codebuddy.ai'), china), 'no_credentials');
+  });
+
+  it('takes a session that predates the domain field at its word', () => {
+    assert.equal(codebuddySessionState(session(undefined), { CODEBUDDY_REGION: 'china' }), 'ready');
+  });
+
+  it('reads a file with no session in it as signed out', () => {
+    assert.equal(codebuddySessionState({}, {}), 'no_credentials');
+    assert.equal(codebuddySessionState({ __parse_error: true }, {}), 'no_credentials');
+    assert.equal(codebuddySessionState(null, {}), 'no_credentials');
   });
 });
 

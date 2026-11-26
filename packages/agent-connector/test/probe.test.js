@@ -686,6 +686,21 @@ describe('probeAgentType', () => {
     }
   });
 
+  // The adapter runs a China-pinned agent with CODEBUDDY_INTERNET_ENVIRONMENT
+  // set; a probe without it asked the other site and passed for an agent
+  // that then failed every message.
+  it('asks CodeBuddy on the site the agent runs on', async () => {
+    const entry = {
+      name: 'codebuddy', label: 'CodeBuddy',
+      probe: { args: ['-e', 'console.log("site=" + (process.env.CODEBUDDY_INTERNET_ENVIRONMENT || "default"))'], timeout_s: 30 },
+    };
+    const health = { installed: true, ready: false, auth_status: 'unknown', binary: process.execPath };
+    const china = await probeAgentType(fakeConnector({ entry, health, env: { CODEBUDDY_REGION: 'china' } }), 'codebuddy');
+    assert.equal(china.reply, 'site=internal');
+    const intl = await probeAgentType(fakeConnector({ entry, health }), 'codebuddy');
+    assert.equal(intl.reply, 'site=default');
+  });
+
   it('treats exit-0-with-no-output as empty_response', async () => {
     const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', ''], timeout_s: 30 } };
     const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });

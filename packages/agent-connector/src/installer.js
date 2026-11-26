@@ -29,6 +29,7 @@ const { fixSpawnHelpers } = require('./node-pty-perms');
 const { isPostinstallStub } = require('./postinstall-stub');
 const { nativeBuildFor } = require('./native-build');
 const { classifyClineAuth } = require('./adapters/cline-stream');
+const { codebuddySessionState } = require('./adapters/codebuddy-stream');
 
 /**
  * OPENAGENTS_NO_SCRIPT_REPAIR=1: never run an install script npm skipped
@@ -56,8 +57,8 @@ const keychainRefreshing = new Set();
 /**
  * Readers for a credential file whose content, not its existence, says whether
  * the agent is signed in. Named by `check_ready.creds_classifier`. Each takes
- * the parsed file (or `{ __parse_error: true }`) and returns 'ready',
- * 'no_credentials' (the file shows no sign-in) or 'unknown' (it cannot tell).
+ * the parsed file (or `{ __parse_error: true }`) and the agent's env, and
+ * returns 'ready', 'no_credentials' (the file shows no sign-in) or 'unknown' (it cannot tell).
  * They test fields for presence only; no value is returned or logged.
  *
  * Reading the file for one non-empty field said "signed in" for a Cline file
@@ -78,6 +79,12 @@ const CREDS_CLASSIFIERS = {
   copilot_logged_in_users(creds) {
     const users = creds && creds.loggedInUsers;
     return Array.isArray(users) && users.length > 0 ? 'ready' : 'unknown';
+  },
+  // The session file CodeBuddy's `/login` leaves. It looks the same for either
+  // site and the CLI keeps only one, so a session for the site the agent is
+  // not pinned to signs it in to nothing (codebuddySessionState).
+  codebuddy_session(creds, env) {
+    return codebuddySessionState(creds, env);
   },
 };
 
@@ -111,9 +118,9 @@ function parseJsonLoose(raw) {
 }
 
 /** The named classifier's verdict, or null when the entry names none. */
-function classifyCreds(checkReady, creds) {
+function classifyCreds(checkReady, creds, env = null) {
   const classify = checkReady && CREDS_CLASSIFIERS[checkReady.creds_classifier];
-  return classify ? classify(creds) : null;
+  return classify ? classify(creds, env || {}) : null;
 }
 
 /**
@@ -1114,11 +1121,13 @@ class Installer {
    * The credential file to look at on this platform. `creds_file_windows`
    * names it for a CLI that keeps its home elsewhere on Windows — Hermes uses
    * %LOCALAPPDATA%\hermes there, so ~/.hermes/config.yaml never existed and a
-   * configured Hermes read "not configured".
+   * configured Hermes read "not configured". `creds_file_macos` does the same
+   * on macOS, where CodeBuddy keeps its session under ~/Library/Application Support.
    */
   _credsFile(checkReady) {
     if (!checkReady) return null;
     if (process.platform === 'win32' && checkReady.creds_file_windows) return checkReady.creds_file_windows;
+    if (process.platform === 'darwin' && checkReady.creds_file_macos) return checkReady.creds_file_macos;
     return checkReady.creds_file || null;
   }
 
@@ -1130,7 +1139,7 @@ class Installer {
           const stat = fs.statSync(credsPath);
           if (stat.isDirectory()) return fs.readdirSync(credsPath).length > 0;
           const creds = parseJsonLoose(fs.readFileSync(credsPath, 'utf-8'));
-          const verdict = classifyCreds(checkReady, creds);
+          const verdict = classifyCreds(checkReady, creds, savedEnv);
           if (verdict) return verdict === 'ready';
           if (checkReady.creds_key) return !!creds[checkReady.creds_key];
           return true;
@@ -1263,7 +1272,7 @@ class Installer {
         const raw = fs.readFileSync(p, 'utf-8');
         let parsed;
         try { parsed = parseJsonLoose(raw); } catch { parsed = { __parse_error: true }; }
-        const verdict = classifyCreds(checkReady, parsed);
+        const verdict = classifyCreds(checkReady, parsed, savedEnv);
         if (verdict) return verdict === 'ready' ? 'present' : verdict === 'unknown' ? 'unknown' : 'absent';
       }
       if (checkReady.creds_json_has_entries) {

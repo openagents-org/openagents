@@ -35,17 +35,20 @@ const Toaster = ({ ...props }: ToasterProps) => {
       }
       toastOptions={{
         classNames: {
-          // Padding and border are sonner's own, but the cascade-layers
-          // flattening (postcss.config.cjs) lifts Tailwind's preflight reset
-          // above sonner's injected styles, leaving the toast with neither.
-          // Utilities are lifted further, so restate them here.
+          // Padding, margins, borders and button fonts are sonner's own, but
+          // the cascade-layers flattening (postcss.config.cjs) lifts Tailwind's
+          // preflight reset above sonner's injected styles, which wipes all of
+          // them. Utilities are lifted further, so restate them here; the
+          // margins read sonner's direction-aware variables so RTL still works.
           toast:
             "group toast group-[.toaster]:border group-[.toaster]:p-4 group-[.toaster]:bg-popover group-[.toaster]:text-popover-foreground! group-[.toaster]:border-border group-[.toaster]:shadow-lg has-[[role=alert]]:border-0! has-[[role=alert]]:shadow-none! has-[[role=alert]]:bg-transparent!",
           description: "group-[.toast]:text-muted-foreground",
+          icon:
+            "ml-(--toast-icon-margin-start) mr-(--toast-icon-margin-end) [&_svg]:ml-(--toast-svg-margin-start) [&_svg]:mr-(--toast-svg-margin-end)",
           actionButton:
-            "group-[.toast]:rounded-md! group-[.toast]:bg-primary group-[.toast]:text-primary-foreground!",
+            "h-6 px-2 text-xs font-medium ml-(--toast-button-margin-start) mr-(--toast-button-margin-end) group-[.toast]:rounded-md! group-[.toast]:bg-primary group-[.toast]:text-primary-foreground!",
           cancelButton:
-            "group-[.toast]:rounded-md! group-[.toast]:bg-secondary group-[.toast]:text-secondary-foreground!",
+            "h-6 px-2 text-xs font-medium ml-(--toast-button-margin-start) mr-(--toast-button-margin-end) group-[.toast]:rounded-md! group-[.toast]:bg-secondary group-[.toast]:text-secondary-foreground!",
         },
       }}
       {...props}

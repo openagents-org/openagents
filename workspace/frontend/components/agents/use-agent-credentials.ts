@@ -45,8 +45,12 @@ export function useAgentCredentials({ node, editAgent, editOnKey, detail, select
   // devices new enough; a type ready on its sign-in, or ready at all, from
   // older ones.
   const signInOffered = byok && !keyOnly;
-  const signedInOnDevice = !!selectedRuntime?.installed && !!(selectedRuntime.signedIn
-    ?? (selectedRuntime.auth ? selectedRuntime.auth.mode === 'subscription' : selectedRuntime.ready));
+  // An agent on its sign-in whose last smoke test answered has just used
+  // that sign-in: the detection missing it does not make it signed out.
+  const answeredOnSignIn = editAgent?.type === selected && editAgent?.authMode === 'cli_login'
+    && editAgent?.probe?.ok === true;
+  const signedInOnDevice = !!selectedRuntime?.installed && (answeredOnSignIn || !!(selectedRuntime.signedIn
+    ?? (selectedRuntime.auth ? selectedRuntime.auth.mode === 'subscription' : selectedRuntime.ready)));
   // Null until picked, so the default follows a detection that can arrive
   // after the form opens. An agent being edited opens on the sign-in it runs
   // on: one marked so, or, from a device too old to say, one with no key of

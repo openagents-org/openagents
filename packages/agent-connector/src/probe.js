@@ -826,6 +826,15 @@ async function probeAgentType(connector, type, opts = {}) {
   for (const [name, value] of Object.entries(probeEnv)) {
     if (env[name] == null) env[name] = String(value);
   }
+  // The site a CodeBuddy agent runs on is an env overlay the adapter adds at
+  // spawn (CODEBUDDY_REGION=china pins the China site). Without it the probe
+  // asked whichever site the session on disk belonged to: a China-pinned agent
+  // on a codebuddy.ai session read "Responded" here and then failed to sign in
+  // on every message.
+  if (type === 'codebuddy') {
+    const { resolveCodeBuddyEnv } = require('./adapters/codebuddy-stream');
+    Object.assign(env, resolveCodeBuddyEnv(agentEnv));
+  }
 
   const baseUrl = directBaseUrl(entry, agentEnv);
   const protocol = directProtocol(type, agentEnv);
