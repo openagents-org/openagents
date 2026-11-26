@@ -34,6 +34,27 @@ the backend detects the region automatically from the credentials.
    an `ext-lark-…` thread in the workspace; agent replies come back with the
    agent's name prefixed (Lark has no per-message sender override).
 
+### Restrict group messages to mentions
+
+When the app has `im:message.group_msg`, Feishu delivers all group messages.
+An integration can opt into forwarding only messages that explicitly mention
+its bot. Direct messages still work as before; ordinary group replies must
+also mention the bot. The setting is off by default for existing and new
+integrations. Set `lark_group_mentions_only` to `true` in the request when
+creating a Lark integration, or use the workspace administrator API to update
+an existing binding:
+
+```http
+PATCH /v1/workspaces/{workspace_id}/integrations/{binding_id}
+Content-Type: application/json
+
+{"lark_group_mentions_only": true}
+```
+
+The bot's Open ID is captured when its app credentials are validated. If it
+is unavailable, mention-only routing ignores group messages rather than
+forwarding all of them. Disabling the option restores the previous behavior.
+
 ## Column mapping (implementation note)
 
 `integration_bindings` reuses the existing columns for platform `lark`:

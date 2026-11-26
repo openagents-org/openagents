@@ -476,7 +476,7 @@ LARK_VERIFICATION_TOKEN = "v_token_123"
 LARK_ENCRYPT_KEY = "test-encrypt-key"
 
 
-def _make_lark_binding(client, workspace, monkeypatch, encrypt_key=None):
+def _make_lark_binding(client, workspace, monkeypatch, encrypt_key=None, group_mentions_only=False):
     monkeypatch.setattr(svc, "lark_validate_app", lambda app_id, secret: (
         "feishu", {"app_name": "OpenAgents Bot", "open_id": "ou_BOT"},
     ))
@@ -486,6 +486,7 @@ def _make_lark_binding(client, workspace, monkeypatch, encrypt_key=None):
         "app_id": "cli_a1b2c3",
         "verification_token": LARK_VERIFICATION_TOKEN,
         "default_agent": "agent-alpha",
+        "lark_group_mentions_only": group_mentions_only,
     }
     if encrypt_key:
         body["encrypt_key"] = encrypt_key
@@ -593,6 +594,66 @@ def test_lark_ignores_non_text_and_bot_senders(client, lark_binding):
     body = _lark_message_body("x", event_id="LkEv3", sender_open_id="ou_BOT")
     resp = client.post(f"/v1/integrations/lark/events/{lark_binding['id']}", json=body)
     assert resp.json()["data"]["ignored"] is True
+
+
+def test_lark_mention_only_routes_group_mentions_and_direct_messages(client, workspace, monkeypatch):
+    binding = _make_lark_binding(client, workspace, monkeypatch, group_mentions_only=True)
+    monkeypatch.setattr(svc, "lark_user_display_name", lambda binding, oid: "Li Lei")
+    url = f"/v1/integrations/lark/events/{binding['id']}"
+
+    def send(event_id, chat_type, text, mentions=None):
+        body = _lark_message_body(text, event_id=event_id, mentions=mentions)
+        body["event"]["message"]["chat_type"] = chat_type
+        return client.post(url, json=body)
+
+    assert send("group-plain", "group", "hello").json()["data"]["ignored"] is True
+    other = [{"key": "@_user_1", "id": {"open_id": "ou_OTHER"}, "name": "Someone"}]
+    assert send("group-other", "group", "@_user_1 hello", other).json()["data"]["ignored"] is True
+    bot = [{"key": "@_user_1", "id": {"open_id": "ou_BOT"}, "name": "OpenAgents Bot"}]
+    assert send("group-bot", "group", "@_user_1 hello", bot).status_code == 200
+    assert send("private", "p2p", "private hello").status_code == 200
+
+    channel = f"ext-lark-{binding['id'][:8]}-oc_chat1"
+    events = client.get(
+        "/v1/events",
+        params={"network": workspace["id"], "channel": channel, "type": "workspace.message.posted"},
+        headers={"X-Workspace-Token": workspace["token"]},
+    ).json()["data"]["events"]
+    assert [event["payload"]["content"] for event in events] == ["hello", "private hello"]
+
+
+def test_lark_mention_only_can_be_enabled_and_disabled(client, workspace, lark_binding, monkeypatch):
+    monkeypatch.setattr(svc, "lark_user_display_name", lambda binding, oid: "Li Lei")
+    url = f"/v1/integrations/lark/events/{lark_binding['id']}"
+    config_url = f"/v1/workspaces/{workspace['id']}/integrations/{lark_binding['id']}"
+    headers = {"X-Workspace-Token": workspace["token"]}
+
+    def send(event_id):
+        body = _lark_message_body("hello", event_id=event_id)
+        body["event"]["message"]["chat_type"] = "group"
+        return client.post(url, json=body)
+
+    assert send("before").json()["data"].get("ignored") is not True
+    assert client.patch(config_url, json={"lark_group_mentions_only": True}, headers=headers).status_code == 200
+    assert send("enabled").json()["data"]["ignored"] is True
+    assert client.patch(config_url, json={"lark_group_mentions_only": False}, headers=headers).status_code == 200
+    assert send("disabled").json()["data"].get("ignored") is not True
+
+
+def test_lark_mention_only_fails_closed_without_bot_identity(client, workspace, monkeypatch):
+    binding = _make_lark_binding(client, workspace, monkeypatch, group_mentions_only=True)
+    from app.models import IntegrationBinding
+    db = TestingSessionLocal()
+    try:
+        stored = db.get(IntegrationBinding, binding["id"])
+        stored.config = {**stored.config, "botOpenId": None}
+        db.commit()
+    finally:
+        db.close()
+    body = _lark_message_body("@_user_1 hello", mentions=[{"key": "@_user_1", "id": {"open_id": "ou_BOT"}}])
+    body["event"]["message"]["chat_type"] = "group"
+    response = client.post(f"/v1/integrations/lark/events/{binding['id']}", json=body)
+    assert response.json()["data"]["ignored"] is True
 
 
 def test_lark_encrypted_event_roundtrip(client, workspace, monkeypatch):

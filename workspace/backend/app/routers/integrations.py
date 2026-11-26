@@ -85,12 +85,14 @@ class CreateIntegrationRequest(BaseModel):
     app_id: Optional[str] = None            # lark: App ID (cli_…)
     verification_token: Optional[str] = None  # lark: event Verification Token
     encrypt_key: Optional[str] = None       # lark: event Encrypt Key (optional)
+    lark_group_mentions_only: bool = False  # leave existing integrations unchanged
 
 
 class UpdateIntegrationRequest(BaseModel):
     default_agent: Optional[str] = None
     name: Optional[str] = None
     status: Optional[str] = Field(default=None, pattern=r"^(active|disabled)$")
+    lark_group_mentions_only: Optional[bool] = None
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +244,7 @@ def create_integration(
                 "domain": domain,
                 "botName": bot.get("app_name"),
                 "botOpenId": bot.get("open_id"),
+                "groupMentionsOnly": body.lark_group_mentions_only,
             }
             if not binding.name:
                 binding.name = bot.get("app_name") or (
@@ -277,6 +280,8 @@ def update_integration(
     binding = db.get(IntegrationBinding, binding_id)
     if binding is None or str(binding.workspace_id) != str(workspace.id):
         return json_response(ResponseCode.NOT_FOUND, "Integration not found")
+    if body.lark_group_mentions_only is not None and binding.platform != "lark":
+        return json_response(ResponseCode.BAD_REQUEST, "Mention-only routing is only supported for Lark")
 
     if body.default_agent is not None:
         binding.default_agent = body.default_agent.strip() or None
@@ -284,6 +289,8 @@ def update_integration(
         binding.name = body.name.strip() or None
     if body.status is not None:
         binding.status = body.status
+    if body.lark_group_mentions_only is not None:
+        binding.config = {**(binding.config or {}), "groupMentionsOnly": body.lark_group_mentions_only}
     db.commit()
     db.refresh(binding)
     return success_response({"integration": _format_binding(binding)})
@@ -800,6 +807,14 @@ async def lark_events(
         or (bot_open_id and sender_open_id == bot_open_id)
     ):
         return success_response({"ignored": True})
+    # The full-group-message scope delivers every message. For integrations
+    # that opt in, wake the agent only when this bot is explicitly mentioned.
+    if message.get("chat_type") == "group" and cfg.get("groupMentionsOnly"):
+        if not bot_open_id or not any(
+            (mention.get("id") or {}).get("open_id") == bot_open_id
+            for mention in (message.get("mentions") or [])
+        ):
+            return success_response({"ignored": True})
 
     text = _lark_text_from_message(message, bot_open_id)
     if not text:
