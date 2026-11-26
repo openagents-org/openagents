@@ -100,8 +100,16 @@ export function WorkflowBuilderDialog({ open, onOpenChange, workflow, template, 
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-4xl">
+    <Dialog open={open} onOpenChange={onOpenChange} dismissible={false}>
+      {/* A long multi-step form that resets on open: only Cancel and the
+          close button dismiss it, so a stray click or Esc can't wipe it.
+          dismissible={false} does the same for the mobile drawer, which has
+          no close button: there only Cancel closes it. */}
+      <DialogContent
+        className="sm:max-w-4xl"
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader>
           <DialogTitle>
             {workflow ? t('workflows.editTitle') : t('workflows.createTitle')}
