@@ -2029,3 +2029,12 @@ class OAuthAuthorizationCode(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class JamSetupDraft(Base):
+    __tablename__ = "jam_setup_drafts"
+
+    key_hash = Column(Text, primary_key=True)
+    draft = Column(JSONB, nullable=False)
+    published_workspace = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

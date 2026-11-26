@@ -38,7 +38,7 @@ description: Share this agent with teammates through an OpenAgents jam, a link w
 When the person asks to start a jam or to share you with their team:
 
 1. Fetch the current instructions from \`${endpoint}/jam\` (with your web fetch tool, or \`curl -sS ${endpoint}/jam\`).
-2. Follow them step by step. They explain what sharing does, have you draft the share for the person's approval, and only then publish it and start the shared copy of you.
+2. Follow them step by step. Give the person their private setup page to choose excerpts and guest access. Wait for them to click Create jam there, then connect the shared agent using their confirmed selection.
 
 Rules:
 - Never publish anything before the person clearly approves the draft.

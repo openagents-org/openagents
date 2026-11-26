@@ -24,6 +24,7 @@ from app.services.routine_backoff import ROUTINE_STUCK_MS
 # Registers the commit hooks that invalidate cached permission results; it must
 # load before any request can write permission rows.
 import app.services.permission_cache  # noqa: E402,F401
+from app.routers import jam_setup
 from app.routers import guest_links, imported_sessions, personal_settings, hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
@@ -758,6 +759,12 @@ from fastapi.responses import JSONResponse as _ValidationJSONResponse
 
 @app.exception_handler(RequestValidationError)
 async def _log_validation_errors(request: Request, exc: RequestValidationError):
+    if request.url.path in {"/v1/jam/setup", "/v1/jam/setup/confirm"}:
+        # Validation errors include their input, which can contain private excerpts.
+        return _ValidationJSONResponse(status_code=422, content={
+            "message": "Invalid setup details",
+            "detail": [{"loc": e["loc"], "msg": e["msg"]} for e in exc.errors()],
+        })
     try:
         body = await request.body()
         body_preview = body.decode("utf-8", errors="replace")[:1024]
@@ -799,6 +806,7 @@ app.include_router(files.router)
 app.include_router(public_shares.router)
 app.include_router(guest_links.router)
 app.include_router(guest_links.root_router)
+app.include_router(jam_setup.router)
 app.include_router(personal_settings.router)
 app.include_router(imported_sessions.router)
 app.include_router(web_projects.router)

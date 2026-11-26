@@ -229,7 +229,7 @@ def _seed(db: Session, workspace_id: str, channel_name: str, source: str, sender
     ))
 
 
-def publish(db: Session, body, owner) -> dict:
+def publish(db: Session, body, owner, *, setup_draft=None) -> dict:
     """Create (or, on retry, return) the shared workspace, thread and guest link.
 
     ``owner`` is the signed-in account when the caller sent one: the workspace
@@ -327,6 +327,8 @@ def publish(db: Session, body, owner) -> dict:
         expires_at=expires_at,
     )
     db.add(link)
+    if setup_draft is not None:
+        setup_draft.published_workspace = wid
     try:
         db.commit()
     except IntegrityError:
