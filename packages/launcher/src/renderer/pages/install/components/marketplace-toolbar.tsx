@@ -68,6 +68,7 @@ export function MarketplaceToolbar({
       </Select>
 
       <IconToggle
+        size="default"
         value={view}
         onChange={onViewChange}
         options={VIEWS.map((v) => ({

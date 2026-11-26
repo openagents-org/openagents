@@ -77,7 +77,6 @@ export function BrowserToolbar({ tab, urlInputRef, editingUrl, urlDraft, onUrlDr
 
       <Button
         variant={controlling ? "default" : "outline"}
-        size="sm"
         onClick={onToggleControl}
         disabled={controlDisabled}
         className="shrink-0"

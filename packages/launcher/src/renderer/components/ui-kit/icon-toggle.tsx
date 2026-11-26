@@ -15,6 +15,8 @@ export interface IconToggleProps<T extends string> {
   options: Array<IconToggleOption<T>>
   onChange: (value: T) => void
   className?: string
+  /** Match the controls beside it: `sm` (28px) in compact footers, `default` (32px) next to a search box or select. */
+  size?: "sm" | "default"
 }
 
 /**
@@ -27,12 +29,13 @@ export function IconToggle<T extends string>({
   options,
   onChange,
   className,
+  size = "sm",
 }: IconToggleProps<T>): React.JSX.Element {
   return (
     <ToggleGroup
       type="single"
       variant="outline"
-      size="sm"
+      size={size}
       spacing={0}
       value={value}
       // Radix reports "" when the pressed item is clicked again; a view

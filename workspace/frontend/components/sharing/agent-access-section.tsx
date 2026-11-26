@@ -235,7 +235,7 @@ export function AgentAccessSection({
                     ))}</SelectGroup>
                   </SelectContent>
                 </Select>
-                <Button size="sm" onClick={grant} disabled={granting || picked.length === 0} className="ml-auto">
+                <Button onClick={grant} disabled={granting || picked.length === 0} className="ml-auto">
                   {granting ? <Spinner className="size-3.5" /> : <Plus className="size-3.5" />}
                   {granting ? t('agentAccess.granting') : t('agentAccess.grant')}
                 </Button>
