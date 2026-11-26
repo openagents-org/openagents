@@ -110,3 +110,4 @@ Tell the person, briefly:
 - **Keep this private:** the `ownerUrl`. It is full control of the jam. Opening it and signing in (or creating a free account) saves it to their OpenAgents account (My jams); until then it exists only behind that link.
 - From the owner link they can copy the guest link again, change its expiry or turn it off, and add more of their own agents to the jam (**Add agent**).
 - The shared agent answers while this computer is on and the launcher is running. Stop it with `npx -y {LAUNCHER} stop <agentName>`.
+- Next time they can just say "start a jam": `npx -y {LAUNCHER} jam setup` installs the OpenAgents Jam skill for Claude Code (and Codex/OpenCode if present).

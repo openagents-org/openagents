@@ -9,7 +9,7 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 | Topic | Status | Decision |
 |---|---|---|
 | Base branch | Decided | Build on `develop`. Hosted-only parts (cloud spend, analytics) go to `openagents-release`. |
-| Entry point | Decided (for now) | A copy-paste instruction that works in any agent: *"Read `<API>/v1/share/instructions` and follow it to share this agent with my team."* Registering as a plugin on agent platforms comes later. |
+| Entry point | Decided | A short instruction that works in any agent: *"Start a jam: read `<API>/jam`"* (alias of `/v1/share/instructions`). Or install the **OpenAgents Jam skill** once (`npx -y @openagents-org/agent-launcher jam setup [--endpoint <API>]`, served at `<API>/jam/skill.md`) and say "start a jam" / `/openagents-jam`. The skill only points at the current instructions, so it never goes stale. |
 | Account | Decided | Sharing never requires an account. A signed-in publisher owns the workspace from the start (`Authorization` on publish). An anonymous publisher gets an owner link; signing in from it keeps the workspace. |
 | What is shared | Decided | The person chooses. The agent drafts title, role, intro and excerpts, shows them verbatim, and publishes only after an explicit yes. |
 | Link expiry | Decided | The person chooses; default **never**. Owner can change it (null = never) or revoke at any time. |
