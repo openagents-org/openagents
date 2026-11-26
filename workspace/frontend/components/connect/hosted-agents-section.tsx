@@ -16,6 +16,9 @@ import { Field, FieldLabel } from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
 import { useConfirm } from '@/components/ui/dialogs-provider';
 import type { AcentaAccount, AcentaAgent, AcentaAgentUsage, AcentaUsage, HostedAgent, HostedAgentProvider } from '@/lib/types';
+import { useWorkspace } from '@/lib/workspace-context';
+import { dmSessionId, myAddress } from '@/lib/dm';
+import { useLayout } from '@/components/layout/layout-context';
 import { FinishSetupLink, formatUsd, HostedAgentRow, HostedOfferBar, HostedPresence, HostedUsageBar, RemoveHostedButton } from './hosted-agent-parts';
 
 export { formatUsd };
@@ -33,6 +36,17 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const t = useT();
   const { formatDate } = useFormatters();
   const confirm = useConfirm();
+  const { currentUser, setCurrentSessionId } = useWorkspace();
+  const { openView, setSelectedAgentName, setThreadFilter, openMobileDetail } = useLayout();
+  // A new agent opens straight into its DM, where its welcome (with things to try) arrives,
+  // instead of leaving people to find it in the sidebar. Same as clicking it there.
+  const openAgentDm = (agentName: string) => {
+    setCurrentSessionId(dmSessionId(myAddress(currentUser), `openagents:${agentName}`));
+    setSelectedAgentName(null);
+    openView('threads');
+    setThreadFilter('all');
+    openMobileDetail();
+  };
   const [provider, setProvider] = useState<HostedAgentProvider | null>(null);
   const [hosted, setHosted] = useState<HostedAgent[]>([]);
   // null: unknown (not signed in, or Acenta unreachable) — fall back to the workspace list.
@@ -109,6 +123,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
       setSetupOpen(false);
       load();
       onChanged();
+      if (launched.agentName) openAgentDm(launched.agentName);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('connect.acentaLaunchFailed'));
     } finally {
@@ -119,10 +134,11 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   const handleAdd = async (agent: AcentaAgent) => {
     setAdding(agent.id);
     try {
-      await workspaceApi.connectAcentaAgent(agent.id);
+      const added = await workspaceApi.connectAcentaAgent(agent.id);
       toast.success(t('connect.acentaAdded', { name: agent.name }));
       load();
       onChanged();
+      openAgentDm(added?.agentName || agent.agentName);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('connect.acentaAddFailed'));
     } finally {

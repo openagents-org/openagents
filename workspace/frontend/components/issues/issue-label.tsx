@@ -1,6 +1,9 @@
 'use client';
 import { X } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { useT } from '@/lib/i18n';
+import { cn } from '@/lib/utils';
 
 /**
  * Labels are free text, so each one is hashed onto this fixed palette. Three
@@ -21,9 +24,10 @@ export function IssueLabel({ label, onRemove, disabled }: {
 }) {
   const t = useT();
   const hash = Array.from(label.toLowerCase()).reduce((value, char) => (value * 31 + char.codePointAt(0)!) >>> 0, 0);
-  return <span title={label} className={`inline-flex max-w-full items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-medium leading-4 ${LABEL_PALETTE[hash % LABEL_PALETTE.length]}`}>
+  return <Badge variant="outline" title={label} className={cn('max-w-full gap-1.5', onRemove && 'overflow-visible pr-1', LABEL_PALETTE[hash % LABEL_PALETTE.length])}>
     <span aria-hidden className="size-1.5 shrink-0 rounded-full bg-current opacity-70" />
     <span className="truncate">{label}</span>
-    {onRemove && <button type="button" disabled={disabled} onClick={onRemove} aria-label={t('issues.removeLabel', { label })} className="-mr-1 rounded-full p-0.5 opacity-50 hover:bg-current/10 hover:opacity-100 focus-visible:opacity-100"><X className="size-3" /></button>}
-  </span>;
+    {onRemove && <Button type="button" variant="ghost" size="icon-xs" disabled={disabled} onClick={onRemove} aria-label={t('issues.removeLabel', { label })}
+      className="size-4 rounded-full text-current opacity-50 hover:bg-current/10 hover:text-current hover:opacity-100 focus-visible:opacity-100"><X /></Button>}
+  </Badge>;
 }

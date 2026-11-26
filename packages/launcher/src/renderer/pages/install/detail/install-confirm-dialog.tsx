@@ -4,6 +4,7 @@ import { ConfirmDialog } from "@renderer/components/ui-kit"
 import AgentIcon from "@renderer/components/AgentIcon"
 import { displayInstallCommand } from "../../../../shared/npm-install-spec"
 import type { CatalogEntry } from "@renderer/types"
+import { CommandText } from "./command-text"
 
 interface Props {
   open: boolean
@@ -84,8 +85,11 @@ export function InstallConfirmDialog({
             />
           )}
           {installCmd && (
-            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-center font-mono text-xs break-all whitespace-pre-wrap text-foreground">
-              {installCmd}
+            // Breaks between arguments (see CommandText): break-all split
+            // "@late / st", and nowrap let an update's --prefix path widen the
+            // dialog's grid past its edge.
+            <code className="mt-2 block rounded-md bg-muted px-2.5 py-1.5 text-left font-mono text-xs wrap-anywhere whitespace-pre-wrap text-foreground">
+              <CommandText command={installCmd} />
             </code>
           )}
           {note && <span className="mt-2 block text-xs">{note}</span>}
@@ -95,6 +99,7 @@ export function InstallConfirmDialog({
       confirmTestId="install-confirm"
       cancelLabel={t("agents.installConfirm.cancel")}
       destructive={false}
+      wide
       onConfirm={onConfirm}
       onCancel={onCancel}
     />

@@ -1918,6 +1918,26 @@ class DirectThreadPreference(Base):
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
 
 
+class DmPairSummary(Base):
+    """Per-pair DM totals for GET /v1/events/conversations, maintained by the
+    PostgreSQL trigger ``events_dm_pair_summary`` (migration 101). Rows of a
+    workspace are only complete once ``DmSummaryBackfill`` has a row for it;
+    ``msg_count`` <= 0 means no messages remain."""
+    __tablename__ = 'dm_pair_summaries'
+    workspace_id = Column(UUID(as_uuid=False), primary_key=True)
+    agent_a = Column(Text, primary_key=True)
+    agent_b = Column(Text, primary_key=True)
+    msg_count = Column(BigInteger, nullable=False, default=0, server_default=text('0'))
+    last_ts = Column(BigInteger, nullable=False, default=0, server_default=text('0'))
+
+
+class DmSummaryBackfill(Base):
+    """A workspace whose dm_pair_summaries include its full history."""
+    __tablename__ = 'dm_summary_backfills'
+    workspace_id = Column(UUID(as_uuid=False), primary_key=True)
+    completed_at = Column(DateTime(timezone=True), nullable=False, default=_now, server_default=text('NOW()'))
+
+
 class PersonalSetting(Base):
     """One person's own settings in a workspace, shared by all their devices
     (web, desktop app, phone). ``key`` names the setting — "thread_projects"

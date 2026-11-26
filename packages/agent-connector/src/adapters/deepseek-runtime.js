@@ -35,6 +35,7 @@
 
 const crypto = require('crypto');
 const path = require('path');
+const { CREDIT_EXHAUSTED } = require('./utils');
 
 /**
  * The dsh release this adapter is written against.
@@ -615,8 +616,14 @@ function tailStderr(raw, { maxChars = MAX_STDERR_CHARS } = {}) {
   return s.length <= maxChars ? s : '…' + s.slice(-maxChars);
 }
 
+/** The last `n` non-empty lines of `text`. */
+function lastLines(text, n) {
+  return String(text || '').split(/\r?\n/).filter((l) => l.trim()).slice(-n).join('\n');
+}
+
 /** Failure categories surfaced to the workspace. */
 const FAILURE = {
+  CREDIT: 'credit',
   AUTH: 'auth',
   MODEL: 'model',
   NETWORK: 'network',
@@ -627,6 +634,13 @@ const FAILURE = {
 };
 
 const FAILURE_PATTERNS = [
+  // An account with no balance left, which waiting or another model does not
+  // fix. dsh says "QUOTA: Insufficient Balance", and the bare `quota` in the
+  // model rule below read it as "failed (model)" (daily errors dashboard,
+  // 2026-11-25). First: a 402/403 status beside it is not a bad key. Read from
+  // the last lines only, where dsh writes the reason the run ended: a retry
+  // logged earlier ("402 Payment Required, retrying") is not why it failed.
+  [FAILURE.CREDIT, { test: (text) => CREDIT_EXHAUSTED.test(lastLines(text, 3).toLowerCase()) }],
   [FAILURE.AUTH, /\b(401|403|unauthor|forbidden|invalid[_\s-]?api[_\s-]?key|authentication|no api key|missing api key|credential)/i],
   // dsh 0.2.1-rc.5 refuses a model the official `/models` listing names but its
   // own catalog does not ship ("… is not supported by DeepSeek Harness",
@@ -639,6 +653,12 @@ const FAILURE_PATTERNS = [
   [FAILURE.VERSION, /\b(unsupported node|engine|requires node|syntaxerror.*unexpected token|err_require_esm|cannot use import statement)/i],
   [FAILURE.CONFIG, /\b(profile|cordis|patch|settings\.yaml|plugin|bundle|dsh_home|composition|row)\b/i],
 ];
+
+/** What to do about a category, put ahead of dsh's own words where they do not say it. */
+const FAILURE_LEAD = {
+  [FAILURE.CREDIT]: 'The account behind this agent\'s API key has run out of balance. '
+    + 'Top it up, or give this agent a key with credit, then retry.',
+};
 
 /**
  * Classify a non-zero dsh run.
@@ -659,7 +679,9 @@ function classifyDshFailure({ code, signal, stderr } = {}) {
     };
   }
   for (const [category, re] of FAILURE_PATTERNS) {
-    if (re.test(detail)) return { category, message: detail };
+    if (!re.test(detail)) continue;
+    const lead = FAILURE_LEAD[category];
+    return { category, message: lead ? `${lead}\n\n${detail}` : detail };
   }
   return {
     category: FAILURE.UNKNOWN,

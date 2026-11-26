@@ -6,9 +6,9 @@ import { useEffect, useState, use } from 'react';
 import Image from 'next/image';
 import Avatar from 'boring-avatars';
 import { MarkdownContent } from '@/components/chat/markdown-content';
-import { Loader2 } from 'lucide-react';
 import type { SharedSnapshotMessage } from '@/lib/types';
 import { useFormatters, useT } from '@/lib/i18n';
+import { Spinner } from '@/components/ui/spinner';
 
 const API_URL = getApiBaseUrl();
 
@@ -86,7 +86,7 @@ export default function SharePage({ params }: { params: Promise<{ token: string 
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        <Spinner aria-hidden="true" className="size-6 text-muted-foreground" />
       </div>
     );
   }

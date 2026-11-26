@@ -10,6 +10,8 @@ import { MarkdownCodeBlock } from './markdown-code-block';
 import { MermaidBlock } from './mermaid-block';
 import { getMermaidSource, hasOpenMermaidFence } from './mermaid-utils';
 import { MarkdownImage } from './markdown-image';
+import { Separator } from '@/components/ui/separator';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 
 // Stable plugin arrays — avoids re-creating on every render
 const remarkPlugins = [remarkGfm];
@@ -151,7 +153,7 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
         {children}
       </blockquote>
     ),
-    hr: () => <hr className="my-3 border-border" />,
+    hr: () => <Separator className="my-3" />,
 
     // Lists
     ul: ({ children }) => (
@@ -166,26 +168,21 @@ export const MarkdownContent = memo(function MarkdownContent({ content, agentNam
 
     // Tables
     table: ({ children }) => (
-      <div className="my-3 overflow-x-auto rounded-md border border-border">
-        <table className="min-w-full text-sm">{children}</table>
+      <div className="my-3 overflow-hidden rounded-md border border-border">
+        <Table>{children}</Table>
       </div>
     ),
-    thead: ({ children }) => (
-      <thead className="bg-muted">{children}</thead>
-    ),
-    tbody: ({ children }) => <tbody>{children}</tbody>,
-    tr: ({ children }) => (
-      <tr className="border-b border-border last:border-0">
-        {children}
-      </tr>
-    ),
+    thead: ({ children }) => <TableHeader className="bg-muted">{children}</TableHeader>,
+    tbody: ({ children }) => <TableBody>{children}</TableBody>,
+    tr: ({ children }) => <TableRow className="hover:bg-transparent">{children}</TableRow>,
+    // Prose cells wrap; the component's nowrap is for data grids.
     th: ({ children }) => (
-      <th className="px-3 py-1.5 text-left font-semibold text-xs text-muted-foreground">
+      <TableHead className="h-auto px-3 py-1.5 text-xs font-semibold whitespace-normal text-muted-foreground">
         {children}
-      </th>
+      </TableHead>
     ),
     td: ({ children }) => (
-      <td className="px-3 py-1.5">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</td>
+      <TableCell className="px-3 py-1.5 whitespace-normal">{renderMentions(children, agentNames, agentLabels, humanNames, selfMention)}</TableCell>
     ),
 
     // Code

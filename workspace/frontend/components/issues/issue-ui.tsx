@@ -9,6 +9,7 @@ import { useConfirm } from '@/components/ui/dialogs-provider';
 import { HumanAvatar } from '@/components/chat/human-avatar';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { cn } from '@/lib/utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 export const statuses: IssueStatus[] = ['open', 'in_progress', 'paused', 'closed'];
 export const statusKeys = {
@@ -104,18 +105,21 @@ export function IssueAvatar({
   name,
   source,
   size = 28,
+  hint = true,
 }: {
   name: string;
   source?: string;
   size?: number;
+  /** Name on hover; off where the name is already shown or a wider hint covers it. */
+  hint?: boolean;
 }) {
   if (source?.startsWith('human:'))
-    return <span title={name} className="inline-flex shrink-0" style={{ width: size, height: size }}><HumanAvatar email={source.slice(6)} className="size-full [&_svg]:size-3" /></span>;
+    return <WithTooltip label={hint ? name : undefined}><span className="inline-flex shrink-0" style={{ width: size, height: size }}><HumanAvatar email={source.slice(6)} className="size-full [&_svg]:size-3" /></span></WithTooltip>;
   if (source?.startsWith('openagents:'))
     return (
-      <span title={name} className="shrink-0">
+      <WithTooltip label={hint ? name : undefined}><span className="shrink-0">
         <AgentAvatar name={authorName(source)} size={size} />
-      </span>
+      </span></WithTooltip>
     );
   const initials =
     name

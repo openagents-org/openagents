@@ -170,3 +170,79 @@ def test_aged_base_is_served_while_another_worker_rebuilds_it(db, workspace, mem
     import json
     base = json.loads(memory_cache.store[dm_summary._key('base', workspace['id'])])
     assert base['built_at'] == memory_cache.now
+
+
+def test_base_is_cached_long_and_merged_short(db, workspace, memory_cache, monkeypatch):
+    ttls = {}
+    monkeypatch.setattr(cache, 'set_bytes', lambda key, value, ttl: (memory_cache.store.__setitem__(key, value), ttls.__setitem__(key, ttl)))
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', int(memory_cache.now * 1000) - 600_000)
+    totals(db, workspace, memory_cache)
+    base_key = dm_summary._key('base', workspace['id'])
+    merged_key = dm_summary._key('merged', workspace['id'])
+    assert ttls[base_key] == dm_summary.BASE_TTL_SECONDS > dm_summary.BASE_MAX_AGE_SECONDS
+    assert ttls[merged_key] == dm_summary.TTL_SECONDS
+
+
+def test_cold_history_contender_returns_immediately_without_a_duplicate_scan(db, workspace, memory_cache, monkeypatch):
+    waits = []
+    class RecordingLock(FakeLock):
+        def acquire(self, blocking=True, blocking_timeout=None):
+            if self.name == dm_summary._key('base', workspace['id']) + ':rebuild':
+                waits.append((blocking, blocking_timeout))
+            return super().acquire(blocking, blocking_timeout)
+    FakeLock.held = {dm_summary._key('base', workspace['id']) + ':rebuild'}
+    monkeypatch.setattr(cache, '_lazy_client', lambda: SimpleNamespace(lock=lambda name, **kw: RecordingLock(name)))
+    try:
+        with pytest.raises(dm_summary.SummaryWarmingError):
+            totals(db, workspace, memory_cache)
+        assert not memory_cache.queries
+        assert waits == [(False, None)], 'no wait while an authenticated request owns a DB connection'
+    finally:
+        FakeLock.held.clear()
+
+
+def test_another_workspaces_history_rebuild_does_not_start_another_scan(db, workspace, memory_cache, monkeypatch):
+    FakeLock.held = set()
+    monkeypatch.setattr(cache, '_lazy_client', lambda: SimpleNamespace(lock=lambda name, **kw: FakeLock(name)))
+    now_ms = int(memory_cache.now * 1000)
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', now_ms - 300_000)
+    totals(db, workspace, memory_cache)
+    memory_cache.now += dm_summary.BASE_MAX_AGE_SECONDS + 1
+    dm(db, workspace, 'openagents:beta', 'openagents:alpha', int(memory_cache.now * 1000))
+    FakeLock.held.add(dm_summary.GLOBAL_REBUILD_KEY + ':rebuild')
+    memory_cache.queries.clear()
+    try:
+        assert totals(db, workspace, memory_cache)[('openagents:alpha', 'openagents:beta')][1] == 2
+        assert len(memory_cache.queries) == 1, 'only delta; no competing full-history read'
+        assert FakeLock.held == {dm_summary.GLOBAL_REBUILD_KEY + ':rebuild'}
+    finally:
+        FakeLock.held.clear()
+
+
+def test_cold_history_while_another_workspace_rebuilds_is_retryable(client, db, workspace, memory_cache, monkeypatch):
+    FakeLock.held = {dm_summary.GLOBAL_REBUILD_KEY + ':rebuild'}
+    monkeypatch.setattr(cache, '_lazy_client', lambda: SimpleNamespace(lock=lambda name, **kw: FakeLock(name)))
+    try:
+        response = client.get('/v1/events/conversations', params={'network': workspace['id']},
+                              headers={'X-Workspace-Token': workspace['token']})
+        assert response.status_code == 503
+        assert response.headers['retry-after'] == '5'
+        assert not memory_cache.queries
+        assert FakeLock.held == {dm_summary.GLOBAL_REBUILD_KEY + ':rebuild'}
+    finally:
+        FakeLock.held.clear()
+    response = client.get('/v1/events/conversations', params={'network': workspace['id']},
+                          headers={'X-Workspace-Token': workspace['token']})
+    assert response.status_code == 200
+
+
+def test_new_messages_stay_fresh_without_ten_minute_history_rescans(db, workspace, memory_cache):
+    now_ms = int(memory_cache.now * 1000)
+    dm(db, workspace, 'openagents:alpha', 'openagents:beta', now_ms - 300_000)
+    totals(db, workspace, memory_cache)
+    memory_cache.now += 900
+    latest = int(memory_cache.now * 1000)
+    dm(db, workspace, 'openagents:beta', 'openagents:alpha', latest)
+    memory_cache.queries.clear()
+    assert totals(db, workspace, memory_cache)[('openagents:alpha', 'openagents:beta')] == [latest, 2]
+    assert len(memory_cache.queries) == 1

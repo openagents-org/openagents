@@ -1966,10 +1966,11 @@ export function WorkspaceProvider({
   const hasActiveAgentsRef = React.useRef(false);
   hasActiveAgentsRef.current = Object.values(lastMessageBySession).some((m) => m.isStatus);
 
-  // Live stream (beta, workspace setting "realtime_stream"): one connection per
-  // tab carries thread/DM events and panel wake-ups. While it is live the
-  // discovery tick becomes a slow safety refresh; otherwise nothing changes.
-  const realtimeEnabled = workspace?.settings?.realtime_stream === true;
+  // Live stream: one connection per tab carries thread/DM events and panel
+  // wake-ups. On unless the server reports it off (settings.realtime_stream
+  // === false: no Redis, or LIVE_STREAM_ENABLED=false). While it is live the
+  // discovery tick becomes a slow safety refresh; otherwise polling continues.
+  const realtimeEnabled = workspace?.settings?.realtime_stream !== false;
   const [liveStream, setLiveStream] = useState<LiveStream | null>(null);
   const [liveState, setLiveState] = useState<LiveState>('stopped');
   const liveActiveRef = React.useRef(false);
@@ -2021,7 +2022,11 @@ export function WorkspaceProvider({
       try { void panelRefreshersRef.current[topic]?.(); } catch { /* best effort */ }
     };
     const offWake = liveStream.onWake((topics) => {
+      // A hidden tab keeps only unread state live; panel wake-ups are dropped
+      // and the full refresh on return (useDiscoveryPolling) catches them up.
+      const hidden = document.visibilityState === 'hidden';
       for (const topic of topics) {
+        if (hidden && topic !== 'discover') continue;
         if (!panelRefreshersRef.current[topic] || timers[topic]) continue;
         const gap = MIN_GAP_MS[topic] ?? 1_500;
         const wait = Math.max(500, (lastRun[topic] ?? 0) + gap - Date.now());

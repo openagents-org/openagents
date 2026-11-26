@@ -96,7 +96,7 @@ Guests and the owner jam see the same strip a Workspace thread shows above its m
 | GET | `/v1/guest-links/public/{token}/messages?after= \| ?before= &limit=` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/messages` `{content, idempotency_key}` | guest session (`X-Guest-Session`) |
 
-Tables: `thread_guest_links`, `thread_guests` (migration 101, new tables only).
+Tables: `thread_guest_links`, `thread_guests` (migration 102, new tables only).
 
 ## Try it on two devices
 
@@ -119,4 +119,4 @@ Person A (sharer) needs Node.js and Claude Code. Person B (guest) needs only a b
 - Guest turns rely on Claude Code's WebFetch to read PRs. On a machine where WebFetch isn't available the reviewer says it can't fetch the diff.
 - Only Claude Code runs guest turns; other agent types reply that they can't take guest requests yet.
 - Keeping a workspace needs a sign-in round trip from the owner link; there is no "sign up first, then share" path inside the agent session yet.
-- Production needs the user's OK for migration 101 (three new tables, nullable columns on `workspace_members` and `nodes`) before promotion.
+- Production needs the user's OK for migration 102 (three new tables, nullable columns on `workspace_members` and `nodes`) before promotion.

@@ -1,7 +1,7 @@
 """Guest links into one thread (OpenAgents Share), and agent client capabilities.
 
-Revision ID: 101
-Revises: 100
+Revision ID: 102
+Revises: 101
 """
 import sqlalchemy as sa
 from alembic import op
@@ -9,8 +9,8 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 
 # New tables and one nullable column; the running release ignores them.
 deployment_backward_compatible = True
-revision = '101'
-down_revision = '100'
+revision = '102'
+down_revision = '101'
 branch_labels = None
 depends_on = None
 

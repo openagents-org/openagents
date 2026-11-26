@@ -188,6 +188,11 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     # Credentials and server-only settings must never ride along in this map.
     public_settings = {key: value for key, value in settings.items()
                        if key in PUBLIC_WORKSPACE_SETTINGS or key in READ_ONLY_PUBLIC_SETTINGS}
+    # Web and desktop clients open GET /v1/events/live when this is true. It
+    # reports the server-wide setting (on by default with Redis), not a
+    # per-workspace toggle; older clients still read it from here.
+    from app.services import agent_stream
+    public_settings["realtime_stream"] = agent_stream.live_stream_enabled()
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,

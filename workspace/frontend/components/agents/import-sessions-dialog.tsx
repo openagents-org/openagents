@@ -12,7 +12,7 @@
  */
 
 import { useEffect, useMemo, useState } from 'react';
-import { Check, Loader2, Search } from 'lucide-react';
+import { Check, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -23,6 +23,7 @@ import { useFormatters, useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import { isOwnedAgent } from '@/lib/sidebar-agents';
 import type { NodeCommand, WorkspaceNode } from '@/lib/types';
+import { Spinner } from '@/components/ui/spinner';
 
 export const IMPORTABLE_TYPES = ['claude', 'codex', 'opencode', 'hermes'] as const;
 export type ImportableType = typeof IMPORTABLE_TYPES[number];
@@ -157,7 +158,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 
           <div className="max-h-72 overflow-y-auto rounded-md border" data-testid="import-sessions-list">
             {error ? <p className="p-4 text-sm text-muted-foreground">{error}</p>
-              : sessions === null ? <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('importSessions.loading')}</p>
+              : sessions === null ? <p className="flex items-center gap-2 p-4 text-sm text-muted-foreground"><Spinner aria-hidden="true" className="size-4" />{t('importSessions.loading')}</p>
               : visible.length === 0 ? <p className="p-4 text-sm text-muted-foreground">{t('importSessions.empty', { tool: TOOL_LABELS[type] })}</p>
               : visible.map((s) => {
                 const o = outcomes[s.id];
@@ -171,7 +172,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
                       </span>
                       {o?.state === 'error' && <span className="block text-xs text-destructive">{o.message}</span>}
                     </span>
-                    {o?.state === 'running' && <Loader2 className="mt-1 size-4 animate-spin text-muted-foreground" />}
+                    {o?.state === 'running' && <Spinner aria-hidden="true" className="mt-1 size-4 text-muted-foreground" />}
                     {o?.state === 'done' && <Check className="mt-1 size-4 text-emerald-600" />}
                   </label>
                 );
@@ -196,9 +197,9 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
             <div className="rounded-md border bg-muted/30 p-2 text-sm" data-testid="import-sessions-done">
               <p className="mb-1 text-xs text-muted-foreground">{t('importSessions.imported', { count: finished.length })}</p>
               {finished.map(([id, o]) => (
-                <button key={id} type="button" className="block w-full truncate text-left text-primary hover:underline" onClick={() => openThread(o.channel)}>
-                  {(sessions || []).find((s) => s.id === id)?.title || id}
-                </button>
+                <Button key={id} type="button" variant="link" size="xs" className="h-auto w-full justify-start px-0" onClick={() => openThread(o.channel)}>
+                  <span className="truncate">{(sessions || []).find((s) => s.id === id)?.title || id}</span>
+                </Button>
               ))}
             </div>
           )}
@@ -206,7 +207,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={importing}>{t('common.close')}</Button>
           <Button onClick={() => void runImport()} disabled={importing || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
-            {importing ? <Loader2 className="size-4 animate-spin" /> : null}
+            {importing ? <Spinner aria-hidden="true" className="size-4" /> : null}
             {t('importSessions.import', { count: picked.size })}
           </Button>
         </DialogFooter>

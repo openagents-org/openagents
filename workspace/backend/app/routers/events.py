@@ -19,8 +19,8 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, cast, func, or_, select, Text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, cast, func, or_, select, Text, union_all
+from sqlalchemy.orm import Session, aliased
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
@@ -1088,16 +1088,24 @@ def _poll_events_impl(
         if channel:
             query = query.where(EventRecord.target == f"channel/{channel}")
 
+        split_types = None
         if type:
             matching = None if type in POLL_PREFIXES else workspace_types_matching(db, workspace_id, type)
             if matching is not None and len(matching) <= 1:
                 # One concrete type (or none): equality lets PostgreSQL range-scan
                 # (network_id, type, ...) instead of reading every other type.
                 query = query.where(EventRecord.type.in_(matching))
+            elif matching is not None and (target or channel):
+                # Several types in one thread: an IN list makes PostgreSQL read
+                # and sort the whole thread (258k rows), and the prefix filter
+                # walks the workspace's timestamp index until it finds enough of
+                # this thread's rows (10-30 s once the thread goes quiet,
+                # 2026-11-25). Instead read each type's newest rows through
+                # (network_id, type, target, timestamp) and merge (see below).
+                split_types = sorted(matching)
             else:
-                # Several types: an IN list defeats ordered index scans (a
-                # thread's newest page read and sorted all 258k of its rows), so
-                # keep the prefix filter, which walks the timestamp index.
+                # Workspace-wide: the prefix filter walks the timestamp index,
+                # which finds recent messages quickly.
                 query = query.where(event_type_filter(type))
 
         if exclude_message_types:
@@ -1170,10 +1178,20 @@ def _poll_events_impl(
         # event the main query didn't get to see (at worst a harmless re-scan).
         head_snapshot = stream_head(db, workspace_id, type, channel, target) if target_agents else None
 
-        if sort == "desc":
-            query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
+        def ordered(q, model=EventRecord):
+            if sort == "desc":
+                return q.order_by(model.timestamp.desc(), model.id.desc()).limit(limit + 1)
+            return q.order_by(model.timestamp.asc(), model.id.asc()).limit(limit + 1)
+
+        if split_types:
+            # One ordered, limited index scan per type, then merge: the result is
+            # the same page the prefix filter would return.
+            parts = [ordered(query.where(EventRecord.type == t)).subquery() for t in split_types]
+            merged = union_all(*[select(part) for part in parts]).subquery()
+            merged_event = aliased(EventRecord, merged)
+            query = ordered(select(merged_event), merged_event)
         else:
-            query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
+            query = ordered(query)
         rows = db.execute(query).scalars().all()
 
         has_more = len(rows) > limit
@@ -1314,9 +1332,16 @@ def list_conversations(
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     # Totals come from one incrementally maintained, workspace-wide summary;
     # visibility depends only on each pair's participants, so filter per viewer.
-    from app.services.dm_summary import visible_pairs, workspace_pairs
+    from app.services.dm_summary import SummaryWarmingError, visible_pairs, workspace_pairs
     from app.services.poll_queries import dm_rewrite_generation
-    all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    try:
+        all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    except SummaryWarmingError as exc:
+        # Release authentication's transaction immediately; never queue a DB
+        # connection behind a slow history rebuild.
+        db.rollback()
+        from fastapi import HTTPException
+        raise HTTPException(503, str(exc), headers={"Retry-After": "5"}) from exc
     viewer_addresses = _dm_addresses(viewer) if _dm_viewer_scope(viewer) else None
     pairs = [SimpleNamespace(**row) for row in visible_pairs(all_pairs, viewer_addresses, agent, limit)]
 
@@ -1638,9 +1663,9 @@ async def live_event_stream(
     if error is not None:
         return error
     workspace_id, viewer, dm_scope, hidden = scope
-    if not await run_in_threadpool(agent_stream.workspace_stream_enabled, workspace_id):
+    if not agent_stream.live_stream_enabled():
         return json_response(
-            ResponseCode.NOT_FOUND, "Live stream is not enabled for this workspace",
+            ResponseCode.NOT_FOUND, "Live stream is not enabled on this server",
             data={"reason": "live_stream_disabled"},
         )
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None

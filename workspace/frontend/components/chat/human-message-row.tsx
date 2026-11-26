@@ -92,10 +92,10 @@ export function HumanMessageRow({ message, agents, agentNames, agentLabels, huma
           {timestamp && <span className="font-normal">{timestamp}</span>}
           {/* v1.1 M5 — information vs execution in directed threads */}
           {message.metadata?.informational === true && (
-            <Badge variant="outline" title={t('brief.infoTagHint')}>{t('brief.infoTag')}</Badge>
+            <WithTooltip label={t('brief.infoTagHint')}><Badge variant="outline">{t('brief.infoTag')}</Badge></WithTooltip>
           )}
           {message.metadata?.from_non_director === true && (
-            <Badge variant="secondary" title={t('brief.nonDirectorHint')}>{t('brief.nonDirectorTag')}</Badge>
+            <WithTooltip label={t('brief.nonDirectorHint')}><Badge variant="secondary">{t('brief.nonDirectorTag')}</Badge></WithTooltip>
           )}
         </MessageHeader>
         <Bubble variant="ghost" className="w-full">

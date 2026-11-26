@@ -87,13 +87,13 @@ export function NodeSummary({
             <div className="flex items-center gap-2">
               <div className="flex *:not-first:-ml-1.5">
                 {previewAgents.map((a) => (
-                  <div key={a.name} className="relative flex" title={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
+                  <WithTooltip key={a.name} label={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}><div className="relative flex" role="img" aria-label={`${a.displayName ? `${a.displayName} (@${a.name})` : `@${a.name}`} · ${a.type} · ${agentStatusLabel(a.status)}`}>
                     <AgentIcon name={a.type} size={20} chip className="outline-2 outline-background" />
                     <span className={cn(
                       'absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-2 ring-background',
                       online && a.status === 'running' ? 'bg-success' : 'bg-muted-foreground/60',
                     )} />
-                  </div>
+                  </div></WithTooltip>
                 ))}
                 {extraAgents > 0 && (
                   <div className="flex h-5 min-w-5 items-center justify-center rounded-md bg-muted px-1 text-xs font-medium text-muted-foreground outline-2 outline-background">

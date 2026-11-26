@@ -90,3 +90,16 @@ def test_invalid_read_markers_rejected(client, workspace, markers):
     response = client.get('/v1/discover', params={'network': workspace['id'], 'read_at': markers},
                           headers={'X-Workspace-Token': workspace['token']})
     assert response.status_code == 400
+
+
+def test_unread_counts_stop_at_the_cap_clients_display_as_99_plus(db, workspace):
+    from app.services.thread_activity import UNREAD_CAP
+    ch = db.query(Channel).filter_by(workspace_id=workspace['id']).first()
+    event(db, workspace, ch.name, 'openagents:agent-alpha', 101, metadata={'requester_email': ME})  # oldest
+    for ts in range(102, 102 + UNREAD_CAP + 50):
+        event(db, workspace, ch.name, f'human:{OTHER}', ts)
+    activity = thread_activity(db, workspace['id'], [ch], {ch.name: 100}, ME)[ch.name]
+    assert activity['unread_count'] == UNREAD_CAP
+    assert activity['completion_at'] is None, 'only the newest UNREAD_CAP unread messages are read'
+    event(db, workspace, ch.name, 'openagents:agent-alpha', 1000, metadata={'requester_email': ME})
+    assert thread_activity(db, workspace['id'], [ch], {ch.name: 100}, ME)[ch.name]['completion_at'] == 1000

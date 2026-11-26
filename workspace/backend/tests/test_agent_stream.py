@@ -11,6 +11,13 @@ from app.services import agent_stream
 
 
 @pytest.fixture
+def live_on():
+    agent_stream.configure_live_stream(True)
+    yield
+    agent_stream.configure_live_stream(None)
+
+
+@pytest.fixture
 def allow(workspace):
     agent_stream.configure_allowlist(workspace["id"])
     yield
@@ -208,7 +215,7 @@ class TestToggle:
         headers = {"X-Workspace-Token": workspace["token"], "X-Agent-Name": "agent-alpha"}
         r = _get_stream(client, workspace, monkeypatch, headers)
         assert r.status_code == 404
-        assert self._set(client, workspace, True).json()["data"]["settings"]["realtime_stream"] is True
+        assert self._set(client, workspace, True).status_code == 200   # legacy agent opt-in
         monkeypatch.setattr(agent_stream.hub, "_task", None)
         real = agent_stream.hub.subscribe
 
@@ -222,6 +229,34 @@ class TestToggle:
 
     def test_toggle_must_be_boolean(self, client, workspace):
         assert self._set(client, workspace, "yes").status_code == 400
+
+    def test_settings_report_the_server_live_stream_switch(self, client, workspace):
+        # Web/desktop clients open the live stream when settings.realtime_stream
+        # is true; it mirrors the server switch, not the agent allowlist.
+        get = lambda: client.get(f"/v1/workspaces/{workspace['id']}",
+                                 headers={"X-Workspace-Token": workspace["token"]}).json()["data"]["settings"]
+        try:
+            agent_stream.configure_live_stream(True)
+            assert get()["realtime_stream"] is True
+            agent_stream.configure_live_stream(False)
+            agent_stream.configure_allowlist("*")
+            assert get()["realtime_stream"] is False
+        finally:
+            agent_stream.configure_live_stream(None)
+            agent_stream.configure_allowlist("")
+
+
+def test_live_stream_is_on_by_default_with_redis_and_can_be_turned_off(monkeypatch):
+    from app import cache
+    agent_stream.configure_live_stream(None)
+    monkeypatch.delenv("LIVE_STREAM_ENABLED", raising=False)
+    monkeypatch.setattr(cache, "_disabled", False)
+    assert agent_stream.live_stream_enabled() is True
+    monkeypatch.setenv("LIVE_STREAM_ENABLED", "false")
+    assert agent_stream.live_stream_enabled() is False
+    monkeypatch.delenv("LIVE_STREAM_ENABLED")
+    monkeypatch.setattr(cache, "_disabled", True)          # no REDIS_URL: clients keep polling
+    assert agent_stream.live_stream_enabled() is False
 
 
 def test_hub_routes_events_and_panel_topics_to_live_streams():
@@ -255,15 +290,16 @@ class TestLiveEndpoint:
         monkeypatch.setattr(events_mod, "LIVE_STREAM_KEEPALIVE_SECONDS", 0.1)
         return client.get(f"/v1/events/live?network={workspace['id']}", headers=headers)
 
-    def test_disabled_workspace_gets_404(self, client, workspace, monkeypatch):
-        monkeypatch.setattr(agent_stream, "_settings_cache", {})
-        from tests.conftest import TestingSessionLocal
-        monkeypatch.setattr("app.database.SessionLocal", TestingSessionLocal)
-        r = self._get(client, workspace, monkeypatch, {"X-Workspace-Token": workspace["token"]})
+    def test_disabled_server_gets_404(self, client, workspace, monkeypatch):
+        agent_stream.configure_live_stream(False)
+        try:
+            r = self._get(client, workspace, monkeypatch, {"X-Workspace-Token": workspace["token"]})
+        finally:
+            agent_stream.configure_live_stream(None)
         assert r.status_code == 404
         assert r.json()["data"]["reason"] == "live_stream_disabled"
 
-    def test_streams_events_wakes_and_reconnect(self, client, workspace, allow, monkeypatch):
+    def test_streams_events_wakes_and_reconnect(self, client, workspace, live_on, monkeypatch):
         monkeypatch.setattr(agent_stream.hub, "_task", None)
         real = agent_stream.hub.subscribe_live
 
