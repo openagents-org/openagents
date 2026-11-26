@@ -5,12 +5,34 @@
     {
       "type": "feature",
       "title": {
-        "en": "Help and the user guide, inside the app",
-        "zh": "在应用内找到帮助和使用文档"
+        "en": "A short tour of the Workspace",
+        "zh": "工作区功能引导"
       },
       "description": {
-        "en": "Help in the Computer sidebar shows the tour again and opens the guide: how Workspace and Computer differ, connecting and managing agents, and everything else. In a workspace, the same guide is under Help & docs in the account menu. The guide opens in your app language.",
-        "zh": "「此电脑」侧栏新增「帮助」，可以重新查看引导，也可以打开使用文档：「工作区」和「此电脑」的区别、连接和管理智能体，以及全部文档。在工作区里，同样的文档在账号菜单的「帮助与文档」中。文档按应用语言打开。"
+        "en": "It shows where to manage agents, where threads are, how to hand a task to an agent with @, how to search, and where to find help. It appears once on its own, can be skipped, and is under Feature tour in the account menu whenever you want it again.",
+        "zh": "依次介绍管理智能体、会话、用 @ 把任务交给智能体、搜索，以及在哪里找帮助。第一次会自动出现，可以跳过，之后随时可以从账号菜单的「功能引导」重新打开。"
+      }
+    },
+    {
+      "type": "feature",
+      "title": {
+        "en": "The user guide, one click away",
+        "zh": "在应用内打开使用文档"
+      },
+      "description": {
+        "en": "Help in the Computer sidebar shows the tour again or opens the user guide; in a workspace, the guide is under User guide in the account menu. It opens in your app language.",
+        "zh": "「此电脑」侧栏新增「帮助」，可以重新查看引导或打开使用文档；在工作区里，使用文档在账号菜单中。文档按应用语言打开。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Search finds pages and settings",
+        "zh": "搜索可以找到页面和设置"
+      },
+      "description": {
+        "en": "Besides threads, files and agents, search now lists every page and setting, so \"API key\" finds Model access and \"invite\" finds Members.",
+        "zh": "除了会话、文件和智能体，搜索还能找到各个页面和设置项，例如搜「密钥」能找到「模型访问」，搜「邀请」能找到「成员」。"
       }
     },
     {
@@ -27,23 +49,23 @@
     {
       "type": "improvement",
       "title": {
+        "en": "How to use a saved model access",
+        "zh": "说明怎样使用已保存的模型访问"
+      },
+      "description": {
+        "en": "Settings → Model access shows how to give a saved credential to an agent and check that it works, with a button straight to Manage Agents.",
+        "zh": "「设置 → 模型访问」页会说明如何把已保存的凭据给智能体使用、如何确认生效，并提供直达「管理智能体」的按钮。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
         "en": "Clearer WorkBuddy sign-in steps",
         "zh": "WorkBuddy 登录步骤更清楚"
       },
       "description": {
         "en": "Signing in from a terminal now says to type /login inside WorkBuddy (CodeBuddy), and that the international and China sites are separate accounts.",
         "zh": "在终端里登录时，会提示在 WorkBuddy（CodeBuddy）里输入 /login，并说明国际站和国内站是两套独立账号。"
-      }
-    },
-    {
-      "type": "improvement",
-      "title": {
-        "en": "How to use a saved model access",
-        "zh": "说明怎样使用已保存的模型访问"
-      },
-      "description": {
-        "en": "Settings → Model access shows how to give a saved credential to an agent and check that it works.",
-        "zh": "「设置 → 模型访问」页会说明如何把已保存的凭据给智能体使用，以及如何确认它已生效。"
       }
     },
     {

@@ -10,7 +10,8 @@
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import { KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, KeyRound, Plus, RefreshCw, Trash2 } from 'lucide-react';
 import { Item, ItemActions, ItemContent, ItemDescription, ItemMedia, ItemTitle } from '@/components/ui/item';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ import type { CloudAgentProvider, ModelAccessEntry } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 
 export default function ModelAccessSettingsPage() {
-  const { me } = useAdminSettings();
+  const { me, workspaceId, query } = useAdminSettings();
   const t = useT();
   const confirm = useConfirm();
   const editable = canAdminister(me);
@@ -131,7 +132,17 @@ export default function ModelAccessSettingsPage() {
 
       {/* Saving a key here does not hand it to any agent: each agent picks one
           in its own form. People who had saved one asked how it gets used. */}
-      <SettingsCard title={t('admin.modelAccessUseTitle')}>
+      <SettingsCard
+        title={t('admin.modelAccessUseTitle')}
+        action={(
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/${workspaceId}${query ? `${query}&` : '?'}view=connect`}>
+              {t('admin.modelAccessUseOpenAgents')}
+              <ArrowRight data-icon="inline-end" />
+            </Link>
+          </Button>
+        )}
+      >
         <ol className="flex list-decimal flex-col gap-2 ps-5 text-sm leading-relaxed marker:text-muted-foreground">
           <li>{t('admin.modelAccessUseStep1')}</li>
           <li>{t('admin.modelAccessUseStep2')}</li>

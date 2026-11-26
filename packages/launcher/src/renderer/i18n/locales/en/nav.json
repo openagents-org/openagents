@@ -63,9 +63,7 @@
     "label": "Help",
     "short": "Help",
     "replayTour": "Show the tour again",
-    "workspaceVsComputer": "Workspace vs. Computer",
-    "managingAgents": "Connecting and managing agents",
-    "allDocs": "All docs"
+    "docs": "User guide"
   },
   "agentsSummary": {
     "running_one": "{{count}} agent running",

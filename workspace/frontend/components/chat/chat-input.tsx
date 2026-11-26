@@ -205,7 +205,7 @@ export function ChatInput({ conversationId, onSend, disabled, className, agents 
   const canMention = agents.length > 1 || knowledge.length > 0 || mentions.team.length > 0;
 
   return (
-    <div className={cn('relative', className)} {...files.dragHandlers}>
+    <div className={cn('relative', className)} data-tour="composer" {...files.dragHandlers}>
       {showMentions && mentionItems.length > 0 && (
         <ComposerMentionMenu
           offerAll={mentions.offerAll}

@@ -17,15 +17,8 @@ import {
 } from "@renderer/components/ui/sidebar"
 import { useSidebarStore } from "@renderer/store/sidebar"
 import { useUiStore } from "@renderer/store/ui"
-import { docsUrl, type DocsPage } from "@renderer/lib/docs-links"
+import { docsUrl } from "@renderer/lib/docs-links"
 import { RAIL_BUTTON, RailLabel } from "./rail-label"
-
-/** The guide's chapters people ask about most, then its front page. */
-const DOC_LINKS: { page: DocsPage; key: string }[] = [
-  { page: "workspaceVsLauncher", key: "nav.help.workspaceVsComputer" },
-  { page: "managingAgents", key: "nav.help.managingAgents" },
-  { page: "overview", key: "nav.help.allDocs" },
-]
 
 /**
  * Help: the guided tour again, and the user guide. The tour only runs once on
@@ -67,17 +60,14 @@ export function NavHelp(): React.JSX.Element {
                 </button>
               </SidebarMenuSubButton>
             </SidebarMenuSubItem>
-            <li aria-hidden className="mx-2 my-1 h-px bg-sidebar-border" />
-            {DOC_LINKS.map(({ page, key }) => (
-              <SidebarMenuSubItem key={page}>
-                <SidebarMenuSubButton asChild>
-                  {/* The guide opens in the browser, not in the app. */}
-                  <button type="button" onClick={() => window.api.openExternal(docsUrl(page, language))}>
-                    <span>{t(key)}</span>
-                  </button>
-                </SidebarMenuSubButton>
-              </SidebarMenuSubItem>
-            ))}
+            <SidebarMenuSubItem>
+              <SidebarMenuSubButton asChild>
+                {/* The guide opens in the browser, not in the app. */}
+                <button type="button" data-testid="nav-help-docs" onClick={() => window.api.openExternal(docsUrl(language))}>
+                  <span>{t("nav.help.docs")}</span>
+                </button>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
           </SidebarMenuSub>
         </CollapsibleContent>
       </SidebarMenuItem>
