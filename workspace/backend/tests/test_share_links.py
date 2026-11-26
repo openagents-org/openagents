@@ -1186,3 +1186,24 @@ def test_short_jam_address_and_skill_name_this_server(client, monkeypatch):
         assert skill.status_code == 200, path
         assert skill.text.startswith("---\nname: openagents-jam\n")
         assert "https://oa.example.test/jam" in skill.text and "{API}" not in skill.text
+
+
+def test_links_are_short_and_live_on_the_jam_host(client, monkeypatch, no_push):
+    import re as _re
+    import app.config as app_config
+    monkeypatch.setattr(app_config.config, "JAM_HOST", "jam.example.test")
+    monkeypatch.setattr(app_config.config, "FRONTEND_BASE_URL", "https://app.example.test")
+    data = _published(client)
+    assert _re.fullmatch(r"https://jam\.example\.test/[A-Za-z0-9]{10}", data["guestUrl"]), data["guestUrl"]
+    assert data["ownerUrl"].startswith(f"https://jam.example.test/own/{data['slug']}?token=")
+    token = _token(data)
+    h = {"host": "jam.example.test"}
+    r = client.get(f"/{token}", headers=h, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == f"https://app.example.test/jam/{token}"
+    r = client.get(f"/own/{data['slug']}?token=abc", headers=h, follow_redirects=False)
+    assert r.headers["location"] == f"https://app.example.test/jam/own/{data['slug']}?token=abc"
+    start = client.get("/", headers=h)
+    assert start.status_code == 200 and "Share this agent" in start.text
+    assert "https://jam.example.test" in client.get("/skill.md", headers=h).text
+    assert client.get("/v1/workspaces", headers=h).status_code == 404, "the rest of the API isn't on the jam host"
+    assert client.get("/v1/share/instructions").status_code == 200, "other hosts are unaffected"

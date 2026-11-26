@@ -96,7 +96,9 @@ def _render_markdown(path: Path) -> PlainTextResponse:
     # SHARE_LAUNCHER_PACKAGE: what `npx` installs (a test build's tarball URL on
     # a private preview); defaults to the published launcher.
     launcher = os.environ.get("SHARE_LAUNCHER_PACKAGE") or "@openagents-org/agent-launcher@latest"
-    text = (text.replace("{API}", (app_config.config.PUBLIC_API_BASE or "").rstrip("/"))
+    api = (app_config.config.PUBLIC_API_BASE or "").rstrip("/")
+    jam = f"https://{svc.jam_host()}" if svc.jam_host() else f"{api}/jam"
+    text = (text.replace("{JAM}", jam).replace("{API}", api)
             .replace("{APP}", svc.frontend_base()).replace("{LAUNCHER}", launcher))
     return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
                              headers={"Cache-Control": "public, max-age=300"})

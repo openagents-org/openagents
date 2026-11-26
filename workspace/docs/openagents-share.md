@@ -9,7 +9,7 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 | Topic | Status | Decision |
 |---|---|---|
 | Base branch | Decided | Build on `develop`. Hosted-only parts (cloud spend, analytics) go to `openagents-release`. |
-| Entry point | Decided | A short instruction that works in any agent: *"Start a jam: read `<API>/jam`"* (alias of `/v1/share/instructions`). Or install the **OpenAgents Jam skill** once (`npx -y @openagents-org/agent-launcher jam setup [--endpoint <API>]`, served at `<API>/jam/skill.md`) and say "start a jam" / `/openagents-jam`. The skill only points at the current instructions, so it never goes stale. |
+| Entry point | Decided | A short instruction that works in any agent: *"Start a jam: read `jam.openagents.org`"* (the `JAM_HOST` root; without it `<API>/jam`, an alias of `/v1/share/instructions`). Or install the **OpenAgents Jam skill** once (`npx -y @openagents-org/agent-launcher jam setup [--endpoint <API>]`, served at `<API>/jam/skill.md`) and say "start a jam" / `/openagents-jam`. The skill only points at the current instructions, so it never goes stale. |
 | Account | Decided | Sharing never requires an account. A signed-in publisher owns the workspace from the start (`Authorization` on publish). An anonymous publisher gets an owner link; signing in from it keeps the workspace. |
 | What is shared | Decided | The person chooses. The agent drafts title, role, intro and excerpts, shows them verbatim, and publishes only after an explicit yes. |
 | Link expiry | Decided | The person chooses; default **never**. Owner can change it (null = never) or revoke at any time. |
@@ -33,6 +33,10 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 3. `POST /v1/share/publish` creates a workspace, one passive thread with the agent as its only member, the approved excerpts and intro as the first messages, and a guest link. Idempotent on `idempotency_key`.
 4. The agent writes the role into `~/.openagents/shared/<agent>/CLAUDE.md` and connects itself with the OpenAgents launcher (`create --path`, `connect <token>`, `up`).
 5. A teammate opens `/jam/<token>`, reads, picks a name, and asks `@agent …`. The message is routed to the sharer's local agent, which runs a read-only turn and replies in the thread. The sharer sees everything from the owner link.
+
+## Short links (JAM_HOST)
+
+With `JAM_HOST=jam.openagents.org` (a proxied CNAME to the API, like the share domain), guest links are `https://jam.openagents.org/<10 letters/digits>` and owner links `https://jam.openagents.org/own/<slug>?token=…`; both redirect to the web app's `/jam/…` pages. `https://jam.openagents.org/` serves the share instructions and `/skill.md` the skill; nothing else of the API answers on that host. Self-hosters leave it unset (links stay on `FRONTEND_BASE_URL/jam/…`) or point their own host at the API. Tokens are 10 letters/digits (about 59 bits), older 32-character links keep working.
 
 ## The owner's side
 

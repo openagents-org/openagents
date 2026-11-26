@@ -697,6 +697,57 @@ class ShareHostGuardMiddleware:
 app.add_middleware(ShareHostGuardMiddleware)
 
 
+class JamHostMiddleware:
+    """On the Jam host (JAM_HOST, e.g. jam.openagents.org) answer only Jam's
+    short addresses; the rest of the API doesn't live there.
+
+      /                 -> how an agent starts a jam (the share instructions)
+      /skill.md         -> the OpenAgents Jam skill
+      /<token>          -> 302 to the guest page in the web app
+      /own/<slug>?token -> 302 to the owner page in the web app
+    """
+
+    _ALLOWED = ("/health", "/ready")
+    _TOKEN = re.compile(r"^/([A-Za-z0-9_-]{8,64})/?$")
+    _OWNER = re.compile(r"^/own/([A-Za-z0-9_-]{1,64})/?$")
+    _REWRITE = {"/": "/jam", "/skill.md": "/jam/skill.md"}
+
+    def __init__(self, app):
+        self.app = app
+
+    @staticmethod
+    async def _respond(send, status, headers, body=b""):
+        await send({"type": "http.response.start", "status": status,
+                    "headers": [(b"referrer-policy", b"no-referrer"), *headers]})
+        await send({"type": "http.response.body", "body": body})
+
+    async def __call__(self, scope, receive, send):
+        host = config.JAM_HOST
+        if scope["type"] == "http" and host:
+            raw = next((v.decode("latin-1") for k, v in scope.get("headers", []) if k.lower() == b"host"), "")
+            if raw.split(":")[0].lower() == host:
+                path = scope.get("path", "") or "/"
+                if path in self._REWRITE:
+                    path = self._REWRITE[path]
+                    scope = {**scope, "path": path, "raw_path": path.encode()}
+                elif path not in self._ALLOWED:
+                    from app.services.guest_links import frontend_base
+                    owner, guest = self._OWNER.match(path), self._TOKEN.match(path)
+                    if owner or guest:
+                        query = scope.get("query_string", b"").decode("latin-1")
+                        target = (f"{frontend_base()}/jam/own/{owner.group(1)}" if owner
+                                  else f"{frontend_base()}/jam/{guest.group(1)}") + (f"?{query}" if query else "")
+                        await self._respond(send, 302, [(b"location", target.encode("latin-1")),
+                                                        (b"cache-control", b"no-store")])
+                    else:
+                        await self._respond(send, 404, [(b"content-type", b"text/plain")], b"Not found")
+                    return
+        await self.app(scope, receive, send)
+
+
+app.add_middleware(JamHostMiddleware)
+
+
 # Log Pydantic validation failures with the offending body so we can
 # debug client/server schema drift from CloudWatch instead of guessing
 # from a bare 422. Triggered any time FastAPI rejects a request body
