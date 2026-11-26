@@ -83,6 +83,7 @@ export const messages = {
     "manualStepRun": "Run this command:",
     "manualStepFallback": "If it says “agn: command not found”, run {agent}’s own sign-in instead:",
     "manualStepBrowser": "Follow the link it prints and sign in to {agent} in any browser. If it shows a code, enter it on that page.",
+    "manualStepCodebuddy": "The command opens {agent}. Type /login there and sign in with your account. Once it says you are signed in, type /exit.",
     "manualStepCheck": "Come back here and check again. This page picks up the sign-in from the device.",
     "manualUseKey": "Use an API key instead",
     "manualTip": {
@@ -90,7 +91,8 @@ export const messages = {
       "codex": "Keep --device-auth on a server or over SSH: it gives a code you enter at auth.openai.com/codex/device from any computer, instead of waiting for a browser on the device.",
       "cursor": "This is separate from signing in to the Cursor editor. You can also use a Cursor API key from cursor.com/dashboard → Integrations.",
       "opencode": "Choose OpenAI → “ChatGPT Pro/Plus (headless)” for a ChatGPT plan, or GitHub Copilot for a Copilot plan, then open the link and enter the code.",
-      "hermes": "Choose Nous Portal to sign in with a Nous account, or pick another provider and paste its key when asked."
+      "hermes": "Choose Nous Portal to sign in with a Nous account, or pick another provider and paste its key when asked.",
+      "codebuddy": "The international site (codebuddy.ai / workbuddy.ai) and the China site (codebuddy.cn / workbuddy.cn) are separate accounts. For a China-site account, first set this agent's Site to China under This computer, then sign in, or the session can't be used."
     },
     "loginMethodLabel": "Which account should {agent} use?",
     "loginMethod": {
@@ -1352,6 +1354,11 @@ export const messages = {
     switchWorkspace: 'Switch workspace',
     inviteMembers: 'Invite members',
     sendFeedback: 'Send feedback',
+    help: 'Help & docs',
+    helpGettingStarted: 'Getting started',
+    helpWorkspaceVsComputer: 'Workspace vs. This computer',
+    helpManagingAgents: 'Connecting and managing agents',
+    helpAllDocs: 'All docs',
     workspaceSettings: 'Workspace settings',
     personalSettings: 'Personal settings',
     signIn: 'Sign in',
@@ -1529,6 +1536,10 @@ export const messages = {
     modelAccessEmpty: 'No model access saved yet. Add a provider API key once and reuse it across agents.',
     modelAccessAdd: 'Add model access',
     modelAccessAddBody: 'Pick a provider and paste an API key. Verify it live before saving.',
+    modelAccessUseTitle: 'Use these with an agent',
+    modelAccessUseStep1: 'Back in the workspace, click Manage Agents at the top left, then add an agent or open the one you want to configure.',
+    modelAccessUseStep2: 'Under Model & credentials, pick a credential saved here, choose a model, and save.',
+    modelAccessUseStep3: 'Mention the agent in a conversation and send a message. If it replies, it is using the credential.',
     modelAccessProvider: 'Provider',
     modelAccessPickProvider: 'Choose a provider…',
     modelAccessGroupPopular: 'Popular',

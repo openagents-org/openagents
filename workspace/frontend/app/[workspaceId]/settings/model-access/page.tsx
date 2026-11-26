@@ -129,6 +129,16 @@ export default function ModelAccessSettingsPage() {
         )}
       </SettingsCard>
 
+      {/* Saving a key here does not hand it to any agent: each agent picks one
+          in its own form. People who had saved one asked how it gets used. */}
+      <SettingsCard title={t('admin.modelAccessUseTitle')}>
+        <ol className="flex list-decimal flex-col gap-2 ps-5 text-sm leading-relaxed marker:text-muted-foreground">
+          <li>{t('admin.modelAccessUseStep1')}</li>
+          <li>{t('admin.modelAccessUseStep2')}</li>
+          <li>{t('admin.modelAccessUseStep3')}</li>
+        </ol>
+      </SettingsCard>
+
       {adding && (
         <AddModelAccessDialog
           providers={providers}

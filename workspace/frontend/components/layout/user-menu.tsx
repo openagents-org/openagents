@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import {
-  Check, EllipsisVertical, KeyRound, LayoutGrid, LayoutList, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
+  BookOpen, Check, CircleHelp, EllipsisVertical, KeyRound, LayoutGrid, LayoutList, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -28,7 +28,8 @@ import { canAdminister } from '@/components/settings/admin-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
-import { useT } from '@/lib/i18n';
+import { useI18n, useT, type MessageKey } from '@/lib/i18n';
+import { docsUrl, type DocsPage } from '@/lib/docs-links';
 import { currentRouteSearch } from '@/lib/route-search';
 import { LanguageMenuSub } from './language-menu';
 import { HumanAvatar } from '@/components/chat/human-avatar';
@@ -51,7 +52,17 @@ const THEME_OPTIONS = [
   { value: 'dark', labelKey: 'theme.dark', icon: Moon },
 ] as const;
 
+// The chapters people ask about most: getting set up, which tab does what,
+// and connecting agents. The last one is the guide's front page.
+const HELP_LINKS: { page: DocsPage; label: MessageKey }[] = [
+  { page: 'workspaceGettingStarted', label: 'userMenu.helpGettingStarted' },
+  { page: 'workspaceVsLauncher', label: 'userMenu.helpWorkspaceVsComputer' },
+  { page: 'managingAgents', label: 'userMenu.helpManagingAgents' },
+  { page: 'overview', label: 'userMenu.helpAllDocs' },
+];
+
 export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProps = {}) {
+  const { locale } = useI18n();
   const { workspace, token, currentUser } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
@@ -250,6 +261,27 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
             <MessageSquarePlus />
             {t('userMenu.sendFeedback')}
           </DropdownMenuItem>
+
+          {/* The user guide, opened outside the app (the desktop app hands
+              new windows to the system browser). */}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <CircleHelp />
+              {t('userMenu.help')}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent>
+                {HELP_LINKS.map(({ page, label }) => (
+                  <DropdownMenuItem key={page} asChild>
+                    <a href={docsUrl(page, locale)} target="_blank" rel="noopener noreferrer">
+                      <BookOpen />
+                      {t(label)}
+                    </a>
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
 
           {/* Full-page admin dashboard (general / members / security / devices /
               integrations / preferences). currentRouteSearch() carries an

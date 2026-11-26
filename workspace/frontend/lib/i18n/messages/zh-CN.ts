@@ -77,6 +77,7 @@ export const messages: Messages = {
     "manualStepRun": "运行以下命令：",
     "manualStepFallback": "如果提示“agn: command not found”，请改为运行 {agent} 自带的登录命令：",
     "manualStepBrowser": "打开命令输出的链接，在任意浏览器中登录 {agent}。如果显示了授权码，请在该页面输入。",
+    "manualStepCodebuddy": "命令会打开 {agent}。在里面输入 /login，用你的账号登录；看到登录成功后输入 /exit 退出。",
     "manualStepCheck": "回到此处点击重新检查，本页面会从设备读取登录状态。",
     "manualUseKey": "改用 API 密钥",
     "manualTip": {
@@ -84,7 +85,8 @@ export const messages: Messages = {
       "codex": "在服务器或 SSH 上请保留 --device-auth：它会给出一个授权码，可在任意电脑上打开 auth.openai.com/codex/device 输入，而不需要设备本身有浏览器。",
       "cursor": "这与登录 Cursor 编辑器是分开的。也可以使用 cursor.com/dashboard → Integrations 中的 Cursor API 密钥。",
       "opencode": "ChatGPT 套餐请选择 OpenAI →“ChatGPT Pro/Plus (headless)”，Copilot 套餐请选择 GitHub Copilot，然后打开链接并输入授权码。",
-      "hermes": "选择 Nous Portal 可使用 Nous 账号登录；也可以选择其他服务商，并在提示时粘贴其密钥。"
+      "hermes": "选择 Nous Portal 可使用 Nous 账号登录；也可以选择其他服务商，并在提示时粘贴其密钥。",
+      "codebuddy": "国际站（codebuddy.ai / workbuddy.ai）和国内站（codebuddy.cn / workbuddy.cn）是两套独立账号。国内站账号要先在「此电脑」里把这个智能体的「站点」设为国内站，再登录，否则登录后的会话用不了。"
     },
     "loginMethodLabel": "{agent} 使用哪个账号？",
     "loginMethod": {
@@ -1337,6 +1339,11 @@ export const messages: Messages = {
     switchWorkspace: '切换工作区',
     inviteMembers: '邀请成员',
     sendFeedback: '意见反馈',
+    help: '帮助与文档',
+    helpGettingStarted: '快速上手',
+    helpWorkspaceVsComputer: '「工作区」和「此电脑」的区别',
+    helpManagingAgents: '连接和管理智能体',
+    helpAllDocs: '全部文档',
     workspaceSettings: '工作区设置',
     personalSettings: '个人设置',
     signIn: '登录',
@@ -1508,6 +1515,10 @@ export const messages: Messages = {
     modelAccessTitle: '模型访问',
     modelAccessDescription: '已保存的推理凭据——提供商与 API Key,可供此工作区中的智能体使用。Key 保存在服务端,智能体表单仅引用它们。',
     modelAccessListTitle: '已保存的凭据',
+    modelAccessUseTitle: '让智能体用上这些凭据',
+    modelAccessUseStep1: '回到工作区，点左上角的「管理智能体」，新建一个智能体，或点开已有智能体进入它的配置页。',
+    modelAccessUseStep2: '在「模型与凭据」里选择这里保存的凭据，再选一个模型，然后保存。',
+    modelAccessUseStep3: '在会话里 @ 这个智能体发一条消息，能正常回复就说明已经生效。',
     modelAccessEmpty: '还没有保存模型访问。添加一次提供商 API Key,即可在多个智能体间复用。',
     modelAccessAdd: '添加模型访问',
     modelAccessAddBody: '选择提供商并粘贴 API Key,保存前可在线验证。',
