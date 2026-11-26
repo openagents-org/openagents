@@ -64,9 +64,38 @@ def upgrade():
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('NOW()')),
     )
     op.create_index('idx_thread_guest_requests_link', 'thread_guest_requests', ['link_id', 'status'])
-    op.add_column('workspace_members', sa.Column('capabilities', JSONB(), nullable=True))
-    op.add_column('nodes', sa.Column('scope_channel', sa.Text(), nullable=True))
-    op.add_column('nodes', sa.Column('scope_agent', sa.Text(), nullable=True))
+    if op.get_bind().dialect.name != 'postgresql':
+        op.add_column('workspace_members', sa.Column('capabilities', JSONB(), nullable=True))
+        op.add_column('nodes', sa.Column('scope_channel', sa.Text(), nullable=True))
+        op.add_column('nodes', sa.Column('scope_agent', sa.Text(), nullable=True))
+        return
+    # nodes and workspace_members are read on nearly every agent request.
+    # Adding a column takes a brief ACCESS EXCLUSIVE lock; holding one table's
+    # lock while waiting for the other's deadlocked against live traffic on
+    # production (2026-11-26: the migration held workspace_members while a
+    # request holding nodes wanted workspace_members). Add each column in its
+    # own short transaction, fail fast instead of queueing every request behind
+    # the lock, and retry.
+    for table, column, ddl_type in (('workspace_members', 'capabilities', 'JSONB'),
+                                    ('nodes', 'scope_channel', 'TEXT'),
+                                    ('nodes', 'scope_agent', 'TEXT')):
+        _add_column_alone(table, column, ddl_type)
+
+
+def _add_column_alone(table, column, ddl_type, attempts=20):
+    import time
+    with op.get_context().autocommit_block():
+        for attempt in range(1, attempts + 1):
+            try:
+                op.execute("SET lock_timeout = '3s'")
+                op.execute(f'ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}')
+                break
+            except sa.exc.OperationalError:
+                if attempt == attempts:
+                    raise
+                time.sleep(2)
+            finally:
+                op.execute('RESET lock_timeout')
 
 
 def downgrade():
