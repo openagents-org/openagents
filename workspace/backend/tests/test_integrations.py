@@ -649,7 +649,11 @@ def test_agent_chat_reply_relays_to_lark(client, workspace, lark_binding, monkey
 # Outbound relay
 # ---------------------------------------------------------------------------
 
-def test_agent_chat_reply_relays_to_telegram(client, workspace, telegram_binding, monkeypatch):
+@pytest.mark.parametrize("source, sender, markdown", [
+    ("openagents:agent-alpha", "agent-alpha", True),
+    ("human:jane", "jane", False),
+])
+def test_chat_reply_relays_to_telegram(client, workspace, telegram_binding, monkeypatch, source, sender, markdown):
     secret = _get_binding_secret(telegram_binding["id"])
     client.post(
         f"/v1/integrations/telegram/webhook/{telegram_binding['id']}",
@@ -660,14 +664,14 @@ def test_agent_chat_reply_relays_to_telegram(client, workspace, telegram_binding
     sent = []
     monkeypatch.setattr(
         svc, "_send_telegram",
-        lambda token, chat_id, sender, content: sent.append((chat_id, sender, content)),
+        lambda token, chat_id, sender, content, *, markdown: sent.append((chat_id, sender, content, markdown)),
     )
     channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-999"
     resp = client.post(
         "/v1/events",
         json={
             "type": "workspace.message.posted",
-            "source": "openagents:agent-alpha",
+            "source": source,
             "target": f"channel/{channel_name}",
             "payload": {"content": "42 is the answer", "message_type": "chat"},
             "network": workspace["id"],
@@ -675,7 +679,7 @@ def test_agent_chat_reply_relays_to_telegram(client, workspace, telegram_binding
         headers={"X-Workspace-Token": workspace["token"]},
     )
     assert resp.status_code == 200, resp.text
-    assert sent == [("999", "agent-alpha", "42 is the answer")]
+    assert sent == [("999", sender, "42 is the answer", markdown)]
 
 
 def test_status_messages_are_not_relayed(client, workspace, telegram_binding, monkeypatch):
@@ -688,7 +692,7 @@ def test_status_messages_are_not_relayed(client, workspace, telegram_binding, mo
     sent = []
     monkeypatch.setattr(
         svc, "_send_telegram",
-        lambda token, chat_id, sender, content: sent.append(content),
+        lambda token, chat_id, sender, content, **kw: sent.append(content),
     )
     channel_name = f"ext-telegram-{telegram_binding['id'][:8]}-888"
     for message_type in ("status", "thinking", "todos"):
@@ -710,7 +714,7 @@ def test_bridged_inbound_message_is_not_echoed_back(client, workspace, telegram_
     sent = []
     monkeypatch.setattr(
         svc, "_send_telegram",
-        lambda token, chat_id, sender, content: sent.append(content),
+        lambda token, chat_id, sender, content, **kw: sent.append(content),
     )
     secret = _get_binding_secret(telegram_binding["id"])
     client.post(
@@ -725,7 +729,7 @@ def test_relay_ignores_non_integration_channels(client, workspace, monkeypatch):
     sent = []
     monkeypatch.setattr(
         svc, "_send_telegram",
-        lambda token, chat_id, sender, content: sent.append(content),
+        lambda token, chat_id, sender, content, **kw: sent.append(content),
     )
     client.post(
         "/v1/events",
