@@ -108,6 +108,30 @@ config:
         required:
           - query
 
+    - name: "search_autom"
+      description: "Live web search using Autom. Returns Google, Google News, Bing, Brave, DuckDuckGo or Yahoo results. Requires AUTOM_API_KEY."
+      implementation: "tools.autom_search.search_autom"
+      input_schema:
+        type: object
+        properties:
+          query:
+            type: string
+            description: "The search query"
+          engine:
+            type: string
+            description: "Engine: 'google' (default), 'google_news', 'bing', 'brave', 'duckduckgo' or 'yahoo'"
+          num_results:
+            type: integer
+            description: "Number of results (default 5, max 10)"
+          country:
+            type: string
+            description: "ISO 3166-1 alpha-2 country code (default 'us')"
+          language:
+            type: string
+            description: "Optional language code, for example 'en' or 'fr'"
+        required:
+          - query
+
   instruction: |
     You are the WEB SEARCHER. When you get a task, search and report results.
 
