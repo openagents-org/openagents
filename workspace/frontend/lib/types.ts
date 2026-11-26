@@ -1,3 +1,5 @@
+import { guestDisplayName, isGuestMessage } from './guest-sender';
+
 export interface Workspace {
   /** Workspace-wide setup state; absent until a compatible backend responds. */
   needsFirstDevice?: boolean;
@@ -1141,7 +1143,10 @@ export interface DMConversation {
 export function eventToMessage(event: ONMEvent): WorkspaceMessage {
   const isHuman = event.source.startsWith('human:');
   const payload = (event.payload || {}) as Record<string, unknown>;
-  const senderName = (payload.sender_name as string) || event.source.replace(/^(openagents:|human:)/, '');
+  // A shared-thread guest's address (`guest-…@guest.invalid`) is never a name.
+  const senderName = isGuestMessage({ senderAddress: event.source, metadata: event.metadata })
+    ? guestDisplayName({ metadata: event.metadata }, payload.sender_name)
+    : (payload.sender_name as string) || event.source.replace(/^(openagents:|human:)/, '');
 
   return {
     messageId: event.id,

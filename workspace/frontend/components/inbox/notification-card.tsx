@@ -1,6 +1,6 @@
 'use client';
 
-import { ArrowRight, ChevronDown, ChevronUp, ExternalLink, User, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronUp, Clock, ExternalLink, User, X } from 'lucide-react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -9,6 +9,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { agentLabel } from '@/lib/helpers';
 import { humanColor } from '@/lib/human-color';
+import { isGuestAddress } from '@/lib/guest-sender';
 import { useFormatters, useT } from '@/lib/i18n';
 import { inboxActionKind } from '@/lib/inbox';
 import type { NotificationItem } from '@/lib/types';
@@ -35,6 +36,15 @@ function KindChip({ resolved }: { resolved: boolean }) {
     return <Badge variant="secondary" className="shrink-0">{t('inbox.chipDone')}</Badge>;
   }
   return <Badge variant="warning" className="shrink-0">{t('inbox.chipApproval')}</Badge>;
+}
+
+/** A guest's request in a shared thread, waiting for the owner (OpenAgents Share). */
+function ShareRequestMark() {
+  return (
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning" data-share-request-mark="">
+      <Clock className="size-3" />
+    </span>
+  );
 }
 
 /** Who sent the row: a person's colour chip, or the agent's avatar. */
@@ -80,9 +90,13 @@ export function NotificationCard({
   const senderAgent = agents.find((a) => a.agentName === agentName);
   const senderLabel = senderAgent
     ? agentLabel(senderAgent)
+    // A shared-thread guest's address is an internal handle, not a name.
+    : isGuestAddress(agentName) ? t('chat.guestBadge')
     : (fromPerson ? (humanNames[agentName.toLowerCase()] ?? agentName) : agentName);
   resolved = resolved || Boolean(notification.approvalStatus && notification.approvalStatus !== 'pending');
   const actionKind = inboxActionKind(notification);
+  // OpenAgents Share: a guest waits for the owner's approval; the row opens the thread.
+  const shareRequest = notification.kind === 'share_request';
   const actionable = actionKind !== null && Boolean(onToggle);
 
   const handleClick = () => {
@@ -105,7 +119,7 @@ export function NotificationCard({
     >
       <UnreadDot unread={!notification.isRead} />
       <ItemMedia>
-        <SenderMark fromPerson={fromPerson} name={agentName} />
+        {shareRequest ? <ShareRequestMark /> : <SenderMark fromPerson={fromPerson} name={agentName} />}
       </ItemMedia>
       <ItemContent className="min-w-0 gap-0.5">
         <div className="flex flex-wrap items-center gap-1.5">
@@ -124,6 +138,7 @@ export function NotificationCard({
             {notification.title}
           </button>
           {actionKind && <KindChip resolved={resolved} />}
+          {shareRequest && !actionKind && <Badge variant="warning" className="shrink-0">{t('inbox.chipGuestRequest')}</Badge>}
           {notification.priority === 'high' && !actionKind && (
             <Badge variant="destructive" className="shrink-0">{t('inbox.priorityHigh')}</Badge>
           )}
@@ -137,7 +152,7 @@ export function NotificationCard({
           </p>
         )}
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-          <span>{senderLabel}</span>
+          <span>{shareRequest ? t('inbox.guestRequestSource') : senderLabel}</span>
           <span>{timeAgo(notification.createdAt)}</span>
           {notification.channelName && (actionable ? (
             <Button

@@ -24,10 +24,26 @@ from app.services.routine_backoff import ROUTINE_STUCK_MS
 # Registers the commit hooks that invalidate cached permission results; it must
 # load before any request can write permission rows.
 import app.services.permission_cache  # noqa: E402,F401
-from app.routers import imported_sessions, personal_settings, hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
+from app.routers import guest_links, imported_sessions, personal_settings, hub, mcp, oauth, public_shares, web_projects, reactions, agent_services, account, agent_profile, app_version, approvals, auth, briefs, browser, campaign, pilot, cloud_agents, devices, hosted_agents, events, feedback, fetch, files, grants, groups, integrations, invites, issues, knowledge, model_access, network, nodes, notifications, onboarding, read_state, registry, routines, search, shares, sharing, tasks, thread_access, timers, todos, watches, workflows, workspaces
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+class _StreamShutdownFilter(logging.Filter):
+    """Live/agent streams last minutes; when a worker recycles itself
+    (--limit-max-requests) uvicorn cancels them after the graceful-shutdown
+    timeout and logs "Exception in ASGI application" with a CancelledError.
+    Clients reconnect and catch up, so that is expected, not an error."""
+
+    def filter(self, record):
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, asyncio.CancelledError) and "graceful shutdown" in str(exc):
+            return False
+        return True
+
+
+logging.getLogger("uvicorn.error").addFilter(_StreamShutdownFilter())
 
 
 # Background timer-loop cadence. Time-sensitive firing (timers/routines)
@@ -732,6 +748,7 @@ app.include_router(feedback.router)
 app.include_router(fetch.router)
 app.include_router(files.router)
 app.include_router(public_shares.router)
+app.include_router(guest_links.router)
 app.include_router(personal_settings.router)
 app.include_router(imported_sessions.router)
 app.include_router(web_projects.router)

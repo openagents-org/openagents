@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import {
-  Check, EllipsisVertical, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
+  Check, EllipsisVertical, KeyRound, LayoutGrid, LayoutList, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -179,12 +179,19 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
             </>
           )}
 
-          {isOpenAgentsDomain && user && (
+          {user && (
             <>
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => router.push('/')}>
-                  <LayoutGrid />
-                  {t('userMenu.switchWorkspace')}
+                {isOpenAgentsDomain && (
+                  <DropdownMenuItem onClick={() => router.push('/')}>
+                    <LayoutGrid />
+                    {t('userMenu.switchWorkspace')}
+                  </DropdownMenuItem>
+                )}
+                {/* Jams (OpenAgents Jam) live apart from workspaces. */}
+                <DropdownMenuItem onClick={() => router.push('/jams')} data-user-menu-jams="">
+                  <LayoutList />
+                  {t('jams.myJams')}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />

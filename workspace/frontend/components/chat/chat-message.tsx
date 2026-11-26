@@ -11,6 +11,7 @@ import { approvalFromMetadata } from '@/lib/approvals';
 import { handoffFromMessage } from '@/lib/handoff'; // v1.1 M6
 import { isYumiWelcome } from '@/lib/yumi-onboarding';
 import { useHumanNames } from '@/hooks/use-team-roster';
+import { isShareNotice, type ShareRequestStatus } from '@/lib/share-requests';
 import { attachmentsFromMetadata } from './message-attachments';
 import { HumanMessageRow } from './human-message-row';
 import { AgentMessageRow } from './agent-message-row';
@@ -26,9 +27,11 @@ interface ChatMessageProps {
   onReply?: (message: WorkspaceMessage) => void;
   onSaveKnowledge?: (message: WorkspaceMessage) => void;
   onRecall?: (message: WorkspaceMessage) => Promise<void>;
+  /** OpenAgents Share: where a guest's held request stands (decisions seen in the thread). */
+  shareRequestStatus?: ShareRequestStatus;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, onRecall }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, onRecall, shareRequestStatus }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
@@ -61,6 +64,15 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const attachments = attachmentsFromMetadata(message.metadata);
   const timestamp = message.createdAt ? formatTime(message.createdAt) : null;
 
+  // OpenAgents Share notices ("Raphael approved Maya's request.") — a system line
+  if (isShareNotice(message)) {
+    return (
+      <Marker className="justify-center py-1" data-share-notice={message.messageId}>
+        <MarkerContent className="text-xs">{message.content}</MarkerContent>
+      </Marker>
+    );
+  }
+
   // Status messages — subtle inline
   if (isSystem) {
     const isQueued = message.content.includes('queued');
@@ -76,7 +88,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
   const shared = { message, agents, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval };
 
   if (isHuman) {
-    return <HumanMessageRow {...shared} onMentionPerson={onMentionPerson} onReply={onReply} onRecall={onRecall} />;
+    return <HumanMessageRow {...shared} onMentionPerson={onMentionPerson} onReply={onReply} onRecall={onRecall} shareRequestStatus={shareRequestStatus} />;
   }
 
   return (

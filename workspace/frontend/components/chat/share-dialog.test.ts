@@ -8,8 +8,8 @@ import { workspaceApi } from '@/lib/api';
 const state = vi.hoisted(() => ({ copy: vi.fn(), close: vi.fn() }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({ workspace: { slug: 'team', workspaceId: 'workspace-id' } }) }));
 vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => false }));
-vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
-vi.mock('@/lib/api', () => ({ workspaceApi: { createShare: vi.fn(), getThreadLink: vi.fn() } }));
+vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useFormatters: () => ({ formatDateTime: () => 'DT' }) }));
+vi.mock('@/lib/api', () => ({ ApiError: class extends Error { status = 0; }, workspaceApi: { createShare: vi.fn(), getThreadLink: vi.fn(), listGuestLinks: vi.fn(async () => []) } }));
 vi.mock('@/lib/share-origin', () => ({ shareOrigin: () => 'https://workspace-preview.openagents.org' }));
 vi.mock('@/hooks/use-copy-to-clipboard', () => ({ useCopyToClipboard: () => ({ isCopied: false, copyToClipboard: state.copy }) }));
 vi.stubGlobal('React', React);
@@ -18,6 +18,7 @@ let root: Root;
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(workspaceApi.getThreadLink).mockImplementation(async sessionId => ({ id: sessionId === 'second' ? '7ad7e88c-7ebc-4ee8-bd5e-ce1ec245e6b3' : '6ad7e88c-7ebc-4ee8-bd5e-ce1ec245e6b3', session_id: sessionId }));
+  vi.mocked(workspaceApi.listGuestLinks).mockResolvedValue([]);
   vi.mocked(workspaceApi.createShare).mockResolvedValue({ shareToken: 'snapshot-token' } as Awaited<ReturnType<typeof workspaceApi.createShare>>);
   const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
@@ -31,6 +32,8 @@ async function snapshotTab() { await act(async () => { button('share.snapshot').
 it('defaults to a live link that can be copied without publishing a snapshot', async () => {
   await render();
   expect(document.querySelector('button[role="tab"][data-state="active"]')?.textContent).toBe('share.threadLink');
+  // A thread without guest links has no guest tab.
+  expect(button('share.guestLink')).toBeUndefined();
   await act(async () => button('share.copyThreadLink').click());
   expect(state.copy).toHaveBeenCalledWith('https://workspace-preview.openagents.org/team/threads/6ad7e88c-7ebc-4ee8-bd5e-ce1ec245e6b3');
   expect(workspaceApi.createShare).not.toHaveBeenCalled();
