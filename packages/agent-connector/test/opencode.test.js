@@ -52,6 +52,14 @@ describe('OpenCode — version pin & install (8.1)', () => {
     assert.equal(entry.check_ready.min_version, '1.17.0');
   });
 
+  // Daily errors dashboard, 2026-11-21: OpenCode's free tier refuses a 1.17
+  // client, so a fresh install has to land on a newer one.
+  it('installs 1.19.6, which the free tier accepts', () => {
+    for (const os of ['macos', 'linux', 'windows']) {
+      assert.match(entry.install[os], /opencode-ai@1\.19\.6$/);
+    }
+  });
+
   it('marks LLM_MODEL as required (model is a real ready condition)', () => {
     const model = entry.env_config.find((f) => f.name === 'LLM_MODEL');
     assert.equal(model.required, true);
@@ -62,8 +70,10 @@ describe('OpenCode — version pin & install (8.1)', () => {
     assert.equal(OpenCodeAdapter._classifyVersion('1.16.9'), 'unsupported');
     assert.equal(OpenCodeAdapter._classifyVersion('1.17.0'), 'ok');
     assert.equal(OpenCodeAdapter._classifyVersion('1.17.11'), 'ok');
-    assert.equal(OpenCodeAdapter._classifyVersion('1.18.0'), 'degraded');
-    assert.equal(OpenCodeAdapter._classifyVersion('1.19.5'), 'degraded');
+    assert.equal(OpenCodeAdapter._classifyVersion('1.18.0'), 'ok');
+    assert.equal(OpenCodeAdapter._classifyVersion('1.19.6'), 'ok');
+    assert.equal(OpenCodeAdapter._classifyVersion('1.19.7'), 'degraded');
+    assert.equal(OpenCodeAdapter._classifyVersion('1.20.0'), 'degraded');
     // OpenCode 2 is a new command line (`run` has no --dir): blocked up front
     // instead of failing every message with "Unrecognized flag: --dir".
     assert.equal(OpenCodeAdapter._classifyVersion('2.0.0'), 'unsupported');
@@ -267,6 +277,51 @@ describe('OpenCode — failure classification (8.3)', () => {
   it('code=1 + stderr network error (empty stdout) → network_error', () => {
     const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout: '', stderr: 'Error: connect ECONNREFUSED 127.0.0.1:443' });
     assert.equal(cls.category, 'network_error');
+  });
+
+  // Daily errors dashboard, 2026-11-21, verbatim from opencode-ai 1.17.11
+  // against the free tier: read as "failed for an undetermined reason".
+  it('names a provider refusing this OpenCode version and says how to update', () => {
+    const stdout = JSON.stringify({
+      type: 'error',
+      error: { name: 'APIError', data: { message: 'OpenCode 1.18.0 or newer is required to use the free tier', statusCode: 426, isRetryable: false } },
+    });
+    const cls = OpenCodeAdapter._classifyFailure({ code: 1, stdout, stderr: '' });
+    assert.equal(cls.category, 'client_outdated');
+    assert.match(cls.detail, /1\.18\.0 or newer is required/);
+    assert.match(OpenCodeAdapter.prototype._failureMessages().client_outdated, /opencode-ai@1\.19\.6/);
+    const err = (message) => ({ code: 1, stdout: `{"type":"error","error":{"message":${JSON.stringify(message)}}}`, stderr: '' });
+    // Not every "required" is a version: a missing key still reads as auth.
+    assert.equal(OpenCodeAdapter._classifyFailure(err('Invalid or revoked API key.')).category, 'auth_failed');
+  });
+
+  // Review of 4dfe9bf9a: 426 is a status, not a word to look for in the text.
+  it('takes 426 from the HTTP status, never from the text around it', () => {
+    const apiError = (message, statusCode) => ({
+      code: 1,
+      stdout: JSON.stringify({ type: 'error', error: { name: 'APIError', data: { message, statusCode, isRetryable: false } } }),
+      stderr: '',
+    });
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Client version unsupported', 426)).category, 'client_outdated');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Unauthorized (request id req_426a91)', 401)).category, 'auth_failed');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Too many requests, retry in 426 ms', 429)).category, 'rate_limited');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('The model `vendor/model-426b` does not exist', 404)).category, 'model_not_found');
+  });
+
+  // Review of 526889bc3: an explicit status wins over the words, and the words
+  // count only when they are OpenCode's own.
+  it('leaves an auth status and other version requirements to their own categories', () => {
+    const apiError = (message, statusCode) => ({
+      code: 1,
+      stdout: JSON.stringify({ type: 'error', error: { name: 'APIError', data: { message, ...(statusCode ? { statusCode } : {}) } } }),
+      stderr: '',
+    });
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Unauthorized: upgrade required to use this API key', 401)).category, 'auth_failed');
+    assert.notEqual(OpenCodeAdapter._classifyFailure(apiError('Python 3.11 or newer is required')).category, 'client_outdated');
+    assert.notEqual(OpenCodeAdapter._classifyFailure(apiError('426 Upgrade Required')).category, 'client_outdated');
+    // Without a status, OpenCode's own wording still counts.
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('OpenCode 1.18.0 or newer is required to use the free tier')).category, 'client_outdated');
+    assert.equal(OpenCodeAdapter._classifyFailure(apiError('Client version unsupported')).category, 'client_outdated');
   });
 
   // Field reports (core 0.2.223) that all read "failed for an undetermined

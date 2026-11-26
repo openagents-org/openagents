@@ -325,15 +325,25 @@ function stripCliNoise(text) {
 
 /**
  * Whether a prompt can go to a CLI as one argv element (`-p <prompt>`).
- * Windows caps a whole command line at 32,767 characters and Node fails the
+ * Windows caps a whole command line at 32,767 UTF-16 units and Node fails the
  * spawn itself with ENAMETOOLONG — the system prompt plus a large pinned
  * glossary got there with a one-word message. Linux caps a single argument at
- * 128 KiB. Both limits leave headroom for quoting and the rest of the argv.
- * Past it, an adapter sends the prompt over stdin.
+ * 128 KiB of bytes and fails with E2BIG. Both limits leave headroom for the
+ * rest of the argv. Past it, an adapter sends the prompt over stdin.
+ *
+ * Measured the way each platform counts. On Windows Node quotes the argument
+ * and escapes every `"` and the backslashes before one, so each of those can
+ * double: counted twice, the worst case is covered (a WSL CLI is started
+ * through wsl.exe's Windows command line too). On Linux the limit is bytes, so
+ * a CJK character counts three.
  */
 function promptFitsArgv(prompt, platform = process.platform) {
-  const limit = platform === 'win32' ? 24000 : 100000;
-  return String(prompt || '').length <= limit;
+  const text = String(prompt || '');
+  if (platform === 'win32') {
+    const escapable = (text.match(/["\\]/g) || []).length;
+    return text.length + escapable <= 24000;
+  }
+  return Buffer.byteLength(text, 'utf8') <= 100000;
 }
 
 module.exports = {

@@ -433,6 +433,29 @@ describe('Hermes: what a run reports', () => {
       } else if (mode === 'env') {
         process.stdout.write(String(process.env.HERMES_PREFILL_MESSAGES_FILE));
         process.stderr.write('\\nsession_id: S1\\n');
+      } else if (mode === 'echo') {
+        // [stub, 'echo', how]: by which route the prompt came, and how much.
+        if (process.argv[3] === 'stdin') {
+          let input = '';
+          process.stdin.setEncoding('utf8');
+          process.stdin.on('data', (d) => { input += d; });
+          process.stdin.on('end', () => {
+            process.stdout.write('stdin:' + input.length);
+            process.stderr.write('\\nsession_id: S1\\n');
+          });
+        } else {
+          process.stdout.write('argv:0');
+          process.stderr.write('\\nsession_id: S1\\n');
+        }
+      } else if (mode === 'encoding') {
+        process.stdin.resume();
+        process.stdin.on('end', () => {
+          process.stdout.write(String(process.env.PYTHONIOENCODING));
+          process.stderr.write('\\nsession_id: S1\\n');
+        });
+      } else if (mode === 'old') {
+        process.stderr.write('usage: hermes [-h] ...\\nhermes: error: unrecognized arguments: --query-file -\\n');
+        process.exit(2);
       } else if (mode === 'slow') {
         process.stderr.write('started\\n');
         setTimeout(() => {}, 60000);
@@ -474,6 +497,100 @@ describe('Hermes: what a run reports', () => {
 
     assert.equal((await a._runHermes('p', CHANNEL, null, '/tmp/prefill.json')).text, '/tmp/prefill.json');
     assert.equal((await a._runHermes('p', CHANNEL, null)).text, 'undefined');
+  });
+
+  // Daily errors dashboard, 2026-11-21: "spawn ENAMETOOLONG" on Windows, the
+  // workspace instructions in the message pushing it past the command line.
+  describe('a prompt too long for a command line', () => {
+    const long = 'x'.repeat(200000);
+    function routed(mode) {
+      const made = makeHermes({ script: null, session: 'S1' });
+      made.a._hermesBin = process.execPath;
+      made.a._buildHermesCmd = (prompt, resume, opts = {}) => [stub, mode, opts.viaStdin ? 'stdin' : 'argv'];
+      return made;
+    }
+
+    it('goes to stdin, whole, and a short one stays on the command line', async () => {
+      const { a } = routed('echo');
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, `stdin:${long.length}`);
+      assert.equal((await a._runHermes('hi', CHANNEL, null)).text, 'argv:0');
+    });
+
+    it('asks for `--query-file -` instead of `-q`', () => {
+      const { a } = makeHermes({ script: null });
+      a._hermesBin = '/usr/bin/hermes';
+      const args = a._buildHermesCmd(long, null, { viaStdin: true });
+      assert.deepEqual(args.slice(args.indexOf('chat'), args.indexOf('chat') + 3), ['chat', '--query-file', '-']);
+      assert.ok(!args.includes(long));
+      assert.ok(!args.includes('-q'));
+      assert.deepEqual(a._buildHermesCmd('hi', null).slice(0, 3), ['chat', '-q', 'hi']);
+    });
+
+    // Review of 4dfe9bf9a: Python reads a pipe in the Windows code page, and
+    // Hermes only makes stdout and stderr UTF-8.
+    it('reads the prompt on stdin as UTF-8, and only on that route', async () => {
+      const { a } = routed('encoding');
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, 'utf-8');
+      a.agentEnv.PYTHONIOENCODING = 'cp1252';
+      assert.equal((await a._runHermes(long, CHANNEL, null)).text, 'utf-8');
+    });
+
+    it('a CJK prompt reaches it whole over stdin', async () => {
+      const { a } = routed('echo');
+      const cjk = '汉'.repeat(40000);
+      assert.equal((await a._runHermes(cjk, CHANNEL, null)).text, `stdin:${cjk.length}`);
+    });
+
+    // Review of 526889bc3: the WSL bridge forwards only what differs from
+    // this process's own environment.
+    it('hands a WSL hermes PYTHONIOENCODING through WSLENV even when Windows already sets it', () => {
+      const { a } = makeHermes({ script: null, env: { PYTHONIOENCODING: 'utf-8', WSLENV: 'USERPROFILE/p' } });
+      a._hermesBin = 'wsl:/home/u/.local/bin/hermes';
+      const env = a._childEnv({ viaStdin: true });
+      assert.equal(env.PYTHONIOENCODING, 'utf-8');
+      assert.equal(env.WSLENV, 'USERPROFILE/p:PYTHONIOENCODING');
+      // Listed once, and not at all off the stdin route or for a native hermes.
+      a.agentEnv.WSLENV = 'PYTHONIOENCODING';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'PYTHONIOENCODING');
+      a.agentEnv.WSLENV = 'USERPROFILE/p';
+      assert.equal(a._childEnv({ viaStdin: false }).WSLENV, 'USERPROFILE/p');
+      a._hermesBin = '/usr/bin/hermes';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'USERPROFILE/p');
+    });
+
+    // Review of a05fc2b9f: the other direction, and an entry that carries the
+    // variable one way only.
+    it('hands a hermes.exe started from inside WSL PYTHONIOENCODING, both ways, once', () => {
+      const { a } = makeHermes({ script: null, env: { WSLENV: 'PYTHONIOENCODING/w:USERPROFILE/p' } });
+      a._hermesBin = '/mnt/c/Users/u/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe';
+      const env = a._childEnv({ viaStdin: true });
+      if (process.platform === 'win32') return; // a native Windows daemon has no WSL boundary here
+      assert.equal(env.PYTHONIOENCODING, 'utf-8');
+      assert.equal(env.WSLENV, 'USERPROFILE/p:PYTHONIOENCODING');
+    });
+
+    it('turns a one-way PYTHONIOENCODING entry into a two-way one for a WSL hermes', () => {
+      const { a } = makeHermes({ script: null, env: { WSLENV: 'PYTHONIOENCODING/u' } });
+      a._hermesBin = 'wsl:/home/u/.local/bin/hermes';
+      assert.equal(a._childEnv({ viaStdin: true }).WSLENV, 'PYTHONIOENCODING');
+    });
+
+    it('sizes a hermes.exe started from inside WSL by the Windows command line', () => {
+      const { a } = makeHermes({ script: null });
+      a._hermesBin = '/mnt/c/Users/u/AppData/Local/hermes/hermes-agent/venv/Scripts/hermes.exe';
+      assert.equal(a._argvPlatform(), 'win32');
+      a._hermesBin = '/home/u/.local/bin/hermes';
+      assert.equal(a._argvPlatform(), process.platform);
+    });
+
+    it('tells a Hermes too old for `--query-file` to update, not "exit 2"', async () => {
+      const { a } = routed('old');
+      await assert.rejects(a._runHermes(long, CHANNEL, null), (e) => {
+        assert.match(e.message, /too long for a command line/);
+        assert.match(e.message, /hermes update/);
+        return true;
+      });
+    });
   });
 
   it('a CLI that cannot be started reports why', async () => {

@@ -49,7 +49,15 @@ const NO_SERVER = Symbol('no-server');
 // opencode's `--format json` stream, so an unbounded version floats the event
 // schema (text / tool / error / step events) out from under us and makes the
 // same workspace behave differently per machine.
-const OPENCODE_PINNED_VERSION = '1.17.11';
+//
+// 1.19.6 since 2026-11-22. OpenCode's free tier answers a 1.17 client with
+// HTTP 426 "OpenCode 1.18.0 or newer is required to use the free tier"
+// (daily errors dashboard, 2026-11-21; reproduced with 1.17.11 against
+// opencode/deepseek-v4.1-flash-free, which 1.19.6 runs). 1.19.6 takes the same
+// `run` flags (--dangerously-skip-permissions is a hidden alias of --auto),
+// prints the same JSON events, and keeps the same session database: 1.17
+// reads one 1.19 wrote.
+const OPENCODE_PINNED_VERSION = '1.19.6';
 // Supported floor — below this we block the run with `unsupported_version`.
 // The 1.17.x line is the stream-json shape this adapter targets.
 const OPENCODE_MIN_VERSION = '1.17.0';
@@ -60,7 +68,7 @@ const OPENCODE_MIN_VERSION = '1.17.0';
 const OPENCODE_UNSUPPORTED_MAJOR = 2;
 // Highest version whose JSON behavior is treated as verified. Newer is allowed
 // but flagged 'degraded' (the run still proceeds; any failure is classified).
-const OPENCODE_TESTED_MAX_VERSION = '1.17.11';
+const OPENCODE_TESTED_MAX_VERSION = '1.19.6';
 
 // How long a detected CLI version / executability probe is cached on the
 // adapter instance, so preflight never spawns `--version` more than once per
@@ -98,8 +106,8 @@ const SHARED_DB_MIGRATED_RE = /database is not empty and has no session table/i;
 // and `external_directory` defaults to "ask", so its prompt went unanswered
 // until the idle watchdog stopped the turn: "OpenCode timed out before
 // producing a reply" (daily errors dashboard, 2026-11-17, ~10 runs from 4
-// users). Fixed upstream in 1.19.0, which also answers child sessions; the
-// pinned 1.17.11 is not. OPENCODE_PERMISSION is merged over the user's config
+// users). Fixed upstream in 1.19.0, which also answers child sessions; kept
+// for the 1.17 and 1.18 installs still supported. OPENCODE_PERMISSION is merged over the user's config
 // last (packages/opencode/src/config/config.ts), so it is left out when the
 // user set it, wrote an external_directory rule of their own, or set every
 // permission at once.
@@ -132,6 +140,7 @@ const FAILURE_MESSAGES = {
   permission_denied: 'OpenCode could not get permission for a tool call. Check the agent’s explicit deny rules or file access settings; sending continue alone will not change them.',
   process_crashed: 'OpenCode exited unexpectedly. Open diagnostics or retry.',
   cwd_unavailable: "OpenCode's working directory is not accessible. Check the agent's configured path (or agent home) permissions.",
+  client_outdated: `This OpenCode is too old for the service it is using: the provider asked for a newer OpenCode (its words are below). Reinstall OpenCode from the launcher, or run \`npm install -g opencode-ai@${OPENCODE_PINNED_VERSION}\`, then retry.`,
   shared_db_migrated: "OpenCode could not open its session database: a newer OpenCode (2.x, or the OpenCode desktop app) on this device has converted it to a format the OpenCode CLI that OpenAgents runs cannot read, and running it on a database of its own did not help either. Reinstall OpenCode from the launcher, or set OPENCODE_DB in this agent's configuration to the full path of a new file, then retry.",
   malformed_tool_call: "The model sent back a tool call OpenCode could not read (it named no tool), so the run stopped. This comes from the model or the endpoint serving it, not from this agent's settings: retry, and if it keeps happening, switch this agent to another model or provider.",
   config_invalid: 'OpenCode would not start because one of its config files is invalid — the file and what is wrong with it are below. OpenCode reads it on every run, so every message fails until it is fixed: correct or remove that entry, then retry.',
@@ -1844,10 +1853,14 @@ class OpenCodeAdapter extends BaseAdapter {
       const data = (c.data && typeof c.data === 'object') ? c.data : {};
       const message = pick(c.message, c.error, c.detail, c.reason, data.message);
       const name = pick(c.name, c.type);
+      // OpenCode's own APIError keeps the HTTP status in data.statusCode
+      // (opencode-ai 1.19.6, session/message-v2.ts); the others are the
+      // shapes other providers' errors take.
       const statusRaw = c.status != null ? c.status
         : (c.statusCode != null ? c.statusCode
           : (data.status != null ? data.status
-            : (typeof c.code === 'number' ? c.code : null)));
+            : (data.statusCode != null ? data.statusCode
+              : (typeof c.code === 'number' ? c.code : null))));
       if (message || name || statusRaw != null) {
         return {
           message: String(message || ''),
@@ -1889,6 +1902,17 @@ class OpenCodeAdapter extends BaseAdapter {
       // free text ("Unrecognized key: model", "got {…401…}") that would read
       // as a bad model or a rejected key.
       category = 'config_invalid';
+    } else if (status === '426'
+      || (!status && has(/\bopencode \d+\.\d+(?:\.\d+)? or newer is required\b|\bclient version (?:is )?(?:unsupported|not supported|too old)\b/))) {
+      // The provider refused this client's version: OpenCode's free tier
+      // answers 1.17 with 426 "OpenCode 1.18.0 or newer is required to use
+      // the free tier" (daily errors dashboard, 2026-11-21), which read as
+      // "failed for an undetermined reason". 426 counts only as the HTTP
+      // status: as text it turns up in request ids and model names. The words
+      // count only without a status, and only OpenCode's own: a 401 saying
+      // "upgrade required to use this API key" is an auth failure, and
+      // "Python 3.11 or newer is required" is not about OpenCode.
+      category = 'client_outdated';
     } else if (has(/(?:unrecognized|unknown) (?:flag|option|argument)s?:?\s*['"`]?--?[a-z]/)) {
       // The CLI refused a flag this adapter always passes, so it is not a
       // build we support (one whose version string we could not read gets
