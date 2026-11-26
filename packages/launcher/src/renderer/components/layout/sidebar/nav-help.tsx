@@ -1,15 +1,21 @@
 import React from "react"
-import { BookOpen, CircleHelp, Compass } from "lucide-react"
+import { ChevronRight, CircleHelp } from "lucide-react"
 import { useTranslation } from "react-i18next"
 
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@renderer/components/ui/dropdown-menu"
-import { SidebarMenuButton, SidebarMenuItem, useSidebar } from "@renderer/components/ui/sidebar"
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@renderer/components/ui/collapsible"
+import {
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarMenuSub,
+  SidebarMenuSubButton,
+  SidebarMenuSubItem,
+  useSidebar,
+} from "@renderer/components/ui/sidebar"
+import { useSidebarStore } from "@renderer/store/sidebar"
 import { useUiStore } from "@renderer/store/ui"
 import { docsUrl, type DocsPage } from "@renderer/lib/docs-links"
 import { RAIL_BUTTON, RailLabel } from "./rail-label"
@@ -22,41 +28,59 @@ const DOC_LINKS: { page: DocsPage; key: string }[] = [
 ]
 
 /**
- * Help: the guided tour again, and the user guide. The tour only ran once on
+ * Help: the guided tour again, and the user guide. The tour only runs once on
  * its own, so someone who skipped it had no way back to it.
+ *
+ * It opens in place like Settings: its entries list under it and fold away
+ * with a second click. In the icon rail there is nowhere to list them, so the
+ * icon widens the sidebar first.
  */
 export function NavHelp(): React.JSX.Element {
   const { t, i18n } = useTranslation()
-  const { isMobile } = useSidebar()
-  const label = t("nav.help.label")
+  const { state, isMobile } = useSidebar()
+  const [open, setOpen] = React.useState(false)
   const language = i18n.resolvedLanguage ?? i18n.language
+  const label = t("nav.help.label")
+
+  const onToggle = (next: boolean): void => {
+    const fromRail = state === "collapsed" && !isMobile
+    if (fromRail) useSidebarStore.getState().setOpen(true)
+    setOpen(fromRail || next)
+  }
 
   return (
-    <SidebarMenuItem>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
+    <Collapsible asChild open={open} onOpenChange={onToggle} className="group/collapsible">
+      <SidebarMenuItem>
+        <CollapsibleTrigger asChild>
           <SidebarMenuButton tooltip={label} data-tour="help" data-testid="nav-help" className={RAIL_BUTTON}>
             <CircleHelp />
             <RailLabel label={label} short={t("nav.help.short")} />
+            <ChevronRight className="ml-auto transition-transform duration-200 group-data-[state=open]/collapsible:rotate-90 group-data-[collapsible=icon]:hidden" />
           </SidebarMenuButton>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent side={isMobile ? "bottom" : "right"} align="start" className="min-w-56">
-          <DropdownMenuItem
-            data-testid="nav-help-tour"
-            onSelect={() => useUiStore.getState().startTour()}
-          >
-            <Compass />
-            {t("nav.help.replayTour")}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          {DOC_LINKS.map(({ page, key }) => (
-            <DropdownMenuItem key={page} onSelect={() => window.api.openExternal(docsUrl(page, language))}>
-              <BookOpen />
-              {t(key)}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </SidebarMenuItem>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <SidebarMenuSub>
+            <SidebarMenuSubItem>
+              <SidebarMenuSubButton asChild>
+                <button type="button" data-testid="nav-help-tour" onClick={() => useUiStore.getState().startTour()}>
+                  <span>{t("nav.help.replayTour")}</span>
+                </button>
+              </SidebarMenuSubButton>
+            </SidebarMenuSubItem>
+            <li aria-hidden className="mx-2 my-1 h-px bg-sidebar-border" />
+            {DOC_LINKS.map(({ page, key }) => (
+              <SidebarMenuSubItem key={page}>
+                <SidebarMenuSubButton asChild>
+                  {/* The guide opens in the browser, not in the app. */}
+                  <button type="button" onClick={() => window.api.openExternal(docsUrl(page, language))}>
+                    <span>{t(key)}</span>
+                  </button>
+                </SidebarMenuSubButton>
+              </SidebarMenuSubItem>
+            ))}
+          </SidebarMenuSub>
+        </CollapsibleContent>
+      </SidebarMenuItem>
+    </Collapsible>
   )
 }
