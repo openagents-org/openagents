@@ -105,8 +105,8 @@ export function useAgentCredentials({ node, editAgent, editOnKey, detail, select
     return runtime?.cliModels?.length ? runtime.cliModels : null;
   }, [signInChosen, selected, baseUrl, editAgent, runtimeByType]);
   const pickerModels = useMemo(
-    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : modelOptions),
-    [accountModels, modelOptions],
+    () => (accountModels ? accountModels.map((m) => ({ id: m.id, label: m.label || m.id })) : selected === 'hermes' ? [] : modelOptions),
+    [accountModels, modelOptions, selected],
   );
   // A model the list does not hold (one saved before, or one the account is
   // no longer offered) is still shown as the one picked, not as a blank.
