@@ -938,6 +938,24 @@ async function cmdToolMode(connector, _flags, positional) {
   }
 }
 
+async function cmdJam(flags, positional) {
+  const jam = require('./jam-setup');
+  const action = positional[0] || 'setup';
+  if (action === 'remove') {
+    const { removed } = jam.remove();
+    if (!removed.length) { print('The OpenAgents Jam skill is not installed.'); return; }
+    for (const r of removed) print(`Removed the skill from ${r.agent} (${r.folder})`);
+    return;
+  }
+  if (action !== 'setup') { print('Usage: agn jam [setup|remove] [--endpoint <url>]'); process.exitCode = 1; return; }
+  const endpoint = flags.endpoint || process.env.OPENAGENTS_ENDPOINT || jam.DEFAULT_ENDPOINT;
+  const { installed, fromServer } = await jam.setup({ endpoint });
+  for (const i of installed) print(`Installed the OpenAgents Jam skill for ${i.agent}: ${i.file}`);
+  if (!fromServer) print(`(Couldn't reach ${endpoint}; installed the built-in copy, which points at the same address.)`);
+  print('');
+  print('Now, in Claude Code (or another agent above), say "start a jam" or type /openagents-jam.');
+}
+
 async function cmdSkills(connector, _flags, positional) {
   const { SKILL_CATALOG, getSkillDefaults } = require('./skill-catalog');
   const toggleable = SKILL_CATALOG.filter(s => s.toggleable);
@@ -1303,6 +1321,8 @@ Commands:
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
   skills [agent] [action]     Manage agent skills (enable/disable)
+  jam setup [--endpoint URL]  Install the OpenAgents Jam skill: then say "start a jam" in Claude Code
+  jam remove                  Remove the OpenAgents Jam skill
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
@@ -1401,6 +1421,7 @@ async function main() {
     workspace: () => cmdWorkspace(connector, flags, positional),
     env: () => cmdEnv(connector, flags, positional),
     skills: () => cmdSkills(connector, flags, positional),
+    jam: () => cmdJam(flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),

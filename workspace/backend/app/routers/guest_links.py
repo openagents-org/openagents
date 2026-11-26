@@ -81,16 +81,16 @@ def _fail(err: svc.LinkError):
 _INSTRUCTIONS = Path(__file__).resolve().parent.parent / "services" / "share_instructions.md"
 
 
-@router.get("/share/instructions")
-def share_instructions():
-    """Markdown an agent reads when its person says "share this agent".
+_SKILL = Path(__file__).resolve().parent.parent / "services" / "share_skill.md"
 
-    The person pastes one line into Claude Code (or any agent):
-    "Read {API}/v1/share/instructions and follow it to share this agent with my team."
-    URLs come from this server's own settings, so a self-hosted workspace
-    hands out its own endpoints.
+
+def _render_markdown(path: Path) -> PlainTextResponse:
+    """A markdown file with this server's own URLs filled in.
+
+    URLs come from this server's settings, so a self-hosted workspace hands out
+    its own endpoints.
     """
-    text = _INSTRUCTIONS.read_text(encoding="utf-8")
+    text = path.read_text(encoding="utf-8")
     import app.config as app_config  # read at request time: settings can be reloaded
     import os
     # SHARE_LAUNCHER_PACKAGE: what `npx` installs (a test build's tarball URL on
@@ -100,6 +100,33 @@ def share_instructions():
             .replace("{APP}", svc.frontend_base()).replace("{LAUNCHER}", launcher))
     return PlainTextResponse(text, media_type="text/markdown; charset=utf-8",
                              headers={"Cache-Control": "public, max-age=300"})
+
+
+@router.get("/share/instructions")
+@router.get("/jam")
+def share_instructions():
+    """Markdown an agent reads when its person says "share this agent" / "start a jam".
+
+    The person pastes one line into Claude Code (or any agent):
+    "Start a jam: read {API}/jam" (the short form, served by ``root_router``).
+    """
+    return _render_markdown(_INSTRUCTIONS)
+
+
+@router.get("/share/skill.md")
+def share_skill():
+    """The OpenAgents Jam Agent Skill (SKILL.md) for this server.
+
+    ``agn jam setup`` installs it into the person's agents; it only points the
+    agent at the current instructions, so it never goes stale.
+    """
+    return _render_markdown(_SKILL)
+
+
+# Short, unversioned addresses people can type: {API}/jam and {API}/jam/skill.md.
+root_router = APIRouter(tags=["share"])
+root_router.add_api_route("/jam", share_instructions, methods=["GET"])
+root_router.add_api_route("/jam/skill.md", share_skill, methods=["GET"])
 
 
 # ---------------------------------------------------------------------------

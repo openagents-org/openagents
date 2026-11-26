@@ -1172,3 +1172,17 @@ def test_scrub_hides_every_kind_of_address():
     from app.services.room_agents import scrub_for_scoped
     out = scrub_for_scoped({"a": "bob@corp, alice@localhost, x@café.com, guest-1@guest.invalid"}, None)
     assert out["a"].count("someone@hidden.invalid") == 3 and "guest-1@guest.invalid" in out["a"]
+
+
+def test_short_jam_address_and_skill_name_this_server(client, monkeypatch):
+    import app.config as app_config
+    monkeypatch.setattr(app_config.config, "PUBLIC_API_BASE", "https://oa.example.test/")
+    full = client.get("/v1/share/instructions").text
+    for path in ("/jam", "/v1/jam"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.text == full, path
+    for path in ("/jam/skill.md", "/v1/share/skill.md"):
+        skill = client.get(path)
+        assert skill.status_code == 200, path
+        assert skill.text.startswith("---\nname: openagents-jam\n")
+        assert "https://oa.example.test/jam" in skill.text and "{API}" not in skill.text
