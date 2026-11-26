@@ -69,6 +69,17 @@
       }
     },
     {
+      "type": "improvement",
+      "title": {
+        "en": "Cleaner notifications with buttons",
+        "zh": "带按钮的通知更清爽"
+      },
+      "description": {
+        "en": "The text spans the full width and the buttons sit on a row of their own, so neither gets squeezed.",
+        "zh": "文字占满整行，按钮单独放在下一行，不再挤在一起。"
+      }
+    },
+    {
       "type": "fix",
       "title": {
         "en": "WorkBuddy no longer reads \"not signed in\" after you sign in",
@@ -82,12 +93,23 @@
     {
       "type": "fix",
       "title": {
-        "en": "Buttons in notifications are spaced properly again",
-        "zh": "通知里的按钮恢复正常间距"
+        "en": "Controls in a row line up",
+        "zh": "并排控件高度一致"
       },
       "description": {
-        "en": "Buttons such as Refresh on the new-version notice had lost their padding and size.",
-        "zh": "例如新版本提示里的「刷新」按钮，此前丢失了内边距和尺寸。"
+        "en": "For example, the picker beside Add key was shorter than the button.",
+        "zh": "例如「新增 Key」旁边的下拉框比按钮矮一截。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Update buttons readable in dark mode",
+        "zh": "深色模式下更新按钮看得清"
+      },
+      "description": {
+        "en": "Restart and install and the other buttons on the update bar were hard to read.",
+        "zh": "更新提示条上「重启并安装」等按钮的文字几乎看不清。"
       }
     }
   ]

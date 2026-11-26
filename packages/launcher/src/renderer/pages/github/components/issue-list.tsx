@@ -117,7 +117,6 @@ export function IssueList({
                 className="flex-1"
               />
               <Button
-                size="sm"
                 onClick={() => onComment(i.number)}
                 disabled={!draft.trim() || sending}
               >

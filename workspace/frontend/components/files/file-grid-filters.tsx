@@ -58,7 +58,6 @@ export function FileGridFilters({
         <ToggleGroup
           type="single"
           variant="outline"
-          size="sm"
           spacing={1.5}
           value={typeFilter}
           // A single toggle group lets the active item be pressed off; that

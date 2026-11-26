@@ -17,7 +17,7 @@ export function CodexModeField({ form }: { form: AgentSetupForm }) {
     <Field>
       <FieldLabel>{t('connect.codexMode')}</FieldLabel>
       <Select value={codexWireApi} onValueChange={(v) => setCodexWireApi(v as 'responses' | 'chat')}>
-        <SelectTrigger aria-label={t('connect.codexMode')}><SelectValue /></SelectTrigger>
+        <SelectTrigger aria-label={t('connect.codexMode')} className="h-10 w-full"><SelectValue /></SelectTrigger>
         <SelectContent>
           <SelectGroup><SelectItem value="responses">{t('connect.codexModeResponses')}</SelectItem>
           <SelectItem value="chat">{t('connect.codexModeChat')}</SelectItem></SelectGroup>

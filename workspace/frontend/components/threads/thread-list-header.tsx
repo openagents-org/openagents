@@ -99,7 +99,7 @@ export function ThreadConversationFilter({ value, counts, onChange, disabled = f
   const tab = TABS.find(tab => tab.id === value)!;
   return <DropdownMenu>
     <DropdownMenuTrigger asChild>
-      <Button variant="ghost" size="sm" className="max-w-[52%] gap-1.5 px-2 text-xs text-muted-foreground" disabled={disabled} aria-label={t('threadProjects.filter')}>
+      <Button variant="ghost" size="sm" className="h-8 max-w-[52%] gap-1.5 px-2 text-xs text-muted-foreground" disabled={disabled} aria-label={t('threadProjects.filter')}>
         <Filter className="size-3.5 shrink-0" /><span className="truncate">{value === 'all' ? t('threadProjects.allConversations') : t(tab.labelKey)}</span>
         <ChevronDown className="size-3 shrink-0" />
       </Button>

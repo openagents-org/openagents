@@ -90,10 +90,10 @@ export function CloudConfigCard({ agentName, config, onUpdated }: { agentName: s
                 className="h-7 min-w-0 flex-1 font-mono text-xs"
                 autoFocus
               />
-              <Button onClick={handleUpdateApiKey} disabled={savingKey || !newApiKey} size="xs">
+              <Button onClick={handleUpdateApiKey} disabled={savingKey || !newApiKey} size="sm">
                 {savingKey ? <Spinner /> : t('common.save')}
               </Button>
-              <Button onClick={() => { setEditingKey(false); setNewApiKey(''); }} variant="outline" size="xs">
+              <Button onClick={() => { setEditingKey(false); setNewApiKey(''); }} variant="outline" size="sm">
                 {t('common.cancel')}
               </Button>
             </div>
