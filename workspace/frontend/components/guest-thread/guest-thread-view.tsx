@@ -75,7 +75,7 @@ interface GuestThreadViewProps {
   hasOlder: boolean;
   olderState?: 'idle' | 'loading' | 'error';
   onLoadOlder?: () => void;
-  /** Who is looking: a guest (default) or the share's owner in the owner room. */
+  /** Who is looking: a guest (default) or the share's owner in the owner page. */
   viewer?: 'guest' | 'owner';
   guest?: GuestIdentity | null;
   nameRequest?: { reason: 'first-post' | 'session-expired' } | null;
@@ -86,27 +86,27 @@ interface GuestThreadViewProps {
   cancelName?: () => void;
   /** Buttons at the end of the thread header (owner: guest link, "Keep this conversation"; guest: "Continue in my workspace"). */
   headerActions?: ReactNode;
-  /** Owner room: guests' requests waiting (a strip under the status banner). */
+  /** Owner page: guests' requests waiting (a strip under the status banner). */
   requests?: PendingGuestRequest[];
-  /** Owner room: decisions recorded here, before the thread's notice arrives. */
+  /** Owner page: decisions recorded here, before the thread's notice arrives. */
   decisions?: Record<string, ShareRequestStatus>;
-  /** Owner room: approve or decline a held guest request. */
+  /** Owner page: approve or decline a held guest request. */
   onDecide?: DecideRequest;
-  /** Where the thread's artifacts, routines and attachment bytes come from (guest link or owner room). */
+  /** Where the thread's artifacts, routines and attachment bytes come from (guest link or owner page). */
   resourceSource?: ShareResourceSource | null;
   /** Guest page: the owner removed this guest; they can still read. */
   removed?: boolean;
-  /** Owner room: the owner's panel at the top of the sidebar (and its phone sheet). */
+  /** Owner page: the owner's panel at the top of the sidebar (and its phone sheet). */
   ownerPanel?: ReactNode;
-  /** A strip at the top of the conversation (owner room: "not saved yet", phone warning). */
+  /** A strip at the top of the conversation (owner page: "not saved yet", phone warning). */
   topBanner?: ReactNode;
-  /** Owner room: the artifact the owner opens is open for guests (null = closed). */
+  /** Owner page: the artifact the owner opens is open for guests (null = closed). */
   onPinChange?: (ref: PinnedArtifact | null) => void;
   /** Guest page: where "I closed the owner's artifact" is remembered (sessionStorage). */
   pinStorageKey?: string;
   /** Guest page in the owner's preview: read only, nothing posts. */
   preview?: boolean;
-  /** Add or remove the room's agents (owner: theirs; guest: their own, when allowed). */
+  /** Add or remove the jam's agents (owner: theirs; guest: their own, when allowed). */
   agentActions?: AgentActions;
 }
 
@@ -182,7 +182,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const offline = !!statusAgent && !statusAgent.online;
   const statusFolds = !!waiting && (!!statusAgent && (offline || statusAgent.acceptsGuests !== false));
   const identity = isOwner
-    ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareRoom.ownerYou') }
+    ? { name: info.owner.name, seed: humanSeed(info.owner.name), role: t('shareJam.ownerYou') }
     : guest ? { name: guest.name, seed: guestAvatarSeed(guest.id), role: t('guestThread.guestBadge') } : null;
 
   // The thread's artifacts and routines, re-read when an agent posts (it may have made a file).
@@ -240,7 +240,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
   const sidebar = (
     <ShareSidebar
       workspaceName={info.workspace.name}
-      subtitle={isOwner ? t('shareRoom.yourShare') : t('guestThread.guestWorkspace')}
+      subtitle={isOwner ? t('shareJam.yourShare') : t('guestThread.guestWorkspace')}
       title={title}
       agents={info.agents}
       people={people}
@@ -248,7 +248,7 @@ export function GuestThreadView({ info, messages, hasOlder, olderState = 'idle',
       expiresAt={isOwner ? undefined : info.expiresAt}
       ownerPanel={ownerPanel}
       agentActions={agentActions}
-      notice={isOwner ? t('shareRoom.ownerNotice') : removed ? t('guestThread.removedNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
+      notice={isOwner ? t('shareJam.ownerNotice') : removed ? t('guestThread.removedNotice') : info.canPost ? t('guestThread.guestNotice') : t('guestThread.readOnlyNotice')}
     />
   );
 
@@ -428,7 +428,7 @@ function Logo({ size }: { size: number }) {
 
 /** The workspace sidebar, cut down to this one thread: brand, the thread,
  * its agents and people, and who you are. */
-/** What the viewer may do with the room's agents (add one; remove some). */
+/** What the viewer may do with the jam's agents (add one; remove some). */
 export interface AgentActions {
   canAdd: boolean;
   onAdd: () => void;
@@ -461,19 +461,19 @@ function AgentRow({ agent, rowClass, onRemove }: { agent: GuestThreadAgent; rowC
           <AgentAvatar name={agent.name} size={20} showStatus status={agent.online ? 'online' : 'offline'} className="[&_svg]:size-full!" />
           <span className="grid min-w-0 flex-1 leading-tight">
             <span className="truncate">{name}</span>
-            {agent.broughtBy && <span className="truncate text-xs text-muted-foreground" data-agent-brought-by="">{t('roomAgents.broughtBy', { name: agent.broughtBy })}</span>}
-            {failed && <span className="truncate text-xs text-destructive" role="alert">{t('roomAgents.removeFailed')}</span>}
+            {agent.broughtBy && <span className="truncate text-xs text-muted-foreground" data-agent-brought-by="">{t('jamAgents.broughtBy', { name: agent.broughtBy })}</span>}
+            {failed && <span className="truncate text-xs text-destructive" role="alert">{t('jamAgents.removeFailed')}</span>}
           </span>
           {!agent.online && !onRemove && <span className="ml-auto shrink-0 text-xs text-muted-foreground">{t('guestThread.offline')}</span>}
         </div>
       </SidebarMenuButton>
       {onRemove && (confirming ? (
         <Button size="xs" variant="destructive" className="absolute top-1/2 right-1 h-6 -translate-y-1/2 px-2 text-xs" disabled={busy} onClick={() => void remove()} data-agent-remove-confirm={agent.name}>
-          {busy ? <Spinner /> : t('roomAgents.removeConfirm')}
+          {busy ? <Spinner /> : t('jamAgents.removeConfirm')}
         </Button>
       ) : (
-        <WithTooltip label={t('roomAgents.remove', { name })}>
-          <SidebarMenuAction showOnHover className="[@media(hover:none)]:opacity-100" aria-label={t('roomAgents.remove', { name })} onClick={() => void remove()} data-agent-remove={agent.name}>
+        <WithTooltip label={t('jamAgents.remove', { name })}>
+          <SidebarMenuAction showOnHover className="[@media(hover:none)]:opacity-100" aria-label={t('jamAgents.remove', { name })} onClick={() => void remove()} data-agent-remove={agent.name}>
             <X />
           </SidebarMenuAction>
         </WithTooltip>
@@ -493,7 +493,7 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
   expiresAt?: string | null;
   /** What this viewer can do here. */
   notice: string;
-  /** Owner room: the owner's panel, above the thread. */
+  /** Owner page: the owner's panel, above the thread. */
   ownerPanel?: ReactNode;
   agentActions?: AgentActions;
 }) {
@@ -535,8 +535,8 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
           <div className="flex items-center">
             <SidebarGroupLabel className="min-w-0 flex-1 px-2">{t('nav.agentsWithCount', { online, total: agents.length })}</SidebarGroupLabel>
             {agentActions?.canAdd && (
-              <WithTooltip label={t('roomAgents.add')}>
-                <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={t('roomAgents.add')} onClick={agentActions.onAdd} data-add-agent-button="">
+              <WithTooltip label={t('jamAgents.add')}>
+                <Button variant="ghost" size="icon-sm" className="shrink-0 text-muted-foreground" aria-label={t('jamAgents.add')} onClick={agentActions.onAdd} data-add-agent-button="">
                   <Plus />
                 </Button>
               </WithTooltip>
@@ -581,7 +581,7 @@ function ShareSidebar({ workspaceName, subtitle, title, agents, people, identity
       </SidebarContent>
 
       <SidebarFooter className="gap-1 px-1.5 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        {/* Owner room: the sharing settings, at hand above who you are. */}
+        {/* Owner page: the sharing settings, at hand above who you are. */}
         {ownerPanel && <div className="px-1.5 pb-1" data-owner-panel-slot="">{ownerPanel}</div>}
         <p className="px-2 text-xs text-muted-foreground lg:hidden" data-share-notice="">{notice}</p>
         {expiresAt !== undefined && (
@@ -657,7 +657,7 @@ function ThreadCounters({ agents, people }: { agents: GuestThreadAgent[]; people
               media: <AgentAvatar name={agent.name} size={28} showStatus status={agent.online ? 'online' : 'offline'} />,
               title: agentDisplayName(agent),
               // The name is the handle; the runtime ("Claude Code") is the secondary label.
-              description: [agent.broughtBy ? t('roomAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · '),
+              description: [agent.broughtBy ? t('jamAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · '),
             }))}
             add={null}
           />
@@ -676,10 +676,10 @@ function AgentStatusBanner({ agent, ownerName, isOwner, canPost, guestsCanPost, 
   const params = { agent: agentDisplayName(agent), owner: ownerName };
   const warning = !agent.online || agent.acceptsGuests === false;
   const status = isOwner
-    ? !agent.online ? t('shareRoom.offlineNotice', params) : agent.acceptsGuests === false ? t('shareRoom.noGuestRuns', params) : t('shareRoom.runsOn', params)
+    ? !agent.online ? t('shareJam.offlineNotice', params) : agent.acceptsGuests === false ? t('shareJam.noGuestRuns', params) : t('shareJam.runsOn', params)
     : !agent.online ? t('guestThread.offlineNotice', params) : agent.acceptsGuests === false ? t('guestThread.noGuestRuns', params) : t('guestThread.runsOn', params);
   const notice = isOwner
-    ? (!guestsCanPost ? t('shareRoom.ownerReadOnlyNotice') : asksOff ? t('shareRoom.ownerAgentOffNotice', params) : needsApproval ? t('shareRoom.ownerApprovalNotice') : t('shareRoom.ownerNotice'))
+    ? (!guestsCanPost ? t('shareJam.ownerReadOnlyNotice') : asksOff ? t('shareJam.ownerAgentOffNotice', params) : needsApproval ? t('shareJam.ownerApprovalNotice') : t('shareJam.ownerNotice'))
     : !canPost ? null : asksOff ? t('guestThread.agentOffNotice', params) : needsApproval ? t('guestThread.approvalNotice', params) : t('guestThread.guestNotice');
   // On a phone the rule for guests' requests (it changes what a message does) wins the one line.
   const approvalFirst = (needsApproval || asksOff || (isOwner && !guestsCanPost)) && !warning && !!notice;

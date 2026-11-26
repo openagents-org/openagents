@@ -1,11 +1,11 @@
 /**
  * A shared thread's artifacts and routines for its share pages
- * (`/v1/guest-links/{public/<token>|room}/resources`), and where their bytes
+ * (`/v1/guest-links/{public/<token>|jam}/resources`), and where their bytes
  * come from. Kept free of React so it can be unit tested.
  */
 import { getApiBaseUrl } from '@/lib/api-base';
 import { guestHeaders, request, type GuestApiOptions } from '@/lib/guest-thread-api';
-import { roomHeaders, type RoomCredentials } from '@/lib/share-room-api';
+import { jamHeaders, type JamCredentials } from '@/lib/jam-api';
 import type { RoutineItem } from '@/lib/types';
 
 export interface ShareFile {
@@ -102,7 +102,7 @@ export function artifactCount(resources: ShareResources): number {
   return resources.files.length + resources.browsers.length;
 }
 
-/** Where a share page reads its resources and their bytes: the guest link or the owner room. */
+/** Where a share page reads its resources and their bytes: the guest link or the owner page. */
 export interface ShareResourceSource {
   /** Stable identity, so a new object for the same link doesn't restart polling. */
   key: string;
@@ -129,13 +129,13 @@ export function guestResourceSource(token: string, options: GuestApiOptions = {}
   };
 }
 
-export function roomResourceSource(creds: RoomCredentials, options: GuestApiOptions = {}): ShareResourceSource {
-  const base = () => `${options.baseUrl ?? getApiBaseUrl()}/v1/guest-links/room`;
+export function jamResourceSource(creds: JamCredentials, options: GuestApiOptions = {}): ShareResourceSource {
+  const base = () => `${options.baseUrl ?? getApiBaseUrl()}/v1/guest-links/jam`;
   const query = `network=${encodeURIComponent(creds.slug)}`;
-  const headersNow = () => roomHeaders(creds);
+  const headersNow = () => jamHeaders(creds);
   const fetchImpl = (...args: Parameters<typeof fetch>) => (options.fetchImpl ?? fetch)(...args);
   return {
-    key: `room:${creds.slug}:${creds.token || 'bearer'}`,
+    key: `jam:${creds.slug}:${creds.token || 'bearer'}`,
     fetchResources: async () => toShareResources(await request(`${base()}/resources?${query}`, { method: 'GET', headers: headersNow() }, options)),
     fetchFile: (id, signal) => bytes(`${base()}/files/${encodeURIComponent(id)}?${query}`, headersNow(), signal, fetchImpl),
     fetchScreenshot: (id, signal) => bytes(`${base()}/browsers/${encodeURIComponent(id)}/screenshot?${query}`, headersNow(), signal, fetchImpl),

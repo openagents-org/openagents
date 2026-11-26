@@ -51,8 +51,8 @@ export function useGuestThread(token: string, options: { preview?: boolean; auth
   const authReady = preview || !auth || auth.ready;
   const authRef = useRef(auth);
   authRef.current = auth;
-  // Invite-only rooms: every guest call carries the signed-in bearer. Open links never
-  // learn who is signed in: the bearer goes out only once the room says it's invite-only.
+  // Invite-only jams: every guest call carries the signed-in bearer. Open links never
+  // learn who is signed in: the bearer goes out only once the jam says it's invite-only.
   const inviteOnlyRef = useRef(false);
   setGuestBearer(token, signedIn ? () => (inviteOnlyRef.current ? authRef.current?.idToken() ?? null : null) : null);
   const [status, setStatus] = useState<GuestThreadStatus>('loading');
@@ -75,7 +75,7 @@ export function useGuestThread(token: string, options: { preview?: boolean; auth
     setGuest(nextGuest);
   }, []);
 
-  /** An invite-only room turned this viewer away: sign in, or a different account. */
+  /** An invite-only jam turned this viewer away: sign in, or a different account. */
   const gateWith = useCallback((error: unknown): boolean => {
     const gate = inviteGate(error);
     if (!gate) return false;
@@ -126,7 +126,7 @@ export function useGuestThread(token: string, options: { preview?: boolean; auth
         session = null;
       }
       const page = await source.fetchMessages(null);
-      // An invite-only room knows a signed-in invitee by their account, session or not.
+      // An invite-only jam knows a signed-in invitee by their account, session or not.
       const byAccount = linkInfo.access === 'invited' && !!authRef.current?.signedIn && !preview;
       setIdentity(session || byAccount ? linkInfo.guest : null, session);
       setInfo(linkInfo);
@@ -142,7 +142,7 @@ export function useGuestThread(token: string, options: { preview?: boolean; auth
   const readyRef = useRef(authReady);
   readyRef.current = authReady;
   useEffect(() => { void load(); }, [load]);
-  // Signed in (or out) since: an invite-only room may open now — or close.
+  // Signed in (or out) since: an invite-only jam may open now — or close.
   const firstAuth = useRef(true);
   useEffect(() => {
     if (firstAuth.current) { firstAuth.current = false; return; }

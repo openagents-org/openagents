@@ -8,7 +8,7 @@ session and the agent as the thread's only member. It returns two links:
 
   * the owner link, carrying the workspace token (the creator's credential;
     signing in from it makes the workspace theirs), and
-  * the guest link (/share/thread/<token>), which opens only that thread.
+  * the guest link (/jam/<token>), which opens only that thread.
 
 A guest needs no account. Reading needs nothing; posting needs a display name,
 which mints a guest session kept by the browser. Guests post as
@@ -99,15 +99,15 @@ def frontend_base() -> str:
 
 
 def guest_url(token: str) -> str:
-    return f"{frontend_base()}/share/thread/{token}"
+    return f"{frontend_base()}/jam/{token}"
 
 
 def owner_url(workspace: Workspace, channel_name: str) -> str:
-    """The owner's light room: just this conversation, its link and "keep it".
+    """The owner's light jam: just this conversation, its link and "keep it".
 
     The full workspace UI comes only once the person keeps the conversation.
     """
-    return f"{frontend_base()}/share/own/{workspace.slug}?token={workspace.password_hash}"
+    return f"{frontend_base()}/jam/own/{workspace.slug}?token={workspace.password_hash}"
 
 
 def guest_address(guest_id: str) -> str:
@@ -357,16 +357,16 @@ def viewer_email(db: Session, authorization: Optional[str]) -> Optional[str]:
 
 
 def check_invited(db: Session, link: ThreadGuestLink, workspace: Workspace, authorization: Optional[str]) -> Optional[str]:
-    """For invite-only rooms: the signed-in invitee's email, or a LinkError. The owner always passes."""
+    """For invite-only jams: the signed-in invitee's email, or a LinkError. The owner always passes."""
     if (link.access or "link") != "invited":
         return None
     email = viewer_email(db, authorization)
     if not email:
-        raise LinkError(401, "This room is invite-only. Sign in with the email it was shared with.",
+        raise LinkError(401, "This jam is invite-only. Sign in with the email it was shared with.",
                         data={"access": "invited"})
     if email in [e.lower() for e in (link.invited_emails or [])] or room_owner_user(db, workspace, authorization):
         return email
-    raise LinkError(403, "You don't have access to this room. Ask the person who shared it to invite you.",
+    raise LinkError(403, "You don't have access to this jam. Ask the person who shared it to invite you.",
                     data={"access": "invited", "email": email})
 
 
@@ -480,7 +480,7 @@ def guest_blocked_text(db: Session, workspace: Workspace, channel: Channel, memb
 
 def guest_for_user(db: Session, link: ThreadGuestLink, email: str, name: Optional[str] = None,
                    create: bool = False) -> Optional[ThreadGuest]:
-    """In an invite-only room the account is the identity: one guest per email, on any device."""
+    """In an invite-only jam the account is the identity: one guest per email, on any device."""
     guest = db.execute(select(ThreadGuest).where(ThreadGuest.link_id == link.id,
                                                  ThreadGuest.email == email)).scalar_one_or_none()
     if guest is None and create:
@@ -557,7 +557,7 @@ def list_messages(db: Session, token: str, after: Optional[str], limit: int, bef
 
 def channel_messages(db: Session, workspace: Workspace, channel: Channel, after: Optional[str], limit: int,
                      before: Optional[str] = None) -> dict:
-    """One page of a thread's messages, in the shape guests (and the owner room) read."""
+    """One page of a thread's messages, in the shape guests (and the owner jam) read."""
     limit = max(1, min(int(limit or 100), 200))
     base = select(EventRecord).where(
         EventRecord.network_id == str(workspace.id),
@@ -869,7 +869,7 @@ def set_expiry(db: Session, workspace_id: str, link_id: str, raw: Optional[str])
 
 
 # ---------------------------------------------------------------------------
-# The owner's light room
+# The owner's light jam
 # ---------------------------------------------------------------------------
 
 def share_thread(db: Session, workspace: Workspace) -> Optional[Channel]:
@@ -884,7 +884,7 @@ def share_thread(db: Session, workspace: Workspace) -> Optional[Channel]:
 
 
 def room_owner_user(db: Session, workspace: Workspace, authorization: Optional[str]):
-    """The signed-in person, if they own (or administer) this room."""
+    """The signed-in person, if they own (or administer) this jam."""
     if not authorization:
         return None
     from app.access import _role_for_email, resolve_current_user
@@ -895,10 +895,10 @@ def room_owner_user(db: Session, workspace: Workspace, authorization: Optional[s
 
 
 def owner_room(db: Session, network: str, token: Optional[str], authorization: Optional[str] = None):
-    """(workspace, channel) for the room's owner, or a LinkError (410 says where it went).
+    """(workspace, channel) for the jam's owner, or a LinkError (410 says where it went).
 
     The owner is whoever holds the private owner link (the workspace token) or,
-    once they saved the room to their account, the signed-in account itself.
+    once they saved the jam to their account, the signed-in account itself.
     """
     from app.routers.network import _resolve_workspace
     workspace = _resolve_workspace(db, network) if network else None
@@ -1100,7 +1100,7 @@ def accept_relocation(db: Session, source: Workspace, token: Optional[str], agen
     source.settings = settings
     if all(r.get("accepted") for r in rels):
         # Every agent has its new connection: retire the old workspace and its
-        # owner link (the link now answers 410 "moved" in the owner room).
+        # owner link (the link now answers 410 "moved" in the owner jam).
         share["retired_token_hash"] = _sha("owner:" + str(source.password_hash))
         settings["openagents_share"] = share
         source.settings = settings
@@ -1255,7 +1255,7 @@ def fork_for_guest(db: Session, token: str, user, target_id: Optional[str], auth
 def notify_owner_of_request(db: Session, workspace: Workspace, channel: Channel, guest_name: str, content: str) -> None:
     """Tell the person who kept the workspace that a guest request waits (inbox + push).
 
-    An anonymous owner has no inbox; they see the request in their room.
+    An anonymous owner has no inbox; they see the request in their jam.
     """
     owner = (workspace.creator_email or "").strip().lower()
     if not owner:
@@ -1411,7 +1411,7 @@ def remove_guest(db: Session, workspace: Workspace, channel: Channel, guest_id: 
 
 
 # ---------------------------------------------------------------------------
-# A person's rooms (like gists: not workspaces until they decide so)
+# A person's jams (like gists: not workspaces until they decide so)
 # ---------------------------------------------------------------------------
 
 def is_room(workspace: Workspace) -> bool:
@@ -1429,7 +1429,7 @@ def _set_share_flag(db: Session, workspace: Workspace, **values) -> None:
 
 
 def my_rooms(db: Session, user) -> List[dict]:
-    """Rooms this person saved or published while signed in, newest activity first."""
+    """Jams this person saved or published while signed in, newest activity first."""
     from app.models import WorkspaceMembership
     email = user.email.strip().lower()
     ids = {w for (w,) in db.execute(select(WorkspaceMembership.workspace_id).where(
@@ -1446,23 +1446,23 @@ def my_rooms(db: Session, user) -> List[dict]:
         channel = share_thread(db, ws)
         if channel is None:
             continue
-        room = describe_room(db, ws, channel)
+        jam = describe_room(db, ws, channel)
         live = next((l for l in links_for(db, str(ws.id), channel.name)
                      if l.revoked_at is None and (l.expires_at is None or _aware(l.expires_at) > _now())), None)
-        room.update({
+        jam.update({
             "lastActivityAt": channel.last_event_at,
             "liveLink": serialize_link(live) if live else None,
             "guestCount": len([g for g in list_guests(db, ws, channel) if not g["removed"]]),
             "pendingRequests": len(pending_requests(db, ws, channel)),
             "keptAsWorkspace": bool(share.get("kept_as_workspace")),
         })
-        out.append(room)
+        out.append(jam)
     out.sort(key=lambda r: r.get("lastActivityAt") or 0, reverse=True)
     return out
 
 
 def keep_as_workspace(db: Session, workspace: Workspace, channel: Channel, user) -> dict:
-    """Turn a room into a full workspace of theirs (it then shows among their workspaces)."""
+    """Turn a jam into a full workspace of theirs (it then shows among their workspaces)."""
     if not workspace.creator_email:
         claim(db, workspace, workspace.password_hash, user)
     _set_share_flag(db, workspace, kept_as_workspace=True)
@@ -1472,7 +1472,7 @@ def keep_as_workspace(db: Session, workspace: Workspace, channel: Channel, user)
 
 
 def delete_room(db: Session, workspace: Workspace) -> None:
-    """Delete a room: its links stop working, the conversation is gone for guests."""
+    """Delete a jam: its links stop working, the conversation is gone for guests."""
     for link in db.execute(select(ThreadGuestLink).where(ThreadGuestLink.workspace_id == str(workspace.id))).scalars():
         if link.revoked_at is None:
             link.revoked_at = _now()
@@ -1514,7 +1514,7 @@ def set_pinned(db: Session, workspace: Workspace, channel: Channel, kind: Option
 
 
 # ---------------------------------------------------------------------------
-# Who can open the room: anyone with the link, or invited emails only
+# Who can open the jam: anyone with the link, or invited emails only
 # ---------------------------------------------------------------------------
 
 ACCESS_MODES = ("link", "invited")
@@ -1557,12 +1557,12 @@ def add_invites(db: Session, workspace: Workspace, link_id: str, emails: List[st
     current = [e.lower() for e in (link.invited_emails or [])]
     new = [e for e in normalize_emails(emails) if e not in current]
     if len(current) + len(new) > MAX_INVITES:
-        raise LinkError(400, f"At most {MAX_INVITES} people per room")
+        raise LinkError(400, f"At most {MAX_INVITES} people per jam")
     link.invited_emails = current + new
     db.commit()
     channel = db.execute(select(Channel).where(Channel.workspace_id == str(workspace.id),
                                                Channel.name == link.channel_name)).scalar_one_or_none()
-    send_invites(link, channel.title if channel else "a room", inviter, new)
+    send_invites(link, channel.title if channel else "a jam", inviter, new)
     return link, new
 
 
@@ -1572,16 +1572,16 @@ def send_invites(link: ThreadGuestLink, title: str, inviter: str, emails: List[s
             from app.services.email import send_email
             from html import escape
             send_email(email, f"{inviter} invited you to “{title}” on OpenAgents",
-                       f"<p>{escape(inviter)} invited you to the room <b>{escape(title)}</b>, "
+                       f"<p>{escape(inviter)} invited you to the jam <b>{escape(title)}</b>, "
                        f"where you can talk with their agent.</p>"
-                       f"<p><a href=\"{guest_url(link.token)}\">Open the room</a></p>"
+                       f"<p><a href=\"{guest_url(link.token)}\">Open the jam</a></p>"
                        f"<p>Sign in with {escape(email)} to open it.</p>")
         except Exception:
             logger.warning("share: invite email failed", exc_info=True)
 
 
 def remove_invite(db: Session, workspace: Workspace, link_id: str, email: str) -> ThreadGuestLink:
-    """Uninvite: they lose access to an invite-only room at once (and can't post if it opens to the link later)."""
+    """Uninvite: they lose access to an invite-only jam at once (and can't post if it opens to the link later)."""
     link = _owned_link(db, str(workspace.id), link_id)
     email = (email or "").strip().lower()
     link.invited_emails = [e for e in (link.invited_emails or []) if e.lower() != email]

@@ -517,7 +517,7 @@ class Node(Base):
     # both is a later hardening pass.
     token = Column(Text, nullable=True, unique=True, index=True)
     # A limited connection (OpenAgents Share: an agent a guest brought into a
-    # room): it may only run scope_agent and only in the thread scope_channel —
+    # jam): it may only run scope_agent and only in the thread scope_channel —
     # join, heartbeat, read that thread, post there as that agent. NULL = the
     # usual full device connection.
     scope_channel = Column(Text, nullable=True)
@@ -732,7 +732,7 @@ class ThreadGuestLink(Base):
     session, and the people they send the link to read that thread and post
     in it without an account. A guest sees nothing else in the workspace.
 
-    ``token`` is the secret in the URL (/share/thread/<token>). It is kept so
+    ``token`` is the secret in the URL (/jam/<token>). It is kept so
     the owner can copy the link again. ``expires_at`` NULL means the link never
     expires (the owner's choice, and the default); revoking stamps
     ``revoked_at`` and is final. ``publish_key_hash`` makes a retried publish
@@ -755,7 +755,7 @@ class ThreadGuestLink(Base):
     # Like Google Docs: "link" — anyone with the link; "invited" — only people
     # signed in with one of invited_emails (lowercased).
     access = Column(Text, nullable=False, default="link", server_default=text("'link'"))
-    # Guests may bring their own agents into the room (limited connections).
+    # Guests may bring their own agents into the jam (limited connections).
     allow_guest_agents = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
     invited_emails = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
     publish_key_hash = Column(Text, unique=True, nullable=True)
@@ -807,7 +807,7 @@ class ThreadGuest(Base):
     id = Column(Text, primary_key=True, default=_uuid)
     link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
     display_name = Column(Text, nullable=False)
-    email = Column(Text, nullable=True)   # set for invite-only rooms: the signed-in invitee
+    email = Column(Text, nullable=True)   # set for invite-only jams: the signed-in invitee
     session_hash = Column(Text, unique=True, nullable=False)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     post_window_started_at = Column(DateTime(timezone=True), nullable=True)

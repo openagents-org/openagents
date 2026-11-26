@@ -3,7 +3,7 @@ import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
 import type { GuestLink, ThreadGuestRecord } from './guest-links';
-import type { ShareRequest as GuestRequestRecord } from './share-room-api';
+import type { ShareRequest as GuestRequestRecord } from './jam-api';
 import type {
   AgentCatalogDetail,
   PublicShareKind,
@@ -2898,7 +2898,7 @@ class WorkspaceApi {
     return this.request('/v1/thread-links', { method: 'POST', body: JSON.stringify({ network: this.requireWorkspace(), session_id: sessionId }) });
   }
 
-  // ── OpenAgents Share: guest links into one thread (owner/admin only) ──
+  // ── OpenAgents Jam: guest links into one thread (owner/admin only) ──
 
   async listGuestLinks(channel: string): Promise<GuestLink[]> {
     const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
@@ -2906,7 +2906,7 @@ class WorkspaceApi {
     return data?.links || [];
   }
 
-  /** OpenAgents Share: guests' requests in this thread waiting for the owner (owner/admin). */
+  /** OpenAgents Jam: guests' requests in this thread waiting for the owner (owner/admin). */
   async listGuestRequests(channel: string): Promise<GuestRequestRecord[]> {
     const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
     const data = await this.request<{ requests?: GuestRequestRecord[] }>(`/v1/guest-links/requests?${params}`);
@@ -2946,7 +2946,7 @@ class WorkspaceApi {
     return data.link;
   }
 
-  /** OpenAgents Share: the thread's guests (owner/admin). */
+  /** OpenAgents Jam: the thread's guests (owner/admin). */
   async listThreadGuests(channel: string): Promise<ThreadGuestRecord[]> {
     const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
     const data = await this.request<{ guests?: ThreadGuestRecord[] }>(`/v1/guest-links/guests?${params}`);

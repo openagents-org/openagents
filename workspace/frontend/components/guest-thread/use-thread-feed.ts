@@ -23,7 +23,7 @@ export function isHidden(): boolean {
   return typeof document !== 'undefined' && document.visibilityState === 'hidden';
 }
 
-/** Where a shared thread's messages come from: the guest link or the owner room. */
+/** Where a shared thread's messages come from: the guest link or the owner page. */
 export interface ThreadFeedSource {
   fetchMessages(after: string | null): Promise<GuestMessagesPage>;
   fetchEarlier(before: string): Promise<GuestMessagesPage>;

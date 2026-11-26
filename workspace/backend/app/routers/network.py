@@ -143,7 +143,7 @@ def _check_lifecycle_auth(
     if _verify_workspace_access(workspace, token, authorization):
         return None
     if token and not authorization:
-        # A guest's agent in a room (limited connection): only as itself.
+        # A guest's agent in a jam (limited connection): only as itself.
         from app.services.room_agents import scoped_node
         node = scoped_node(object_session(workspace), workspace.id, token)
         if node is not None:

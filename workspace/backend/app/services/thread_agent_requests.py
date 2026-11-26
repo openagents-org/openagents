@@ -16,7 +16,7 @@ def request_access(db, workspace_id, channel, member, email):
     from app.services.guest_links import guest_may_run, is_guest_email
     from app.services.room_agents import guest_agent_may_run, is_guest_agent
     if is_guest_agent(member):
-        # An agent a guest brought into a room: anyone there may ask it (its
+        # An agent a guest brought into a jam: anyone there may ask it (its
         # launcher holds everyone but its own guest to read-only turns).
         return "yes" if guest_agent_may_run(db, workspace_id, channel, member, email) else "no"
     if is_guest_email(email):

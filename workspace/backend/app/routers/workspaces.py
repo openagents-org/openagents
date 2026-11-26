@@ -398,7 +398,7 @@ def list_workspaces(
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    # OpenAgents Share rooms live in the person's room list (GET /v1/rooms),
+    # OpenAgents Share jams live in the person's jam list (GET /v1/jams),
     # like gists beside repositories, until they keep one as a workspace.
     from app.services.guest_links import is_room
     results = [_format_workspace(ws, ws.members, now, authorization=authorization)

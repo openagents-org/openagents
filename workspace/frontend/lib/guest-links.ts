@@ -1,5 +1,5 @@
 /**
- * Owner-side logic for OpenAgents Share guest links (`/v1/guest-links`):
+ * Owner-side logic for OpenAgents Jam guest links (`/v1/guest-links`):
  * which link is live, the expiry choices, and when the panel applies.
  * Kept free of React so it can be unit tested.
  */
@@ -7,7 +7,7 @@
 export interface GuestLink {
   id: string;
   channel: string;
-  /** `<app>/share/thread/<token>` */
+  /** `<app>/jam/<token>` */
   url: string;
   canPost: boolean;
   /** `owner`: a guest's request to the agent waits for the owner's approval. */
@@ -16,7 +16,7 @@ export interface GuestLink {
   access?: LinkAccess;
   /** Invite-only: the invited emails (owner's view). */
   invitedEmails?: string[];
-  /** Guests may bring their own agents into the room. */
+  /** Guests may bring their own agents into the jam. */
   allowGuestAgents?: boolean;
   expiresAt: string | null;
   revokedAt: string | null;
@@ -38,7 +38,7 @@ export interface ThreadGuestRecord {
 }
 
 /** Where the owner's link calls go: the workspace API (signed-in owner) or
- * the owner room (workspace token from the owner link). */
+ * the owner page (workspace token from the owner link). */
 export interface GuestLinksClient {
   list(channel: string): Promise<GuestLink[]>;
   create(channel: string, expiresAt: string | null): Promise<GuestLink>;

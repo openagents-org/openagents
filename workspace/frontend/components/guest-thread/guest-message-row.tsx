@@ -31,7 +31,7 @@ interface GuestMessageRowProps {
   agentNames: string[];
   agentLabels: Record<string, string>;
   currentGuestId: string | null;
-  /** Who is looking; overrides `currentGuestId` (the owner room passes this). */
+  /** Who is looking; overrides `currentGuestId` (the owner page passes this). */
   viewer?: ThreadViewer;
   showTime?: boolean;
   /** Show who a person's message went to ("→ Claude Code" / "→ Conversation"). */
@@ -39,7 +39,7 @@ interface GuestMessageRowProps {
   onRetry?: (localId: string) => void;
   /** A held request's status as decided so far (overrides the message's own snapshot). */
   requestStatus?: ShareRequestStatus;
-  /** Owner room: approve or decline a held request. */
+  /** Owner page: approve or decline a held request. */
   onDecide?: DecideRequest;
   /** Who approves requests ("Waiting for Raphael's approval"). */
   ownerName?: string;

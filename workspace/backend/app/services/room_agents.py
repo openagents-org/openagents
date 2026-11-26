@@ -1,10 +1,10 @@
-"""More agents in a room (OpenAgents Share): the owner's own, and guests' own.
+"""More agents in a jam (OpenAgents Share): the owner's own, and guests' own.
 
 The owner adds agents the usual way: they run on the owner's computer with the
-room's workspace token, like the agent that was shared first.
+jam's workspace token, like the agent that was shared first.
 
 A guest brings an agent through a **limited connection**: a Node with
-``scope_channel``/``scope_agent`` set. It is minted for one guest, one room
+``scope_channel``/``scope_agent`` set. It is minted for one guest, one jam
 thread and one agent name, and the backend accepts it only to
 
 - join, heartbeat and leave as that agent,
@@ -15,9 +15,9 @@ thread and one agent name, and the backend accepts it only to
 Everything else refuses it, because ``verify_workspace_access`` never counts a
 limited connection as workspace trust. The connection stops working as soon as
 the guest is removed, the link is turned off or expires, or the agent is
-removed from the room (``scoped_node``).
+removed from the jam (``scoped_node``).
 
-Who may ask a guest's agent: anyone in the room. Its own guest's turns run
+Who may ask a guest's agent: anyone in the jam. Its own guest's turns run
 normally on the guest's computer; everyone else's run as guest turns
 (read-only), which the guest's launcher enforces — the server routes others'
 requests only to a launcher advertising ``scoped_turns``, and the join reply
@@ -60,7 +60,7 @@ def _guest_id(email: Optional[str]) -> Optional[str]:
 
 
 def guest_agent_live(db: Session, workspace_id, channel_name: str, member: Optional[WorkspaceMember]) -> bool:
-    """True while a guest's agent may act in its room: guest, link and membership all still live."""
+    """True while a guest's agent may act in its jam: guest, link and membership all still live."""
     if member is None or member.status == "removed":
         return False
     gid = _guest_id(member.owner_email)
@@ -119,13 +119,36 @@ def scoped_event_allowed(node: Node, event) -> bool:
     return False
 
 
-_EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Metadata a guest's agent may set on its posts: display only. Everything that
+# routes, attributes or links a message (target_agents, in_reply_to, acting_for,
+# share_*, guest, watch, …) is dropped, and nothing it posts is addressed to
+# another agent.
+SAFE_POST_METADATA = frozenset({"agent_mode", "stop_notice", "status_kind", "model", "todos", "session_id", "client_key"})
+SAFE_POST_PAYLOAD_DROP = ("attachments", "acting_for", "mentions", "target_agents", "sender_email", "requester_email")
+
+
+def sanitize_scoped_post(event) -> None:
+    """Make a guest agent's post a plain reply: no routing, no attachments, no borrowed identity."""
+    if event.type != "workspace.message.posted":
+        return
+    meta = {k: v for k, v in (event.metadata or {}).items() if k in SAFE_POST_METADATA}
+    meta["target_agents"] = ["__no_response__"]
+    event.metadata = meta
+    payload = dict(event.payload or {})
+    for key in SAFE_POST_PAYLOAD_DROP:
+        payload.pop(key, None)
+    event.payload = payload
+
+
+# Anything shaped like an address: local part and domain without spaces or
+# delimiters (also dotless/self-hosted domains and non-ASCII ones).
+_EMAIL = re.compile(r"[^\s\"'<>@,;:()\[\]{}\\/]+@[^\s\"'<>@,;:()\[\]{}\\/]+")
 
 
 def _scrub_text(text: str) -> str:
     def repl(m):
         addr = m.group(0)
-        return addr if is_guest_email(addr) else "someone@hidden.invalid"
+        return addr if is_guest_email(addr) or addr.lower().endswith("@hidden.invalid") else "someone@hidden.invalid"
     return _EMAIL.sub(repl, text)
 
 
@@ -136,7 +159,7 @@ def scrub_for_scoped(response, node: Node):
         if isinstance(response, JSONResponse):
             body = _scrub_text(response.body.decode("utf-8"))
             return JSONResponse(status_code=response.status_code, content=json.loads(body))
-        return json.loads(_scrub_text(json.dumps(response, default=str)))
+        return json.loads(_scrub_text(json.dumps(response, default=str, ensure_ascii=False)))
     except Exception:
         logger.exception("room_agents: could not scrub a scoped poll; refusing it")
         from app.response import ResponseCode, json_response
@@ -150,7 +173,7 @@ def join_extras(db: Session, workspace, token: Optional[str], agent_name: str) -
         return {}
     member = db.get(WorkspaceMember, (str(workspace.id), agent_name))
     # The launcher runs only this person's turns with full rights; everyone
-    # else in the room gets read-only guest turns.
+    # else in the jam gets read-only guest turns.
     return {"scoped": {"channel": node.scope_channel, "owner_address": (member.owner_email or "").lower()}}
 
 
@@ -168,7 +191,7 @@ def guest_agent_may_run(db: Session, workspace_id, channel: Optional[Channel], m
     caps = getattr(member, "capabilities", None) or []
     if (email or "").strip().lower() == (member.owner_email or "").lower():
         return True   # the guest who brought it: their own agent, on their own computer
-    # Anyone else in the room: only if the launcher holds their turns read-only.
+    # Anyone else in the jam: only if the launcher holds their turns read-only.
     return GUEST_CAPABILITY in caps and SCOPED_CAPABILITY in caps
 
 
@@ -211,7 +234,7 @@ def _check_new_agent(db: Session, workspace: Workspace, channel: Channel, name: 
         raise LinkError(409, f"There's already an agent named {name} here. Pick another name.")
     in_room = [p for p in (channel.participants or []) if p.agent_name != "__no_response__"]
     if len(in_room) >= MAX_AGENTS_PER_ROOM:
-        raise LinkError(429, "This room has as many agents as it can take")
+        raise LinkError(429, "This jam has as many agents as it can take")
     return name, agent_type, existing
 
 
@@ -231,7 +254,7 @@ def _place(db: Session, workspace: Workspace, channel: Channel, name: str, agent
 
 
 def add_owner_agent(db: Session, workspace: Workspace, channel: Channel, name: str, agent_type: str) -> dict:
-    """The owner adds another of their agents; it connects with the room's workspace token."""
+    """The owner adds another of their agents; it connects with the jam's workspace token."""
     from app.services.legacy_ownership import workspace_owner_email
     name, agent_type, existing = _check_new_agent(db, workspace, channel, name, agent_type)
     _place(db, workspace, channel, name, agent_type, workspace_owner_email(db, workspace), existing)
@@ -255,12 +278,12 @@ def _bring_allowed(link: ThreadGuestLink):
     if not link.can_post:
         raise LinkError(403, "This link is read-only")
     if not link.allow_guest_agents:
-        raise LinkError(403, "The owner doesn't let guests bring agents into this room")
+        raise LinkError(403, "The owner doesn't let guests bring agents into this jam")
 
 
 def bring_guest_agent(db: Session, token: str, session: Optional[str], authorization: Optional[str],
                       name: str, agent_type: str) -> dict:
-    """A guest brings their own agent: a limited connection for that one agent in this one room."""
+    """A guest brings their own agent: a limited connection for that one agent in this one jam."""
     link, workspace, channel = live_link(db, token, authorization)
     _bring_allowed(link)
     guest = _guest_of(db, link, session, authorization)
@@ -269,14 +292,18 @@ def bring_guest_agent(db: Session, token: str, session: Optional[str], authoriza
         WorkspaceMember.workspace_id == str(workspace.id), WorkspaceMember.owner_email == address,
         WorkspaceMember.status != "removed")).scalars().all()
     if len(mine) >= MAX_AGENTS_PER_GUEST:
-        raise LinkError(429, f"You can bring up to {MAX_AGENTS_PER_GUEST} agents into a room")
+        raise LinkError(429, f"You can bring up to {MAX_AGENTS_PER_GUEST} agents into a jam")
     name, agent_type, existing = _check_new_agent(db, workspace, channel, name, agent_type)
+    if existing is not None:
+        # A name used here before carries that agent's history (its control
+        # events); a guest's agent always starts with a fresh one.
+        raise LinkError(409, f"The name {name} was used here before. Pick another name.")
     _place(db, workspace, channel, name, agent_type, address, existing)
     for old in db.execute(select(Node).where(Node.workspace_id == str(workspace.id),
                                              Node.scope_agent == name)).scalars():
         db.delete(old)
     secret = "oag_" + secrets.token_urlsafe(32)
-    db.add(Node(workspace_id=str(workspace.id), node_key=f"room-guest-{secrets.token_hex(8)}",
+    db.add(Node(workspace_id=str(workspace.id), node_key=f"jam-guest-{secrets.token_hex(8)}",
                 owner_email=address, name=f"{name} ({guest.display_name})", token=secret,
                 scope_channel=channel.name, scope_agent=name))
     db.commit()
@@ -298,12 +325,12 @@ def _remove(db: Session, workspace: Workspace, channel: Channel, member: Workspa
 
 
 def remove_owner_agent(db: Session, workspace: Workspace, channel: Channel, name: str) -> dict:
-    """The owner removes any agent but the one the room was shared for."""
+    """The owner removes any agent but the one the jam was shared for."""
     member = db.get(WorkspaceMember, (str(workspace.id), name))
     if member is None or member.status == "removed" or db.get(ChannelMember, (channel.id, name)) is None:
         raise LinkError(404, "Agent not found")
     if name == channel.master_agent:
-        raise LinkError(400, "This is the agent the room was shared for; turn the link off instead")
+        raise LinkError(400, "This is the agent the jam was shared for; turn the link off instead")
     _remove(db, workspace, channel, member)
     db.commit()
     return {"name": name, "removed": True}

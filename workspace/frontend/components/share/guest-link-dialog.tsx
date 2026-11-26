@@ -9,7 +9,7 @@ import type { GuestLink, GuestLinksClient } from '@/lib/guest-links';
 import { useT } from '@/lib/i18n';
 
 /**
- * The owner room's guest link controls (copy, expiry, turn off, new link),
+ * The owner page's guest link controls (copy, expiry, turn off, new link),
  * in the same dialog frame as the workspace's Share dialog.
  */
 /** A part of the guest-link settings the dialog can open at. */
@@ -50,14 +50,14 @@ export function GuestLinkDialog({ open, onOpenChange, channel, agentName, links,
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg" data-owner-guest-link-dialog="">
         <DialogHeader>
-          <DialogTitle>{t('shareRoom.guestLinkHeading')}</DialogTitle>
-          <DialogDescription>{t('shareRoom.guestLinkDescription')}</DialogDescription>
+          <DialogTitle>{t('shareJam.guestLinkHeading')}</DialogTitle>
+          <DialogDescription>{t('shareJam.guestLinkDescription')}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3 [&_[data-focused]]:rounded-lg [&_[data-focused]]:ring-2 [&_[data-focused]]:ring-ring/50" data-owner-guest-link="">
           <GuestLinkPanel channel={channel} agentName={agentName} links={links} error={error} setLinks={setLinks} client={client} />
         </DialogBody>
         <DialogFooter>
-          {onPreview && <Button variant="ghost" className="sm:mr-auto" onClick={onPreview} data-guest-link-preview=""><Eye data-icon="inline-start" />{t('shareRoom.previewAsGuest')}</Button>}
+          {onPreview && <Button variant="ghost" className="sm:mr-auto" onClick={onPreview} data-guest-link-preview=""><Eye data-icon="inline-start" />{t('shareJam.previewAsGuest')}</Button>}
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
         </DialogFooter>
       </DialogContent>

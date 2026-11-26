@@ -43,13 +43,13 @@ export interface GuestThreadInfo {
   canPost: boolean;
   /** `owner`: a request to the agent waits for the owner's approval. */
   approvalMode?: 'none' | 'owner' | 'off';
-  /** Owner room: whether guests can post on the link (`canPost` is the viewer's own). */
+  /** Owner page: whether guests can post on the link (`canPost` is the viewer's own). */
   guestsCanPost?: boolean;
   /** Open for guests when they arrive (the owner's open artifact). */
   pinnedArtifact?: PinnedArtifact | null;
   /** `invited`: only invited, signed-in people get in (Google Docs' "Restricted"). */
   access?: 'link' | 'invited';
-  /** Guests may bring their own agents into the room. */
+  /** Guests may bring their own agents into the jam. */
   allowGuestAgents?: boolean;
   guest: GuestIdentity | null;
 }
@@ -75,7 +75,7 @@ export type GuestThreadErrorKind =
   | 'server';
 
 export class GuestThreadError extends Error {
-  /** `data` carries the error body's `data` (e.g. `movedTo` on a 410 from the owner room). */
+  /** `data` carries the error body's `data` (e.g. `movedTo` on a 410 from the owner page). */
   constructor(public kind: GuestThreadErrorKind, message: string, public status: number | null = null, public data: unknown = null) {
     super(message);
     this.name = 'GuestThreadError';
@@ -125,12 +125,12 @@ export function clearGuestSession(token: string, storage: SessionStorage | null 
   try { storage?.removeItem(guestSessionKey(token)); } catch { /* ignore */ }
 }
 
-// ── Invite-only rooms: the signed-in invitee's bearer ──
+// ── Invite-only jams: the signed-in invitee's bearer ──
 
 const bearers = new Map<string, () => string | null>();
 
 /**
- * Who is signed in, for an invite-only room's guest calls (link info,
+ * Who is signed in, for an invite-only jam's guest calls (link info,
  * messages, posting, files). Registered per link token by the guest page;
  * null clears it (an anonymous guest sends no credentials at all).
  */
@@ -147,7 +147,7 @@ export function guestHeaders(token: string, extra: Record<string, string> = {}):
   return Object.keys(h).length ? h : undefined;
 }
 
-/** Why an invite-only room didn't open: signed out (`signin`) or not invited (`denied`, with the account's email). */
+/** Why an invite-only jam didn't open: signed out (`signin`) or not invited (`denied`, with the account's email). */
 export function inviteGate(error: unknown): { kind: 'signin' } | { kind: 'denied'; email: string | null } | null {
   if (!(error instanceof GuestThreadError)) return null;
   const data = (error.data || {}) as { access?: string; email?: string };
@@ -216,7 +216,7 @@ export function fetchEarlierGuestMessages(token: string, before: string, options
   return request<GuestMessagesPage>(linkUrl(token, `/messages?${params}`, options.baseUrl), { method: 'GET', headers: guestHeaders(token) }, options);
 }
 
-/** Post as the guest: with their session, or (invite-only rooms) just the signed-in bearer. */
+/** Post as the guest: with their session, or (invite-only jams) just the signed-in bearer. */
 export function postGuestMessage(token: string, session: string | null, content: string, idempotencyKey: string, options: GuestApiOptions = {}): Promise<ONMEvent> {
   return request<ONMEvent>(linkUrl(token, '/messages', options.baseUrl), {
     method: 'POST',
@@ -239,14 +239,14 @@ export function forkSharedThread(token: string, idToken: string, target?: string
 
 // ── Agents guests bring ──
 
-/** A room agent just added, and how to connect it (the token is shown once). */
+/** A jam agent just added, and how to connect it (the token is shown once). */
 export interface AddedAgent {
   agent: { name: string; type: string; broughtBy: string | null; mine?: boolean };
   token?: string;
   commands: string[];
 }
 
-/** A guest brings their own agent (their session, or the bearer in invite-only rooms). */
+/** A guest brings their own agent (their session, or the bearer in invite-only jams). */
 export function bringGuestAgent(token: string, session: string | null, agent: { name: string; type: string }, options: GuestApiOptions = {}): Promise<AddedAgent> {
   return request<AddedAgent>(linkUrl(token, '/agents', options.baseUrl), {
     method: 'POST',

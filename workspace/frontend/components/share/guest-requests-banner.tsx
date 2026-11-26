@@ -14,7 +14,7 @@ import { guestAvatarSeed } from '@/lib/guest-thread';
 import { useT } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
 
-/** A guest's request waiting for the owner (the room and workspace APIs return the same shape). */
+/** A guest's request waiting for the owner (the jam and workspace APIs return the same shape). */
 export interface PendingGuestRequest {
   id: string;
   guest: { id: string; name: string };

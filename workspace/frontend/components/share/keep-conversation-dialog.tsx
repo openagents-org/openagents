@@ -10,11 +10,11 @@ import { Spinner } from '@/components/ui/spinner';
 import { goToCentralLogin } from '@/lib/auth-redirects';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { claimShare, importShare, keepAsWorkspace, listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/share-room-api';
+import { claimShare, importShare, keepAsWorkspace, listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/jam-api';
 import { cn } from '@/lib/utils';
 
 /**
- * "Keep this conversation" for a workspace made by OpenAgents Share:
+ * "Keep this conversation" for a workspace made by OpenAgents Jam:
  * sign in (or sign up) first, then either make the share workspace your own
  * (POST /v1/guest-links/claim) or move the conversation into one of your
  * workspaces (POST /v1/guest-links/import). Both send the owner link's
@@ -56,9 +56,9 @@ interface KeepConversationDialogProps {
   token: string;
   /** The shared thread, for the full-workspace URL after keeping. */
   threadName: string;
-  /** Already saved to the owner's rooms ("Save to my rooms" shows as done). */
+  /** Already saved to the owner's jams ("Save to my jams" shows as done). */
   saved?: boolean;
-  /** After "Save to my rooms" succeeds. */
+  /** After "Save to my jams" succeeds. */
   onSaved?: () => void;
   /** @deprecated alias of `onSaved` (the workspace banner). */
   onClaimed?: () => void;
@@ -97,7 +97,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
     goToCentralLogin(() => { void signIn(); });
   };
 
-  /** "Save to my rooms": the owner's account keeps it; it stays a room. */
+  /** "Save to my jams": the owner's account keeps it; it stays a jam. */
   const claim = async () => {
     if (!idToken) return;
     setBusy('claim'); setError(null);
@@ -106,7 +106,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
       (onSaved ?? onClaimed)?.();
       setStep('saved');
     } catch (e) {
-      setError(messageOf(e, t('shareRoom.keepFailed')));
+      setError(messageOf(e, t('shareJam.keepFailed')));
     } finally {
       setBusy(null);
     }
@@ -120,7 +120,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
       const result = await keepAsWorkspace(creds);
       navigate(threadPath(result.workspace.slug || network, result.channel.name || threadName));
     } catch (e) {
-      setError(messageOf(e, t('shareRoom.keepFailed')));
+      setError(messageOf(e, t('shareJam.keepFailed')));
       setBusy(null);
     }
   };
@@ -133,7 +133,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
       setWorkspaces(list);
       setTarget((prev) => prev ?? (list.length === 1 ? list[0].workspaceId : null));
     } catch (e) {
-      setError(messageOf(e, t('shareRoom.workspacesFailed')));
+      setError(messageOf(e, t('shareJam.workspacesFailed')));
     } finally {
       setBusy(null);
     }
@@ -151,7 +151,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
       const result = await importShare(creds, target, idToken);
       navigate(threadPath(result.workspace.slug, result.channel.name));
     } catch (e) {
-      setError(messageOf(e, t('shareRoom.keepFailed')));
+      setError(messageOf(e, t('shareJam.keepFailed')));
       setBusy(null);
     }
   };
@@ -164,32 +164,32 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
 
   let body: React.ReactNode;
   let footer: React.ReactNode = null;
-  let description = t('shareRoom.keepDescription');
+  let description = t('shareJam.keepDescription');
   if (loading) {
     body = <div className="flex justify-center py-6"><Spinner className="size-5 text-muted-foreground" /></div>;
   } else if (!signedIn) {
-    description = t('shareRoom.keepSignInDescription');
-    body = <p className="text-sm text-muted-foreground" data-keep-step="sign-in">{t('shareRoom.keepSignInBody')}</p>;
+    description = t('shareJam.keepSignInDescription');
+    body = <p className="text-sm text-muted-foreground" data-keep-step="sign-in">{t('shareJam.keepSignInBody')}</p>;
     footer = (
       <Button onClick={signInToKeep} data-keep-sign-in="">
-        <LogIn data-icon="inline-start" />{t('shareRoom.signIn')}
+        <LogIn data-icon="inline-start" />{t('shareJam.signIn')}
       </Button>
     );
   } else if (step === 'saved') {
-    description = t('shareRoom.savedToRoomsBody');
+    description = t('shareJam.savedToJamsBody');
     body = (
       <div className="flex items-start gap-3 rounded-lg border border-success/30 bg-success/10 p-3" data-keep-step="saved">
         <Check className="mt-0.5 size-4 shrink-0 text-success" />
         <div className="grid gap-0.5">
-          <p className="text-sm font-medium">{t('shareRoom.savedToRooms')}</p>
-          <p className="text-xs text-muted-foreground">{t('shareRoom.savedToRoomsHint')}</p>
+          <p className="text-sm font-medium">{t('shareJam.savedToJams')}</p>
+          <p className="text-xs text-muted-foreground">{t('shareJam.savedToJamsHint')}</p>
         </div>
       </div>
     );
     footer = (
       <>
         <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
-        <Button asChild data-keep-my-rooms=""><a href="/rooms"><LayoutList data-icon="inline-start" />{t('rooms.openMyRooms')}</a></Button>
+        <Button asChild data-keep-my-jams=""><a href="/jams"><LayoutList data-icon="inline-start" />{t('jams.openMyJams')}</a></Button>
       </>
     );
   } else if (step === 'choose') {
@@ -208,21 +208,21 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
     body = (
       <div className="flex flex-col gap-3" data-keep-step="choose">
         <ItemGroup className="gap-2">
-          {choice('claim', <BookmarkPlus />, saved ? t('shareRoom.savedToRooms') : t('shareRoom.saveToRooms'), t('shareRoom.saveToRoomsBody'), () => void claim(), { done: saved, busy: busy === 'claim' })}
-          {choice('workspace', <LayoutGrid />, t('shareRoom.makeWorkspace'), t('shareRoom.makeWorkspaceBody'), () => void makeWorkspace(), { busy: busy === 'workspace' })}
-          {choice('import', <FolderInput />, t('shareRoom.addToMine'), t('shareRoom.addToMineBody'), pickWorkspace)}
+          {choice('claim', <BookmarkPlus />, saved ? t('shareJam.savedToJams') : t('shareJam.saveToJams'), t('shareJam.saveToJamsBody'), () => void claim(), { done: saved, busy: busy === 'claim' })}
+          {choice('workspace', <LayoutGrid />, t('shareJam.makeWorkspace'), t('shareJam.makeWorkspaceBody'), () => void makeWorkspace(), { busy: busy === 'workspace' })}
+          {choice('import', <FolderInput />, t('shareJam.addToMine'), t('shareJam.addToMineBody'), pickWorkspace)}
         </ItemGroup>
         {failure}
       </div>
     );
   } else {
-    description = t('shareRoom.addToMineBody');
+    description = t('shareJam.addToMineBody');
     body = (
       <div className="flex flex-col gap-3" data-keep-step="pick">
         {busy === 'list' && !workspaces && <div className="flex justify-center py-4"><Spinner className="size-5 text-muted-foreground" /></div>}
-        {workspaces && workspaces.length === 0 && <p className="text-sm text-muted-foreground">{t('shareRoom.noWorkspaces')}</p>}
+        {workspaces && workspaces.length === 0 && <p className="text-sm text-muted-foreground">{t('shareJam.noWorkspaces')}</p>}
         {workspaces && workspaces.length > 0 && (
-          <div role="radiogroup" aria-label={t('shareRoom.pickWorkspace')} className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+          <div role="radiogroup" aria-label={t('shareJam.pickWorkspace')} className="flex max-h-64 flex-col gap-1 overflow-y-auto">
             {workspaces.map((w) => (
               <button
                 key={w.workspaceId}
@@ -245,9 +245,9 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
     );
     footer = (
       <>
-        <Button variant="outline" disabled={busy === 'import'} onClick={() => { setStep('choose'); setError(null); }}>{t('shareRoom.back')}</Button>
+        <Button variant="outline" disabled={busy === 'import'} onClick={() => { setStep('choose'); setError(null); }}>{t('shareJam.back')}</Button>
         <Button disabled={!target || !!busy} onClick={() => void moveConversation()} data-keep-move="">
-          {busy === 'import' && <Spinner data-icon="inline-start" />}{t('shareRoom.moveHere')}
+          {busy === 'import' && <Spinner data-icon="inline-start" />}{t('shareJam.moveHere')}
         </Button>
       </>
     );
@@ -257,7 +257,7 @@ export function KeepConversationDialog({ open, onOpenChange, network, token, thr
     <Dialog open={open} onOpenChange={(next) => { if (!busy || next) onOpenChange(next); }}>
       <DialogContent className="sm:max-w-md" data-keep-dialog="">
         <DialogHeader>
-          <DialogTitle>{t('shareRoom.keepTitle')}</DialogTitle>
+          <DialogTitle>{t('shareJam.keepTitle')}</DialogTitle>
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">{body}</DialogBody>

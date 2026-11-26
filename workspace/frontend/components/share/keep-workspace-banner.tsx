@@ -9,10 +9,10 @@ import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { KeepConversationDialog, takeKeepIntent } from './keep-conversation-dialog';
 
 /**
- * A workspace made by OpenAgents Share without an account lives only behind
+ * A workspace made by OpenAgents Jam without an account lives only behind
  * its private owner link. This banner lets the person keep it: sign in (or
  * sign up), then make it theirs or move the conversation into one of their
- * workspaces — the same choice as the owner room's "Keep this conversation".
+ * workspaces — the same choice as the owner page's "Keep this conversation".
  * Shown only to someone holding that token, and only while nobody keeps the
  * workspace yet.
  */
@@ -27,7 +27,7 @@ interface Props {
   threadName?: string;
   /** The workspace token from the owner link; without it there's nothing to keep. */
   token: string;
-  /** The workspace was made by OpenAgents Share (settings.openagents_share). */
+  /** The workspace was made by OpenAgents Jam (settings.openagents_share). */
   share: boolean;
   /** Someone already keeps it (it has a creator account). */
   claimed: boolean;

@@ -13,7 +13,7 @@ const NOW = Date.parse('2026-11-22T12:00:00Z');
 function link(partial: Partial<GuestLink> & { id: string }): GuestLink {
   return {
     channel: 'share-abc',
-    url: `https://app.test/share/thread/${partial.id}`,
+    url: `https://app.test/jam/${partial.id}`,
     canPost: true,
     expiresAt: null,
     revokedAt: null,

@@ -188,10 +188,10 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
                     {t('userMenu.switchWorkspace')}
                   </DropdownMenuItem>
                 )}
-                {/* Rooms (OpenAgents Share) live apart from workspaces. */}
-                <DropdownMenuItem onClick={() => router.push('/rooms')} data-user-menu-rooms="">
+                {/* Jams (OpenAgents Jam) live apart from workspaces. */}
+                <DropdownMenuItem onClick={() => router.push('/jams')} data-user-menu-jams="">
                   <LayoutList />
-                  {t('rooms.myRooms')}
+                  {t('jams.myJams')}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />

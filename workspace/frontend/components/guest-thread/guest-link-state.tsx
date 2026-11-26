@@ -33,9 +33,9 @@ export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref, e
     : state === 'invite_denied'
     ? { icon: <UserRoundX />, title: email ? t('guestThread.inviteDeniedTitle', { email }) : t('guestThread.inviteDeniedTitleNoEmail'), body: t('guestThread.inviteDeniedBody') }
     : state === 'moved'
-    ? { icon: <ArrowRightLeft />, title: t('shareRoom.movedTitle'), body: t('shareRoom.movedBody') }
+    ? { icon: <ArrowRightLeft />, title: t('shareJam.movedTitle'), body: t('shareJam.movedBody') }
     : state === 'not_found' && variant === 'owner'
-    ? { icon: <Link2Off />, title: t('shareRoom.notFoundTitle'), body: t('shareRoom.notFoundBody') }
+    ? { icon: <Link2Off />, title: t('shareJam.notFoundTitle'), body: t('shareJam.notFoundBody') }
     : state === 'not_found'
     ? { icon: <Link2Off />, title: t('guestThread.notFoundTitle'), body: t('guestThread.notFoundBody') }
     : state === 'expired'
@@ -62,7 +62,7 @@ export function GuestLinkState({ state, onRetry, variant = 'guest', movedHref, e
           {state === 'invite_signin' && onSignIn && <Button onClick={onSignIn} disabled={preview} data-invite-sign-in=""><LogIn data-icon="inline-start" />{t('guestThread.inviteSignIn')}</Button>}
           {state === 'invite_denied' && onSwitchAccount && <Button onClick={onSwitchAccount} data-invite-switch="">{t('guestThread.inviteSwitch')}</Button>}
             {state === 'moved' && movedHref && (
-              <Button asChild><a href={movedHref} data-moved-open="">{t('shareRoom.open')}</a></Button>
+              <Button asChild><a href={movedHref} data-moved-open="">{t('shareJam.open')}</a></Button>
             )}
             <Button variant={state === 'error' || state === 'invite_signin' || state === 'invite_denied' || (state === 'moved' && movedHref) ? 'outline' : 'default'} asChild>
               <a href="/">{t('guestThread.goToOpenAgents')}</a>

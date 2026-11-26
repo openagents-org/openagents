@@ -1,12 +1,12 @@
 /**
- * Adding agents to a room (OpenAgents Share): name rules, the agent types a
- * room accepts, and the paste-ready instructions. Kept free of React so it
+ * Adding agents to a jam (OpenAgents Jam): name rules, the agent types a
+ * jam accepts, and the paste-ready instructions. Kept free of React so it
  * can be unit tested.
  */
 
-/** Runtimes a room agent can use; Claude Code is the default. */
-export const ROOM_AGENT_TYPES = ['claude', 'codex', 'opencode', 'openclaw', 'hermes', 'gemini', 'cursor', 'aider', 'goose'] as const;
-export type RoomAgentType = typeof ROOM_AGENT_TYPES[number];
+/** Runtimes a jam agent can use; Claude Code is the default. */
+export const JAM_AGENT_TYPES = ['claude', 'codex', 'opencode', 'openclaw', 'hermes', 'gemini', 'cursor', 'aider', 'goose'] as const;
+export type JamAgentType = typeof JAM_AGENT_TYPES[number];
 
 /** Only these can take other people's requests (run them read-only). */
 export const GUEST_CAPABLE_TYPES: readonly string[] = ['claude'];

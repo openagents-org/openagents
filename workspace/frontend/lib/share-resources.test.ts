@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 vi.mock('@/lib/api-base', () => ({ getApiBaseUrl: () => 'https://api.test' }));
-import { artifactCount, guestResourceSource, roomResourceSource, routineForFormat, toShareResources } from './share-resources';
+import { artifactCount, guestResourceSource, jamResourceSource, routineForFormat, toShareResources } from './share-resources';
 
 const RAW = {
   files: [
@@ -33,7 +33,7 @@ describe('share resources', () => {
     expect(routine).toMatchObject({ scheduleHour: 9, scheduleMinute: 5, scheduleDays: [0, 1, 2, 3, 4], scheduleIntervalMinutes: null });
   });
 
-  it('reads through the guest link without credentials, and the room with the owner token', async () => {
+  it('reads through the guest link without credentials, and the jam with the owner token', async () => {
     const fetchImpl = vi.fn(async (url: string, _init?: RequestInit) => (url.endsWith('/resources') || url.includes('/resources?')
       ? new Response(JSON.stringify({ code: 0, data: RAW }), { status: 200 })
       : new Response('bytes', { status: 200 })));
@@ -49,15 +49,15 @@ describe('share resources', () => {
     for (const call of fetchImpl.mock.calls) expect((call[1] as RequestInit).credentials).toBe('omit');
 
     fetchImpl.mockClear();
-    const room = roomResourceSource({ slug: 'alex-share', token: 'ws-token' }, { fetchImpl: fetchImpl as unknown as typeof fetch });
-    await room.fetchResources();
-    await room.fetchFile('f1');
+    const jam = jamResourceSource({ slug: 'alex-share', token: 'ws-token' }, { fetchImpl: fetchImpl as unknown as typeof fetch });
+    await jam.fetchResources();
+    await jam.fetchFile('f1');
     expect(fetchImpl.mock.calls.map((c) => c[0])).toEqual([
-      'https://api.test/v1/guest-links/room/resources?network=alex-share',
-      'https://api.test/v1/guest-links/room/files/f1?network=alex-share',
+      'https://api.test/v1/guest-links/jam/resources?network=alex-share',
+      'https://api.test/v1/guest-links/jam/files/f1?network=alex-share',
     ]);
     for (const call of fetchImpl.mock.calls) expect(((call[1] as RequestInit).headers as Record<string, string>)['X-Workspace-Token']).toBe('ws-token');
-    expect(guest.key).not.toBe(room.key);
+    expect(guest.key).not.toBe(jam.key);
   });
 
   it('fails a file read that the server refuses', async () => {

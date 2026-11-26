@@ -156,7 +156,7 @@ export function ShareResourceShelf({ resources, agents, source, selected, onOpen
                 <span className="shrink-0"><AgentAvatar name={agent.name} size={28} status={agent.online ? 'online' : 'offline'} showStatus /></span>
                 <span className="min-w-0 flex-1 py-0.5">
                   <span className="block truncate text-xs font-medium leading-4">{agentDisplayName(agent)}</span>
-                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{[agent.broughtBy ? t('roomAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · ')}</span>
+                  <span className="mt-0.5 block truncate text-xs leading-4 text-muted-foreground">{[agent.broughtBy ? t('jamAgents.broughtBy', { name: agent.broughtBy }) : null, agentTypeLabel(agent.type), agent.online ? t('guestThread.online') : t('guestThread.offline')].filter(Boolean).join(' · ')}</span>
                 </span>
               </li>
             ))}
@@ -186,9 +186,9 @@ export function ShareArtifactViewer({ source, selection, onClose, guestsSee, onG
   source: ShareResourceSource;
   selection: ShareSelection;
   onClose: () => void;
-  /** Owner room: guests see this artifact open. */
+  /** Owner page: guests see this artifact open. */
   guestsSee?: boolean;
-  /** Owner room: show it to guests, or stop (it stays open for the owner). */
+  /** Owner page: show it to guests, or stop (it stays open for the owner). */
   onGuestsSeeChange?: (see: boolean) => void;
 }) {
   const t = useT();
@@ -205,16 +205,16 @@ export function ShareArtifactViewer({ source, selection, onClose, guestsSee, onG
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="secondary" size="xs" className="shrink-0 gap-1 rounded-full" data-guests-see="on">
-                <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareRoom.guestsSeeThis')}</span><ChevronDown className="size-3" />
+                <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareJam.guestsSeeThis')}</span><ChevronDown className="size-3" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem onSelect={() => onGuestsSeeChange(false)} data-guests-see-hide=""><EyeOff />{t('shareRoom.dontShowGuests')}</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onGuestsSeeChange(false)} data-guests-see-hide=""><EyeOff />{t('shareJam.dontShowGuests')}</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
           <Button variant="ghost" size="xs" className="shrink-0 text-muted-foreground" onClick={() => onGuestsSeeChange(true)} data-guests-see="off">
-            <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareRoom.showGuests')}</span>
+            <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareJam.showGuests')}</span>
           </Button>
         ))}
         {download && (

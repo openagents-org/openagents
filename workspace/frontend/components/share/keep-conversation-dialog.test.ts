@@ -78,7 +78,7 @@ it('signed out: asks to sign in and remembers the intent', async () => {
   serve(() => ok({}));
   await render();
   expect(host.querySelector('[data-keep-step="sign-in"]')).not.toBeNull();
-  expect(host.textContent).toContain('shareRoom.keepSignInDescription');
+  expect(host.textContent).toContain('shareJam.keepSignInDescription');
   await click('[data-keep-sign-in]');
   expect(state.login).toHaveBeenCalledTimes(1);
   expect(takeKeepIntent('alex-share')).toBe(true);
@@ -96,7 +96,7 @@ it('signed in: uses up a remembered intent and offers the three choices', async 
   expect(takeKeepIntent('alex-share')).toBe(false);
 });
 
-it('"Save to my rooms" claims it, keeps it a room and points to My rooms', async () => {
+it('"Save to my jams" claims it, keeps it a jam and points to My jams', async () => {
   signIn();
   const onSaved = vi.fn();
   serve(() => ok({ claimed: true, already: false }));
@@ -110,8 +110,8 @@ it('"Save to my rooms" claims it, keeps it a room and points to My rooms', async
   expect(init.headers).toMatchObject({ 'X-Workspace-Token': 'ws-token', Authorization: 'Bearer id-tok' });
   expect(onSaved).toHaveBeenCalledTimes(1);
   expect(navigate).not.toHaveBeenCalled();
-  expect(host.querySelector('[data-keep-step="saved"]')?.textContent).toContain('shareRoom.savedToRooms');
-  expect(host.querySelector('[data-keep-my-rooms] a, a[data-keep-my-rooms]')?.getAttribute('href') ?? host.querySelector('[data-keep-my-rooms]')?.getAttribute('href')).toBe('/rooms');
+  expect(host.querySelector('[data-keep-step="saved"]')?.textContent).toContain('shareJam.savedToJams');
+  expect(host.querySelector('[data-keep-my-jams] a, a[data-keep-my-jams]')?.getAttribute('href') ?? host.querySelector('[data-keep-my-jams]')?.getAttribute('href')).toBe('/jams');
 });
 
 it('"Make it a workspace" keeps it as a workspace and opens the thread there', async () => {
@@ -120,13 +120,13 @@ it('"Make it a workspace" keeps it as a workspace and opens the thread there', a
   await render();
   await click('[data-keep-choice="workspace"]');
   const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-  expect(url).toBe('https://api.test/v1/rooms/alex-share/keep-as-workspace');
+  expect(url).toBe('https://api.test/v1/jams/alex-share/keep-as-workspace');
   expect(init.method).toBe('POST');
   expect(init.headers).toMatchObject({ 'X-Workspace-Token': 'ws-token', Authorization: 'Bearer id-tok' });
   expect(navigate).toHaveBeenCalledWith('/alex-share/threads/share-abc');
 });
 
-it('shows "Saved to your rooms" as done when it already is', async () => {
+it('shows "Saved to your jams" as done when it already is', async () => {
   signIn();
   serve(() => ok({}));
   await act(async () => root.render(React.createElement(KeepConversationDialog, {
@@ -134,7 +134,7 @@ it('shows "Saved to your rooms" as done when it already is', async () => {
   })));
   const save = host.querySelector('[data-keep-choice="claim"]') as HTMLButtonElement;
   expect(save.disabled).toBe(true);
-  expect(save.textContent).toContain('shareRoom.savedToRooms');
+  expect(save.textContent).toContain('shareJam.savedToJams');
   // Without the owner token, the bearer alone keeps it as a workspace.
   serve(() => ok({ workspace: { id: 'w', slug: 'alex-share', name: 'Alex' }, channel: { name: 'share-abc', title: null } }));
   await click('[data-keep-choice="workspace"]');
@@ -155,7 +155,7 @@ it('"Add to one of my workspaces" lists, imports and navigates to the new thread
   });
   await render();
   await click('[data-keep-choice="import"]');
-  expect(host.textContent).toContain('shareRoom.addToMineBody');
+  expect(host.textContent).toContain('shareJam.addToMineBody');
   // The share workspace itself isn't a target.
   expect(host.querySelector('[data-keep-workspace="w-share"]')).toBeNull();
   expect(host.querySelector('[data-keep-move]')?.hasAttribute('disabled')).toBe(true);
@@ -187,6 +187,6 @@ it('falls back to friendly copy when the server sends no message', async () => {
   await click('[data-keep-choice="import"]');
   // One workspace: picked already.
   await click('[data-keep-move]');
-  expect(host.querySelector('[data-keep-error]')?.textContent).toBe('shareRoom.keepFailed');
+  expect(host.querySelector('[data-keep-error]')?.textContent).toBe('shareJam.keepFailed');
   expect(navigate).not.toHaveBeenCalled();
 });

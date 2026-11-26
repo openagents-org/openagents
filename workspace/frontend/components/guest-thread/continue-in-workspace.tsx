@@ -11,7 +11,7 @@ import { goToCentralLogin } from '@/lib/auth-redirects';
 import { forkSharedThread, GuestThreadError } from '@/lib/guest-thread-api';
 import { useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
-import { listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/share-room-api';
+import { listMyWorkspaces, threadPath, type MyWorkspace } from '@/lib/jam-api';
 import { cn } from '@/lib/utils';
 
 const FORK_INTENT_PREFIX = 'oa-share-fork-intent:';

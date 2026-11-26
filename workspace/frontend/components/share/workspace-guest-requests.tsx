@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, workspaceApi } from '@/lib/api';
-import type { ShareRequest } from '@/lib/share-room-api';
+import type { ShareRequest } from '@/lib/jam-api';
 import type { DecideOutcome } from '@/components/guest-thread/share-request-status';
 import { GuestRequestsBanner } from './guest-requests-banner';
 
@@ -10,7 +10,7 @@ const POLL_MS = 15000;
 
 /**
  * Guests' requests waiting in a shared thread, for its owner in the full
- * workspace (after keeping it): the same banner as the owner room. Quietly
+ * workspace (after keeping it): the same banner as the owner page. Quietly
  * absent for people who can't decide (the list answers 401/403).
  */
 export function WorkspaceGuestRequests({ channel }: { channel: string }) {

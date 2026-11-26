@@ -1,5 +1,5 @@
 /**
- * Pure logic for the guest view of a shared thread (`/share/thread/<token>`):
+ * Pure logic for the guest view of a shared thread (`/jam/<token>`):
  * event → message mapping and sender identity, poll merging, the "Ask agent"
  * prefix, and idempotent sends. Kept free of React so it can be unit tested.
  */
@@ -95,7 +95,7 @@ export function isSeedMessage(message: Pick<WorkspaceMessage, 'metadata'>): bool
   return message.metadata?.share_seed === true;
 }
 
-/** The share's owner posting from the owner room (`human:owner`, `metadata.share_owner`). */
+/** The share's owner posting from the owner page (`human:owner`, `metadata.share_owner`). */
 export function isOwnerMessage(message: Pick<WorkspaceMessage, 'metadata' | 'senderAddress'>): boolean {
   return message.metadata?.share_owner === true || message.senderAddress === 'human:owner';
 }
@@ -116,7 +116,7 @@ export interface SenderIdentity {
 export interface ThreadViewer {
   guestId: string | null;
   isOwner?: boolean;
-  /** Owner's display name, for owner-room posts that carry no sender name. */
+  /** Owner's display name, for owner-jam posts that carry no sender name. */
   ownerName?: string;
 }
 
@@ -318,7 +318,7 @@ export function optimisticMessage(pending: PendingSend, guest: GuestIdentity, st
   };
 }
 
-/** Optimistic row for a send from the owner room. */
+/** Optimistic row for a send from the owner page. */
 export function optimisticOwnerMessage(pending: PendingSend, ownerName: string, status: 'sending' | 'failed' = 'sending', error?: string): WorkspaceMessage {
   return {
     messageId: pending.localId,

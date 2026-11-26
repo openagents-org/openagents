@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { agentNameProblem, connectParagraph, GUEST_CAPABLE_TYPES, ROOM_AGENT_TYPES } from './room-agents';
+import { agentNameProblem, connectParagraph, GUEST_CAPABLE_TYPES, JAM_AGENT_TYPES } from './jam-agents';
 
-describe('room agents', () => {
+describe('jam agents', () => {
   it('checks names: letters, digits, - and _, no spaces, up to 48, starting with a letter or digit', () => {
     expect(agentNameProblem('my-reviewer_2')).toBeNull();
     expect(agentNameProblem('')).toBe('empty');
@@ -13,8 +13,8 @@ describe('room agents', () => {
   });
 
   it('knows the runtimes and that only Claude Code takes others’ requests', () => {
-    expect(ROOM_AGENT_TYPES[0]).toBe('claude');
-    expect(ROOM_AGENT_TYPES).toContain('goose');
+    expect(JAM_AGENT_TYPES[0]).toBe('claude');
+    expect(JAM_AGENT_TYPES).toContain('goose');
     expect(GUEST_CAPABLE_TYPES).toEqual(['claude']);
   });
 

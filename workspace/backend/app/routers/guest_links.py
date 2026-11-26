@@ -7,20 +7,20 @@
   POST   /v1/guest-links  {network, channel, expires_at}  owner: a new link for a shared thread
   GET    /v1/guest-links/workspace?network=             is this a Share workspace, and is it kept yet
   POST   /v1/guest-links/claim  {network}               owner link token + sign-in: keep the workspace
-  GET    /v1/guest-links/room?network=                  the owner's light room (owner link token)
-  GET    /v1/guest-links/room/messages?network=         ?after= | ?before= — its messages
-  POST   /v1/guest-links/room/messages?network=         {content, idempotency_key} — post as the owner
+  GET    /v1/guest-links/jam?network=                  the owner's light jam (owner link token)
+  GET    /v1/guest-links/jam/messages?network=         ?after= | ?before= — its messages
+  POST   /v1/guest-links/jam/messages?network=         {content, idempotency_key} — post as the owner
   POST   /v1/guest-links/import  {network, target}      owner token + sign-in: move it into one of their workspaces
   POST   /v1/guest-links/relocation/accept              the launcher collects its new connection, once
   POST   /v1/guest-links/public/{token}/fork  {target?}  signed-in guest: a private copy in their workspace
-  GET    /v1/guest-links/room/requests?network=         guests' requests waiting for the owner
-  POST   /v1/guest-links/room/requests/{id}?network=    {decision: approve|decline}
+  GET    /v1/guest-links/jam/requests?network=         guests' requests waiting for the owner
+  POST   /v1/guest-links/jam/requests/{id}?network=    {decision: approve|decline}
   GET    /v1/guest-links/requests?network=&channel=     the same, from the full workspace (owner/admin)
-  GET    /v1/guest-links/{room|guests?network=&channel=}/guests     the thread's guests (owner)
+  GET    /v1/guest-links/{jam|guests?network=&channel=}/guests     the thread's guests (owner)
   DELETE .../guests/{id}                                        remove a guest: read-only from then on
-  GET    /v1/guest-links/{public/{token}|room}/resources               the thread's artifacts and routines
-  GET    /v1/guest-links/{public/{token}|room}/files/{id}              a file the thread shows (artifact or attachment)
-  GET    /v1/guest-links/{public/{token}|room}/browsers/{id}/screenshot  a browser session the thread shows
+  GET    /v1/guest-links/{public/{token}|jam}/resources               the thread's artifacts and routines
+  GET    /v1/guest-links/{public/{token}|jam}/files/{id}              a file the thread shows (artifact or attachment)
+  GET    /v1/guest-links/{public/{token}|jam}/browsers/{id}/screenshot  a browser session the thread shows
   POST   /v1/guest-links/requests/{id}?network=&channel={decision}
   PATCH  /v1/guest-links/{id}?network=  {expires_at}   owner: change expiry (null = never)
   DELETE /v1/guest-links/{id}?network=                 owner: turn a link off for good
@@ -379,7 +379,7 @@ def guest_post(token: str, body: GuestMessage, background_tasks: BackgroundTasks
 
 
 # ---------------------------------------------------------------------------
-# The owner's light room (owner link = the workspace token)
+# The owner's light jam (owner link = the workspace token)
 # ---------------------------------------------------------------------------
 
 class ImportRequest(BaseModel):
@@ -394,7 +394,7 @@ class RelocationAccept(BaseModel):
     session_id: Optional[str] = None
 
 
-@router.get("/guest-links/room")
+@router.get("/guest-links/jam")
 def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
     try:
@@ -404,7 +404,7 @@ def owner_room(network: str, db: Session = Depends(get_db), x_workspace_token: O
         return _fail(e)
 
 
-@router.get("/guest-links/room/messages")
+@router.get("/guest-links/jam/messages")
 def owner_room_messages(network: str, after: Optional[str] = Query(None), before: Optional[str] = Query(None),
                         limit: int = Query(100), db: Session = Depends(get_db),
                         x_workspace_token: Optional[str] = Header(None),
@@ -416,7 +416,7 @@ def owner_room_messages(network: str, after: Optional[str] = Query(None), before
         return _fail(e)
 
 
-@router.post("/guest-links/room/messages")
+@router.post("/guest-links/jam/messages")
 def owner_room_post(network: str, body: GuestMessage, background_tasks: BackgroundTasks,
                     db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
@@ -494,7 +494,7 @@ class RequestDecision(BaseModel):
     decision: str   # "approve" | "decline"
 
 
-@router.get("/guest-links/room/requests")
+@router.get("/guest-links/jam/requests")
 def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
     """Guests' requests waiting for the owner's decision."""
@@ -505,7 +505,7 @@ def owner_room_requests(network: str, db: Session = Depends(get_db), x_workspace
         return _fail(e)
 
 
-@router.post("/guest-links/room/requests/{request_id}")
+@router.post("/guest-links/jam/requests/{request_id}")
 def owner_room_decide(network: str, request_id: str, body: RequestDecision, background_tasks: BackgroundTasks,
                       db: Session = Depends(get_db, scope="function"), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
@@ -649,7 +649,7 @@ async def guest_browser_screenshot(token: str, tab_id: str, db: Session = Depend
     return await _screenshot(db, workspace, tab)
 
 
-@router.get("/guest-links/room/resources")
+@router.get("/guest-links/jam/resources")
 def room_resources(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
     try:
@@ -659,7 +659,7 @@ def room_resources(network: str, db: Session = Depends(get_db), x_workspace_toke
         return _fail(e)
 
 
-@router.get("/guest-links/room/files/{file_id}")
+@router.get("/guest-links/jam/files/{file_id}")
 def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
     try:
@@ -669,7 +669,7 @@ def room_file(network: str, file_id: str, db: Session = Depends(get_db), x_works
         return _fail(e)
 
 
-@router.get("/guest-links/room/browsers/{tab_id}/screenshot")
+@router.get("/guest-links/jam/browsers/{tab_id}/screenshot")
 async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depends(get_db),
                                   x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
@@ -682,9 +682,9 @@ async def room_browser_screenshot(network: str, tab_id: str, db: Session = Depen
 
 
 
-# Guests of the thread: list, and remove one (owner room, or the full workspace).
+# Guests of the thread: list, and remove one (owner jam, or the full workspace).
 
-@router.get("/guest-links/room/guests")
+@router.get("/guest-links/jam/guests")
 def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
     try:
@@ -694,7 +694,7 @@ def room_guests(network: str, db: Session = Depends(get_db), x_workspace_token: 
         return _fail(e)
 
 
-@router.delete("/guest-links/room/guests/{guest_id}")
+@router.delete("/guest-links/jam/guests/{guest_id}")
 def room_remove_guest(network: str, guest_id: str, db: Session = Depends(get_db),
                       x_workspace_token: Optional[str] = Header(None),
         authorization: Optional[str] = Header(None)):
@@ -731,24 +731,24 @@ def workspace_remove_guest(guest_id: str, network: str, channel: str, db: Sessio
 
 
 # ---------------------------------------------------------------------------
-# A person's rooms
+# A person's jams
 # ---------------------------------------------------------------------------
 
-@router.get("/rooms")
+@router.get("/jams")
 def list_my_rooms(db: Session = Depends(get_db), authorization: Optional[str] = Header(None)):
-    """Rooms the signed-in person owns: not workspaces until they say so."""
+    """Jams the signed-in person owns: not workspaces until they say so."""
     user = resolve_current_user(db, authorization) if authorization else None
     if user is None:
-        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to see your rooms")
-    return _ok({"rooms": svc.my_rooms(db, user)})
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to see your jams")
+    return _ok({"jams": svc.my_rooms(db, user)})
 
 
-@router.post("/rooms/{network}/keep-as-workspace")
+@router.post("/jams/{network}/keep-as-workspace")
 def room_keep_as_workspace(network: str, db: Session = Depends(get_db),
                            x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     user = resolve_current_user(db, authorization) if authorization else None
     if user is None:
-        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to keep this room as a workspace")
+        return json_response(ResponseCode.UNAUTHORIZED, "Sign in to keep this jam as a workspace")
     try:
         workspace, channel = svc.owner_room(db, network, x_workspace_token, authorization)
         return _ok(svc.keep_as_workspace(db, workspace, channel, user))
@@ -756,7 +756,7 @@ def room_keep_as_workspace(network: str, db: Session = Depends(get_db),
         return _fail(e)
 
 
-@router.delete("/rooms/{network}")
+@router.delete("/jams/{network}")
 def room_delete(network: str, db: Session = Depends(get_db),
                 x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     try:
@@ -773,7 +773,7 @@ class PinBody(BaseModel):
     id: Optional[str] = None
 
 
-@router.put("/guest-links/room/pin")
+@router.put("/guest-links/jam/pin")
 def room_pin(network: str, body: PinBody, db: Session = Depends(get_db),
              x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     """The artifact the owner has open: guests see it open when they arrive."""
@@ -833,7 +833,7 @@ def remove_invite(link_id: str, network: str, email: str, db: Session = Depends(
 
 
 # ---------------------------------------------------------------------------
-# More agents in the room: the owner's, and guests' own (limited connections)
+# More agents in the jam: the owner's, and guests' own (limited connections)
 # ---------------------------------------------------------------------------
 
 class AgentBody(BaseModel):
@@ -841,7 +841,7 @@ class AgentBody(BaseModel):
     type: Optional[str] = "claude"
 
 
-@router.post("/guest-links/room/agents")
+@router.post("/guest-links/jam/agents")
 def room_add_agent(network: str, body: AgentBody, db: Session = Depends(get_db),
                    x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     from app.services import room_agents
@@ -852,7 +852,7 @@ def room_add_agent(network: str, body: AgentBody, db: Session = Depends(get_db),
         return _fail(e)
 
 
-@router.delete("/guest-links/room/agents/{name}")
+@router.delete("/guest-links/jam/agents/{name}")
 def room_remove_agent(network: str, name: str, db: Session = Depends(get_db),
                       x_workspace_token: Optional[str] = Header(None), authorization: Optional[str] = Header(None)):
     from app.services import room_agents

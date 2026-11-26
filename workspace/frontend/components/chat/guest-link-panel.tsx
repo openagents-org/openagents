@@ -86,7 +86,7 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
   channel: string;
   /** Where link changes go; defaults to the signed-in workspace API. */
   client?: GuestLinksClient;
-  /** Narrow layout (the owner room's side panel): link and copy stack. */
+  /** Narrow layout (the owner page's side panel): link and copy stack. */
   compact?: boolean;
   /** The thread's agent, for "Guests can ask <agent> …"; null when unknown. */
   agentName: string | null;
@@ -202,10 +202,10 @@ export function GuestLinkPanel({ channel, agentName, links, error, setLinks, cli
       {client.updateAllowGuestAgents && (
         <label className={cn('flex cursor-pointer items-start justify-between gap-3 rounded-lg border px-3 py-2.5', !link.canPost && 'opacity-60')} data-guest-link-section="agents" data-guest-link-agents={link.allowGuestAgents ? 'on' : 'off'}>
           <span className="grid gap-0.5">
-            <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">{t('roomAgents.allowGuestAgents')}{busy === 'agents' && <Spinner className="size-3.5" />}</span>
-            <span className="text-xs text-muted-foreground">{t('roomAgents.allowGuestAgentsBody')}</span>
+            <span className="flex items-center gap-1.5 text-sm font-medium leading-tight">{t('jamAgents.allowGuestAgents')}{busy === 'agents' && <Spinner className="size-3.5" />}</span>
+            <span className="text-xs text-muted-foreground">{t('jamAgents.allowGuestAgentsBody')}</span>
           </span>
-          <Switch checked={!!link.allowGuestAgents} disabled={!!busy || !link.canPost} onCheckedChange={setAllowAgents} aria-label={t('roomAgents.allowGuestAgents')} data-allow-agents-switch="" />
+          <Switch checked={!!link.allowGuestAgents} disabled={!!busy || !link.canPost} onCheckedChange={setAllowAgents} aria-label={t('jamAgents.allowGuestAgents')} data-allow-agents-switch="" />
         </label>
       )}
       {client.updateApprovalMode && (
@@ -371,7 +371,7 @@ export function isEmail(value: string): boolean {
 }
 
 /**
- * Who can open the room, like Google Docs' "General access": anyone with the
+ * Who can open the jam, like Google Docs' "General access": anyone with the
  * link, or only people invited by email (who sign in with that address).
  * Adding people sends them the link by email.
  */

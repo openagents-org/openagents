@@ -21,38 +21,38 @@ import { agentDisplayName } from '@/lib/guest-thread';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import {
-  deleteRoom,
+  deleteJam,
   importShare,
   keepAsWorkspace,
-  listMyRooms,
+  listMyJams,
   listMyWorkspaces,
-  roomGuestLinksClient,
+  jamGuestLinksClient,
   threadPath,
-  type MyRoom,
+  type MyJam,
   type MyWorkspace,
-  type RoomCredentials,
-} from '@/lib/share-room-api';
+  type JamCredentials,
+} from '@/lib/jam-api';
 import { cn } from '@/lib/utils';
 
 function defaultNavigate(href: string) {
   window.location.assign(href);
 }
 
-/** The copyable one-liner that makes a room from a coding agent's session. */
+/** The copyable one-liner that makes a jam from a coding agent's session. */
 export function shareInstruction(t: ReturnType<typeof useT>, apiBase = getApiBaseUrl()): string {
-  return t('rooms.instruction', { url: `${apiBase.replace(/\/+$/, '')}/v1/share/instructions` });
+  return t('jams.instruction', { url: `${apiBase.replace(/\/+$/, '')}/v1/share/instructions` });
 }
 
 /**
- * "My rooms": every room the signed-in person owns — the conversation, its
+ * "My jams": every jam the signed-in person owns — the conversation, its
  * agent and its guest link — with open, share, link settings, keep as a
- * workspace, add to a workspace and delete. Rooms kept as workspaces sit in
+ * workspace, add to a workspace and delete. Jams kept as workspaces sit in
  * their own short section.
  */
-export function RoomsView({ navigate = defaultNavigate }: { navigate?: (href: string) => void }) {
+export function JamsView({ navigate = defaultNavigate }: { navigate?: (href: string) => void }) {
   const t = useT();
   const { user, idToken, loading, signIn } = useOpenAgentsAuth();
-  const [rooms, setRooms] = useState<MyRoom[] | null>(null);
+  const [jams, setJams] = useState<MyJam[] | null>(null);
   const [failed, setFailed] = useState(false);
   const idTokenRef = useRef(idToken);
   idTokenRef.current = idToken;
@@ -63,7 +63,7 @@ export function RoomsView({ navigate = defaultNavigate }: { navigate?: (href: st
     if (!token) return;
     setFailed(false);
     try {
-      setRooms(await listMyRooms(token));
+      setJams(await listMyJams(token));
     } catch {
       setFailed(true);
     }
@@ -71,62 +71,62 @@ export function RoomsView({ navigate = defaultNavigate }: { navigate?: (href: st
 
   useEffect(() => { if (signedIn) void load(); }, [signedIn, load]);
 
-  const creds = useCallback((room: MyRoom): RoomCredentials => ({ slug: room.workspace.slug, idToken: () => idTokenRef.current }), []);
-  const active = useMemo(() => (rooms || []).filter((r) => !r.keptAsWorkspace), [rooms]);
-  const kept = useMemo(() => (rooms || []).filter((r) => r.keptAsWorkspace), [rooms]);
+  const creds = useCallback((jam: MyJam): JamCredentials => ({ slug: jam.workspace.slug, idToken: () => idTokenRef.current }), []);
+  const active = useMemo(() => (jams || []).filter((r) => !r.keptAsWorkspace), [jams]);
+  const kept = useMemo(() => (jams || []).filter((r) => r.keptAsWorkspace), [jams]);
 
   let body: React.ReactNode;
   if (loading) {
-    body = <RoomsSkeleton />;
+    body = <JamsSkeleton />;
   } else if (!signedIn) {
     body = (
-      <Empty className="py-16" data-rooms-state="sign-in">
+      <Empty className="py-16" data-jams-state="sign-in">
         <EmptyHeader>
           <EmptyMedia variant="icon"><LayoutList /></EmptyMedia>
-          <EmptyTitle>{t('rooms.signInTitle')}</EmptyTitle>
-          <EmptyDescription>{t('rooms.signInBody')}</EmptyDescription>
+          <EmptyTitle>{t('jams.signInTitle')}</EmptyTitle>
+          <EmptyDescription>{t('jams.signInBody')}</EmptyDescription>
         </EmptyHeader>
         <EmptyContent>
-          <Button onClick={() => goToCentralLogin(() => { void signIn(); })} data-rooms-sign-in=""><LogIn data-icon="inline-start" />{t('rooms.signIn')}</Button>
+          <Button onClick={() => goToCentralLogin(() => { void signIn(); })} data-jams-sign-in=""><LogIn data-icon="inline-start" />{t('jams.signIn')}</Button>
         </EmptyContent>
       </Empty>
     );
   } else if (failed) {
     body = (
-      <Empty className="py-16" data-rooms-state="error">
-        <EmptyHeader><EmptyTitle>{t('rooms.loadFailed')}</EmptyTitle></EmptyHeader>
-        <EmptyContent><Button variant="outline" onClick={() => void load()}><RefreshCw data-icon="inline-start" />{t('rooms.retry')}</Button></EmptyContent>
+      <Empty className="py-16" data-jams-state="error">
+        <EmptyHeader><EmptyTitle>{t('jams.loadFailed')}</EmptyTitle></EmptyHeader>
+        <EmptyContent><Button variant="outline" onClick={() => void load()}><RefreshCw data-icon="inline-start" />{t('jams.retry')}</Button></EmptyContent>
       </Empty>
     );
-  } else if (!rooms) {
-    body = <RoomsSkeleton />;
-  } else if (rooms.length === 0) {
-    body = <RoomsEmpty />;
+  } else if (!jams) {
+    body = <JamsSkeleton />;
+  } else if (jams.length === 0) {
+    body = <JamsEmpty />;
   } else {
     body = (
       <div className="flex flex-col gap-8">
         {active.length > 0 && (
-          <ul className="flex flex-col gap-2" aria-label={t('rooms.title')} data-rooms-list="">
-            {active.map((room) => (
-              <RoomRow key={room.workspace.slug} room={room} creds={creds(room)} navigate={navigate}
-                onChanged={() => void load()} onDeleted={() => setRooms((prev) => (prev || []).filter((r) => r.workspace.slug !== room.workspace.slug))} />
+          <ul className="flex flex-col gap-2" aria-label={t('jams.title')} data-jams-list="">
+            {active.map((jam) => (
+              <JamRow key={jam.workspace.slug} jam={jam} creds={creds(jam)} navigate={navigate}
+                onChanged={() => void load()} onDeleted={() => setJams((prev) => (prev || []).filter((r) => r.workspace.slug !== jam.workspace.slug))} />
             ))}
           </ul>
         )}
-        {active.length === 0 && <RoomsEmpty />}
+        {active.length === 0 && <JamsEmpty />}
         {kept.length > 0 && (
-          <section className="flex flex-col gap-2" aria-label={t('rooms.keptHeading')} data-rooms-kept="">
+          <section className="flex flex-col gap-2" aria-label={t('jams.keptHeading')} data-jams-kept="">
             <div>
-              <h2 className="text-sm font-medium">{t('rooms.keptHeading')}</h2>
-              <p className="text-xs text-muted-foreground">{t('rooms.keptBody')}</p>
+              <h2 className="text-sm font-medium">{t('jams.keptHeading')}</h2>
+              <p className="text-xs text-muted-foreground">{t('jams.keptBody')}</p>
             </div>
             <ul className="flex flex-col gap-2">
-              {kept.map((room) => (
-                <li key={room.workspace.slug} className="flex items-center gap-3 rounded-xl border bg-background px-4 py-3" data-room={room.workspace.slug}>
+              {kept.map((jam) => (
+                <li key={jam.workspace.slug} className="flex items-center gap-3 rounded-xl border bg-background px-4 py-3" data-jam={jam.workspace.slug}>
                   <LayoutGrid className="size-4 shrink-0 text-muted-foreground" />
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{room.thread.title || room.thread.name}</span>
-                  <Button size="sm" variant="outline" asChild data-room-open-workspace="">
-                    <a href={threadPath(room.workspace.slug, room.thread.name)}><ExternalLink data-icon="inline-start" />{t('rooms.openWorkspace')}</a>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium">{jam.thread.title || jam.thread.name}</span>
+                  <Button size="sm" variant="outline" asChild data-jam-open-workspace="">
+                    <a href={threadPath(jam.workspace.slug, jam.thread.name)}><ExternalLink data-icon="inline-start" />{t('jams.openWorkspace')}</a>
                   </Button>
                 </li>
               ))}
@@ -147,10 +147,10 @@ export function RoomsView({ navigate = defaultNavigate }: { navigate?: (href: st
               <Image src="/logo-white.png" alt="" width={20} height={20} className="hidden size-full object-contain dark:block" />
             </span>
           </a>
-          <h1 className="font-heading text-base font-medium">{t('rooms.title')}</h1>
+          <h1 className="font-heading text-base font-medium">{t('jams.title')}</h1>
         </header>
         <main className="mx-auto w-full max-w-4xl flex-1 px-4 py-6 lg:px-8">
-          <p className="mb-5 text-sm text-muted-foreground">{t('rooms.subtitle')}</p>
+          <p className="mb-5 text-sm text-muted-foreground">{t('jams.subtitle')}</p>
           {body}
         </main>
       </div>
@@ -158,9 +158,9 @@ export function RoomsView({ navigate = defaultNavigate }: { navigate?: (href: st
   );
 }
 
-function RoomsSkeleton() {
+function JamsSkeleton() {
   return (
-    <div className="flex flex-col gap-2" role="status" aria-busy="true" data-rooms-state="loading">
+    <div className="flex flex-col gap-2" role="status" aria-busy="true" data-jams-state="loading">
       {[0, 1, 2].map((i) => (
         <div key={i} className="flex items-center gap-3 rounded-xl border p-4">
           <Skeleton className="size-9 rounded-full" />
@@ -172,24 +172,24 @@ function RoomsSkeleton() {
   );
 }
 
-function RoomsEmpty() {
+function JamsEmpty() {
   const t = useT();
   const [copied, setCopied] = useState(false);
   const instruction = shareInstruction(t);
   return (
-    <Empty className="rounded-xl border border-dashed py-12" data-rooms-state="empty">
+    <Empty className="rounded-xl border border-dashed py-12" data-jams-state="empty">
       <EmptyHeader>
         <EmptyMedia variant="icon"><LayoutList /></EmptyMedia>
-        <EmptyTitle>{t('rooms.emptyTitle')}</EmptyTitle>
-        <EmptyDescription>{t('rooms.emptyBody')}</EmptyDescription>
+        <EmptyTitle>{t('jams.emptyTitle')}</EmptyTitle>
+        <EmptyDescription>{t('jams.emptyBody')}</EmptyDescription>
       </EmptyHeader>
       <EmptyContent className="w-full max-w-xl">
         <div className="flex w-full items-start gap-2 rounded-lg border bg-muted/40 p-3 text-left">
-          <code className="min-w-0 flex-1 break-words font-mono text-xs leading-5" data-rooms-instruction="">{instruction}</code>
+          <code className="min-w-0 flex-1 break-words font-mono text-xs leading-5" data-jams-instruction="">{instruction}</code>
           <Button size="xs" variant="outline" onClick={() => {
             void navigator.clipboard?.writeText(instruction).then(() => { setCopied(true); setTimeout(() => setCopied(false), 2000); }).catch(() => {});
           }}>
-            {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copied ? t('rooms.copied') : t('rooms.copyInstruction')}
+            {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{copied ? t('jams.copied') : t('jams.copyInstruction')}
           </Button>
         </div>
       </EmptyContent>
@@ -197,16 +197,16 @@ function RoomsEmpty() {
   );
 }
 
-function linkStatus(room: MyRoom, t: ReturnType<typeof useT>, formatDateTime: (iso: string) => string): { text: string; live: boolean } {
-  const link = room.liveLink;
-  if (!link) return { text: t('rooms.linkOff'), live: false };
-  return { text: link.expiresAt ? t('rooms.linkExpires', { date: formatDateTime(link.expiresAt) }) : t('rooms.linkLive'), live: true };
+function linkStatus(jam: MyJam, t: ReturnType<typeof useT>, formatDateTime: (iso: string) => string): { text: string; live: boolean } {
+  const link = jam.liveLink;
+  if (!link) return { text: t('jams.linkOff'), live: false };
+  return { text: link.expiresAt ? t('jams.linkExpires', { date: formatDateTime(link.expiresAt) }) : t('jams.linkLive'), live: true };
 }
 
-/** One room: what it is and how it's doing, Open, and the rest in a menu. */
-function RoomRow({ room, creds, navigate, onChanged, onDeleted }: {
-  room: MyRoom;
-  creds: RoomCredentials;
+/** One jam: what it is and how it's doing, Open, and the rest in a menu. */
+function JamRow({ jam, creds, navigate, onChanged, onDeleted }: {
+  jam: MyJam;
+  creds: JamCredentials;
   navigate: (href: string) => void;
   onChanged: () => void;
   onDeleted: () => void;
@@ -217,110 +217,110 @@ function RoomRow({ room, creds, navigate, onChanged, onDeleted }: {
   const [linkOpen, setLinkOpen] = useState(false);
   const [pickOpen, setPickOpen] = useState(false);
   const [busy, setBusy] = useState<null | 'workspace' | 'delete'>(null);
-  const title = room.thread.title || room.thread.name;
-  const agent = room.agents[0] ?? null;
-  const status = linkStatus(room, t, formatDateTime);
-  const ownerHref = `/share/own/${encodeURIComponent(room.workspace.slug)}`;
+  const title = jam.thread.title || jam.thread.name;
+  const agent = jam.agents[0] ?? null;
+  const status = linkStatus(jam, t, formatDateTime);
+  const ownerHref = `/jam/own/${encodeURIComponent(jam.workspace.slug)}`;
 
   const copyLink = async () => {
-    if (!room.liveLink) return;
+    if (!jam.liveLink) return;
     try {
-      await navigator.clipboard.writeText(room.liveLink.url);
-      toast.success(t('rooms.linkCopied'));
+      await navigator.clipboard.writeText(jam.liveLink.url);
+      toast.success(t('jams.linkCopied'));
     } catch {
-      toast.error(t('rooms.actionFailed'));
+      toast.error(t('jams.actionFailed'));
     }
   };
   const makeWorkspace = async () => {
     setBusy('workspace');
     try {
       const result = await keepAsWorkspace(creds);
-      navigate(threadPath(result.workspace.slug || room.workspace.slug, result.channel.name || room.thread.name));
+      navigate(threadPath(result.workspace.slug || jam.workspace.slug, result.channel.name || jam.thread.name));
     } catch {
-      toast.error(t('rooms.actionFailed'));
+      toast.error(t('jams.actionFailed'));
       setBusy(null);
     }
   };
   const remove = async () => {
-    const ok = await confirm({ title: t('rooms.deleteTitle', { title }), description: t('rooms.deleteBody'), confirmText: t('rooms.deleteConfirm'), destructive: true });
+    const ok = await confirm({ title: t('jams.deleteTitle', { title }), description: t('jams.deleteBody'), confirmText: t('jams.deleteConfirm'), destructive: true });
     if (!ok) return;
     setBusy('delete');
     try {
-      await deleteRoom(creds);
-      toast.success(t('rooms.deleted'));
+      await deleteJam(creds);
+      toast.success(t('jams.deleted'));
       onDeleted();
     } catch {
-      toast.error(t('rooms.actionFailed'));
+      toast.error(t('jams.actionFailed'));
     } finally {
       setBusy(null);
     }
   };
 
   return (
-    <li className="group/room flex items-center gap-3 rounded-xl border bg-background p-3 transition-colors hover:bg-muted/30 sm:p-4" data-room={room.workspace.slug}>
-      <a href={ownerHref} className="flex min-w-0 flex-1 items-center gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md" data-room-open="">
+    <li className="group/jam flex items-center gap-3 rounded-xl border bg-background p-3 transition-colors hover:bg-muted/30 sm:p-4" data-jam={jam.workspace.slug}>
+      <a href={ownerHref} className="flex min-w-0 flex-1 items-center gap-3 outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md" data-jam-open="">
         {agent
           ? <AgentAvatar name={agent.name} size={36} showStatus status={agent.online ? 'online' : 'offline'} />
           : <span className="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted"><LayoutList className="size-4 text-muted-foreground" /></span>}
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="truncate text-sm font-medium">{title}</span>
-            {room.pendingRequests > 0 && <Badge variant="warning" className="shrink-0" data-room-pending="">{t('rooms.pending', { count: room.pendingRequests })}</Badge>}
+            {jam.pendingRequests > 0 && <Badge variant="warning" className="shrink-0" data-jam-pending="">{t('jams.pending', { count: jam.pendingRequests })}</Badge>}
           </span>
           <span className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
-            {agent && <span data-room-agent="">{agentDisplayName(agent)}</span>}
-            <span>{room.lastActivityAt ? t('rooms.activity', { time: timeAgoShort(new Date(room.lastActivityAt).toISOString()) }) : t('rooms.noActivity')}</span>
-            <span className="inline-flex items-center gap-1"><Users className="size-3" />{t('rooms.guests', { count: room.guestCount })}</span>
-            {room.liveLink && (
-              <span className="inline-flex items-center gap-1" data-room-access={room.liveLink.access === 'invited' ? 'invited' : 'link'}>
-                {room.liveLink.access === 'invited' ? <Lock className="size-3" /> : <Globe className="size-3" />}
-                {room.liveLink.access === 'invited' ? t('rooms.accessInvited') : t('rooms.accessLink')}
+            {agent && <span data-jam-agent="">{agentDisplayName(agent)}</span>}
+            <span>{jam.lastActivityAt ? t('jams.activity', { time: timeAgoShort(new Date(jam.lastActivityAt).toISOString()) }) : t('jams.noActivity')}</span>
+            <span className="inline-flex items-center gap-1"><Users className="size-3" />{t('jams.guests', { count: jam.guestCount })}</span>
+            {jam.liveLink && (
+              <span className="inline-flex items-center gap-1" data-jam-access={jam.liveLink.access === 'invited' ? 'invited' : 'link'}>
+                {jam.liveLink.access === 'invited' ? <Lock className="size-3" /> : <Globe className="size-3" />}
+                {jam.liveLink.access === 'invited' ? t('jams.accessInvited') : t('jams.accessLink')}
               </span>
             )}
-            <span className={cn('inline-flex items-center gap-1', status.live ? 'text-foreground/70' : 'text-muted-foreground/70')} data-room-link={status.live ? 'live' : 'off'}>
+            <span className={cn('inline-flex items-center gap-1', status.live ? 'text-foreground/70' : 'text-muted-foreground/70')} data-jam-link={status.live ? 'live' : 'off'}>
               <Link2 className="size-3" />{status.text}
             </span>
           </span>
         </span>
       </a>
       <Button size="sm" variant="outline" asChild className="hidden sm:inline-flex">
-        <a href={ownerHref}>{t('rooms.open')}</a>
+        <a href={ownerHref}>{t('jams.open')}</a>
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="ghost" size="icon-sm" aria-label={t('rooms.more', { title })} disabled={!!busy} data-room-menu="">
+          <Button variant="ghost" size="icon-sm" aria-label={t('jams.more', { title })} disabled={!!busy} data-jam-menu="">
             {busy ? <Spinner /> : <MoreHorizontal />}
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem disabled={!room.liveLink} onSelect={() => void copyLink()} data-room-action="copy"><Copy />{t('rooms.copyLink')}</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setLinkOpen(true)} data-room-action="settings"><Settings2 />{t('rooms.linkSettings')}</DropdownMenuItem>
+          <DropdownMenuItem disabled={!jam.liveLink} onSelect={() => void copyLink()} data-jam-action="copy"><Copy />{t('jams.copyLink')}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setLinkOpen(true)} data-jam-action="settings"><Settings2 />{t('jams.linkSettings')}</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => void makeWorkspace()} data-room-action="workspace"><LayoutGrid />{t('rooms.makeWorkspace')}</DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setPickOpen(true)} data-room-action="import"><FolderInput />{t('rooms.addToWorkspace')}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => void makeWorkspace()} data-jam-action="workspace"><LayoutGrid />{t('jams.makeWorkspace')}</DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setPickOpen(true)} data-jam-action="import"><FolderInput />{t('jams.addToWorkspace')}</DropdownMenuItem>
           <DropdownMenuSeparator />
-          <DropdownMenuItem variant="destructive" onSelect={() => void remove()} data-room-action="delete"><Trash2 />{t('rooms.delete')}</DropdownMenuItem>
+          <DropdownMenuItem variant="destructive" onSelect={() => void remove()} data-jam-action="delete"><Trash2 />{t('jams.delete')}</DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      {linkOpen && <RoomLinkDialog room={room} creds={creds} onClose={() => { setLinkOpen(false); onChanged(); }} />}
-      {pickOpen && <AddToWorkspaceDialog room={room} creds={creds} navigate={navigate} onClose={() => setPickOpen(false)} />}
+      {linkOpen && <JamLinkDialog jam={jam} creds={creds} onClose={() => { setLinkOpen(false); onChanged(); }} />}
+      {pickOpen && <AddToWorkspaceDialog jam={jam} creds={creds} navigate={navigate} onClose={() => setPickOpen(false)} />}
     </li>
   );
 }
 
-/** The guest-link panel for one room, with the owner's sign-in. */
-function RoomLinkDialog({ room, creds, onClose }: { room: MyRoom; creds: RoomCredentials; onClose: () => void }) {
-  const client = useMemo(() => roomGuestLinksClient(creds), [creds]);
-  const links = useGuestLinks(room.thread.name, true, client);
-  const agent = room.agents[0];
+/** The guest-link panel for one jam, with the owner's sign-in. */
+function JamLinkDialog({ jam, creds, onClose }: { jam: MyJam; creds: JamCredentials; onClose: () => void }) {
+  const client = useMemo(() => jamGuestLinksClient(creds), [creds]);
+  const links = useGuestLinks(jam.thread.name, true, client);
+  const agent = jam.agents[0];
   return (
-    <GuestLinkDialog open onOpenChange={(open) => { if (!open) onClose(); }} channel={room.thread.name}
+    <GuestLinkDialog open onOpenChange={(open) => { if (!open) onClose(); }} channel={jam.thread.name}
       agentName={agent ? agentDisplayName(agent) : null} links={links.links} error={links.error} setLinks={links.setLinks} client={client} />
   );
 }
 
-/** Merge the room into one of the person's workspaces. */
-function AddToWorkspaceDialog({ room, creds, navigate, onClose }: { room: MyRoom; creds: RoomCredentials; navigate: (href: string) => void; onClose: () => void }) {
+/** Merge the jam into one of the person's workspaces. */
+function AddToWorkspaceDialog({ jam, creds, navigate, onClose }: { jam: MyJam; creds: JamCredentials; navigate: (href: string) => void; onClose: () => void }) {
   const t = useT();
   const [workspaces, setWorkspaces] = useState<MyWorkspace[] | null>(null);
   const [target, setTarget] = useState<string | null>(null);
@@ -332,11 +332,11 @@ function AddToWorkspaceDialog({ room, creds, navigate, onClose }: { room: MyRoom
     listMyWorkspaces(bearer())
       .then((list) => {
         if (!active) return;
-        const others = list.filter((w) => w.slug !== room.workspace.slug && w.workspaceId !== room.workspace.id);
+        const others = list.filter((w) => w.slug !== jam.workspace.slug && w.workspaceId !== jam.workspace.id);
         setWorkspaces(others);
         if (others.length === 1) setTarget(others[0].workspaceId);
       })
-      .catch(() => { if (active) { setWorkspaces([]); setError(t('rooms.actionFailed')); } });
+      .catch(() => { if (active) { setWorkspaces([]); setError(t('jams.actionFailed')); } });
     return () => { active = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const move = async () => {
@@ -346,25 +346,25 @@ function AddToWorkspaceDialog({ room, creds, navigate, onClose }: { room: MyRoom
       const result = await importShare(creds, target, bearer());
       navigate(threadPath(result.workspace.slug, result.channel.name));
     } catch {
-      setError(t('rooms.actionFailed'));
+      setError(t('jams.actionFailed'));
       setBusy(false);
     }
   };
   return (
     <Dialog open onOpenChange={(open) => { if (!open && !busy) onClose(); }}>
-      <DialogContent className="sm:max-w-md" data-room-import-dialog="">
+      <DialogContent className="sm:max-w-md" data-jam-import-dialog="">
         <DialogHeader>
-          <DialogTitle>{t('rooms.pickWorkspaceTitle')}</DialogTitle>
-          <DialogDescription>{t('rooms.pickWorkspaceBody')}</DialogDescription>
+          <DialogTitle>{t('jams.pickWorkspaceTitle')}</DialogTitle>
+          <DialogDescription>{t('jams.pickWorkspaceBody')}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           {!workspaces && <div className="flex justify-center py-4"><Spinner className="size-5 text-muted-foreground" /></div>}
-          {workspaces && workspaces.length === 0 && !error && <p className="text-sm text-muted-foreground">{t('rooms.noWorkspaces')}</p>}
+          {workspaces && workspaces.length === 0 && !error && <p className="text-sm text-muted-foreground">{t('jams.noWorkspaces')}</p>}
           {workspaces && workspaces.length > 0 && (
-            <div role="radiogroup" aria-label={t('rooms.pickWorkspaceTitle')} className="flex max-h-64 flex-col gap-1 overflow-y-auto">
+            <div role="radiogroup" aria-label={t('jams.pickWorkspaceTitle')} className="flex max-h-64 flex-col gap-1 overflow-y-auto">
               {workspaces.map((w) => (
                 <button key={w.workspaceId} type="button" role="radio" aria-checked={target === w.workspaceId} disabled={busy}
-                  onClick={() => setTarget(w.workspaceId)} data-room-target={w.workspaceId}
+                  onClick={() => setTarget(w.workspaceId)} data-jam-target={w.workspaceId}
                   className={cn('flex items-center gap-2 rounded-md border px-3 py-2 text-left text-sm hover:bg-muted', target === w.workspaceId && 'border-primary/50 bg-primary/5')}>
                   <span className="min-w-0 flex-1 truncate">{w.name || w.slug}</span>
                   {target === w.workspaceId && <Check className="size-4 text-primary" />}
@@ -376,8 +376,8 @@ function AddToWorkspaceDialog({ room, creds, navigate, onClose }: { room: MyRoom
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>{t('common.cancel')}</Button>
-          <Button disabled={!target || busy} onClick={() => void move()} data-room-move="">
-            {busy && <Spinner data-icon="inline-start" />}{t('rooms.moveHere')}
+          <Button disabled={!target || busy} onClick={() => void move()} data-jam-move="">
+            {busy && <Spinner data-icon="inline-start" />}{t('jams.moveHere')}
           </Button>
         </DialogFooter>
       </DialogContent>

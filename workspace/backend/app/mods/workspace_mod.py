@@ -2240,6 +2240,16 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
             # the router checks session_error and returns an error response.
             return event
 
+    # An agent a guest brought into a jam (OpenAgents Share) only replies, whatever the
+    # message type:
+    # what it posts never starts another agent, so a guest can't drive the
+    # owner's agents through it.
+    if event.source.startswith("openagents:"):
+        from app.services.room_agents import is_guest_agent as _guest_agent
+        if _guest_agent(db.get(WorkspaceMember, (str(workspace.id), event.source[len("openagents:"):]))):
+            event.metadata["target_agents"] = ["__no_response__"]
+            return event
+
     # "thinking", "status", and "todos" messages are intermediate agent output
     # — they should NOT trigger other agents. "approval" is an agent asking a
     # PERSON for permission (see services/approvals): it is addressed to humans,
@@ -2252,15 +2262,6 @@ async def _handle_message_posted(event: Event, ctx: PipelineContext) -> Optional
     if (event.metadata or {}).get("share_hold"):
         from app.services.guest_links import is_guest_source as _held_guest
         if _held_guest(event.source):
-            event.metadata["target_agents"] = ["__no_response__"]
-            return event
-
-    # An agent a guest brought into a room (OpenAgents Share) only replies:
-    # what it posts never starts another agent, so a guest can't drive the
-    # owner's agents through it.
-    if event.source.startswith("openagents:"):
-        from app.services.room_agents import is_guest_agent as _guest_agent
-        if _guest_agent(db.get(WorkspaceMember, (str(workspace.id), event.source[len("openagents:"):]))):
             event.metadata["target_agents"] = ["__no_response__"]
             return event
 

@@ -479,11 +479,11 @@ def send_event(
         except ValueError as exc:
             return json_response(ResponseCode.CONFLICT, str(exc))
         if receipt:
-            return success_response({
+            return _scrub_if_guest_agent(db, workspace, receipt.source, success_response({
                 "id": receipt.id, "type": receipt.type, "source": receipt.source,
                 "target": receipt.target, "payload": receipt.payload,
                 "timestamp": receipt.timestamp, "metadata": receipt.metadata_,
-            })
+            }))
 
     # Run through pipeline (fresh loop in this worker thread — pipeline is
     # async-shaped but contains only sync I/O, nothing bound to the main loop)
@@ -574,7 +574,7 @@ def send_event(
         from app.services.watches import notify_watchers
         background_tasks.add_task(notify_watchers, str(workspace.id), event_snapshot)
 
-    return success_response({
+    return _scrub_if_guest_agent(db, workspace, result.source, success_response({
         "id": result.id,
         "type": result.type,
         "source": result.source,
@@ -582,7 +582,18 @@ def send_event(
         "payload": result.payload,
         "timestamp": result.timestamp,
         "metadata": result.metadata,
-    })
+    }))
+
+
+def _scrub_if_guest_agent(db, workspace, source, response):
+    """A guest's agent in a jam never gets people's addresses back from its own post."""
+    if not str(source or "").startswith("openagents:"):
+        return response
+    from app.models import WorkspaceMember
+    from app.services.room_agents import is_guest_agent, scrub_for_scoped
+    if not is_guest_agent(db.get(WorkspaceMember, (str(workspace.id), str(source)[len("openagents:"):]))):
+        return response
+    return scrub_for_scoped(response, None)
 
 
 @router.post("/events/{event_id}/recall")
@@ -863,7 +874,7 @@ def _poll_events_impl(
     # the cache, so even a cached-empty response cost a pooled connection.
     workspace_id, err, legacy_machine, resolved_workspace = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
     if err is not None:
-        # OpenAgents Share: an agent a guest brought into a room holds a
+        # OpenAgents Share: an agent a guest brought into a jam holds a
         # limited connection. It reads only its thread (and its own control
         # events), with people's addresses hidden (the wrapper scrubs them).
         from app.services.room_agents import scoped_poll_node

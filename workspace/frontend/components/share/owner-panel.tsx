@@ -23,7 +23,7 @@ export function guestPreviewUrl(linkUrl: string, origin = typeof window !== 'und
 }
 
 /**
- * The owner's "Sharing" block at the bottom of the owner room's sidebar,
+ * The owner's "Sharing" block at the bottom of the owner page's sidebar,
  * like a condensed Google Docs share dialog: who can open it, how guests may
  * use the agent, the link's lifetime and guests — each line opens that
  * setting — plus Copy guest link and Preview, and a small "owner page" note.
@@ -57,22 +57,22 @@ export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCa
   const mode = link?.approvalMode ?? 'none';
   const invited = link?.access === 'invited';
   const rows: { section: GuestLinkSection; icon: React.ReactNode; label: string; value: string; tone?: 'warning' }[] = [
-    { section: 'access', icon: invited ? <Lock /> : <Globe />, label: t('shareRoom.policyAccess'), value: invited ? t('shareRoom.policyAccessInvited') : t('shareRoom.policyAccessLink') },
-    { section: 'requests', icon: <Bot />, label: t('shareRoom.policyRequests'), value: mode === 'owner' ? t('shareRoom.policyRequestsOwner') : mode === 'off' ? t('shareRoom.policyRequestsOff') : t('shareRoom.policyRequestsNone') },
-    { section: 'post', icon: <MessageSquare />, label: t('shareRoom.policyPost'), value: !link || link.canPost ? t('shareRoom.policyPostYes') : t('shareRoom.policyPostNo') },
-    { section: 'agents', icon: <Plus />, label: t('roomAgents.policyGuestAgents'), value: link?.allowGuestAgents && link.canPost ? t('roomAgents.policyGuestAgentsOn') : t('roomAgents.policyGuestAgentsOff') },
-    { section: 'expiry', icon: <Clock />, label: t('shareRoom.policyLink'), value: !link ? t('shareRoom.policyLinkOff') : link.expiresAt ? t('shareRoom.policyLinkExpires', { date: formatDateTime(link.expiresAt) }) : t('shareRoom.policyLinkNever'), tone: !link ? 'warning' : undefined },
-    { section: 'guests', icon: <Users />, label: t('shareRoom.policyGuests'), value: guestCount === null ? '…' : String(guestCount) },
+    { section: 'access', icon: invited ? <Lock /> : <Globe />, label: t('shareJam.policyAccess'), value: invited ? t('shareJam.policyAccessInvited') : t('shareJam.policyAccessLink') },
+    { section: 'requests', icon: <Bot />, label: t('shareJam.policyRequests'), value: mode === 'owner' ? t('shareJam.policyRequestsOwner') : mode === 'off' ? t('shareJam.policyRequestsOff') : t('shareJam.policyRequestsNone') },
+    { section: 'post', icon: <MessageSquare />, label: t('shareJam.policyPost'), value: !link || link.canPost ? t('shareJam.policyPostYes') : t('shareJam.policyPostNo') },
+    { section: 'agents', icon: <Plus />, label: t('jamAgents.policyGuestAgents'), value: link?.allowGuestAgents && link.canPost ? t('jamAgents.policyGuestAgentsOn') : t('jamAgents.policyGuestAgentsOff') },
+    { section: 'expiry', icon: <Clock />, label: t('shareJam.policyLink'), value: !link ? t('shareJam.policyLinkOff') : link.expiresAt ? t('shareJam.policyLinkExpires', { date: formatDateTime(link.expiresAt) }) : t('shareJam.policyLinkNever'), tone: !link ? 'warning' : undefined },
+    { section: 'guests', icon: <Users />, label: t('shareJam.policyGuests'), value: guestCount === null ? '…' : String(guestCount) },
   ];
 
   return (
     <div className="flex flex-col gap-2" data-owner-panel="">
       <div className="flex flex-col gap-2 rounded-xl border bg-background/70 p-2 shadow-xs">
-        <span className="px-1 pt-0.5 text-xs font-medium text-sidebar-foreground/70">{t('shareRoom.sharingHeading')}</span>
+        <span className="px-1 pt-0.5 text-xs font-medium text-sidebar-foreground/70">{t('shareJam.sharingHeading')}</span>
         <ul className="flex flex-col" data-owner-policy="">
           {rows.map((row) => (
             <li key={row.section}>
-              <button type="button" onClick={() => onOpenSettings(row.section)} aria-label={t('shareRoom.policyChange', { setting: row.label })}
+              <button type="button" onClick={() => onOpenSettings(row.section)} aria-label={t('shareJam.policyChange', { setting: row.label })}
                 className="flex w-full items-center gap-2 rounded-md px-1.5 py-1.5 text-left text-xs hover:bg-sidebar-accent focus-visible:bg-sidebar-accent focus-visible:outline-none [&_svg]:size-3.5 [&_svg]:shrink-0"
                 data-owner-policy-row={row.section}>
                 <span className="text-muted-foreground">{row.icon}</span>
@@ -87,28 +87,28 @@ export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCa
           <div className="flex flex-col gap-1">
             <div className="flex gap-1.5">
               <Button size="sm" onClick={() => void copy()} className="min-w-0 flex-1" data-owner-copy-link="">
-                {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}<span className="truncate">{copied ? t('shareRoom.guestLinkCopied') : t('shareRoom.copyGuestLink')}</span>
+                {copied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}<span className="truncate">{copied ? t('shareJam.guestLinkCopied') : t('shareJam.copyGuestLink')}</span>
               </Button>
-              <WithTooltip label={t('shareRoom.previewAsGuest')}>
+              <WithTooltip label={t('shareJam.previewAsGuest')}>
                 <Button size="sm" variant="outline" className="shrink-0 bg-background" onClick={onPreview} data-owner-preview="">
-                  <Eye data-icon="inline-start" />{t('shareRoom.previewShort')}
+                  <Eye data-icon="inline-start" />{t('shareJam.previewShort')}
                 </Button>
               </WithTooltip>
             </div>
             {copied && (
               <Button size="xs" variant="link" className="h-auto self-center py-0.5 text-xs" onClick={onPreview} data-owner-see-guests="">
-                {t('shareRoom.seeWhatGuestsSee')}
+                {t('shareJam.seeWhatGuestsSee')}
               </Button>
             )}
           </div>
         ) : (
           <button type="button" className="rounded-md border border-dashed px-2.5 py-2 text-left text-xs text-muted-foreground hover:bg-sidebar-accent" onClick={() => onOpenSettings(null)} data-owner-no-link="">
-            {t('shareRoom.noLink')}
+            {t('shareJam.noLink')}
           </button>
         )}
-        <WithTooltip label={t('shareRoom.ownerPageHelp')}>
+        <WithTooltip label={t('shareJam.ownerPageHelp')}>
           <span className="flex min-w-0 items-center gap-1 px-1 text-[11px] text-warning" tabIndex={0} data-owner-note="">
-            <ShieldAlert className="size-3 shrink-0" /><span className="truncate">{t('shareRoom.ownerNote')}</span>
+            <ShieldAlert className="size-3 shrink-0" /><span className="truncate">{t('shareJam.ownerNote')}</span>
           </span>
         </WithTooltip>
       </div>
@@ -118,35 +118,35 @@ export function OwnerPanel({ link, guestCount, onOpenSettings, onPreview, saveCa
 }
 
 /**
- * Next to the sharing block: the room isn't in an account yet (lose the link,
- * lose the room) with a way to save it — or a quiet "saved" line.
+ * Next to the sharing block: the jam isn't in an account yet (lose the link,
+ * lose the jam) with a way to save it — or a quiet "saved" line.
  */
 export function SaveCard({ saved, signedIn, onSave }: { saved: boolean; signedIn: boolean; onSave: () => void }) {
   const t = useT();
   if (saved) {
     return (
       <p className="flex items-center gap-1.5 px-1 text-xs text-muted-foreground" data-owner-saved="">
-        <Check className="size-3.5 text-success" />{t('shareRoom.savedLine')} ·{' '}
-        <a href="/rooms" className="font-medium text-foreground underline-offset-2 hover:underline">{t('rooms.myRooms')}</a>
+        <Check className="size-3.5 text-success" />{t('shareJam.savedLine')} ·{' '}
+        <a href="/jams" className="font-medium text-foreground underline-offset-2 hover:underline">{t('jams.myJams')}</a>
       </p>
     );
   }
   return (
     <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 py-1 pr-1 pl-2.5" data-owner-not-saved="">
-      <WithTooltip label={t('shareRoom.notSavedBody')}>
+      <WithTooltip label={t('shareJam.notSavedBody')}>
         <span className="min-w-0 flex-1 truncate text-xs" tabIndex={0}>
-          {t('shareRoom.notSavedShort')}<span className="sr-only">. {t('shareRoom.notSavedBody')}</span>
+          {t('shareJam.notSavedShort')}<span className="sr-only">. {t('shareJam.notSavedBody')}</span>
         </span>
       </WithTooltip>
       <Button size="xs" variant="outline" className="shrink-0 bg-background" onClick={onSave} data-owner-save="">
         {signedIn ? <BookmarkPlus data-icon="inline-start" /> : <LogIn data-icon="inline-start" />}
-        {signedIn ? t('shareRoom.saveToRoomsShort') : t('shareRoom.signInToSave')}
+        {signedIn ? t('shareJam.saveToJamsShort') : t('shareJam.signInToSave')}
       </Button>
     </div>
   );
 }
 
-/** Remembered per room in this browser: a dismissed banner stays dismissed. */
+/** Remembered per jam in this browser: a dismissed banner stays dismissed. */
 export function useDismissed(key: string): [boolean, () => void] {
   const [dismissed, setDismissed] = useState(() => {
     try { return typeof window !== 'undefined' && window.localStorage.getItem(key) === '1'; } catch { return false; }
@@ -176,7 +176,7 @@ export function DismissibleStrip({ icon, children, action, onDismiss, tone = 'mu
         {action}
       </AlertDescription>
       <AlertAction>
-        <Button variant="ghost" size="icon-xs" onClick={onDismiss} aria-label={t('shareRoom.dismiss')} data-strip-dismiss=""><X /></Button>
+        <Button variant="ghost" size="icon-xs" onClick={onDismiss} aria-label={t('shareJam.dismiss')} data-strip-dismiss=""><X /></Button>
       </AlertAction>
     </Alert>
   );
@@ -189,8 +189,8 @@ export function GuestPreviewDialog({ open, onOpenChange, url, inviteOnly = false
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl" data-guest-preview-dialog="">
         <DialogHeader>
-          <DialogTitle>{t('shareRoom.previewTitle')}</DialogTitle>
-          <DialogDescription data-guest-preview-label="">{inviteOnly ? t('shareRoom.previewInviteOnly') : t('shareRoom.previewBody')}</DialogDescription>
+          <DialogTitle>{t('shareJam.previewTitle')}</DialogTitle>
+          <DialogDescription data-guest-preview-label="">{inviteOnly ? t('shareJam.previewInviteOnly') : t('shareJam.previewBody')}</DialogDescription>
         </DialogHeader>
         <DialogBody>
           {url && (
@@ -198,7 +198,7 @@ export function GuestPreviewDialog({ open, onOpenChange, url, inviteOnly = false
               {/* Rendered at desktop size and scaled down on wide screens; full size on phones. */}
               <iframe
                 src={url}
-                title={t('shareRoom.previewTitle')}
+                title={t('shareJam.previewTitle')}
                 sandbox="allow-scripts allow-same-origin"
                 className="absolute top-0 left-0 h-full w-full border-0 bg-background sm:h-[166.67%] sm:w-[166.67%] sm:origin-top-left sm:scale-[0.6]"
                 data-guest-preview-frame=""
@@ -208,7 +208,7 @@ export function GuestPreviewDialog({ open, onOpenChange, url, inviteOnly = false
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
-          {url && <Button asChild><a href={url} target="_blank" rel="noopener noreferrer" data-guest-preview-open=""><ExternalLink data-icon="inline-start" />{t('shareRoom.openInNewTab')}</a></Button>}
+          {url && <Button asChild><a href={url} target="_blank" rel="noopener noreferrer" data-guest-preview-open=""><ExternalLink data-icon="inline-start" />{t('shareJam.openInNewTab')}</a></Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

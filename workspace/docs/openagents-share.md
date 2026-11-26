@@ -1,4 +1,4 @@
-# OpenAgents Share
+# OpenAgents Jam
 
 Share an agent from your own coding session with your team: one instruction in the session, one link for teammates, and they use the agent in a real Workspace thread without an account.
 
@@ -32,26 +32,26 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 2. The agent explains what sharing does, drafts the share, and waits for a yes.
 3. `POST /v1/share/publish` creates a workspace, one passive thread with the agent as its only member, the approved excerpts and intro as the first messages, and a guest link. Idempotent on `idempotency_key`.
 4. The agent writes the role into `~/.openagents/shared/<agent>/CLAUDE.md` and connects itself with the OpenAgents launcher (`create --path`, `connect <token>`, `up`).
-5. A teammate opens `/share/thread/<token>`, reads, picks a name, and asks `@agent …`. The message is routed to the sharer's local agent, which runs a read-only turn and replies in the thread. The sharer sees everything from the owner link.
+5. A teammate opens `/jam/<token>`, reads, picks a name, and asks `@agent …`. The message is routed to the sharer's local agent, which runs a read-only turn and replies in the thread. The sharer sees everything from the owner link.
 
 ## The owner's side
 
-The owner link opens a **light room** (`/share/own/<slug>?token=…`): just the conversation, its guest link controls and **Keep this conversation**. The full workspace UI appears only after keeping:
+The owner link opens a **light jam page** (`/jam/own/<slug>?token=…`): just the conversation, its guest link controls and **Keep this conversation**. The full workspace UI appears only after keeping:
 
 - **Make it my workspace** — sign in (or sign up); the Share workspace becomes theirs (`/v1/guest-links/claim`) and opens as a normal workspace with this conversation in it.
 - **Add to one of my workspaces** — for people who already use OpenAgents: pick a workspace they're a member of (`/v1/guest-links/import`). The thread with its history, the agent and the guest link move there; the guest link keeps its URL and guests; the thread is private to them until they share it. The agent's launcher is told to follow (a `relocate` control action) and collects a fresh connection once; then the old Share workspace closes and its owner link says where the conversation went. Moving needs the agent running on a launcher that supports it.
 
 ## Owner approval
 
-The owner can switch a guest link to **I approve each request** (`approval_mode: "owner"`). A guest's message that addresses the agent is posted and shown at once but held from the agent; the owner sees it in the room and approves (it is re-posted for the agent, as the guest, read-only as always) or declines. A short notice tells the thread either way. Comments are never held. After the conversation is kept or moved, owners and admins decide from the full Workspace (a banner on the thread), and a waiting request also lands in the keeper's inbox.
+The owner can switch a guest link to **I approve each request** (`approval_mode: "owner"`). A guest's message that addresses the agent is posted and shown at once but held from the agent; the owner sees it in the jam and approves (it is re-posted for the agent, as the guest, read-only as always) or declines. A short notice tells the thread either way. Comments are never held. After the conversation is kept or moved, owners and admins decide from the full Workspace (a banner on the thread), and a waiting request also lands in the keeper's inbox.
 
 ## Guests continue in their own workspace
 
 A signed-in guest can take a private copy of the conversation (the messages they can see, no agent, no link back) into a new or existing workspace of theirs and continue there with their own agents. The original is untouched.
 
-## More agents in a room
+## More agents in a jam
 
-**The owner's agents.** From the room the owner adds another of their agents (**Add agent**: a name without spaces and a type). The reply carries the three launcher commands; the agent connects with the room's workspace token, runs on the owner's computer and is asked like the first one (`@name`). Guests' requests to it follow the same rules (read-only turns, the owner's approval setting). The owner can remove any agent except the one the room was shared for.
+**The owner's agents.** From the jam the owner adds another of their agents (**Add agent**: a name without spaces and a type). The reply carries the three launcher commands; the agent connects with the jam's workspace token, runs on the owner's computer and is asked like the first one (`@name`). Guests' requests to it follow the same rules (read-only turns, the owner's approval setting). The owner can remove any agent except the one the jam was shared for.
 
 **Guests' agents.** When the owner allows it (`allow_guest_agents`, on by default, switchable later), a guest can bring their own agent. It gets a **limited connection** (a `nodes` row with `scope_channel` + `scope_agent`), never the workspace token:
 
@@ -59,12 +59,12 @@ A signed-in guest can take a private copy of the conversation (the messages they
 - what it reads has people's addresses replaced (guests' own guest addresses stay);
 - it stops working the moment the guest is removed, the link is turned off, expires or turns read-only, the owner switches guest agents off, or the agent is removed (`room_agents.scoped_node`);
 - what it posts never starts another agent, so a guest can't drive the owner's agent through it;
-- anyone in the room may ask it. Its own guest's turns run normally on the guest's computer; everyone else's (the owner, other guests, other agents) run as guest turns, which the guest's launcher enforces. The join reply says whose agent it is (`scoped.owner_address`), and others' requests are routed only to a launcher advertising `scoped_turns`;
-- up to 3 per guest, 12 agents per room; guests' agents stay behind when the room moves into a workspace.
+- anyone in the jam may ask it. Its own guest's turns run normally on the guest's computer; everyone else's (the owner, other guests, other agents) run as guest turns, which the guest's launcher enforces. The join reply says whose agent it is (`scoped.owner_address`), and others' requests are routed only to a launcher advertising `scoped_turns`;
+- up to 3 per guest, 12 agents per jam; guests' agents stay behind when the jam moves into a workspace.
 
 ## Thread resources on the share pages
 
-Guests and the owner room see the same strip a Workspace thread shows above its messages: **Artifacts** (files shared in the thread, browser sessions shown there), **Agents** and **Routines** (read-only; their instructions stay private). Files open in a viewer (images, PDF, markdown, tables, HTML in a sandboxed frame, download otherwise); browser sessions as view-only screenshots; message attachments render inline. Everything is scoped to that one thread. When sharing from Claude Code, the agent can include files the session produced; they are uploaded into the thread after publishing.
+Guests and the owner jam see the same strip a Workspace thread shows above its messages: **Artifacts** (files shared in the thread, browser sessions shown there), **Agents** and **Routines** (read-only; their instructions stay private). Files open in a viewer (images, PDF, markdown, tables, HTML in a sandboxed frame, download otherwise); browser sessions as view-only screenshots; message attachments render inline. Everything is scoped to that one thread. When sharing from Claude Code, the agent can include files the session produced; they are uploaded into the thread after publishing.
 
 ## API
 
@@ -78,18 +78,18 @@ Guests and the owner room see the same strip a Workspace thread shows above its 
 | POST | `/v1/guest-links` `{network, channel, expires_at}` | same; only threads made by Share, one live link at a time |
 | GET | `/v1/guest-links/workspace?network=` | anyone who can open the workspace: `{share: {claimed}}` or `{share: null}` |
 | POST | `/v1/guest-links/claim` `{network}` | owner link token **and** a signed-in account |
-| GET | `/v1/guest-links/room?network=` | owner link token: the light room (thread, agents, link, kept/moved) |
-| GET / POST | `/v1/guest-links/room/messages?network=` | owner link token: read / post as the owner |
+| GET | `/v1/guest-links/jam?network=` | owner link token: the light jam (thread, agents, link, kept/moved) |
+| GET / POST | `/v1/guest-links/jam/messages?network=` | owner link token: read / post as the owner |
 | POST | `/v1/guest-links/import` `{network, target}` | owner link token **and** a signed-in member of `target` |
 | POST | `/v1/guest-links/relocation/accept` | the moving agent's launcher (old token + its session id), once |
-| GET | `/v1/guest-links/room/requests?network=` | owner link token: guests' requests waiting for approval |
+| GET | `/v1/guest-links/jam/requests?network=` | owner link token: guests' requests waiting for approval |
 | GET / POST | `/v1/guest-links/requests[/{id}]?network=&channel=` | workspace owner/admin: the same after keeping or moving |
 | POST | `/v1/guest-links/public/{token}/fork` `{target?}` | signed-in guest: a private copy in their workspace |
-| GET | `/v1/guest-links/{public/{token}\|room}/resources` | the thread's files, browser sessions and routines |
-| GET | `/v1/guest-links/{public/{token}\|room}/files/{id}` | a file the thread shows (artifact or attachment) |
-| GET | `/v1/guest-links/{public/{token}\|room}/browsers/{id}/screenshot` | a browser session the thread shows |
-| POST | `/v1/guest-links/room/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
-| POST / DELETE | `/v1/guest-links/room/agents[/{name}]?network=` `{name, type}` | owner: add / remove one of their agents |
+| GET | `/v1/guest-links/{public/{token}\|jam}/resources` | the thread's files, browser sessions and routines |
+| GET | `/v1/guest-links/{public/{token}\|jam}/files/{id}` | a file the thread shows (artifact or attachment) |
+| GET | `/v1/guest-links/{public/{token}\|jam}/browsers/{id}/screenshot` | a browser session the thread shows |
+| POST | `/v1/guest-links/jam/requests/{id}?network=` `{decision}` | owner link token: approve / decline, once |
+| POST / DELETE | `/v1/guest-links/jam/agents[/{name}]?network=` `{name, type}` | owner: add / remove one of their agents |
 | POST / DELETE | `/v1/guest-links/public/{token}/agents[/{name}]` `{name, type}` | guest session: bring / remove their own agent (limited connection token in the reply, shown once) |
 | GET | `/v1/guest-links/public/{token}` | anyone with the link |
 | POST | `/v1/guest-links/public/{token}/guests` `{name}` | anyone with the link |

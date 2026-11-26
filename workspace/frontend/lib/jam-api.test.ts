@@ -2,26 +2,26 @@ import { describe, expect, it, vi } from 'vitest';
 import { GuestThreadError } from '@/lib/guest-thread-api';
 import {
   claimShare,
-  fetchRoom,
-  fetchRoomMessages,
+  fetchJam,
+  fetchJamMessages,
   importShare,
   listMyWorkspaces,
   movedToOf,
-  postRoomMessage,
-  roomGuestLinksClient,
-  roomToThreadInfo,
+  postJamMessage,
+  jamGuestLinksClient,
+  jamToThreadInfo,
   threadPath,
-  type ShareRoom,
-} from './share-room-api';
+  type ShareJam,
+} from './jam-api';
 import { optimisticOwnerMessage, senderIdentity, threadPeople, guestEventToMessage, newPendingSend } from './guest-thread';
 import type { ONMEvent } from './types';
 
-const ROOM: ShareRoom = {
+const JAM: ShareJam = {
   workspace: { id: 'ws-1', slug: 'alex-share', name: 'Alex’s shared workspace' },
   thread: { name: 'share-abc', title: 'PR reviewer' },
   owner: { name: 'Alex' },
   agents: [{ name: 'claude-code', displayName: 'Claude Code', type: 'claude', online: true, acceptsGuests: true }],
-  link: { id: 'l1', channel: 'share-abc', url: 'https://app.test/share/thread/tok', canPost: true, expiresAt: '2026-12-01T00:00:00Z', revokedAt: null, createdAt: '2026-11-20T00:00:00Z' },
+  link: { id: 'l1', channel: 'share-abc', url: 'https://app.test/jam/tok', canPost: true, expiresAt: '2026-12-01T00:00:00Z', revokedAt: null, createdAt: '2026-11-20T00:00:00Z' },
   share: { claimed: false, movedTo: null },
 };
 
@@ -35,13 +35,13 @@ function headersOf(fetchMock: ReturnType<typeof vi.fn>, i = 0): Record<string, s
   return (fetchMock.mock.calls[i][1] as RequestInit).headers as Record<string, string>;
 }
 
-describe('room data mapping', () => {
-  it('maps the room to the shared thread view info', () => {
-    expect(roomToThreadInfo(ROOM)).toEqual({
+describe('jam data mapping', () => {
+  it('maps the jam to the shared thread view info', () => {
+    expect(jamToThreadInfo(JAM)).toEqual({
       thread: { name: 'share-abc', title: 'PR reviewer' },
       workspace: { name: 'Alex’s shared workspace' },
       owner: { name: 'Alex' },
-      agents: ROOM.agents,
+      agents: JAM.agents,
       expiresAt: '2026-12-01T00:00:00Z',
       canPost: true,
       approvalMode: 'none',
@@ -50,8 +50,8 @@ describe('room data mapping', () => {
       allowGuestAgents: false,
       guest: null,
     });
-    expect(roomToThreadInfo({ ...ROOM, link: null }).expiresAt).toBeNull();
-    expect(roomToThreadInfo({ ...ROOM, link: { ...ROOM.link!, approvalMode: 'owner' } }).approvalMode).toBe('owner');
+    expect(jamToThreadInfo({ ...JAM, link: null }).expiresAt).toBeNull();
+    expect(jamToThreadInfo({ ...JAM, link: { ...JAM.link!, approvalMode: 'owner' } }).approvalMode).toBe('owner');
   });
 
   it('reads movedTo only when it is complete', () => {
@@ -62,13 +62,13 @@ describe('room data mapping', () => {
   });
 });
 
-describe('owner room transport', () => {
-  it('sends the owner token on room calls', async () => {
-    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/messages') ? ok({ messages: [], hasMore: false }) : ok(ROOM)));
-    await fetchRoom(creds, opts(fetchMock as unknown as typeof fetch));
-    await fetchRoomMessages(creds, 'e5', opts(fetchMock as unknown as typeof fetch));
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test/v1/guest-links/room?network=alex-share');
-    expect(fetchMock.mock.calls[1][0]).toBe('https://api.test/v1/guest-links/room/messages?network=alex-share&limit=100&after=e5');
+describe('owner page transport', () => {
+  it('sends the owner token on jam calls', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => (url.includes('/messages') ? ok({ messages: [], hasMore: false }) : ok(JAM)));
+    await fetchJam(creds, opts(fetchMock as unknown as typeof fetch));
+    await fetchJamMessages(creds, 'e5', opts(fetchMock as unknown as typeof fetch));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test/v1/guest-links/jam?network=alex-share');
+    expect(fetchMock.mock.calls[1][0]).toBe('https://api.test/v1/guest-links/jam/messages?network=alex-share&limit=100&after=e5');
     expect(headersOf(fetchMock, 0)['X-Workspace-Token']).toBe('ws-token');
     expect(headersOf(fetchMock, 1)['X-Workspace-Token']).toBe('ws-token');
     expect((fetchMock.mock.calls[0][1] as RequestInit).credentials).toBe('omit');
@@ -76,23 +76,23 @@ describe('owner room transport', () => {
 
   it('posts a message with the idempotency key', async () => {
     const fetchMock = vi.fn(async (_url: string, _init?: RequestInit) => ok({ id: 'e9' }));
-    await postRoomMessage(creds, 'hi', 'key-1234567890abcdef', opts(fetchMock as unknown as typeof fetch));
-    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test/v1/guest-links/room/messages?network=alex-share');
+    await postJamMessage(creds, 'hi', 'key-1234567890abcdef', opts(fetchMock as unknown as typeof fetch));
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.test/v1/guest-links/jam/messages?network=alex-share');
     expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({ content: 'hi', idempotency_key: 'key-1234567890abcdef' });
   });
 
   it('carries movedTo on a 410', async () => {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ code: 410, message: 'moved', data: { movedTo: { slug: 'team', channel: 'share-abc' } } }), { status: 410 }));
-    const error = await fetchRoom(creds, opts(fetchMock as unknown as typeof fetch)).catch((e) => e);
+    const error = await fetchJam(creds, opts(fetchMock as unknown as typeof fetch)).catch((e) => e);
     expect(error).toBeInstanceOf(GuestThreadError);
     expect(error.status).toBe(410);
     expect(movedToOf(error.data)).toEqual({ slug: 'team', channel: 'share-abc' });
   });
 
   it('manages the guest link with the owner token', async () => {
-    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => (init?.method !== 'GET' ? ok({ link: ROOM.link }) : ok({ links: [ROOM.link] })));
-    const client = roomGuestLinksClient(creds, opts(fetchMock as unknown as typeof fetch));
-    expect(await client.list('share-abc')).toEqual([ROOM.link]);
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => (init?.method !== 'GET' ? ok({ link: JAM.link }) : ok({ links: [JAM.link] })));
+    const client = jamGuestLinksClient(creds, opts(fetchMock as unknown as typeof fetch));
+    expect(await client.list('share-abc')).toEqual([JAM.link]);
     await client.updateExpiry('l1', null);
     await client.revoke('l1');
     await client.create('share-abc', null);
@@ -133,7 +133,7 @@ describe('owner identity', () => {
     payload: { content: 'Hi', sender_name: 'Maya' }, metadata: { guest: { id: 'g1', name: 'Maya' } }, timestamp: 8, visibility: 'channel',
   } as ONMEvent;
 
-  it('shows the owner as "You" in the owner room and by name to guests', () => {
+  it('shows the owner as "You" in the owner page and by name to guests', () => {
     const msg = guestEventToMessage(ownerEvent);
     expect(senderIdentity(msg, [], { guestId: null, isOwner: true, ownerName: 'Alex' })).toMatchObject({ kind: 'human', name: 'Alex', isSelf: true });
     expect(senderIdentity(msg, [], { guestId: 'g1', ownerName: 'Alex' })).toMatchObject({ name: 'Alex', isSelf: false });

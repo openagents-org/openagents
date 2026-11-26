@@ -38,23 +38,23 @@ export function ShareRequestStatusView({ requestId, status, guestName, agentName
       setBusy(decision); setError(null);
       const outcome = await onDecide(requestId, decision);
       setBusy(null);
-      if (outcome === 'conflict') setError(t('shareRoom.requestAlreadyDecided'));
-      else if (outcome === 'failed') setError(t('shareRoom.requestFailed'));
+      if (outcome === 'conflict') setError(t('shareJam.requestAlreadyDecided'));
+      else if (outcome === 'failed') setError(t('shareJam.requestFailed'));
     };
     return (
       <Item variant="outline" size="sm" className="mt-2 max-w-xl flex-wrap items-start border-warning/60" data-share-request="pending" data-share-request-id={requestId}>
         <ItemMedia variant="icon" className="text-warning"><Lock aria-hidden="true" /></ItemMedia>
         <ItemContent className="min-w-48">
-          <ItemTitle className="line-clamp-none">{t('shareRoom.requestTitle', { guest: guestName, agent: agentName })}</ItemTitle>
-          <ItemDescription className="line-clamp-none text-xs">{t('shareRoom.requestWaitingYou', { agent: agentName })}</ItemDescription>
+          <ItemTitle className="line-clamp-none">{t('shareJam.requestTitle', { guest: guestName, agent: agentName })}</ItemTitle>
+          <ItemDescription className="line-clamp-none text-xs">{t('shareJam.requestWaitingYou', { agent: agentName })}</ItemDescription>
           {error && <p className="text-xs text-destructive" role="alert">{error}</p>}
         </ItemContent>
         <ItemActions className="ms-auto">
           <Button size="sm" variant="outline" disabled={busy !== null} onClick={() => void decide('decline')} data-share-decide="decline">
-            {busy === 'decline' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}{t('shareRoom.decline')}
+            {busy === 'decline' ? <Spinner data-icon="inline-start" /> : <X data-icon="inline-start" />}{t('shareJam.decline')}
           </Button>
           <Button size="sm" disabled={busy !== null} onClick={() => void decide('approve')} data-share-decide="approve">
-            {busy === 'approve' ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}{t('shareRoom.approve')}
+            {busy === 'approve' ? <Spinner data-icon="inline-start" /> : <Check data-icon="inline-start" />}{t('shareJam.approve')}
           </Button>
         </ItemActions>
       </Item>

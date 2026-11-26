@@ -491,7 +491,7 @@ function failWith(status: number, data: unknown, message = 'no') {
   return new Response(JSON.stringify({ code: status, message, data }), { status });
 }
 
-it('asks a signed-out visitor of an invite-only room to sign in', async () => {
+it('asks a signed-out visitor of an invite-only jam to sign in', async () => {
   serve(() => failWith(401, { access: 'invited' }));
   await open();
   expect(host.querySelector('[data-guest-link-state="invite_signin"]')?.textContent).toContain('guestThread.inviteOnlyTitle');
@@ -501,7 +501,7 @@ it('asks a signed-out visitor of an invite-only room to sign in', async () => {
 it('tells a signed-in visitor who isn’t invited which account was checked', async () => {
   auth.value = { ...auth.value, user: { email: 'sam@example.com' }, idToken: 'id-tok' };
   try {
-    // Without credentials the room asks to sign in; with them, it checks the account.
+    // Without credentials the jam asks to sign in; with them, it checks the account.
     serve((_url, init) => (((init?.headers || {}) as Record<string, string>).Authorization
       ? failWith(403, { access: 'invited', email: 'sam@example.com' })
       : failWith(401, { access: 'invited' })));
@@ -540,7 +540,7 @@ it('lets an invited, signed-in guest in with their account: bearer on every call
     const headers = (post[1] as RequestInit).headers as Record<string, string>;
     expect(headers.Authorization).toBe('Bearer id-tok');
     expect(headers['X-Guest-Session']).toBeUndefined();
-    // Once the room says it's invite-only, every call carries the account.
+    // Once the jam says it's invite-only, every call carries the account.
     for (const call of fetchMock.mock.calls.slice(1)) {
       expect([String(call[0]), ((call[1] as RequestInit).headers as Record<string, string> | undefined)?.Authorization]).toEqual([String(call[0]), 'Bearer id-tok']);
     }
@@ -611,17 +611,17 @@ it('lets a named guest bring an agent, shows the one-time commands, and says whe
   await open();
   await act(async () => { (host.querySelector('[data-add-agent-button]') as HTMLElement).click(); });
   await settle();
-  expect(document.querySelector('[data-add-agent-explain]')?.textContent).toBe('roomAgents.guestExplain');
+  expect(document.querySelector('[data-add-agent-explain]')?.textContent).toBe('jamAgents.guestExplain');
   await typeName('mine');
   await act(async () => { (document.querySelector('[data-add-agent-submit]') as HTMLElement).click(); });
   await settle();
-  expect(document.querySelector('[data-add-agent-error]')?.textContent).toBe('roomAgents.nameTaken:{"name":"mine"}');
+  expect(document.querySelector('[data-add-agent-error]')?.textContent).toBe('jamAgents.nameTaken:{"name":"mine"}');
   await act(async () => { (document.querySelector('[data-add-agent-submit]') as HTMLElement).click(); });
   await settle();
   expect(posts.map((p) => p.body)).toEqual([{ name: 'mine', type: 'claude' }, { name: 'mine', type: 'claude' }]);
   expect(posts[0].headers['X-Guest-Session']).toBe('secret');
   expect(document.querySelector('[data-add-agent-commands]')?.textContent).toBe(AGENT_COMMANDS.join('\n'));
-  expect(document.querySelector('[data-add-agent-token-once]')?.textContent).toBe('roomAgents.tokenOnce');
+  expect(document.querySelector('[data-add-agent-token-once]')?.textContent).toBe('jamAgents.tokenOnce');
 });
 
 it('shows who brought an agent and lets a guest remove only their own', async () => {
@@ -636,7 +636,7 @@ it('shows who brought an agent and lets a guest remove only their own', async ()
     { name: 'sams-bot', displayName: 'sams-bot', type: 'codex', online: false, broughtBy: 'Sam', mine: false },
   ] }));
   await open();
-  expect(host.querySelector('[data-agent-row="sams-bot"] [data-agent-brought-by]')?.textContent).toBe('roomAgents.broughtBy:{"name":"Sam"}');
+  expect(host.querySelector('[data-agent-row="sams-bot"] [data-agent-brought-by]')?.textContent).toBe('jamAgents.broughtBy:{"name":"Sam"}');
   expect(host.querySelector('[data-agent-row="sams-bot"] [data-agent-remove]')).toBeNull();
   expect(host.querySelector('[data-agent-row="claude-code"] [data-agent-remove]')).toBeNull();
   await act(async () => { (host.querySelector('[data-agent-row="mine"] [data-agent-remove]') as HTMLElement).click(); });

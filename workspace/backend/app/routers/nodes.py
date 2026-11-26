@@ -93,7 +93,7 @@ def _machine_token_ok(token, workspace, node) -> bool:
     if not token or node is None:
         return False
     if node.scope_channel:
-        return False   # a guest's agent in a room (limited connection) is no device to operate
+        return False   # a guest's agent in a jam (limited connection) is no device to operate
     allowed_owner = node.owner_email or workspace.legacy_machine_access
     return bool(allowed_owner and (
         (node.token and token == node.token) or

@@ -26,7 +26,7 @@ export default function SharedThreadPage({ params, searchParams }: {
   const idTokenRef = useRef(idToken);
   idTokenRef.current = idToken;
   const getIdToken = useCallback(() => idTokenRef.current, []);
-  // Invite-only rooms: the signed-in account is the guest (its bearer goes on every call).
+  // Invite-only jams: the signed-in account is the guest (its bearer goes on every call).
   const thread = useGuestThread(token, {
     preview,
     auth: { idToken: getIdToken, signedIn: !!user && !!idToken, ready: !loading, displayName: user?.displayName || user?.email || null },

@@ -49,7 +49,7 @@ vi.stubGlobal('React', React);
 vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
 
 const LIVE: GuestLink = {
-  id: 'link-1', channel: 'share-abc', url: 'https://app.test/share/thread/tok-1', canPost: true,
+  id: 'link-1', channel: 'share-abc', url: 'https://app.test/jam/tok-1', canPost: true,
   expiresAt: null, revokedAt: null, createdAt: '2026-11-20T00:00:00Z',
 };
 
@@ -105,7 +105,7 @@ it('changes the expiry with PATCH and shows the new date', async () => {
 
 it('turns the link off only after confirming, then offers a new link', async () => {
   vi.mocked(workspaceApi.revokeGuestLink).mockResolvedValue({ ...LIVE, revokedAt: '2026-11-22T12:00:00Z' });
-  vi.mocked(workspaceApi.createGuestLink).mockResolvedValue({ ...LIVE, id: 'link-2', url: 'https://app.test/share/thread/tok-2', createdAt: '2026-11-22T12:01:00Z' });
+  vi.mocked(workspaceApi.createGuestLink).mockResolvedValue({ ...LIVE, id: 'link-2', url: 'https://app.test/jam/tok-2', createdAt: '2026-11-22T12:01:00Z' });
   await render();
   await click(button('share.guestLinkTurnOff'));
   expect(workspaceApi.revokeGuestLink).not.toHaveBeenCalled();
@@ -124,7 +124,7 @@ it('turns the link off only after confirming, then offers a new link', async () 
   await click(button('share.createGuestLink'));
   expect(workspaceApi.createGuestLink).toHaveBeenCalledWith('share-abc', null);
   expect(document.querySelector('[data-guest-link-state="live"]')).not.toBeNull();
-  expect(document.querySelector<HTMLInputElement>('input[aria-label="share.guestLink"]')?.value).toBe('https://app.test/share/thread/tok-2');
+  expect(document.querySelector<HTMLInputElement>('input[aria-label="share.guestLink"]')?.value).toBe('https://app.test/jam/tok-2');
 });
 
 it('shows an expired link as stopped, with a way to make a new one', async () => {

@@ -5,32 +5,32 @@ import { GuestThreadError } from '@/lib/guest-thread-api';
 import { nextPollDelay, optimisticOwnerMessage, type PendingSend } from '@/lib/guest-thread';
 import type { ShareRequestStatus } from '@/lib/share-requests';
 import {
-  addRoomAgent,
-  decideRoomRequest,
-  removeRoomAgent,
-  fetchEarlierRoomMessages,
-  fetchRoomRequests,
-  fetchRoom,
-  fetchRoomMessages,
+  addJamAgent,
+  decideJamRequest,
+  removeJamAgent,
+  fetchEarlierJamMessages,
+  fetchJamRequests,
+  fetchJam,
+  fetchJamMessages,
   movedToOf,
-  postRoomMessage,
+  postJamMessage,
   type MovedTo,
-  type RoomCredentials,
+  type JamCredentials,
   type ShareRequest,
-  type ShareRoom,
-} from '@/lib/share-room-api';
+  type ShareJam,
+} from '@/lib/jam-api';
 import type { DecideOutcome } from './share-request-status';
 import { isHidden, useThreadFeed, type ThreadFeedSource } from './use-thread-feed';
 import { INFO_REFRESH_MS, type SendResult } from './use-guest-thread';
 
-export type OwnerRoomStatus = 'loading' | 'ready' | 'not_found' | 'moved' | 'error';
+export type OwnerJamStatus = 'loading' | 'ready' | 'not_found' | 'moved' | 'error';
 
 /**
- * The owner's light room (`/share/own/<slug>?token=…`): the same single
+ * The owner page (`/jam/own/<slug>?token=…`): the same single
  * thread a guest sees, read and posted to with the owner link's workspace
  * token. No name prompt — the owner posts as themselves.
  */
-export interface OwnerRoomAuth {
+export interface OwnerJamAuth {
   /** The signed-in account's current bearer (read at request time). */
   idToken: () => string | null;
   signedIn: boolean;
@@ -38,20 +38,20 @@ export interface OwnerRoomAuth {
   ready: boolean;
 }
 
-export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) {
-  // Without the owner link's token, the signed-in owner's bearer opens the room.
+export function useOwnerJam(slug: string, token: string, auth?: OwnerJamAuth) {
+  // Without the owner link's token, the signed-in owner's bearer opens the jam.
   const signedIn = !!auth?.signedIn;
   const waitingForAuth = !token && !!auth && !auth.ready;
   const canOpen = !!token || signedIn;
-  const [status, setStatus] = useState<OwnerRoomStatus>(canOpen || waitingForAuth ? 'loading' : 'not_found');
-  const [room, setRoom] = useState<ShareRoom | null>(null);
+  const [status, setStatus] = useState<OwnerJamStatus>(canOpen || waitingForAuth ? 'loading' : 'not_found');
+  const [jam, setJam] = useState<ShareJam | null>(null);
   const [movedTo, setMovedTo] = useState<MovedTo | null>(null);
   const failedRef = useRef(new Map<string, PendingSend>());
   const ownerNameRef = useRef('');
 
   const idTokenRef = useRef(auth?.idToken);
   idTokenRef.current = auth?.idToken;
-  const creds = useMemo<RoomCredentials>(
+  const creds = useMemo<JamCredentials>(
     () => ({ slug, token: token || null, idToken: signedIn ? () => idTokenRef.current?.() ?? null : null }),
     [slug, token, signedIn],
   );
@@ -64,8 +64,8 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
   }, []);
 
   const source = useMemo<ThreadFeedSource>(() => ({
-    fetchMessages: (after) => fetchRoomMessages(creds, after),
-    fetchEarlier: (before) => fetchEarlierRoomMessages(creds, before),
+    fetchMessages: (after) => fetchJamMessages(creds, after),
+    fetchEarlier: (before) => fetchEarlierJamMessages(creds, before),
   }), [creds]);
   const feed = useThreadFeed(source, status === 'ready', endWith);
   const { reset, deliver: deliverFeed, markFailed } = feed;
@@ -75,16 +75,16 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
     if (!creds.token && !creds.idToken) { setStatus('not_found'); return; }
     setStatus('loading');
     try {
-      const next = await fetchRoom(creds);
+      const next = await fetchJam(creds);
       const moved = movedToOf(next.share);
       if (moved) { setMovedTo(moved); setStatus('moved'); return; }
       const page = await source.fetchMessages(null);
       ownerNameRef.current = next.owner?.name || '';
-      setRoom(next);
+      setJam(next);
       reset(page);
       setStatus('ready');
     } catch (error) {
-      // Signed in but not this room's owner: same as an invalid owner link.
+      // Signed in but not this jam's owner: same as an invalid owner link.
       if (error instanceof GuestThreadError && error.status === 403) { setStatus('not_found'); return; }
       if (!endWith(error)) setStatus('error');
     }
@@ -92,12 +92,12 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
 
   useEffect(() => { void load(); }, [load]);
 
-  /** Re-read the room now (agents, link, kept state); also every 30s. */
+  /** Re-read the jam now (agents, link, kept state); also every 30s. */
   const refresh = useCallback(async () => {
     try {
-      const next = await fetchRoom(creds);
+      const next = await fetchJam(creds);
       ownerNameRef.current = next.owner?.name || '';
-      setRoom(next);
+      setJam(next);
     } catch (error) {
       endWith(error);
     }
@@ -112,7 +112,7 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
   const deliver = useCallback(async (pending: PendingSend) => {
     failedRef.current.delete(pending.localId);
     const name = ownerNameRef.current;
-    const outcome = await deliverFeed(pending, optimisticOwnerMessage(pending, name), (content, key) => postRoomMessage(creds, content, key));
+    const outcome = await deliverFeed(pending, optimisticOwnerMessage(pending, name), (content, key) => postJamMessage(creds, content, key));
     if (outcome.ok || outcome.terminal) return;
     failedRef.current.set(pending.localId, pending);
     const kind = outcome.error instanceof GuestThreadError ? outcome.error.kind : null;
@@ -126,7 +126,7 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
   const [decisions, setDecisions] = useState<Record<string, ShareRequestStatus>>({});
 
   const loadRequests = useCallback(async () => {
-    const list = await fetchRoomRequests(creds);
+    const list = await fetchJamRequests(creds);
     setRequests(list.filter((r) => r.status === 'pending'));
   }, [creds]);
 
@@ -151,7 +151,7 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
 
   const decide = useCallback(async (id: string, decision: 'approve' | 'decline'): Promise<DecideOutcome> => {
     try {
-      const request = await decideRoomRequest(creds, id, decision);
+      const request = await decideJamRequest(creds, id, decision);
       setDecisions((prev) => ({ ...prev, [id]: request.status }));
       setRequests((prev) => prev.filter((r) => r.id !== id));
       return 'ok';
@@ -169,12 +169,12 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
 
   // ── Agents the owner adds ──
   const addAgent = useCallback(async (agent: { name: string; type: string }) => {
-    const result = await addRoomAgent(creds, agent);
+    const result = await addJamAgent(creds, agent);
     void refresh();
     return result;
   }, [creds, refresh]);
   const removeAgent = useCallback(async (name: string) => {
-    await removeRoomAgent(creds, name);
+    await removeJamAgent(creds, name);
     void refresh();
   }, [creds, refresh]);
 
@@ -189,7 +189,7 @@ export function useOwnerRoom(slug: string, token: string, auth?: OwnerRoomAuth) 
   }, [deliver]);
 
   return {
-    status, room, movedTo, creds,
+    status, jam, movedTo, creds,
     messages: feed.messages, hasOlder: feed.hasOlder, olderState: feed.olderState, loadOlder: feed.loadOlder, sendTick: feed.sendTick,
     reload: load, refresh, send, retry,
     addAgent, removeAgent,
