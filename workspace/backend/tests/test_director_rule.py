@@ -254,3 +254,13 @@ class TestNonDirectorRouting:
         meta = _post(client, workspace, channel=ch, by="mia", content="please start the eval")
         assert meta.get("target_agents") == ["agent-alpha"]
         assert not meta.get("from_non_director") and not meta.get("informational")
+
+
+@pytest.mark.parametrize("content", ["@agent-alpha看一下", "这个@agent-alpha帮我看看", "看一下@agent-alpha", "帮我看看 @agent-alpha。"])
+def test_cjk_adjacent_mention_reaches_the_agent(client, workspace, people, content):
+    """A mention with CJK text right next to it, anywhere in the message, is still a mention."""
+    ch = _create_thread(client, workspace, name="launch", by="mia")
+    for by in ("ned", "mia"):  # non-director and director
+        meta = _post(client, workspace, channel=ch, by=by, content=content)
+        assert meta.get("target_agents") == ["agent-alpha"]
+        assert not meta.get("informational")

@@ -43,6 +43,8 @@ def route(db, setup, content, source='human:user'):
     ('Can you ask @agent-worker?', ['agent-worker']),
     ('随便讲一句话 @agent-worker', ['agent-worker']),
     ('看一下这个@agent-worker', ['agent-worker']),
+    ('@agent-worker看一下', ['agent-worker']),
+    ('这个@agent-worker帮我看看', ['agent-worker']),
     ('@agent-worker please check', ['agent-worker']),
     ('  \n@agent-master hi', ['agent-master']),
     ('@agent-worker@example.com hello', ['__no_response__']),
