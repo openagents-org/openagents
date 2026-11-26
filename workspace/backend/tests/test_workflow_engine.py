@@ -428,3 +428,112 @@ class TestJudgeRequest:
             assert _step_complete(_agent_step("Draft"), "finished") is False
         else:
             assert _gate_met({"gate": {"condition": "needs revision"}}, "finished") is False
+
+
+class TestHumanRevisionLoop:
+    """Change feedback on a review step must re-open the previous agent step.
+
+    Review instructions invite "state what to change", and the workflow locks
+    the channel while it runs — dropping that feedback deadlocked threads.
+    """
+
+    @pytest.fixture(autouse=True)
+    def no_push_dispatch(self, monkeypatch):
+        # The post-commit push fan-out opens its own session on the shared
+        # test connection; a stray ROLLBACK from it can wipe an advance that
+        # is still uncommitted. Pushing is not what these tests exercise.
+        from app.services import notify as notify_mod
+
+        monkeypatch.setattr(notify_mod, "_dispatch", lambda snapshot: None)
+
+    def _review_workflow(self, client, workspace, steps, **extra):
+        body = {"network": workspace["id"], "name": "WF", "steps": steps}
+        body.update(extra)
+        resp = client.post("/v1/workflows", json=body, headers=_headers(workspace))
+        assert resp.status_code == 200, resp.text
+        return resp.json()["data"]
+
+    def _run_at(self, db, channel):
+        db.expire_all()
+        return db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+
+    def test_feedback_returns_to_previous_agent_step(self, client, workspace, db, completion_judge):
+        from app.models import EventRecord
+
+        wf = self._review_workflow(client, workspace, [
+            _agent_step("Research"), _agent_step("Summarize"), _human_step("Review", human=None),
+        ])
+        task, channel = _run_task_with_workflow(client, workspace, wf)
+
+        completion_judge.return_value = "done"
+        assert run_advance(db, workspace["id"], _agent_msg(channel, "research output")) is True
+        assert run_advance(db, workspace["id"], _agent_msg(channel, "summary output")) is True
+        run = self._run_at(db, channel)
+        assert run.current_step == wf["steps"][2]["id"]
+
+        # The human asks for changes instead of approving → back to Summarize.
+        completion_judge.return_value = "working"
+        assert run_advance(db, workspace["id"], _human_msg(channel, "focus on product solutions")) is True
+        # The judge judged the human feedback itself, not some other message.
+        prompt = completion_judge.call_args.args[0]
+        assert "focus on product solutions" in prompt
+        run = self._run_at(db, channel)
+        assert run.current_step == wf["steps"][1]["id"]
+        assert run.iterations == 1
+        assert run.status == "running"
+        row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
+        assert row.status == "in_progress"
+
+        # The re-delivered step carries the feedback as its context.
+        events = db.execute(
+            select(EventRecord).where(
+                EventRecord.target == f"channel/{channel}",
+                EventRecord.type == "workspace.message.posted",
+            )
+        ).scalars().all()
+        redo = [e for e in events
+                if "Workflow step" in ((e.payload or {}).get("content") or "")
+                and "Summarize" in ((e.payload or {}).get("content") or "")]
+        assert redo and "focus on product solutions" in redo[-1].payload["content"]
+
+        # The revised agent output returns the run to the human step.
+        completion_judge.return_value = "done"
+        assert run_advance(db, workspace["id"], _agent_msg(channel, "revised summary")) is True
+        assert self._run_at(db, channel).current_step == wf["steps"][2]["id"]
+
+    def test_revision_loop_stalls_at_max_iterations(self, client, workspace, db, completion_judge):
+        wf = self._review_workflow(
+            client, workspace,
+            [_agent_step("Draft"), _human_step("Review", human=None)],
+            max_iterations=1,
+        )
+        task, channel = _run_task_with_workflow(client, workspace, wf)
+
+        completion_judge.return_value = "done"
+        assert run_advance(db, workspace["id"], _agent_msg(channel)) is True  # → Review
+
+        # First change request consumes the single allowed iteration.
+        completion_judge.return_value = "working"
+        assert run_advance(db, workspace["id"], _human_msg(channel, "make it shorter")) is True
+        assert self._run_at(db, channel).iterations == 1
+
+        # The redo lands back on Review; a second request exhausts the budget.
+        completion_judge.return_value = "done"
+        assert run_advance(db, workspace["id"], _agent_msg(channel)) is True  # → Review
+        completion_judge.return_value = "working"
+        assert run_advance(db, workspace["id"], _human_msg(channel, "shorter still")) is True
+        db.expire_all()
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "stalled"
+        row = db.execute(select(KanbanTask).where(KanbanTask.id == task["id"])).scalar_one()
+        assert row.status == "need_input"
+
+    def test_explicit_approval_keyword_skips_the_judge(self, client, workspace, db, completion_judge):
+        wf = self._review_workflow(client, workspace, [_human_step("Review", human=None)])
+        _, channel = _run_task_with_workflow(client, workspace, wf)
+        completion_judge.return_value = "working"  # even a wrong judge must not eat the keyword
+        assert run_advance(db, workspace["id"], _human_msg(channel, "通过")) is True
+        completion_judge.assert_not_called()
+        db.expire_all()
+        run = db.execute(select(WorkflowRun).where(WorkflowRun.channel_name == channel)).scalar_one()
+        assert run.status == "done"

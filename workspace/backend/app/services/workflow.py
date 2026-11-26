@@ -306,13 +306,23 @@ Step output:
 Answer with exactly one word: yes | no"""
 
 
-def _step_complete(step: dict, output: str) -> bool:
-    verdict = _judge(_STEP_DONE_PROMPT.format(
+_HUMAN_APPROVAL_KEYWORDS = {"通过", "批准", "同意", "approve", "approved", "lgtm"}
+# Review-step instructions explicitly invite these ("回复'通过'…"). An exact
+# match completes the step deterministically — a judge outage must never
+# swallow an approval. Anything else still goes through the judge.
+
+
+def _step_verdict(step: dict, output: str) -> Optional[str]:
+    """Judge whether ``output`` completes ``step``; None if unavailable/unsure."""
+    return _judge(_STEP_DONE_PROMPT.format(
         kind=(step.get("assignee") or {}).get("kind", "assignee"),
         instruction=step.get("instruction", ""), output=output,
     ))
+
+
+def _step_complete(step: dict, output: str) -> bool:
     # A failed or ambiguous judgment must never authorize the next step.
-    return bool(verdict and verdict.strip().lower() == "done")
+    return (_step_verdict(step, output) or "").strip().lower() == "done"
 
 
 def _human_assignee_matches(db, workspace_id: str, step: dict, event_data: dict) -> bool:
@@ -512,6 +522,38 @@ def _stall(db, workspace, run: WorkflowRun) -> None:
           "⚠️ This workflow reached its maximum iterations and paused for human review.", metadata={})
 
 
+def _request_revision(db, workspace, run: WorkflowRun, step: dict, feedback: str) -> bool:
+    """Return a human review step's change feedback to the previous agent step.
+
+    Review-style instructions ("reply 通过 or state what to change") promise a
+    revision round, but the feedback used to be dropped: the router targets
+    nothing while a human step is current, and a "working" verdict just kept
+    the run waiting — a silent deadlock. Re-deliver the nearest earlier agent
+    step with the feedback as its context instead. Counts against the run's
+    iteration budget; returns False when there is no agent step to return to,
+    which keeps the old wait-quietly behavior for human-first workflows.
+    """
+    steps = _steps(run)
+    idx = _step_index(run, step["id"])
+    tgt_idx = idx - 1
+    if tgt_idx < 0:
+        return False
+    assignee = steps[tgt_idx].get("assignee") or {}
+    if assignee.get("kind") != "agent" or not assignee.get("agent"):
+        return False
+
+    # Loop budget: a backward jump counts as an iteration, same as gates.
+    run.iterations += 1
+    if run.iterations > int((run.snapshot or {}).get("max_iterations", 5)):
+        _stall(db, workspace, run)
+        return True
+
+    run.current_step = steps[tgt_idx]["id"]
+    db.flush()
+    _deliver_step(db, workspace, run, steps[tgt_idx], feedback)
+    return True
+
+
 # ---------------------------------------------------------------------------
 # Start + advance
 # ---------------------------------------------------------------------------
@@ -581,8 +623,26 @@ def run_advance(db, workspace_id: str, event_data: dict) -> bool:
     if not workspace:
         return False
 
-    if not _step_complete(step, output):
-        return False  # still working — wait for the next message
+    # Agent steps keep the plain done gate. Human review steps additionally
+    # honor the explicit approval keywords their instructions ask for, and a
+    # judge verdict of "working" (change feedback) returns to the previous
+    # agent step instead of stranding the run.
+    if kind == "agent":
+        if not _step_complete(step, output):
+            return False  # still working — wait for the next message
+    else:
+        if output.strip().lower() in _HUMAN_APPROVAL_KEYWORDS:
+            pass  # Approval keyword: deterministic done, no judge needed.
+        else:
+            verdict = _step_verdict(step, output)
+            if verdict == "done":
+                pass
+            elif verdict == "working":
+                if not _request_revision(db, workspace, run, step, output):
+                    return False  # No agent step to return to — keep waiting.
+                return True  # The re-delivered step owns the channel now.
+            else:
+                return False  # Judge unavailable or ambiguous — keep waiting.
 
     # Resolve the next step: gate target (skip/loop) or the following step.
     steps = _steps(run)
