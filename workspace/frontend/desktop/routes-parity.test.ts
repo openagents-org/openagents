@@ -15,6 +15,9 @@ const WEB_ONLY = new Set([
   '/oauth/authorize', // third-party OAuth consent
   '/share/artifact/:token', // public links opened by people outside the app
   '/share/file/:token',
+  '/jam/:token', // guest view of one shared thread, opened without an account
+  '/jam/own/:slug', // owner page for a shared agent, opened from the owner link
+  '/jams', // the signed-in owner's shared jams (web; jams open in the browser)
 ]);
 
 const APP_DIR = join(__dirname, '..', 'app');

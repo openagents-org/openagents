@@ -92,6 +92,8 @@ def _machine_token_ok(token, workspace, node) -> bool:
     """Only this connection's credential may operate its private device."""
     if not token or node is None:
         return False
+    if node.scope_channel:
+        return False   # a guest's agent in a jam (limited connection) is no device to operate
     allowed_owner = node.owner_email or workspace.legacy_machine_access
     return bool(allowed_owner and (
         (node.token and token == node.token) or

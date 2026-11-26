@@ -15,6 +15,7 @@ import { useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { WorkspaceMessage, WorkspaceAgent } from '@/lib/types';
 import { isControlMessage } from '@/lib/control-messages';
+import { requestDecisions, requestStatus, shareRequestOf } from '@/lib/share-requests';
 import { useT } from '@/lib/i18n';
 import { filterThreadSteps, groupKey, groupMessages, isTerminalStatus } from './chat-message-groups';
 import { useChatScroll } from './use-chat-scroll';
@@ -72,6 +73,8 @@ function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder
 
   // Group into chat messages and intermediate step clusters
   const groups = useMemo(() => groupMessages(filteredMessages), [filteredMessages]);
+  // OpenAgents Share: decisions on guests' held requests, from the thread's notices.
+  const shareDecisions = useMemo(() => requestDecisions(messages), [messages]);
 
   const hasTerminalStatus = realMessages.some(isTerminalStatus);
 
@@ -185,6 +188,7 @@ function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder
                       onReply={onReply}
                       onSaveKnowledge={onSaveKnowledge}
                       onRecall={recall}
+                      shareRequestStatus={(() => { const req = shareRequestOf(group.message); return req ? requestStatus(req, shareDecisions) : undefined; })()}
                     />
                   ) : (
                     <IntermediateSteps

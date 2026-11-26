@@ -1,7 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { ArrowUpRight, Globe } from 'lucide-react';
+import { ArrowUpRight, CalendarClock, ChevronRight, Globe } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Item, ItemContent, ItemHeader, ItemTitle } from '@/components/ui/item';
 import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { FileTile } from '@/components/files/file-utils';
@@ -13,7 +14,7 @@ import type { BrowserTab, WorkspaceFile } from '@/lib/types';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
 /** One artifact tile in the thread shelf: a preview on top, its name below. */
-function ResourceTile({ label, hint = label, pressed, onOpen, preview }: {
+export function ResourceTile({ label, hint = label, pressed, onOpen, preview }: {
   label: string;
   hint?: string;
   pressed?: boolean;
@@ -69,4 +70,28 @@ export function FileResourceTile({ file, pressed }: { file: WorkspaceFile; press
       <FileTile file={file} className="h-16 w-full rounded-md shadow-none" />
     } />
   );
+}
+
+/**
+ * A routine in the thread shelf: its name and when it runs (or that it is
+ * paused or needs attention). Without `onOpen` it is a read-only card.
+ */
+export function RoutineResourceTile({ name, detail, attention = false, pressed = false, onOpen }: {
+  name: string;
+  /** The schedule, "Paused", or the attention note. */
+  detail: string;
+  attention?: boolean;
+  pressed?: boolean;
+  onOpen?: () => void;
+}) {
+  const body = <>
+    <span className="flex items-start gap-2"><CalendarClock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"/><strong className="flex-1 text-xs font-medium">{name}</strong>{onOpen && <ChevronRight className="size-3 text-muted-foreground"/>}</span>
+    <span className="mt-1.5 block text-[11px] text-muted-foreground">{attention ? <span className="text-warning">{detail}</span> : detail}</span>
+  </>;
+  const frame = 'w-full rounded-lg border bg-background p-2.5 text-left';
+  return <li className="w-60 shrink-0 snap-start">
+    {onOpen
+      ? <button aria-pressed={pressed} onClick={onOpen} className={cn(frame, 'hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring', pressed && 'border-ring bg-muted')}>{body}</button>
+      : <div className={frame} data-routine-tile="">{body}</div>}
+  </li>;
 }

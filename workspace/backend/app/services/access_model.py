@@ -216,7 +216,8 @@ def is_machine_caller(workspace: Optional[Workspace], token: Optional[str], db: 
         return True
     if db is not None:
         row = db.execute(
-            select(Node.id).where(Node.token == token, Node.workspace_id == workspace.id)
+            select(Node.id).where(Node.token == token, Node.workspace_id == workspace.id,
+                                  Node.scope_channel.is_(None))
         ).first()
         return row is not None
     return False

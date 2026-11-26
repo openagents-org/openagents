@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { THREAD_PARTICIPANTS_CHANGED } from '@/lib/thread-participants';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useDragScroll } from './use-drag-scroll';
-import { CalendarClock, Bot, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Layers, ListOrdered, PencilLine, X } from 'lucide-react';
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { CalendarClock, Bot, Layers, ListOrdered, PencilLine, X } from 'lucide-react';
+import { TabsContent } from '@/components/ui/tabs';
+import { RESOURCE_ROW, ResourceShelf } from './thread-resource-shelf';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -21,14 +22,14 @@ import { agentLabel } from '@/lib/helpers';
 import { resolveThreadBrowserLink, threadBrowserLinks, threadBrowserArtifacts } from '@/lib/thread-browser';
 import type { WorkspaceMessage } from '@/lib/types';
 import { useQueuedMessages, type PendingQueueEntry } from './use-queued-messages';
-import { BrowserResourceTile, FileResourceTile, LinkedBrowserResourceTile } from './thread-resource-tiles';
+import { BrowserResourceTile, FileResourceTile, LinkedBrowserResourceTile, RoutineResourceTile } from './thread-resource-tiles';
 import { routineNeedsAttention } from '@/components/routines/routine-status';
 import { useRoutineFormat } from '@/components/routines/use-routine-format';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
 // Radix Select has no empty value; this stands for "no reviewer".
 const NO_REVIEW = '__none__';
-const ROW = 'no-scrollbar flex cursor-grab select-none flex-nowrap gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain snap-x snap-proximity data-[dragging=true]:cursor-grabbing data-[dragging=true]:[&_*]:cursor-grabbing';
+const ROW = RESOURCE_ROW;
 
 /** A small, bounded shelf: conversation resources without taking over the chat. */
 export function ThreadResources({ messages = [], queueMessages = [], pendingQueue = [] }: { messages?: WorkspaceMessage[]; queueMessages?: WorkspaceMessage[]; pendingQueue?: PendingQueueEntry[] }) {
@@ -77,23 +78,14 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
   const editable = !!selectedAgent && collaboration.canEdit(selectedAgent);
   // The backend only accepts another agent that is already in this thread as reviewer.
   const reviewers = selectedAgent ? members.filter(agent => agent.agentName !== selectedAgent.agentName) : [];
-  return <section className="min-w-0 shrink-0 border-b bg-muted/15 px-3 py-2" aria-label={t('threadResources.title')}>
-    <Tabs value={active} onValueChange={value => { setSection(value); setCollapsed(false); }} className="min-w-0 gap-1.5">
-      <div className="flex items-center gap-2">
-        <TabsList className="h-7" aria-label={t('threadResources.title')}>
-          {queued.length > 0 && <TabsTrigger value="queue" className="px-2 text-xs"><ListOrdered />{t('threadResources.queue')}<span className="tabular-nums text-muted-foreground">{queued.length}</span></TabsTrigger>}
-          <TabsTrigger value="artifacts" className="px-2 text-xs"><Layers />{t('artifactPanel.title')}<span className="tabular-nums text-muted-foreground">{artifactCount}</span></TabsTrigger>
-          {members.length > 0 && <TabsTrigger value="agents" className="px-2 text-xs"><Bot />{t('threadResources.agents')}<span className="tabular-nums text-muted-foreground">{members.length}</span></TabsTrigger>}
-          {threadRoutines.length > 0 && <TabsTrigger value="routines" className="px-2 text-xs"><CalendarClock/>{t('routines.title')}<span className="tabular-nums text-muted-foreground">{threadRoutines.length}</span></TabsTrigger>}
-        </TabsList>
-        {showArrows && <div className="ml-auto flex items-center gap-1">
-          <Button variant="outline" size="icon-xs" aria-label={t('threadResources.scrollLeft')} onClick={() => scrollRow(-1)}><ChevronLeft /></Button>
-          <Button variant="outline" size="icon-xs" aria-label={t('threadResources.scrollRight')} onClick={() => scrollRow(1)}><ChevronRight /></Button>
-        </div>}
-        <Button variant="ghost" size="icon-xs" onClick={() => setCollapsed(!collapsed)} aria-expanded={!collapsed} aria-label={t(collapsed ? 'threadResources.expand' : 'threadResources.collapse')} className={cn('text-muted-foreground', !showArrows && 'ml-auto')}>{collapsed ? <ChevronDown /> : <ChevronUp />}</Button>
-      </div>
-      {!collapsed && <>
-        <TabsContent value="routines" className="mt-0 min-w-0"><ul ref={routineRow} className={ROW} aria-label={t('routines.title')}>{threadRoutines.map(r => <li key={r.id} className="w-60 shrink-0 snap-start"><button aria-pressed={selectedRoutineId === r.id} onClick={() => setSelectedRoutineId(r.id)} className={cn('w-full rounded-lg border bg-background p-2.5 text-left hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring', selectedRoutineId === r.id && 'border-ring bg-muted')}><span className="flex items-start gap-2"><CalendarClock className="mt-0.5 size-3.5 shrink-0 text-muted-foreground"/><strong className="flex-1 text-xs font-medium">{r.name}</strong><ChevronRight className="size-3 text-muted-foreground"/></span><span className="mt-1.5 block text-[11px] text-muted-foreground">{routineNeedsAttention(r) ? <span className="text-warning">{t('routineHub.attention')}</span> : r.status === 'paused' ? t('routines.paused') : formatSchedule(r)}</span></button></li>)}</ul></TabsContent>
+  const tabs = [
+    ...(queued.length > 0 ? [{ value: 'queue', label: t('threadResources.queue'), icon: <ListOrdered />, count: queued.length }] : []),
+    { value: 'artifacts', label: t('artifactPanel.title'), icon: <Layers />, count: artifactCount },
+    ...(members.length > 0 ? [{ value: 'agents', label: t('threadResources.agents'), icon: <Bot />, count: members.length }] : []),
+    ...(threadRoutines.length > 0 ? [{ value: 'routines', label: t('routines.title'), icon: <CalendarClock />, count: threadRoutines.length }] : []),
+  ];
+  return <ResourceShelf tabs={tabs} active={active} onActiveChange={setSection} collapsed={collapsed} onCollapsedChange={setCollapsed} showArrows={!!showArrows} onScroll={scrollRow}>
+        <TabsContent value="routines" className="mt-0 min-w-0"><ul ref={routineRow} className={ROW} aria-label={t('routines.title')}>{threadRoutines.map(r => <RoutineResourceTile key={r.id} name={r.name} pressed={selectedRoutineId === r.id} onOpen={() => setSelectedRoutineId(r.id)} attention={routineNeedsAttention(r)} detail={routineNeedsAttention(r) ? t('routineHub.attention') : r.status === 'paused' ? t('routines.paused') : formatSchedule(r)} />)}</ul></TabsContent>
         <TabsContent value="queue" className="mt-0 min-w-0">
           <ul {...queueDrag} ref={queueRow} aria-label={t('threadResources.queue')} className={ROW}>
             {queued.map((q, i) => <li key={q.queueId} className="flex w-64 shrink-0 snap-start flex-col gap-1 rounded-lg border bg-background p-2">
@@ -142,7 +134,5 @@ export function ThreadResources({ messages = [], queueMessages = [], pendingQueu
           </ul>
           {!artifactCount && <p className="py-2 text-xs text-muted-foreground">{t('threadResources.empty')}</p>}
         </TabsContent>
-      </>}
-    </Tabs>
-  </section>;
+  </ResourceShelf>;
 }
