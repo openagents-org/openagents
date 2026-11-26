@@ -59,6 +59,14 @@
   "modeWorkspace": "工作区",
   "modeSwitch": "在此电脑与工作区之间切换",
   "toggleSidebar": "展开或收起侧栏",
+  "help": {
+    "label": "帮助",
+    "short": "帮助",
+    "replayTour": "重新查看引导",
+    "workspaceVsComputer": "「工作区」和「此电脑」的区别",
+    "managingAgents": "连接和管理智能体",
+    "allDocs": "全部文档"
+  },
   "agentsSummary": {
     "running": "{{count}} 个智能体运行中",
     "starting": "{{count}} 个智能体启动中",

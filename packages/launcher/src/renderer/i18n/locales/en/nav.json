@@ -59,6 +59,14 @@
   "modeWorkspace": "Workspace",
   "modeSwitch": "Switch between this computer and your workspaces",
   "toggleSidebar": "Toggle sidebar",
+  "help": {
+    "label": "Help",
+    "short": "Help",
+    "replayTour": "Show the tour again",
+    "workspaceVsComputer": "Workspace vs. Computer",
+    "managingAgents": "Connecting and managing agents",
+    "allDocs": "All docs"
+  },
   "agentsSummary": {
     "running_one": "{{count}} agent running",
     "running_other": "{{count}} agents running",

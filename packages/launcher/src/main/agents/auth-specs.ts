@@ -934,9 +934,10 @@ export const KEY_OPTIONAL_LOGIN_AGENTS = new Set<string>([
   // command inside the interactive session, so the terminal we open drops the
   // user into the CLI where they run it. Like gemini it is ALSO in
   // DUAL_LOGIN_AGENTS, which is what gives that sign-in a probe: the session
-  // file the `/login` flow writes (see codebuddy-signin.ts). The registry still
-  // marks it `unverifiable` because the core has no per-platform creds path to
-  // look at — the launcher does.
+  // file the `/login` flow writes (see codebuddy-signin.ts). Since core 0.2.243
+  // the core reads the same file (registry creds_file* + the codebuddy_session
+  // classifier, with the same region rule); the registry keeps `unverifiable`
+  // because a missing file still does not prove the CLI is signed out.
   "codebuddy",
   // Qoder CLI (international and China editions): a `qodercli login` browser
   // sign-in OR a personal access token. Both registry fields are optional

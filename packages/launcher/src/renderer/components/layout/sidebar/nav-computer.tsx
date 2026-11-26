@@ -12,12 +12,13 @@ import { useAccountStore } from "@renderer/store/account"
 import { useUiStore } from "@renderer/store/ui"
 import { capture } from "@renderer/lib/analytics"
 import { NavAgents } from "./nav-agents"
+import { NavHelp } from "./nav-help"
 import { NavSettings } from "./nav-settings"
 import { RAIL_BUTTON, RailLabel } from "./rail-label"
 
 /**
  * This Computer's menu: its agents, the workspaces it has joined as a device,
- * and Settings unfolding in place.
+ * Settings unfolding in place, and Help.
  */
 export function NavComputer(): React.JSX.Element {
   const { t } = useTranslation()
@@ -44,6 +45,7 @@ export function NavComputer(): React.JSX.Element {
           </SidebarMenuButton>
         </SidebarMenuItem>
         <NavSettings />
+        <NavHelp />
       </SidebarMenu>
     </SidebarGroup>
   )

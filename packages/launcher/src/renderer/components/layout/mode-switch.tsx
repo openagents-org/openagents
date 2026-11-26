@@ -81,7 +81,8 @@ export function ModeSwitch({ inSidebar = false, ref }: {
     // it must not depend on the sidebar's: equal columns allowed to shrink fed
     // back into the measurement, and the sidebar crept wider frame by frame
     // after a language change, labels overlapping on the way.
-    <div ref={ref} role="tablist" aria-label={t("nav.modeSwitch")}
+    // The guided tour points at the sidebar's copy, the one on This Computer.
+    <div ref={ref} role="tablist" aria-label={t("nav.modeSwitch")} data-tour={inSidebar ? "mode-switch" : undefined}
       className="inline-grid w-max shrink-0 auto-cols-max grid-flow-col gap-0.5 rounded-lg bg-muted p-0.5 group-data-[collapsible=icon]:grid-flow-row group-data-[collapsible=icon]:justify-items-center">
       <Button icon={Monitor} label={t("nav.modeLauncherShort")} active={mode === "launcher"} testId="mode-launcher"
         onClick={() => useAccountStore.getState().exitWorkspace()} />

@@ -1,6 +1,6 @@
 import React from "react"
 import ReactDOM from "react-dom"
-import { type LucideIcon } from "lucide-react"
+import { ArrowLeftRight, CircleHelp, type LucideIcon } from "lucide-react"
 import { useShallow } from "zustand/react/shallow"
 
 import { NAV_ITEMS } from "@renderer/components/layout/nav-config"
@@ -22,7 +22,7 @@ import { useTourSpotlight } from "./use-tour-spotlight"
  * It complements (does not replace) the provisioning wizard (OnboardingFlow):
  * the wizard does the work, this tour teaches where things live. Completion is
  * persisted in localStorage so it only auto-runs once; it can be replayed from
- * the sidebar "guide" button.
+ * the sidebar's Help menu.
  */
 
 interface TourStep {
@@ -40,14 +40,26 @@ interface TourStep {
 // The wizard this tour follows has already joined the first workspace, so
 // Workspaces comes last: it is where a device joins the next one, not where it
 // starts.
+//
+// It opens on the switch between This Computer and the Workspace — people went
+// back and forth between the two looking for things — and closes on Help, where
+// the tour and the user guide can be found again.
 const STEPS: TourStep[] = [
+  { tab: "dashboard", anchor: "mode-switch", key: "modes" },
   { tab: "dashboard", anchor: "dashboard", key: "dashboard" },
   { tab: "workspaces", anchor: "workspaces", key: "workspaces" },
+  { tab: "workspaces", anchor: "help", key: "help" },
 ]
 
 /** The tab's own icon for the highlighted item, so the bubble names it twice. */
+/** Anchors that are not tabs, with the icon each shows. */
+const ANCHOR_ICONS: Record<string, LucideIcon> = {
+  "mode-switch": ArrowLeftRight,
+  help: CircleHelp,
+}
+
 function stepIcon(anchor: string): LucideIcon | null {
-  return NAV_ITEMS.find((i) => i.id === anchor)?.icon ?? null
+  return NAV_ITEMS.find((i) => i.id === anchor)?.icon ?? ANCHOR_ICONS[anchor] ?? null
 }
 
 /** Gap between the cut-out and the bubble, and the bubble's viewport margin. */
