@@ -13,6 +13,16 @@ def sharing_mode(setting):
 def request_access(db, workspace_id, channel, member, email):
     if not member or member.status == "removed" or not email:
         return "no"
+    from app.services.guest_links import guest_may_run, is_guest_email
+    from app.services.room_agents import guest_agent_may_run, is_guest_agent
+    if is_guest_agent(member):
+        # An agent a guest brought into a jam: anyone there may ask it (its
+        # launcher holds everyone but its own guest to read-only turns).
+        return "yes" if guest_agent_may_run(db, workspace_id, channel, member, email) else "no"
+    if is_guest_email(email):
+        # A guest of a shared thread may run that thread's agents while its
+        # link is live, and nothing else; no grant or sharing rule applies.
+        return "yes" if guest_may_run(db, workspace_id, channel, member, email) else "no"
     from app.services.personal_assistant import is_yumi, is_personal_channel
     if is_yumi(db, workspace_id, member.agent_name):
         return "yes" if channel and is_personal_channel(db, channel) and email.lower() == (channel.owner_email or "").lower() else "no"
@@ -44,6 +54,11 @@ def request_access(db, workspace_id, channel, member, email):
 def blocked_notice(db, workspace, channel, member):
     from app.mods.workspace_mod import _post_system_notice
     from app.models import User
+    from app.services.guest_links import guest_blocked_text
+    guest_text = guest_blocked_text(db, workspace, channel, member)
+    if guest_text:
+        _post_system_notice(db, workspace, channel.name, guest_text, notice="agent_access_required")
+        return
     owner = (member.owner_email or "").strip().lower()
     person = db.execute(select(User).where(User.email == owner)).scalar_one_or_none() if owner else None
     owner_label = (person.display_name if person else None) or owner or "the agent's owner"

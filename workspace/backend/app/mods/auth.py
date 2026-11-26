@@ -61,5 +61,16 @@ class AuthMod(GuardMod):
             event.network = str(workspace.id)
             return event
 
+        # OpenAgents Share: an agent a guest brought into a jam holds a limited
+        # connection — only its own join/heartbeat/leave and posts into its thread.
+        if token and not bearer_token and db is not None:
+            from app.services.room_agents import scoped_event_allowed, scoped_node
+            node = scoped_node(db, workspace.id, token)
+            if node is not None and scoped_event_allowed(node, event):
+                from app.services.room_agents import sanitize_scoped_post
+                sanitize_scoped_post(event)
+                event.network = str(workspace.id)
+                return event
+
         logger.warning("auth: rejected unauthorized/insufficient-role event for workspace %s", workspace.id)
         return None

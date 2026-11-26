@@ -14,7 +14,7 @@ import { WithTooltip } from '@/components/ui/with-tooltip';
 
 // Thread banners span the conversation's width, so they share the strip form
 // of Alert: no rounding or side borders, only the bottom rule.
-const STRIP = 'shrink-0 rounded-none border-x-0 border-t-0 px-2 lg:px-4';
+export const STRIP = 'shrink-0 rounded-none border-x-0 border-t-0 px-2 lg:px-4';
 
 /**
  * Offline-agent warning — surfaces when any participant is offline so the

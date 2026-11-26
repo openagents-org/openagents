@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Copy, Link } from 'lucide-react';
 import { Spinner } from '@/components/ui/spinner';
 import { Dialog, DialogContent, DialogHeader, DialogBody, DialogFooter, DialogTitle, DialogDescription } from '@/components/ui/responsive-dialog';
@@ -14,6 +14,9 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { useT } from '@/lib/i18n';
 import { shareOrigin } from '@/lib/share-origin';
 import { threadLink } from '@/lib/thread-link';
+import { agentLabel } from '@/lib/helpers';
+import { isSharedThreadName, showGuestLinkPanel } from '@/lib/guest-links';
+import { GuestLinkPanel, useGuestLinks } from './guest-link-panel';
 
 function ShareError({ message }: { message: string }) {
   return <Alert variant="destructive"><AlertDescription>{message}</AlertDescription></Alert>;
@@ -23,8 +26,21 @@ export function ShareDialog({ open, onOpenChange, sessionId }: {
   open: boolean; onOpenChange: (open: boolean) => void; sessionId: string;
 }) {
   const t = useT();
-  const { workspace } = useWorkspace();
-  const [mode, setMode] = useState('thread');
+  const { workspace, sessions, agents } = useWorkspace();
+  // A thread published by OpenAgents Share opens on its guest link.
+  const defaultMode = isSharedThreadName(sessionId) ? 'guest' : 'thread';
+  const [mode, setMode] = useState(defaultMode);
+  const guestLinks = useGuestLinks(sessionId, open && !!workspace);
+  const showGuest = showGuestLinkPanel(sessionId, guestLinks.links) && guestLinks.error !== 'forbidden';
+  // Fall back to the thread link when the guest tab isn't available here.
+  const activeMode = mode === 'guest' && !showGuest ? 'thread' : mode;
+  const guestAgent = useMemo(() => {
+    const participants = sessions?.find((s) => s.sessionId === sessionId)?.participants || [];
+    const name = participants.find((p) => p && p !== '__no_response__');
+    if (!name) return null;
+    const agent = agents?.find((a) => a.agentName === name);
+    return agent ? agentLabel(agent) : name;
+  }, [sessions, agents, sessionId]);
   const [loading, setLoading] = useState(false);
   const [shareUrl, setShareUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -41,7 +57,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: {
     return () => { active = false; };
   }, [open, sessionId, workspace?.workspaceId]);
   useEffect(() => {
-    setMode('thread'); setShareUrl(null); setError(null); setLoading(false);
+    setMode(defaultMode); setShareUrl(null); setError(null); setLoading(false);
     ++requestVersion.current;
     return () => { ++requestVersion.current; };
   }, [open, sessionId]);
@@ -62,12 +78,18 @@ export function ShareDialog({ open, onOpenChange, sessionId }: {
           <DialogTitle>{t('share.title')}</DialogTitle>
           <DialogDescription>{t('share.chooseType')}</DialogDescription>
         </DialogHeader>
-        <Tabs value={mode} onValueChange={setMode}>
+        <Tabs value={activeMode} onValueChange={setMode}>
           <DialogBody className="flex flex-col gap-4">
             <TabsList className="w-full">
+              {showGuest && <TabsTrigger value="guest">{t('share.guestLink')}</TabsTrigger>}
               <TabsTrigger value="thread">{t('share.threadLink')}</TabsTrigger>
               <TabsTrigger value="snapshot">{t('share.snapshot')}</TabsTrigger>
             </TabsList>
+            {showGuest && (
+              <TabsContent value="guest" className="flex flex-col gap-3">
+                <GuestLinkPanel channel={sessionId} agentName={guestAgent} links={guestLinks.links} error={guestLinks.error} setLinks={guestLinks.setLinks} />
+              </TabsContent>
+            )}
             <TabsContent value="thread" className="flex flex-col gap-3">
               <p className="text-sm text-muted-foreground">{t('share.threadLinkHint')}</p>
               <Input aria-label={t('share.threadLink')} readOnly value={liveUrl} className="select-all" onFocus={e => e.target.select()} />
@@ -82,7 +104,7 @@ export function ShareDialog({ open, onOpenChange, sessionId }: {
           </DialogBody>
           <DialogFooter>
             <Button variant="outline" onClick={() => onOpenChange(false)}>{t('common.close')}</Button>
-            {mode === 'thread' ? (
+            {activeMode === 'guest' ? null : activeMode === 'thread' ? (
               <Button disabled={!liveUrl} onClick={() => liveCopy.copyToClipboard(liveUrl)}>
                 {liveCopy.isCopied ? <Check data-icon="inline-start" /> : <Copy data-icon="inline-start" />}{liveCopy.isCopied ? t('common.copied') : t('share.copyThreadLink')}
               </Button>

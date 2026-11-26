@@ -2,6 +2,8 @@ import { normalizePolicyRequirements } from './approvals';
 import { getApiBaseUrl, getProjectPreviewUrl } from '@/lib/api-base';
 import type { ProjectPreview, ProjectUpload } from './web-projects';
 import type { ArtifactReference, ThreadArtifactSetting } from './thread-artifacts';
+import type { GuestLink, ThreadGuestRecord } from './guest-links';
+import type { ShareRequest as GuestRequestRecord } from './jam-api';
 import type {
   AgentCatalogDetail,
   PublicShareKind,
@@ -2894,6 +2896,112 @@ class WorkspaceApi {
 
   async getThreadLink(sessionId: string): Promise<{ id: string; session_id: string }> {
     return this.request('/v1/thread-links', { method: 'POST', body: JSON.stringify({ network: this.requireWorkspace(), session_id: sessionId }) });
+  }
+
+  // ── OpenAgents Jam: guest links into one thread (owner/admin only) ──
+
+  async listGuestLinks(channel: string): Promise<GuestLink[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ links?: GuestLink[] }>(`/v1/guest-links?${params}`);
+    return data?.links || [];
+  }
+
+  /** OpenAgents Jam: guests' requests in this thread waiting for the owner (owner/admin). */
+  async listGuestRequests(channel: string): Promise<GuestRequestRecord[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ requests?: GuestRequestRecord[] }>(`/v1/guest-links/requests?${params}`);
+    return data?.requests || [];
+  }
+
+  async decideGuestRequest(id: string, channel: string, decision: 'approve' | 'decline'): Promise<GuestRequestRecord> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ request: GuestRequestRecord }>(`/v1/guest-links/requests/${encodeURIComponent(id)}?${params}`, {
+      method: 'POST',
+      body: JSON.stringify({ decision }),
+    });
+    return data.request;
+  }
+
+  async createGuestLink(channel: string, expiresAt: string | null): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>('/v1/guest-links', {
+      method: 'POST',
+      body: JSON.stringify({ network: this.requireWorkspace(), channel, expires_at: expiresAt }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkExpiry(id: string, expiresAt: string | null): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ expires_at: expiresAt }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkCanPost(id: string, canPost: boolean): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ can_post: canPost }),
+    });
+    return data.link;
+  }
+
+  /** OpenAgents Jam: the thread's guests (owner/admin). */
+  async listThreadGuests(channel: string): Promise<ThreadGuestRecord[]> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ guests?: ThreadGuestRecord[] }>(`/v1/guest-links/guests?${params}`);
+    return data?.guests || [];
+  }
+
+  async removeThreadGuest(channel: string, guestId: string): Promise<ThreadGuestRecord> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), channel });
+    const data = await this.request<{ guest: ThreadGuestRecord }>(`/v1/guest-links/guests/${encodeURIComponent(guestId)}?${params}`, { method: 'DELETE' });
+    return data.guest;
+  }
+
+  async updateGuestLinkAllowGuestAgents(id: string, allow: boolean): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ allow_guest_agents: allow }),
+    });
+    return data.link;
+  }
+
+  async updateGuestLinkAccess(id: string, access: 'link' | 'invited'): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ access }),
+    });
+    return data.link;
+  }
+
+  async addGuestLinkInvites(id: string, emails: string[]): Promise<{ link: GuestLink; added: string[] }> {
+    const data = await this.request<{ link: GuestLink; added?: string[] }>(`/v1/guest-links/${encodeURIComponent(id)}/invites?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'POST',
+      body: JSON.stringify({ emails }),
+    });
+    return { link: data.link, added: data.added || [] };
+  }
+
+  async removeGuestLinkInvite(id: string, email: string): Promise<GuestLink> {
+    const params = new URLSearchParams({ network: this.requireWorkspace(), email });
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}/invites?${params}`, { method: 'DELETE' });
+    return data.link;
+  }
+
+  async updateGuestLinkApprovalMode(id: string, mode: 'none' | 'owner' | 'off'): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ approval_mode: mode }),
+    });
+    return data.link;
+  }
+
+  async revokeGuestLink(id: string): Promise<GuestLink> {
+    const data = await this.request<{ link: GuestLink }>(`/v1/guest-links/${encodeURIComponent(id)}?network=${encodeURIComponent(this.requireWorkspace())}`, {
+      method: 'DELETE',
+    });
+    return data.link;
   }
 
   async resolveThreadLink(id: string): Promise<{ id: string; session_id: string }> {

@@ -54,3 +54,22 @@ it.each(['high', 'normal', 'low'] as const)('hides the dot once a %s notificatio
   expect(cls).toContain('invisible');
   expect(cls).not.toMatch(/bg-(red|blue)-500/);
 });
+
+it('names a shared-thread guest sender as a guest, never by their internal address', async () => {
+  await dotFor({ createdBy: 'human:guest-7f3a@guest.invalid' });
+  expect(document.body.textContent).toContain('chat.guestBadge');
+  expect(document.body.innerHTML).not.toContain('guest.invalid');
+});
+
+it('shows a Share guest request with its own mark and label, and opens the thread', async () => {
+  const onNavigate = vi.fn();
+  const host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  const n = row({ kind: 'share_request', title: 'Maya is waiting for your approval', channelName: 'share-abc', createdBy: 'system:share' });
+  await act(async () => root.render(React.createElement(NotificationCard, { notification: n, onRead: vi.fn(), onDismiss: vi.fn(), onNavigate })));
+  expect(document.querySelector('[data-share-request-mark]')).not.toBeNull();
+  expect(document.body.textContent).toContain('inbox.chipGuestRequest');
+  expect(document.body.textContent).toContain('inbox.guestRequestSource');
+  expect(document.body.textContent).toContain('inbox.goToThread');
+  await act(async () => { [...document.querySelectorAll('button')].find((b) => b.textContent === 'Maya is waiting for your approval')!.click(); });
+  expect(onNavigate).toHaveBeenCalledWith(n);
+});
