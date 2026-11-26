@@ -12,7 +12,7 @@ import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
@@ -504,11 +504,16 @@ async def lifespan(app: FastAPI):
         await BrowserManager.get().shutdown()
 
 
+from app.database import release_read_only_db  # noqa: E402
+
 app = FastAPI(
     title="OpenAgents Workspace",
     description="Managed agent collaboration environment built on the OpenAgents Network Model",
     version="0.1.0",
     lifespan=lifespan,
+    # Return read-only requests' DB connections as soon as the endpoint
+    # returns, not after the response is sent (see app/database.py).
+    dependencies=[Depends(release_read_only_db, scope="function")],
 )
 
 @app.exception_handler(PoolTimeoutError)

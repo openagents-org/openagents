@@ -5,9 +5,12 @@ Database connection and session management.
 Uses SQLAlchemy with any PostgreSQL database (not Supabase-specific).
 """
 
+import logging
 import os
 
+from fastapi import Depends
 from sqlalchemy import create_engine, event
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import sessionmaker, Session, declarative_base
 from sqlalchemy.pool import NullPool, QueuePool
 
@@ -191,3 +194,79 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# ---------------------------------------------------------------------------
+# Release a read-only request's connection when the endpoint returns.
+#
+# get_db closes the session only after the response has been sent, so every
+# request held a pooled connection (an open "idle in transaction" backend)
+# while its response was serialized, compressed and written to the client,
+# including slow mobile clients. With ~180 of the database's 200 connections
+# allocated to worker pools, that hold time is what limits concurrency.
+#
+# release_read_only_db runs as an app-wide function-scoped dependency: right
+# after the endpoint function returns, if the session's transaction did no
+# writes and holds no pending changes, it commits that read-only transaction
+# without expiring loaded objects, which returns the connection to the pool.
+# The session stays open: anything that queries later (a lazy load during
+# serialization, a streaming body) simply checks out a connection again, and
+# get_db still closes the session at the end. Transactions that wrote and did
+# not commit are left exactly as before (get_db's close() rolls them back).
+# ---------------------------------------------------------------------------
+
+_WROTE = "oa_wrote_in_transaction"
+_READ_ONLY_PREFIXES = ("select", "show", "set ", "reset ")
+
+
+# Detect writes at the connection level, so every path counts: ORM flushes,
+# session.execute(text(...)), and SQL run directly on db.connection().
+# Anything that is not a plain read (SELECT/SHOW/SET/RESET) marks the
+# connection's current transaction; WITH (possibly a data-modifying CTE),
+# SAVEPOINT and DDL all count as writes, which only disables the early release.
+@event.listens_for(Engine, "before_cursor_execute")
+def _mark_write_statement(conn, cursor, statement, parameters, context, executemany):
+    if not statement.lstrip().lower().startswith(_READ_ONLY_PREFIXES):
+        conn.info[_WROTE] = True
+
+
+@event.listens_for(Engine, "commit")
+def _clear_on_commit(conn):
+    conn.info.pop(_WROTE, None)
+
+
+@event.listens_for(Engine, "rollback")
+def _clear_on_rollback(conn):
+    conn.info.pop(_WROTE, None)
+
+
+def release_if_read_only(db) -> bool:
+    """Return the session's connection to the pool if it only read.
+
+    Returns True when a connection was released."""
+    if not db.in_transaction() or db.new or db.dirty or db.deleted:
+        return False
+    if db.get_nested_transaction() is not None:
+        return False
+    if db.connection().info.get(_WROTE):
+        return False
+    expire = db.expire_on_commit
+    db.expire_on_commit = False
+    try:
+        db.commit()
+        return True
+    except Exception:
+        logging.getLogger(__name__).warning("read-only early release failed; leaving it to get_db", exc_info=True)
+        try:
+            db.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        db.expire_on_commit = expire
+
+
+def release_read_only_db(db=Depends(get_db)):
+    """App-wide function-scoped dependency; see the comment above."""
+    yield
+    release_if_read_only(db)
