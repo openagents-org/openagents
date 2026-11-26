@@ -98,8 +98,23 @@ def frontend_base() -> str:
     return (app_config.config.FRONTEND_BASE_URL or "").rstrip("/")
 
 
+def jam_host() -> str:
+    import app.config as app_config  # read at call time: settings can be reloaded
+    return (app_config.config.JAM_HOST or "").strip().lower()
+
+
 def guest_url(token: str) -> str:
-    return f"{frontend_base()}/jam/{token}"
+    """The link guests open: https://<JAM_HOST>/<token> when the short host is set."""
+    host = jam_host()
+    return f"https://{host}/{token}" if host else f"{frontend_base()}/jam/{token}"
+
+
+def new_link_token() -> str:
+    """Short enough to type, too long to guess: 10 letters/digits ≈ 59 bits."""
+    return "".join(secrets.choice(_TOKEN_ALPHABET) for _ in range(10))
+
+
+_TOKEN_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 
 
 def owner_url(workspace: Workspace, channel_name: str) -> str:
@@ -107,7 +122,9 @@ def owner_url(workspace: Workspace, channel_name: str) -> str:
 
     The full workspace UI comes only once the person keeps the conversation.
     """
-    return f"{frontend_base()}/jam/own/{workspace.slug}?token={workspace.password_hash}"
+    host = jam_host()
+    base = f"https://{host}/own" if host else f"{frontend_base()}/jam/own"
+    return f"{base}/{workspace.slug}?token={workspace.password_hash}"
 
 
 def guest_address(guest_id: str) -> str:
@@ -298,7 +315,7 @@ def publish(db: Session, body, owner) -> dict:
     link = ThreadGuestLink(
         workspace_id=wid,
         channel_name=channel_name,
-        token=secrets.token_urlsafe(24),
+        token=new_link_token(),
         created_by=f"human:{owner_email}" if owner_email else "share:anonymous",
         owner_name=owner_name,
         can_post=getattr(body, "guests_can_post", True) is not False,
@@ -772,7 +789,7 @@ def create_link(db: Session, workspace: Workspace, channel_name: str, raw_expiry
     link = ThreadGuestLink(
         workspace_id=str(workspace.id),
         channel_name=channel_name,
-        token=secrets.token_urlsafe(24),
+        token=new_link_token(),
         created_by=created_by,
         owner_name=previous.owner_name,
         can_post=True,

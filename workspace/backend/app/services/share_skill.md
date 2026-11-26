@@ -7,7 +7,7 @@ description: Share this agent with teammates through an OpenAgents jam, a link w
 
 When the person asks to start a jam or to share you with their team:
 
-1. Fetch the current instructions from `{API}/jam` (with your web fetch tool, or `curl -sS {API}/jam`).
+1. Fetch the current instructions from `{JAM}` (with your web fetch tool, or `curl -sS {JAM}`).
 2. Follow them step by step. They explain what sharing does, have you draft the share for the person's approval, and only then publish it and start the shared copy of you.
 
 Rules:
