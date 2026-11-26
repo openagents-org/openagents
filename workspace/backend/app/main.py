@@ -702,7 +702,7 @@ class JamHostMiddleware:
     short addresses; the rest of the API doesn't live there.
 
       /                 -> how an agent starts a jam (the share instructions)
-      /skill.md         -> the OpenAgents Jam skill
+      /skills.md        -> the OpenAgents Jam skill (/skill.md is an alias)
       /<token>          -> 302 to the guest page in the web app
       /own/<slug>?token -> 302 to the owner page in the web app
     """
@@ -710,7 +710,7 @@ class JamHostMiddleware:
     _ALLOWED = ("/health", "/ready")
     _TOKEN = re.compile(r"^/([A-Za-z0-9_-]{8,64})/?$")
     _OWNER = re.compile(r"^/own/([A-Za-z0-9_-]{1,64})/?$")
-    _REWRITE = {"/": "/jam", "/skill.md": "/jam/skill.md"}
+    _REWRITE = {"/": "/jam", "/skills.md": "/jam/skill.md", "/skill.md": "/jam/skill.md"}
 
     def __init__(self, app):
         self.app = app

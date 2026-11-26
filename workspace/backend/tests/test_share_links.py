@@ -1204,6 +1204,11 @@ def test_links_are_short_and_live_on_the_jam_host(client, monkeypatch, no_push):
     assert r.headers["location"] == f"https://app.example.test/jam/own/{data['slug']}?token=abc"
     start = client.get("/", headers=h)
     assert start.status_code == 200 and "Share this agent" in start.text
-    assert "https://jam.example.test" in client.get("/skill.md", headers=h).text
+    skill = client.get("/skills.md", headers=h)
+    assert skill.status_code == 200
+    assert skill.headers["content-type"].startswith("text/markdown")
+    assert skill.text.startswith("---\nname: openagents-jam\n")
+    assert "https://jam.example.test" in skill.text
+    assert client.get("/skill.md", headers=h).text == skill.text
     assert client.get("/v1/workspaces", headers=h).status_code == 404, "the rest of the API isn't on the jam host"
     assert client.get("/v1/share/instructions").status_code == 200, "other hosts are unaffected"
