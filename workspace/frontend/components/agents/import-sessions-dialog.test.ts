@@ -13,7 +13,7 @@ vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
     { agentName: 'theirs', displayName: 'Someone else’s agent', role: 'member', ownerEmail: 'other@x.com' },
   ],
   sessions: [{ sessionId: 'channel-s1', status: 'active' }, { sessionId: 'channel-s2', status: 'archived' }],
-  refreshAgents: ws.refresh, setCurrentSessionId: ws.open, currentUser: { id: 'me@x.com' },
+  refreshAgents: () => ws.refresh(), setCurrentSessionId: ws.open, currentUser: { id: 'me@x.com' },
 }) }));
 const t = (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key);
 const formatters = { timeAgo: () => '2d ago' };
@@ -56,12 +56,40 @@ function DevicePage({ onClose }: { onClose: (open: boolean) => void }) {
     React.createElement('output', { id: 'route' }, [viewMode, mobilePane, threadFilter].join('/')),
     React.createElement(ImportSessionsDialog, { open, onOpenChange: (v) => { setOpen(v); onClose(v); }, node, type: 'codex', agentName: 'coder' }));
 }
+const renderPage = async (onClose: (open: boolean) => void) =>
+  act(async () => root.render(React.createElement(LayoutProvider, { children: React.createElement(DevicePage, { onClose }) })));
 const render = async (onClose = vi.fn()) => {
-  await act(async () => root.render(React.createElement(LayoutProvider, { children: React.createElement(DevicePage, { onClose }) })));
+  await renderPage(onClose);
   await act(async () => document.querySelector<HTMLButtonElement>('#devices')!.click());
   await tick();
 };
 const q = (sel: string) => document.body.querySelector(sel);
+
+it('keeps only the newest row per ID from older devices when searching and selecting sessions', async () => {
+  api.get.mockResolvedValueOnce({ status: 'done', result: { ok: true, data: { sessions: [
+    SESSIONS[0], { ...SESSIONS[0], title: 'Stale copy', cwd: '/old', updatedAt: '2026-11-18T00:00:00Z' }, SESSIONS[1],
+  ] } } });
+  await render();
+  const rows = () => [...document.querySelectorAll('[data-testid="import-sessions-list"] [role="checkbox"]')];
+  const input = q('input[aria-label="importSessions.search"]') as HTMLInputElement;
+  const search = (text: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(rows()).toHaveLength(2);
+  await search('/work/api');
+  expect(rows().map(r => r.getAttribute('aria-label'))).toEqual(['Add pagination']);
+  await act(async () => (rows()[0] as HTMLButtonElement).click());
+  await search('no such session');
+  expect(rows()).toHaveLength(0);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('importSessions.empty');
+  await search('pagination');
+  expect(rows()).toHaveLength(1);
+  expect(rows()[0].getAttribute('aria-checked')).toBe('true');
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  expect(commands.filter(c => c.action === 'import_local_session')).toHaveLength(1);
+});
 
 it('lists the device\'s sessions for the tool and imports the picked ones into the chosen agent', async () => {
   await render();
@@ -146,6 +174,33 @@ it.each(['close', 'open result'])('can %s after a mixed batch when thread refres
     expect(ws.open).toHaveBeenCalledWith('channel-s1');
   }
   expect(close).toHaveBeenCalledWith(false);
+});
+
+it.each([
+  ['channel-s1', 'archived', 'archived'],     // cached as active
+  ['channel-missing', 'archived', 'archived'],
+  ['channel-s2', 'active', 'all'],            // cached as archived
+])('opens reused %s in its current filter at the original five-second deadline', async (channel, channelStatus, filter) => {
+  const close = vi.fn();
+  ws.refresh.mockImplementationOnce(() => new Promise<void>(() => {}));
+  api.get.mockImplementation(async (_node: string, id: string) => id === 'c2'
+    ? { status: 'done', result: { ok: true, data: { channel, channelStatus, existing: true } } }
+    : commands.find(c => c.commandId === id));
+  await render(close);
+  await act(async () => (q('[aria-label="Add pagination"]') as HTMLButtonElement).click());
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  const link = q('[data-testid="import-sessions-done"] button') as HTMLButtonElement;
+  await tick(4000);
+  await renderPage(close); // workspace publishes a new refreshAgents callback
+  await tick(999);
+  expect(link.disabled).toBe(true);
+  await tick(1);
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(link.disabled).toBe(false);
+  await act(async () => link.click());
+  expect(ws.open).toHaveBeenCalledWith(channel);
+  expect(q('#route')!.textContent).toBe(`threads/detail/${filter}`);
 });
 
 it('says when the device cannot list its sessions', async () => {

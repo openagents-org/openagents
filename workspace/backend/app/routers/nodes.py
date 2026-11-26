@@ -28,7 +28,7 @@ from sqlalchemy.orm import Session
 from app.access import repeats_machine_token, resolve_current_user, resolve_user_role, role_at_least, verify_workspace_access
 from app.config import config
 from app.database import get_db
-from app.models import Node, NodeCommand, NodePairingCode, Workspace
+from app.models import Channel, Node, NodeCommand, NodePairingCode, Workspace
 from app.response import ResponseCode, json_response, success_response
 from app.routers.network import _workspace_filter
 
@@ -644,7 +644,20 @@ def get_command(
     if cmd is None:
         return json_response(ResponseCode.NOT_FOUND, "Command not found")
     owner = _signed_in_owner(db, workspace, node, x_workspace_token, authorization)
-    return success_response(_format_command(cmd, private_ok=owner))
+    out = _format_command(cmd, private_ok=owner)
+    if owner and cmd.action == "import_local_session" and cmd.status == "done":
+        data = (out["result"] or {}).get("data") or {}
+        if data.get("existing") and isinstance(data.get("channel"), str):
+            # The picker can open a reused thread before discovery refreshes.
+            # Resolve its current status here, including for older devices.
+            status = db.execute(select(Channel.status).where(
+                Channel.workspace_id == workspace.id, Channel.name == data["channel"],
+                Channel.owner_email == node.owner_email.strip().lower(),
+                Channel.status.in_(("active", "archived")),
+            )).scalar_one_or_none()
+            if status:
+                out["result"] = {**out["result"], "data": {**data, "channelStatus": status}}
+    return success_response(out)
 
 
 @_both("get", "/{node_id}/agent-name")

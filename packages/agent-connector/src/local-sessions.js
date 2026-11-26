@@ -24,9 +24,10 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { StringDecoder } = require('string_decoder');
 const childProcess = require('child_process');
 const { redactSecrets } = require('./adapters/utils');
-const { claudeTranscripts, findClaudeTranscript } = require('./host-agent');
+const { claudeTranscripts } = require('./host-agent');
 const { openAgentsHomes, workspaceSessionIds } = require('./session-origins');
 
 const TYPES = ['claude', 'codex', 'opencode', 'hermes'];
@@ -74,21 +75,36 @@ function walk(dir, match, out = [], depth = 0) {
   return out;
 }
 
-function sessionFiles(type, env) {
-  if (type === 'claude') return claudeTranscripts(claudeHome(env));
+function sessionFiles(type, env, id) {
+  if (type === 'claude') return claudeTranscripts(claudeHome(env), id);
   if (type === 'codex') return walk(path.join(codexHome(env), 'sessions'), (n) => /^rollout-.*\.jsonl$/.test(n));
   return [];
 }
 
-function readLines(file) {
-  let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return []; }
-  const out = [];
-  for (const line of raw.split('\n')) {
-    if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch { /* a partial last line while the CLI writes */ }
+function* readLines(file) {
+  let fd;
+  try { fd = fs.openSync(file, 'r'); } catch { return; }
+  try {
+    const chunk = Buffer.allocUnsafe(64 * 1024);
+    const decoder = new StringDecoder('utf8');
+    let pending = '';
+    for (;;) {
+      const size = fs.readSync(fd, chunk, 0, chunk.length, null);
+      // Flush the last record even when it has no trailing newline.
+      const text = size ? decoder.write(chunk.subarray(0, size)) : decoder.end() + '\n';
+      const lines = text.split('\n');
+      lines[0] = pending + lines[0];
+      pending = lines.pop();
+      for (const line of lines) {
+        const record = line.trim();
+        if (!record) continue;
+        try { yield JSON.parse(record); } catch { /* a partial record while the CLI writes */ }
+      }
+      if (!size) break;
+    }
+  } finally {
+    fs.closeSync(fd);
   }
-  return out;
 }
 
 // ── Claude Code ────────────────────────────────────────────────────────────
@@ -115,13 +131,10 @@ function toolNote(name, input) {
   return oneLine(target ? `${verb}: ${Array.isArray(target) ? target.join(' ') : target}` : verb, 200);
 }
 
-function parseClaude(lines) {
-  const messages = [];
+function parseClaude(lines, onMessage) {
   let cwd = null;
-  let id = null;
   for (const o of lines) {
     if (!o || typeof o !== 'object') continue;
-    if (o.sessionId && !id) id = o.sessionId;
     if (o.cwd && !cwd) cwd = o.cwd;
     if (o.isSidechain) continue; // sub-agent chatter
     if (o.isMeta || o.isCompactSummary) continue; // CLI-written, not the person's
@@ -131,16 +144,16 @@ function parseClaude(lines) {
     if (o.type === 'user') {
       if (Array.isArray(m.content) && m.content.every((b) => b && b.type === 'tool_result')) continue;
       const text = claudeText(m.content).replace(CLAUDE_INJECTED_BLOCK, '').split('\n').filter((l) => !CLAUDE_INJECTED.test(l)).join('\n');
-      if (text.trim() && !CLAUDE_INJECTED.test(text)) messages.push({ role: 'user', text, at });
+      if (text.trim() && !CLAUDE_INJECTED.test(text)) onMessage({ role: 'user', text, at });
     } else {
       const text = claudeText(m.content);
-      if (text.trim()) messages.push({ role: 'assistant', text, at });
+      if (text.trim()) onMessage({ role: 'assistant', text, at });
       if (Array.isArray(m.content)) {
-        for (const b of m.content) if (b && b.type === 'tool_use') messages.push({ role: 'tool', text: toolNote(b.name || 'tool', b.input), at });
+        for (const b of m.content) if (b && b.type === 'tool_use') onMessage({ role: 'tool', text: toolNote(b.name || 'tool', b.input), at });
       }
     }
   }
-  return { id, cwd, messages };
+  return cwd;
 }
 
 // ── Codex ──────────────────────────────────────────────────────────────────
@@ -159,34 +172,46 @@ function codexText(content) {
     .join('\n');
 }
 
-function parseCodex(lines) {
-  const messages = [];
+function parseCodex(lines, onMessage) {
   let cwd = null;
-  let id = null;
   for (const o of lines) {
     if (!o || typeof o !== 'object') continue;
     const p = o.payload && typeof o.payload === 'object' ? o.payload : {};
-    if (o.type === 'session_meta') { id = id || p.id || p.session_id || null; cwd = cwd || p.cwd || null; continue; }
+    if (o.type === 'session_meta' && !cwd) cwd = p.cwd || null;
     if (o.type === 'turn_context' && !cwd && p.cwd) cwd = p.cwd;
     if (o.type !== 'response_item') continue;
     const at = o.timestamp || null;
     if (p.type === 'message' && (p.role === 'user' || p.role === 'assistant')) {
       const text = codexText(p.content);
       if (!text.trim() || (p.role === 'user' && (CODEX_INJECTED.test(text) || ONLY_TAG_BLOCKS.test(text)))) continue;
-      messages.push({ role: p.role, text, at });
+      onMessage({ role: p.role, text, at });
     } else if (p.type === 'function_call' || p.type === 'custom_tool_call' || p.type === 'local_shell_call') {
       let input = p.arguments || p.input || p.action || {};
       if (typeof input === 'string') { try { input = JSON.parse(input); } catch { input = { command: input }; } }
-      messages.push({ role: 'tool', text: toolNote(p.name || 'shell', input), at });
+      onMessage({ role: 'tool', text: toolNote(p.name || 'shell', input), at });
     }
   }
-  return { id, cwd, messages };
+  return cwd;
 }
 
 // ── public ─────────────────────────────────────────────────────────────────
 
-function parse(type, lines) {
-  return type === 'claude' ? parseClaude(lines) : parseCodex(lines);
+function readTranscript(type, file, includeMessages) {
+  const messages = includeMessages ? [] : undefined;
+  let first;
+  let userTurns = 0;
+  let messageCount = 0;
+  const parse = type === 'claude' ? parseClaude : parseCodex;
+  const cwd = parse(readLines(file), (message) => {
+    messages?.push(message);
+    if (message.role === 'tool') return;
+    messageCount++;
+    if (message.role === 'user') {
+      first ??= message.text;
+      userTurns++;
+    }
+  });
+  return { cwd, first, userTurns, messageCount, messages };
 }
 
 function idFromFile(type, file) {
@@ -200,18 +225,6 @@ function idFromFile(type, file) {
 // own: they carry the workspace briefing or run in the launcher's data directory.
 const OPENAGENTS_RUN = /connected to an OpenAgents workspace|^You previously worked in this channel|^You are agent '[^']+'|^OWNER-REVIEWED SHARED INSTRUCTIONS/;
 
-// The readiness check the device runs on an agent (src/probe.js sends "hi"
-// and nothing else). Each one leaves a session behind; on a device that has
-// run for a while they outnumber the person's own many times over.
-const PROBE_PROMPT = 'hi';
-function isProbe(s) {
-  if (s.type !== 'claude' && s.type !== 'codex') return false;
-  if (s.title.trim().toLowerCase() !== PROBE_PROMPT) return false;
-  // Exactly: "hi" was all the person (the check) typed. Without that detail,
-  // a short session that opened with "hi".
-  return s.typedTurns != null ? s.typedTurns <= 1 : (s.messageCount == null || s.messageCount <= 2);
-}
-
 function ranByOpenAgents(firstPrompt, cwd, env) {
   if (OPENAGENTS_RUN.test(firstPrompt || '')) return true;
   return !!cwd && openAgentsHomes(env).some((home) => {
@@ -220,76 +233,72 @@ function ranByOpenAgents(firstPrompt, cwd, env) {
   });
 }
 
-// How many of a file's lines a listing parses: enough for the first prompt.
-const HEAD_LINES = 400;
-
-/** What a picker shows, without parsing a long session in full: the first
- *  prompt and folder from the opening lines, and messages counted by shape. */
-function summarize(type, file) {
-  let raw;
-  try { raw = fs.readFileSync(file, 'utf8'); } catch { return null; }
-  const lines = raw.split('\n');
-  const head = [];
-  for (const line of lines.slice(0, HEAD_LINES)) {
-    if (!line.trim()) continue;
-    try { head.push(JSON.parse(line)); } catch { /* partial */ }
-  }
-  const s = parse(type, head);
-  let count = 0;
-  for (const line of lines) {
-    if (type === 'claude') {
-      if (line.includes('"isSidechain":true')) continue;
-      if ((line.includes('"type":"user"') && !line.includes('"tool_result"') && !line.includes('<command-'))
-          || (line.includes('"type":"assistant"') && line.includes('"type":"text"'))) count += 1;
-    } else if (line.includes('"type":"response_item"') && line.includes('"type":"message"')
-               && (line.includes('"role":"assistant"') || (line.includes('"role":"user"') && !line.includes('<environment_context>')))) {
-      count += 1;
+// A Codex rollout can have a different UUID in its filename than in its header.
+function codexSessionId(file) {
+  for (const row of readLines(file)) {
+    if (row?.type === 'session_meta') {
+      const id = row.payload?.id || row.payload?.session_id;
+      if (id) return id;
     }
   }
-  return { ...s, count };
+  return idFromFile('codex', file);
 }
 
-function listFileSessions(type, { env, limit, skip }) {
-  const files = sessionFiles(type, env)
+// Resolve each ID to its newest eligible file. Listing keeps only the summary.
+function* fileSessions(type, { env, skip }, requestedId) {
+  const files = sessionFiles(type, env, requestedId)
     .filter((file) => !skip.has(idFromFile(type, file)))
     .map((file) => { try { return { file, mtime: fs.statSync(file).mtimeMs }; } catch { return null; } })
     .filter(Boolean)
-    .sort((a, b) => b.mtime - a.mtime);
-  const out = [];
+    .sort((a, b) => b.mtime - a.mtime || a.file.localeCompare(b.file));
+  const seen = new Set();
+  let unlisted;
   for (const { file, mtime } of files) {
-    if (out.length >= limit) break;
-    const s = summarize(type, file);
-    const first = s && s.messages.find((m) => m.role === 'user');
-    if (!first) continue; // nothing the person said: an empty or aborted session
-    if (ranByOpenAgents(first.text, s.cwd, env)) continue;
+    let id;
+    let transcript;
+    try {
+      id = type === 'codex' ? codexSessionId(file) : idFromFile(type, file);
+      if ((requestedId && requestedId !== id) || seen.has(id) || skip.has(id)) continue;
+      transcript = readTranscript(type, file, !!requestedId);
+    } catch (err) {
+      if (err.syscall === 'read' && (!requestedId || requestedId !== id)) continue;
+      throw err;
+    }
+    const { first, cwd, userTurns } = transcript;
+    if (ranByOpenAgents(first, cwd, env)) continue;
+    const session = { id, file, mtime, ...transcript };
+    // A newly opened rollout or a "hi" readiness check can share an older
+    // personal rollout's ID. Keep looking before reserving a picker row.
+    if (!first || (userTurns === 1 && first.trim().toLowerCase() === 'hi')) {
+      if (requestedId) unlisted ??= session;
+      continue;
+    }
+    seen.add(id);
+    yield session;
+    if (requestedId) return;
+  }
+  // A direct read of a now-empty file still lets the importer explain why.
+  if (unlisted) yield unlisted;
+}
+
+function listFileSessions(type, options) {
+  const out = [];
+  for (const { id, first, cwd, mtime, messageCount } of fileSessions(type, options)) {
     out.push({
-      // Claude Code: the file's name is the session (a resumed file can open
-      // with an older session's records).
-      id: type === 'claude' ? idFromFile(type, file) : (s.id || idFromFile(type, file)),
-      type,
-      title: oneLine(maskSecrets(first.text)),
-      cwd: s.cwd,
-      updatedAt: new Date(mtime).toISOString(),
-      messageCount: s.count,
-      // How many times the person typed, in the opening lines read: lets a
-      // readiness check ("hi" alone) be told from a chat that began with hi.
-      typedTurns: s.messages.filter((m) => m.role === 'user').length,
+      id, type, title: oneLine(maskSecrets(first)), cwd,
+      updatedAt: new Date(mtime).toISOString(), messageCount,
     });
+    if (out.length === options.limit) break;
   }
   return out;
 }
 
-function findSessionFile(type, id, env) {
+function readFileSession(type, id, options) {
   if (!/^[0-9a-zA-Z-]{8,64}$/.test(String(id || ''))) return null;
-  if (type === 'claude') return findClaudeTranscript(id, claudeHome(env));
-  return sessionFiles(type, env).find((f) => idFromFile(type, f) === id) || null;
-}
-
-function readFileSession(type, id, { env }) {
-  const file = findSessionFile(type, id, env);
-  if (!file) return null;
-  const s = parse(type, readLines(file));
-  return { id: type === 'claude' ? id : (s.id || id), cwd: s.cwd, file, messages: s.messages };
+  for (const { file, cwd, messages } of fileSessions(type, options, id)) {
+    return { id, cwd, file, messages };
+  }
+  return null;
 }
 
 // ── OpenCode ───────────────────────────────────────────────────────────────
@@ -548,12 +557,10 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
   // A project can contain both workspace runs and personal CLI sessions.
   const skip = workspaceSessionIds(type, env);
   for (const id of excludeIds) skip.add(id);
-  // Read past what gets left out, so the picker still fills up.
-  if (type === 'opencode') return sessions.list({ env, limit: max, run, skip });
+  if (type !== 'hermes') return sessions.list({ env, limit: max, run, skip });
   return sessions.list({ env, limit: Math.min(max * 10, 5000), run, skip })
-    .filter((s) => !skip.has(s.id) && !isProbe(s))
-    .slice(0, max)
-    .map(({ typedTurns, ...rest }) => rest); // eslint-disable-line no-unused-vars
+    .filter((s) => !skip.has(s.id))
+    .slice(0, max);
 }
 
 /** One session as a conversation, or null if it isn't there:
@@ -561,8 +568,9 @@ function listLocalSessions(type, { env = process.env, limit = DEFAULT_LIMIT, run
  *  `file` is set for file-based tools (claude, codex). */
 function readLocalSession(type, id, { env = process.env, maxMessages = 400, run = runOpencode } = {}) {
   const source = reader(type);
-  if (workspaceSessionIds(type, env).has(id)) return null;
-  const s = source.read(id, { env, run });
+  const skip = workspaceSessionIds(type, env);
+  if (skip.has(id)) return null;
+  const s = source.read(id, { env, run, skip });
   if (!s) return null;
   const first = s.messages.find((m) => m.role === 'user');
   if (ranByOpenAgents(first?.text, s.cwd, env)) return null;

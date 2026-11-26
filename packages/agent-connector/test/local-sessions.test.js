@@ -97,6 +97,60 @@ describe('local sessions', () => {
     assert.deepEqual(s.messages.map((m) => m.role), ['tool', 'assistant']);
   });
 
+  it('lists and imports the newest rollout for each Codex metadata ID, even under a different filename', () => {
+    const aliasEnv = { ...env, CODEX_HOME: path.join(home, 'aliases'), OPENAGENTS_HOME: path.join(home, 'alias-oa') };
+    const dir = path.join(aliasEnv.CODEX_HOME, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    const alias = '11111111-1111-1111-1111-111111111111';
+    const other = '22222222-2222-2222-2222-222222222222';
+    const write = (fileId, id, title, mtime) => {
+      const file = path.join(dir, `rollout-2026-11-01-${fileId}.jsonl`);
+      fs.writeFileSync(file, jsonl([
+        { type: 'session_meta', payload: { id, cwd: '/work' } },
+        { type: 'response_item', payload: { type: 'message', role: 'user', content: title } },
+      ]));
+      fs.utimesSync(file, mtime, mtime);
+      return file;
+    };
+    write(other, other, 'Another session', 100);
+    const older = write(CODEX_ID, CODEX_ID, 'Older rollout', 200);
+    const latest = write(alias, CODEX_ID, 'Latest rollout', 300);
+    write('33333333-3333-3333-3333-333333333333', CODEX_ID, '', 400);
+    write('44444444-4444-4444-4444-444444444444', CODEX_ID, 'You previously worked in this channel', 500);
+
+    const list = listLocalSessions('codex', { env: aliasEnv, limit: 2 });
+    assert.deepEqual(list.map(s => [s.id, s.title]), [[CODEX_ID, 'Latest rollout'], [other, 'Another session']]);
+    const imported = readLocalSession('codex', list[0].id, { env: aliasEnv });
+    assert.equal(imported.file, latest);
+    assert.equal(imported.messages[0].text, list[0].title);
+    assert.equal(readLocalSession('codex', alias, { env: aliasEnv }), null);
+    assert.deepEqual(listLocalSessions('codex', { env: aliasEnv, excludeIds: [CODEX_ID] }).map(s => s.id), [other]);
+    const tracked = path.join(aliasEnv.OPENAGENTS_HOME, 'sessions');
+    fs.mkdirSync(tracked, { recursive: true });
+    fs.writeFileSync(path.join(tracked, 'workspace-codex.ids'), alias + '\n');
+    assert.equal(listLocalSessions('codex', { env: aliasEnv })[0].title, 'Older rollout');
+    assert.equal(readLocalSession('codex', CODEX_ID, { env: aliasEnv }).file, older);
+  });
+
+  it('counts imported conversation turns in spaced JSONL, including those after a long preamble', () => {
+    for (const [type, id] of [['claude', CLAUDE_ID], ['codex', CODEX_ID]]) {
+      const source = readLocalSession(type, id, { env });
+      const spacedEnv = {
+        ...env, CODEX_HOME: path.join(home, 'spaced-codex'), CLAUDE_CONFIG_DIR: path.join(home, 'spaced-claude'),
+      };
+      const dir = type === 'codex' ? path.join(spacedEnv.CODEX_HOME, 'sessions') : path.join(spacedEnv.CLAUDE_CONFIG_DIR, 'projects', '-work');
+      fs.mkdirSync(dir, { recursive: true });
+      const rows = fs.readFileSync(source.file, 'utf8').trimEnd().split('\n');
+      rows.splice(1, 0, ...Array(401).fill('{"type":"progress"}'));
+      fs.writeFileSync(path.join(dir, path.basename(source.file)), rows.map(row => row.replace(/":/g, '": ')).join('\r\n'));
+      const [listed] = listLocalSessions(type, { env: spacedEnv });
+      const imported = readLocalSession(type, id, { env: spacedEnv });
+      assert.equal(listed.title, source.title);
+      assert.deepEqual(imported.messages, source.messages);
+      assert.equal(listed.messageCount, imported.messages.filter(m => m.role !== 'tool').length);
+    }
+  });
+
   it('refuses unknown types and odd ids, and finds nothing for a missing session', () => {
     assert.throws(() => listLocalSessions('aider', { env }), /not supported/);
     assert.equal(readLocalSession('claude', '../../etc/passwd', { env }), null);
@@ -415,5 +469,9 @@ describe('local sessions: newer Codex context blocks', () => {
   it('titles a session by what the person typed, and leaves out Codex\'s own reviewer runs', () => {
     const list = listLocalSessions('codex', { env });
     assert.deepEqual(list.map((s) => s.title).sort(), ['Add tests', 'Write a migration for users']);
+    for (const session of list) {
+      assert.equal(session.messageCount, 2);
+      assert.equal(session.messageCount, readLocalSession('codex', session.id, { env }).messages.length);
+    }
   });
 });

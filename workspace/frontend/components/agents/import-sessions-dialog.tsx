@@ -11,7 +11,7 @@
  * same tool on the same device continues the real session from a copy.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Check, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -37,7 +37,8 @@ export function isImportableType(type: string | null | undefined): type is Impor
 }
 
 export interface LocalSession { id: string; type: string; title: string; cwd: string | null; updatedAt: string; messageCount: number | null }
-type Outcome = { state: 'running' } | { state: 'done'; channel: string; existing: boolean } | { state: 'error'; message: string };
+type ImportedThread = { channel: string; channelStatus?: 'active' | 'archived'; existing?: boolean };
+type Outcome = { state: 'running' } | ({ state: 'done' } & ImportedThread) | { state: 'error'; message: string };
 
 /** Wait for a device command to finish: up to ~2 minutes (the device picks it up within ~10 s). */
 export async function waitForNodeCommand(nodeId: string, commandId: string, tries = 80): Promise<NodeCommand | null> {
@@ -73,17 +74,17 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   const importing = phase === 'importing';
   const busy = phase !== 'idle';
 
-  // Discovery supplies the status of reused threads. Waiting for its optional
-  // previews must not trap the person here after the device commands finish.
+  // One deadline per batch, even if discovery updates the workspace context.
+  const refreshThreads = useEffectEvent(() => refreshAgents({ panels: false }));
   useEffect(() => {
     if (phase !== 'refreshing') return;
     if (!open) { setPhase('idle'); return; }
     let active = true;
     const finish = () => { if (active) setPhase('idle'); };
     const timer = setTimeout(finish, 5000);
-    void refreshAgents({ panels: false }).then(finish, finish);
+    void refreshThreads().then(finish, finish);
     return () => { active = false; clearTimeout(timer); };
-  }, [phase, open, refreshAgents]);
+  }, [phase, open]);
 
   // The device's sessions for the chosen tool.
   useEffect(() => {
@@ -98,7 +99,12 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         if (!done) { setError(t('importSessions.deviceSilent')); return; }
         if (!done.result?.ok) { setError(done.result?.message || t('importSessions.listFailed')); return; }
         const data = done.result.data as { sessions?: LocalSession[] } | undefined;
-        setSessions(data?.sessions || []);
+        // Older devices may list multiple files for one ID, newest first.
+        const byId = new Map<string, LocalSession>();
+        for (const session of data?.sessions || []) {
+          if (!byId.has(session.id)) byId.set(session.id, session);
+        }
+        setSessions([...byId.values()]);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : t('importSessions.listFailed'));
       }
@@ -139,9 +145,9 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
       try {
         const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'import_local_session', { type, id, agent: target || null });
         const done = await waitForNodeCommand(node.nodeId, cmd.commandId);
-        const data = done?.result?.data as { channel?: string; existing?: boolean } | undefined;
+        const data = done?.result?.data as Partial<ImportedThread> | undefined;
         outcome = done?.result?.ok && data?.channel
-          ? { state: 'done', channel: data.channel, existing: !!data.existing }
+          ? { state: 'done', channel: data.channel, channelStatus: data.channelStatus, existing: data.existing }
           : { state: 'error', message: done ? (done.result?.message || t('importSessions.importFailed')) : t('importSessions.stillImporting') };
       } catch (e) {
         outcome = { state: 'error', message: e instanceof Error ? e.message : t('importSessions.importFailed') };
@@ -153,9 +159,13 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   };
 
   const finished = Object.entries(outcomes).filter(([, o]) => o.state === 'done') as [string, Extract<Outcome, { state: 'done' }>][];
-  const openThread = (channel: string) => {
+  const openThread = ({ channel, channelStatus }: ImportedThread) => {
     const thread = threads.find((s) => s.sessionId === channel);
-    setThreadFilter(thread ? threadFilterFor(thread, threadFilter) : 'all');
+    setThreadFilter(threadFilterFor({
+      status: channelStatus ?? thread?.status ?? 'active',
+      starred: thread?.starred ?? false,
+      isChannel: thread?.isChannel,
+    }, threadFilter));
     onOpenChange(false);
     setCurrentSessionId(channel);
     openView('threads');
@@ -222,7 +232,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
             <div className="rounded-md border bg-muted/30 p-2 text-sm" data-testid="import-sessions-done">
               <p className="mb-1 text-xs text-muted-foreground">{t('importSessions.imported', { count: finished.length })}</p>
               {finished.map(([id, o]) => (
-                <Button key={id} type="button" variant="link" size="xs" disabled={busy} className="h-auto w-full justify-start px-0" onClick={() => openThread(o.channel)}>
+                <Button key={id} type="button" variant="link" size="xs" disabled={busy} className="h-auto w-full justify-start px-0" onClick={() => openThread(o)}>
                   <span className="truncate">{(sessions || []).find((s) => s.id === id)?.title || id}</span>
                   {o.existing && <span className="shrink-0 text-muted-foreground">{t('importSessions.alreadyImported')}</span>}
                 </Button>
