@@ -143,6 +143,37 @@ function hasPath(base) {
   try { return new URL(base).pathname.replace(/\/+$/, '') !== ''; } catch { return /\/\/[^/]+\/./.test(base); }
 }
 
+/**
+ * The first JSON object in `data`, for a body that carries something after
+ * it: a relay answered 200 with a whole `{"choices":[…"Hi there!"…]}` and
+ * then more, JSON.parse refused the lot, and the test reported "Invalid
+ * response" for a model that had just replied (daily errors dashboard,
+ * 2026-11-26). Undefined when `data` does not start with a complete object,
+ * or when an error object follows it.
+ */
+function leadingJsonObject(data) {
+  const start = data.search(/\S/);
+  if (start < 0 || data[start] !== '{') return undefined;
+  const parse = (end) => {
+    // What follows must not be the relay's own error ("…then
+    // {"error":{"message":"Insufficient balance"}}").
+    if (/"error"\s*:/.test(data.slice(end))) return undefined;
+    try { return JSON.parse(data.slice(start, end)); } catch { return undefined; }
+  };
+  let depth = 0;
+  let inString = false;
+  for (let i = start; i < data.length; i++) {
+    const c = data[i];
+    if (inString) {
+      if (c === '\\') i++;
+      else if (c === '"') inString = false;
+    } else if (c === '"') inString = true;
+    else if (c === '{') depth++;
+    else if (c === '}' && --depth === 0) return parse(i + 1);
+  }
+  return undefined;
+}
+
 /** Read one completion response into the result shape. */
 function completionResult(res, { isAnthropic, model }) {
   if (res.error) return { success: false, error: res.error };
@@ -156,7 +187,14 @@ function completionResult(res, { isAnthropic, model }) {
     if (streamed) return streamed;
   }
   try {
-    const parsed = JSON.parse(data);
+    let parsed;
+    try { parsed = JSON.parse(data); } catch (e) {
+      // Only a completion counts: a relay's own error object followed by
+      // more output is not an answer.
+      parsed = leadingJsonObject(data);
+      const answer = parsed && (isAnthropic ? parsed.content : parsed.choices);
+      if (!Array.isArray(answer) || !answer.length) throw e;
+    }
     let text, usedModel;
     if (isAnthropic) {
       text = (parsed.content || [{}])[0].text || '';
