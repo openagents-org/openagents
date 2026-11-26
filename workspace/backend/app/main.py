@@ -30,6 +30,22 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+class _StreamShutdownFilter(logging.Filter):
+    """Live/agent streams last minutes; when a worker recycles itself
+    (--limit-max-requests) uvicorn cancels them after the graceful-shutdown
+    timeout and logs "Exception in ASGI application" with a CancelledError.
+    Clients reconnect and catch up, so that is expected, not an error."""
+
+    def filter(self, record):
+        exc = record.exc_info[1] if record.exc_info else None
+        if isinstance(exc, asyncio.CancelledError) and "graceful shutdown" in str(exc):
+            return False
+        return True
+
+
+logging.getLogger("uvicorn.error").addFilter(_StreamShutdownFilter())
+
+
 # Background timer-loop cadence. Time-sensitive firing (timers/routines)
 # runs every cycle; the heavy maintenance scans run far less often so they
 # never hold a pooled DB connection — or block the event loop — every 10s.
