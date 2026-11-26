@@ -3221,6 +3221,7 @@ export const messages: Messages = {
       'sn-image-base': '图像生成、图像识别(VLM)与文本优化 API',
       'sn-md-to-html-report': '将 Markdown 研究报告转换为带图表与样式的精美 HTML',
       hypit: '用 AI agent 完成整支视频 —— 创作、预览、审校与构建 Hypit/SVML 项目，并批量扩展出多个变体',
+      'rea-video': '逐镜头逆向拆解视频 —— 判断实拍、AI 生成、3D、代码渲染或录屏，拆出剪辑包装、声音，并给出复刻方案',
     },
   },
 

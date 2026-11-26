@@ -712,6 +712,19 @@ SKILL_CATALOG: List[dict] = [
         "source_path": "skills/hypit",
         "author": "Hypit",
     },
+    # -------------------------------------------------------------------------
+    # rea-video
+    # -------------------------------------------------------------------------
+    {
+        "id": "rea-video",
+        "name": "rea-video",
+        "description": "Reverse-engineer a video shot by shot — live action, AI, 3D, code-rendered or screen capture, plus editing, sound and a remake plan",
+        "category": "ai-ml",
+        "icon": "video",
+        "source_repo": "JuneYaooo/rea-video",
+        "source_path": "skills/rea-video",
+        "author": "JuneYaooo",
+    },
 ]
 
 # Search/display tags were historically owned by the frontend catalogue. Keep
@@ -785,6 +798,7 @@ _SKILL_TAGS = {
     "sn-image-base": ["image-gen", "vlm", "vision"],
     "sn-md-to-html-report": ["markdown", "html", "report"],
     "hypit": ["video", "svml", "authoring"],
+    "rea-video": ["video", "forensics", "remake"],
 }
 
 for _skill in SKILL_CATALOG:
