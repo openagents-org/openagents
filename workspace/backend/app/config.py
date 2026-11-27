@@ -207,6 +207,11 @@ class Config:
     # own domain could pass for an OpenAgents sign-in form, so public links
     # render HTML only from this host; unset, they show its source instead.
     SHARE_CONTENT_HOST: str = os.environ.get("SHARE_CONTENT_HOST", "").strip().lower()
+    # Short host for OpenAgents Jam links (e.g. "jam.openagents.org"), pointed
+    # at this API: guest links become https://<host>/<token>, the owner link
+    # https://<host>/own/<slug>?token=…, and https://<host>/ is what an agent
+    # reads to start a jam. Unset: links stay on FRONTEND_BASE_URL/jam/….
+    JAM_HOST: str = os.environ.get("JAM_HOST", "").strip().lower()
     # Public origin of the agent hub: the MCP endpoint, its OAuth server and
     # the hub REST docs. A proxied CNAME to the same backend, so ChatGPT and
     # Claude see a stable, product-named URL (https://mcp.openagents.org/mcp).

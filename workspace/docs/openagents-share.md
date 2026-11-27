@@ -9,9 +9,9 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 | Topic | Status | Decision |
 |---|---|---|
 | Base branch | Decided | Build on `develop`. Hosted-only parts (cloud spend, analytics) go to `openagents-release`. |
-| Entry point | Decided (for now) | A copy-paste instruction that works in any agent: *"Read `<API>/v1/share/instructions` and follow it to share this agent with my team."* Registering as a plugin on agent platforms comes later. |
+| Entry point | Decided | A short instruction that works in any agent: *"Start an OpenAgents Jam so my teammates can ask you about this work. Follow https://jam.openagents.org/skills.md and give me a private setup page to choose what to share. After I click Create jam, connect the agent and give me the guest link."* (Self-hosters can use `<API>/jam/skill.md`.). Or install the **OpenAgents Jam skill** once (`npx -y @openagents-org/agent-launcher jam setup [--endpoint <API>]`, served at `<API>/jam/skill.md`) and say "start a jam" / `/openagents-jam`. The skill only points at the current instructions, so it never goes stale. |
 | Account | Decided | Sharing never requires an account. A signed-in publisher owns the workspace from the start (`Authorization` on publish). An anonymous publisher gets an owner link; signing in from it keeps the workspace. |
-| What is shared | Decided | The person chooses. The agent drafts title, role, intro and excerpts, shows them verbatim, and publishes only after an explicit yes. |
+| What is shared | Decided | The person chooses. The agent drafts title, role, intro and excerpts, and opens a private review page where the person selects excerpts, files, and guest permissions. Clicking Create jam publishes the selection. |
 | Link expiry | Decided | The person chooses; default **never**. Owner can change it (null = never) or revoke at any time. |
 | Role instructions | Proposed | Stay on the sharer's computer (the shared agent's `CLAUDE.md`/`AGENTS.md`). The thread only gets the intro and excerpts. |
 | Context isolation | Proposed | The shared agent is a fresh agent with role + approved excerpts, never the original session, so a guest can't extract what wasn't shared. |
@@ -29,10 +29,14 @@ Status: step 1 (the real local loop) is built behind this branch. Decisions belo
 ## How it works (step 1)
 
 1. The person pastes the instruction into their agent session. The agent reads `GET /v1/share/instructions` (served by this backend with its own URLs, so self-hosters hand out their own endpoints).
-2. The agent explains what sharing does, drafts the share, and waits for a yes.
-3. `POST /v1/share/publish` creates a workspace, one passive thread with the agent as its only member, the approved excerpts and intro as the first messages, and a guest link. Idempotent on `idempotency_key`.
+2. The agent stages a private draft at `POST /v1/jam/setup` and gives the person a one-hour review link to `/jam/setup`. Only filenames are staged.
+3. Clicking **Create jam** confirms the selection, creates one passive thread and returns its guest and owner links. The agent retrieves the approved selection using the setup token.
 4. The agent writes the role into `~/.openagents/shared/<agent>/CLAUDE.md` and connects itself with the OpenAgents launcher (`create --path`, `connect <token>`, `up`).
 5. A teammate opens `/jam/<token>`, reads, picks a name, and asks `@agent …`. The message is routed to the sharer's local agent, which runs a read-only turn and replies in the thread. The sharer sees everything from the owner link.
+
+## Short links (JAM_HOST)
+
+With `JAM_HOST=jam.openagents.org` (a proxied CNAME to the API, like the share domain), guest links are `https://jam.openagents.org/<10 letters/digits>` and owner links `https://jam.openagents.org/own/<slug>?token=…`; both redirect to the web app's `/jam/…` pages. `https://jam.openagents.org/` serves the share instructions and `/skills.md` serves the skill (the original `/skill.md` also works); nothing else of the API answers on that host. Self-hosters leave it unset (links stay on `FRONTEND_BASE_URL/jam/…`) or point their own host at the API. Tokens are 10 letters/digits (about 59 bits), older 32-character links keep working.
 
 ## The owner's side
 
@@ -71,6 +75,9 @@ Guests and the owner jam see the same strip a Workspace thread shows above its m
 | Method | Path | Who |
 |---|---|---|
 | GET | `/v1/share/instructions` | anyone |
+| POST | `/v1/jam/setup` | stage a private draft and return its setup link |
+| GET | `/v1/jam/setup` | private draft or confirmed selection with `X-Jam-Setup` |
+| POST | `/v1/jam/setup/confirm` | publish the selection once with `X-Jam-Setup` |
 | POST | `/v1/share/publish` | anyone; optional bearer = owned by that account |
 | GET | `/v1/guest-links?network=&channel=` | workspace owner/admin or workspace token |
 | PATCH | `/v1/guest-links/{id}?network=` `{expires_at}` | same |

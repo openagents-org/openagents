@@ -161,9 +161,12 @@ function classifyOutputText(text) {
   // hit your monthly spend limit", Codex's "You've hit your usage limit.
   // Upgrade to Plus…", or a coding plan that lapsed ("does not have a valid
   // AgentPlan subscription, or your subscription has expired"). Each was
-  // reported as an unknown CLI error.
+  // reported as an unknown CLI error. Claude Code also says "You've hit your
+  // weekly limit · resets Nov 27, 2am" (twelve tests from one user, daily
+  // errors dashboard 2026-11-26) and "You've hit your limit". The plan-cap
+  // words are listed: "hit your rate/concurrency limit" means wait, not pay.
   if (CREDIT_EXHAUSTED.test(text) || /credit balance|\b402\b|billing|quota[_ ]?exceeded|exceeded your current quota|额度|余额/.test(text)
-    || /\bspend(?:ing)? limit\b|hit your (?:[a-z]+ )?usage limit|subscription (?:has )?expired|(?:does not|doesn't) have an? (?:valid|active) [\w -]{0,24}subscription/.test(text)) return CODE.OUT_OF_CREDIT;
+    || /\bspend(?:ing)? limit\b|hit your (?:(?:weekly|daily|monthly|session|5-hour|plan) )?(?:usage |spend(?:ing)? )?limits?\b|subscription (?:has )?expired|(?:does not|doesn't) have an? (?:valid|active) [\w -]{0,24}subscription/.test(text)) return CODE.OUT_OF_CREDIT;
   if (/rate[- ]?limit|too many requests|\b429\b|overloaded|\b529\b/.test(text)) return CODE.RATE_LIMITED;
   // Ahead of the 403 rule below (see REGION_BLOCKED).
   if (REGION_BLOCKED.test(text)) return CODE.REGION_BLOCKED;
@@ -183,6 +186,12 @@ function classifyOutputText(text) {
   // Missing bearer … authentication", or for a ChatGPT workspace "workspace
   // routing discovery unauthorized (401)". Nothing to re-enter, a sign-in.
   if (/missing bearer|workspace routing discovery unauthorized/.test(text)) return CODE.NOT_LOGGED_IN;
+  // Codex with a ChatGPT sign-in that can no longer be renewed: "ERROR
+  // codex_login::auth::manager: Failed to refresh token: … Unauthorized".
+  // Ahead of the 401 rule below, which read it as a rejected API key; the
+  // fix is signing in again.
+  // Only with an auth cause: "Failed to refresh token: 503" is an outage.
+  if (/failed to refresh token.{0,80}(?:\b401\b|unauthori[sz]ed|invalid_grant|expired|revoked|reused)/.test(text)) return CODE.SESSION_EXPIRED;
   // "Invalid credential" (singular) and "This API key has expired" (or
   // api_key_expired) are how OpenCode's providers say it; both read as
   // "undetermined".
@@ -825,6 +834,15 @@ async function probeAgentType(connector, type, opts = {}) {
   const probeEnv = (entry.probe && entry.probe.env) || {};
   for (const [name, value] of Object.entries(probeEnv)) {
     if (env[name] == null) env[name] = String(value);
+  }
+  // The site a CodeBuddy agent runs on is an env overlay the adapter adds at
+  // spawn (CODEBUDDY_REGION=china pins the China site). Without it the probe
+  // asked whichever site the session on disk belonged to: a China-pinned agent
+  // on a codebuddy.ai session read "Responded" here and then failed to sign in
+  // on every message.
+  if (type === 'codebuddy') {
+    const { resolveCodeBuddyEnv } = require('./adapters/codebuddy-stream');
+    Object.assign(env, resolveCodeBuddyEnv(agentEnv));
   }
 
   const baseUrl = directBaseUrl(entry, agentEnv);

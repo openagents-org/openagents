@@ -302,7 +302,8 @@ def test_instructions_name_this_servers_own_endpoints(client, monkeypatch):
     r = client.get("/v1/share/instructions")
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/markdown")
-    assert "https://api.example.test/v1/share/publish" in r.text
+    assert "https://api.example.test/v1/jam/setup" in r.text
+    assert "/v1/share/publish" not in r.text
     assert "up --endpoint https://api.example.test" in r.text, "the launcher talks to this server"
     assert "{API}" not in r.text and "{APP}" not in r.text
     assert "openagents.org" not in r.text.replace("@openagents-org/", ""), "self-hosters get their own URLs"
@@ -1172,3 +1173,84 @@ def test_scrub_hides_every_kind_of_address():
     from app.services.room_agents import scrub_for_scoped
     out = scrub_for_scoped({"a": "bob@corp, alice@localhost, x@café.com, guest-1@guest.invalid"}, None)
     assert out["a"].count("someone@hidden.invalid") == 3 and "guest-1@guest.invalid" in out["a"]
+
+
+def test_short_jam_address_and_skill_name_this_server(client, monkeypatch):
+    import app.config as app_config
+    monkeypatch.setattr(app_config.config, "PUBLIC_API_BASE", "https://oa.example.test/")
+    full = client.get("/v1/share/instructions").text
+    for path in ("/jam", "/v1/jam"):
+        r = client.get(path)
+        assert r.status_code == 200 and r.text == full, path
+    for path in ("/jam/skill.md", "/v1/share/skill.md"):
+        skill = client.get(path)
+        assert skill.status_code == 200, path
+        assert skill.text.startswith("---\nname: openagents-jam\n")
+        assert "https://oa.example.test/jam" in skill.text and "{API}" not in skill.text
+
+
+def test_links_are_short_and_live_on_the_jam_host(client, monkeypatch, no_push):
+    import re as _re
+    import app.config as app_config
+    monkeypatch.setattr(app_config.config, "JAM_HOST", "jam.example.test")
+    monkeypatch.setattr(app_config.config, "FRONTEND_BASE_URL", "https://app.example.test")
+    data = _published(client)
+    assert _re.fullmatch(r"https://jam\.example\.test/[A-Za-z0-9]{10}", data["guestUrl"]), data["guestUrl"]
+    assert data["ownerUrl"].startswith(f"https://jam.example.test/own/{data['slug']}?token=")
+    token = _token(data)
+    h = {"host": "jam.example.test"}
+    r = client.get(f"/{token}", headers=h, follow_redirects=False)
+    assert r.status_code == 302 and r.headers["location"] == f"https://app.example.test/jam/{token}"
+    r = client.get(f"/own/{data['slug']}?token=abc", headers=h, follow_redirects=False)
+    assert r.headers["location"] == f"https://app.example.test/jam/own/{data['slug']}?token=abc"
+    start = client.get("/", headers=h)
+    assert start.status_code == 200 and "Share this agent" in start.text
+    skill = client.get("/skills.md", headers=h)
+    assert skill.status_code == 200
+    assert skill.headers["content-type"].startswith("text/markdown")
+    assert skill.text.startswith("---\nname: openagents-jam\n")
+    assert "https://jam.example.test" in skill.text
+    assert client.get("/skill.md", headers=h).text == skill.text
+    assert client.get("/v1/workspaces", headers=h).status_code == 404, "the rest of the API isn't on the jam host"
+    assert client.get("/v1/share/instructions").status_code == 200, "other hosts are unaffected"
+
+
+def test_setup_requires_review_and_only_publishes_the_selection(client, db, no_push):
+    url = "/v1/jam/setup"
+    draft = {"title": "Review", "agent_name": "reviewer", "files": ["review.md", "notes.md"],
+             "excerpts": [{"author": "owner", "text": "For guests"}, {"author": "agent", "text": "Omit me"}]}
+    setup = client.post(url, json=draft).json()["data"]
+    headers = {"X-Jam-Setup": setup["setupToken"]}
+    assert setup["setupUrl"].endswith("/jam/setup#" + setup["setupToken"])
+    assert client.get(url).status_code == 404
+    pending = client.get(url, headers=headers).json()["data"]
+    assert pending["status"] == "draft" and "jam" not in pending
+    assert "idempotency_key" not in pending["draft"]
+    selection = {"title": "Team review", "files": [1], "excerpts": [0], "guests_can_post": False,
+                 "guest_agent_access": "open", "guests_can_bring_agents": True, "access": "link", "expiry": "7"}
+    assert client.post(url + "/confirm", json=selection).status_code == 404
+    for invalid in ({"files": [-1]}, {"access": "invited"}, {"excerpts": [1, 1]}):
+        assert client.post(url + "/confirm", json={**selection, **invalid}, headers=headers).status_code == 400
+    assert db.query(Workspace).count() == 0
+    result = client.post(url + "/confirm", json=selection, headers=headers).json()["data"]
+    assert result["status"] == "published"
+    assert result["draft"]["files"] == ["notes.md"]
+    assert result["draft"]["excerpts"] == draft["excerpts"][:1]
+    assert result["draft"]["guests_can_bring_agents"] is False
+    assert result["jam"]["channel"]["title"] == "Team review"
+    assert result["jam"]["link"]["expiresAt"]
+    assert [m["payload"]["content"] for m in _messages(client, _token(result["jam"]))] == ["For guests"]
+    assert client.get(url, headers=headers).json()["data"] == result
+    assert client.post(url + "/confirm", json=selection, headers=headers).json()["data"] == result
+    assert db.query(Workspace).count() == 1
+
+
+def test_setup_rejects_local_paths_and_expired_tokens(client, db):
+    from app.models import JamSetupDraft
+    draft = {"title": "Review", "agent_name": "reviewer"}
+    assert client.post("/v1/jam/setup", json={**draft, "files": ["../private.md"]}).status_code == 422
+    setup = client.post("/v1/jam/setup", json=draft).json()["data"]
+    row = db.query(JamSetupDraft).one()
+    row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    db.commit()
+    assert client.get("/v1/jam/setup", headers={"X-Jam-Setup": setup["setupToken"]}).status_code == 404

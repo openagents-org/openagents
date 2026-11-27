@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { Sheet, SheetBody, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { WithTooltip } from '@/components/ui/with-tooltip';
-import { X, MessageSquare, Globe, Monitor, UserRoundCog, Cloud, Trash2 } from 'lucide-react';
+import { X, MessageSquare, Globe, Monitor, UserRoundCog, Cloud, Trash2, ArrowUpRight } from 'lucide-react';
 import { useLayout } from '@/components/layout/layout-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useConfirm } from '@/components/ui/dialogs-provider';
@@ -21,6 +21,7 @@ import { ModelCard, ReadOnlyModelCard } from './agent-profile-model-card';
 import { InstalledSkillsCard } from './agent-profile-skills';
 import { CloudConfigCard, ConnectionDetailsCard, DangerZoneCard, type InfoItem } from './agent-profile-sections';
 import { useAgentModelOptions } from './use-agent-model-options';
+import { useMyAcentaAgent } from './use-my-acenta-agent';
 import { WorkdirCard } from './agent-profile-workdir-card';
 import { AccessCard } from './agent-profile-access-card';
 import { ImportSessionsCard } from './agent-profile-import-card';
@@ -66,8 +67,9 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   // Only the device connection's owner may change its agents, and a device
   // agent's owner is that connection's owner: the folder, key and endpoint
   // are edited in place for agents you own.
+  const acenta = useMyAcentaAgent(agent?.agentName);
   const hosted = useHostedRuntime(agent?.agentName, !isCloud && !!agent);
-  const canEditDevice = !isCloud && hosted === false && canManage && !!agent?.ownerEmail && !!agent?.nodeId;
+  const canEditDevice = !isCloud && !acenta && hosted === false && canManage && !!agent?.ownerEmail && !!agent?.nodeId;
   const nodeSettings = useNodeAgentSettings(agent, canEditDevice);
 
   const handleRemoveCloudAgent = useCallback(async () => {
@@ -145,18 +147,32 @@ export function AgentProfilePanel({ docked = false }: { docked?: boolean } = {})
   const body = (
     <div className="flex flex-col divide-y">
       <div className="py-5">
-        <AgentProfileHeader agent={agent} canManage={canManage} refreshWorkspace={refreshWorkspace} />
+        <AgentProfileHeader agent={agent} canManage={canManage && !acenta} refreshWorkspace={refreshWorkspace} />
         <div className="mt-4 flex empty:hidden [&>button]:flex-1"><AgentSharingButton agentName={agent.agentName} /></div>
       </div>
 
       {/* The settings people come here to change, first: the name is
           edited in the header above, then the model and the folder. The
           built-in assistant shows its server-set model read-only. */}
-      {modelReadOnly
+      {acenta?.url && (
+        <section className="space-y-2 py-4">
+          <Button variant="outline" className="w-full justify-between" asChild>
+            <a href={acenta.url} target="_blank" rel="noreferrer">
+              {t('connect.acentaManage')}<ArrowUpRight data-icon="inline-end" />
+            </a>
+          </Button>
+          <Button variant="ghost" className="w-full justify-between" asChild>
+            <a href={`${acenta.url}#instructions`} target="_blank" rel="noreferrer">
+              {t('connect.acentaInstructions')}<ArrowUpRight data-icon="inline-end" />
+            </a>
+          </Button>
+        </section>
+      )}
+      {modelReadOnly || acenta
         ? <ReadOnlyModelCard model={models.currentModel} managed={isManaged} />
         : <ModelCard m={models} />}
       {/* A provider-hosted agent runs in the provider's sandbox: no folder of yours. */}
-      {!isCloud && hosted === false && <WorkdirCard agent={agent} canManage={canManage} settings={canEditDevice ? nodeSettings : null} />}
+      {!isCloud && !acenta && hosted === false && <WorkdirCard agent={agent} canManage={canManage} settings={canEditDevice ? nodeSettings : null} />}
       {canEditDevice && <AccessCard agentName={agent.agentName} settings={nodeSettings} />}
       {canEditDevice && <ImportSessionsCard agentName={agent.agentName} settings={nodeSettings} />}
 

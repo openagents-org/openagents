@@ -59,7 +59,7 @@ export function MemberRow({
                 </SelectGroup>
               </SelectContent>
             </Select>
-            <IconAction label={t('admin.removeMember')} destructive onClick={onRemove}>
+            <IconAction size="icon" label={t('admin.removeMember')} destructive onClick={onRemove}>
               <Trash2 />
             </IconAction>
           </>

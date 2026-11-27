@@ -204,7 +204,7 @@ export function ShareArtifactViewer({ source, selection, onClose, guestsSee, onG
         {onGuestsSeeChange && (guestsSee ? (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="secondary" size="xs" className="shrink-0 gap-1 rounded-full" data-guests-see="on">
+              <Button variant="secondary" size="sm" className="shrink-0 gap-1 rounded-full" data-guests-see="on">
                 <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareJam.guestsSeeThis')}</span><ChevronDown className="size-3" />
               </Button>
             </DropdownMenuTrigger>
@@ -213,7 +213,7 @@ export function ShareArtifactViewer({ source, selection, onClose, guestsSee, onG
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <Button variant="ghost" size="xs" className="shrink-0 text-muted-foreground" onClick={() => onGuestsSeeChange(true)} data-guests-see="off">
+          <Button variant="ghost" size="sm" className="shrink-0 text-muted-foreground" onClick={() => onGuestsSeeChange(true)} data-guests-see="off">
             <Eye data-icon="inline-start" /><span className="hidden sm:inline">{t('shareJam.showGuests')}</span>
           </Button>
         ))}

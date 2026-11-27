@@ -40,7 +40,7 @@ class FakeAcenta:
         if method == "GET" and path == "/box-1":
             if self.status_error:
                 raise hosting.ProviderError("gone", self.status_error)
-            return {"id": "box-1", "state": self.state, "launch_url": self.launch_url}
+            return {"id": "box-1", "state": self.state, "launch_url": self.launch_url, "workspace_connected": self.state == "ready"}
         if method == "GET" and path == "":
             self.listed = kwargs["params"]
             return {"has_account": True, "agent_limit": 3, "agents": [
@@ -198,7 +198,10 @@ def test_paid_launch_sends_owner_to_acenta_then_activates(client, db, workspace,
     acenta.state, acenta.launch_url = "queued", None
     listed = client.get(f"/v1/hosted-agents?network={workspace['id']}", headers=_bearer("mia", workspace))
     row = listed.json()["data"]["hosted_agents"][0]
-    assert row["status"] == "active" and row["setupUrl"] is None
+    assert row["status"] == "starting" and row["setupUrl"] is None
+    acenta.state = "ready"
+    listed = client.get(f"/v1/hosted-agents?network={workspace['id']}", headers=_bearer("mia", workspace))
+    assert listed.json()["data"]["hosted_agents"][0]["status"] == "active"
 
 
 def test_abandoned_checkout_is_cleaned_up(client, db, workspace, people, acenta):

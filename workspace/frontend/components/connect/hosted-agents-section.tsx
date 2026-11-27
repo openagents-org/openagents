@@ -73,7 +73,9 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   }, [load]);
 
   // A freshly launched or added agent takes a while to come online; poll until it has.
-  const waiting = hosted.some((a) => a.presence !== 'online');
+  const waiting = hosted.some((a) => a.status === 'setup' || a.status === 'starting' ||
+    (a.status === 'active' && a.presence !== 'online'));
+  const validName = /^[A-Za-z0-9_-]{1,60}$/.test(name);
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(load, 15000);
@@ -110,7 +112,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   const handleLaunch = async () => {
     const label = name.trim();
-    if (!label || launching) return;
+    if (!validName || launching) return;
     setLaunching(true);
     try {
       const launched = await workspaceApi.launchHostedAgent(label);
@@ -125,7 +127,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
       setSetupOpen(false);
       load();
       onChanged();
-      if (launched.agentName) openAgentDm(launched.agentName);
+      if (launched.agentName && launched.status === 'active' && launched.presence === 'online') openAgentDm(launched.agentName);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('connect.acentaLaunchFailed'));
     } finally {
@@ -141,7 +143,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
       toast.success(t('connect.acentaAdded', { name: agent.name }));
       load();
       onChanged();
-      openAgentDm(added?.agentName || agent.agentName);
+      if (added?.presence === 'online') openAgentDm(added.agentName);
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('connect.acentaAddFailed'));
     } finally {
@@ -227,15 +229,18 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
             <DialogDescription>{t('connect.acentaSetupHint')}</DialogDescription>
           </DialogHeader>
           <DialogBody>
+            {usage?.offer && <HostedOfferBar offer={usage.offer} />}
             <Field>
               <FieldLabel htmlFor="acenta-agent-name">{t('connect.agentName')}</FieldLabel>
               <Input id="acenta-agent-name" value={name} onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLaunch(); } }}
-                placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching} />
+                placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching}
+                aria-describedby="acenta-agent-name-help" aria-invalid={name.length > 0 && !validName} />
+              <p id="acenta-agent-name-help" className="text-xs text-muted-foreground">{t('connect.acentaNameHelp')}</p>
             </Field>
           </DialogBody>
           <DialogFooter>
-            <Button onClick={handleLaunch} disabled={launching || !name.trim()}>
+            <Button onClick={handleLaunch} disabled={launching || !validName}>
               {launching && <Spinner data-icon="inline-start" />}
               {t('connect.acentaContinue')}
             </Button>
@@ -263,7 +268,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
                     {' · '}<a href={agent.url} target="_blank" rel="noreferrer" className="hover:underline">{t('connect.acentaManage')}</a>
                   </>}
                   actions={agent.inThisWorkspace ? (
-                    <>{here ? <HostedPresence agent={here} /> : agent.launchUrl ? <FinishSetupLink href={agent.launchUrl} /> : null}{here && removeButton(here, agent.workspaces > 1)}</>
+                    <>{here ? <HostedPresence agent={here} /> : agent.launchUrl ? <FinishSetupLink href={agent.launchUrl} /> : agent.state === 'ready' ? t('connect.acentaOnline') : ['queued', 'provisioning', 'starting', 'awaiting_connection'].includes(agent.state) ? t('connect.acentaStarting') : agent.state === 'error' ? t('connect.acentaNeedsAttention') : t('connect.acentaOffline')}{here && removeButton(here, agent.workspaces > 1)}</>
                   ) : agent.launchUrl ? <FinishSetupLink href={agent.launchUrl} /> : addButton(agent, full)}
                 />
               );

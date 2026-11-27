@@ -26,6 +26,13 @@ const TIPS: Record<string, MessageKey> = {
   cursor: 'agentSetup.manualTip.cursor',
   opencode: 'agentSetup.manualTip.opencode',
   hermes: 'agentSetup.manualTip.hermes',
+  codebuddy: 'agentSetup.manualTip.codebuddy',
+};
+
+/** The sign-in step, for a CLI whose login is not a link it prints. */
+const SIGN_IN_STEP: Record<string, MessageKey> = {
+  // No login subcommand: the command opens the CLI, where `/login` signs in.
+  codebuddy: 'agentSetup.manualStepCodebuddy',
 };
 
 function Command({ value }: { value: string }) {
@@ -62,7 +69,7 @@ export function ManualSignInGuide({ type, agent, device, command, installLater =
           <Command value={fallback} />
         </>}
       </div></li>
-      <li>{t('agentSetup.manualStepBrowser', { agent })}</li>
+      <li>{t(SIGN_IN_STEP[type] ?? 'agentSetup.manualStepBrowser', { agent })}</li>
       <li><div className="flex flex-col items-start gap-2">
         <span>{t('agentSetup.manualStepCheck')}</span>
         <Button type="button" variant="outline" className="w-fit" onClick={onCheck} disabled={checking}><RefreshCw data-icon="inline-start" className={cn(checking && 'animate-spin')} />{t('agentSetup.checkAgain')}</Button>

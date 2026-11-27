@@ -10,7 +10,7 @@ vi.mock('next-themes', () => ({ useTheme: () => ({ theme: 'light', setTheme: vi.
 vi.mock('@/hooks/use-me', () => ({ useMe: () => state.me }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({ workspace: { slug: 'demo' }, token: 'saved-token' }) }));
 vi.mock('@/lib/openagents-auth-context', () => ({ useOpenAgentsAuth: () => ({ user: { email: 'sam@example.com' }, isOpenAgentsDomain: true }) }));
-vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key }));
+vi.mock('@/lib/i18n', () => ({ useT: () => (key: string) => key, useI18n: () => ({ locale: 'en-US' }) }));
 vi.mock('@/components/ui/dialogs-provider', () => ({ useConfirm: () => vi.fn() }));
 vi.mock('./language-menu', () => ({ LanguageMenuSub: () => null }));
 vi.mock('@/components/ui/dropdown-menu', () => {

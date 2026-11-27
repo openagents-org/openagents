@@ -1,5 +1,6 @@
 'use client';
 
+import { useMyAcentaAgent } from '@/components/agents/use-my-acenta-agent';
 import { useHumanNames } from '@/hooks/use-team-roster';
 import { agentLabel } from '@/lib/helpers';
 import { useT } from '@/lib/i18n';
@@ -18,12 +19,15 @@ export function useThreadDm(currentSessionId: string | null, currentUser: Parame
   const myAddr = myAddress(currentUser);
   const pairAddrs = isDM ? dmPair(currentSessionId) : [];
   const counterpart = isDM ? dmCounterpartOf(pairAddrs, myAddr) : null;
+  const counterpartAgentName = counterpart?.startsWith('openagents:') ? counterpart.slice('openagents:'.length) : undefined;
+  const ownedAcenta = useMyAcentaAgent(counterpartAgentName);
   const writable = isDM && !!counterpart;
   // DM titles show the display label; the session id / addresses stay canonical.
   const addrLabel = (addr: string) => {
     const name = addr.replace(/^openagents:/, '').replace(/^human:/, '');
     if (addr.startsWith('human:') && humanNames[name.toLowerCase()]) return humanNames[name.toLowerCase()];
     const a = agents.find((x) => x.agentName === name);
+    if (ownedAcenta?.agentName === name) return ownedAcenta.name;
     return a ? agentLabel(a) : name;
   };
   const title = isDM
@@ -32,5 +36,5 @@ export function useThreadDm(currentSessionId: string | null, currentUser: Parame
         : pairAddrs.map(addrLabel).join(' ↔ '))
     : null;
   const withPerson = isDM && !!counterpart?.startsWith('human:');
-  return { isDM, myAddr, pairAddrs, counterpart, writable, title, withPerson, self: counterpart === myAddr };
+  return { isDM, myAddr, pairAddrs, counterpart, writable, title, withPerson, ownedAcenta, self: counterpart === myAddr };
 }

@@ -164,7 +164,7 @@ export function ThreadPrivacyControl({ channelName, className, inDialog = false,
         <WithTooltip label={t('threadAccess.notJoinedHint')}>
           <Button
             variant="outline"
-            size="xs"
+            size={joinOnly ? 'sm' : 'xs'}
             onClick={join}
             disabled={joining}
           >

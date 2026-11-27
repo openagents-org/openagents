@@ -83,7 +83,7 @@ export function ChatViewHeader({ sessionId, session, dm, onOpenProfile, canShare
 
       {/* Stop button — visible when agents are working */}
       {(activeSessionIds.has(sessionId) || stopping) && (
-        <Button variant="destructive" size="xs" onClick={() => stopAllAgents(sessionId)} disabled={stopping}>
+        <Button variant="destructive" size="sm" onClick={() => stopAllAgents(sessionId)} disabled={stopping}>
           <Square data-icon="inline-start" className="fill-current" />
           {stopping ? t('chat.stopping') : t('chat.stop')}
         </Button>

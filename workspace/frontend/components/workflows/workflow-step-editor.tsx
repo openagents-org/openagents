@@ -86,7 +86,6 @@ export function WorkflowStepEditor({
               <ToggleGroup
                 type="single"
                 variant="outline"
-                size="sm"
                 spacing={0}
                 aria-label={t('workflows.assignee')}
                 value={step.assignee.kind}
