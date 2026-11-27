@@ -30,6 +30,7 @@ class LLMProviderType(str, Enum):
     ORCAROUTER = "orcarouter"
     REQUESTY = "requesty"
     RUNCRATE = "runcrate"
+    LLMTR = "llmtr"
     MINIMAX = "minimax"
     LITELLM = "litellm"
     CUSTOM = "custom"  # Custom OpenAI-compatible endpoint
@@ -214,6 +215,18 @@ MODEL_CONFIGS: Dict[str, Dict[str, Any]] = {
             "openai/gpt-oss-120b",
         ],
         "API_KEY_ENV_VAR": "RUNCRATE_API_KEY",
+    },
+    # LLMTR (prepaid OpenAI-compatible gateway)
+    "llmtr": {
+        "provider": "generic",
+        "api_base": "https://llmtr.com/v1",
+        "models": [
+            "qwen/qwen3.8-flash",
+            "qwen/qwen3.8-max",
+            "mistral/devstral-medium-latest",
+            "qwen/qwen3.8-27b-free",
+        ],
+        "API_KEY_ENV_VAR": "LLMTR_API_KEY",
     },
     # MiniMax
     "minimax": {
@@ -436,6 +449,8 @@ def determine_provider(
             return "groq"
         elif "runcrate.ai" in api_base:
             return "runcrate"
+        elif "llmtr.com" in api_base:
+            return "llmtr"
 
     # Return already detected provider if found from model name
     if detected_provider:
@@ -534,6 +549,7 @@ def create_model_provider(
         "orcarouter",
         "requesty",
         "runcrate",
+        "llmtr",
     ]:
         # Use predefined API base if not provided
         if not api_base and provider in MODEL_CONFIGS:

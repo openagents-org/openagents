@@ -1,0 +1,31 @@
+{
+  "name": "llmtr",
+  "label": "LLMTR",
+  "description": "Prepaid OpenAI-compatible gateway",
+  "description_zh": "预付费 OpenAI 兼容网关",
+  "key_url": "https://llmtr.com/dashboard/keys",
+  "base_url": "https://llmtr.com/v1",
+  "order": 135,
+  "models": [
+    {
+      "id": "qwen/qwen3.8-flash",
+      "category": "chat",
+      "label": "Qwen3.8 Flash"
+    },
+    {
+      "id": "qwen/qwen3.8-max",
+      "category": "chat",
+      "label": "Qwen3.8 Max"
+    },
+    {
+      "id": "mistral/devstral-medium-latest",
+      "category": "chat",
+      "label": "Devstral Medium"
+    },
+    {
+      "id": "qwen/qwen3.8-27b-free",
+      "category": "chat",
+      "label": "Qwen3.8 27B Free"
+    }
+  ]
+}
