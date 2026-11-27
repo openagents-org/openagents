@@ -25,6 +25,8 @@ export { formatUsd };
 
 /** Acenta's own low-balance line (it emails the owner below this). */
 const LOW_BALANCE_CENTS = 200;
+// Match Acenta's 60-character display-name rule. The runtime ID stays ASCII.
+const ACENTA_NAME = /^(?:[A-Za-z0-9_-]|(?=\p{Letter})\p{Script=Han}){1,60}(?![\s\S])/u;
 
 /**
  * Acenta cloud agents. A signed-in member sees their own Acenta agents — any
@@ -74,7 +76,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   // A freshly launched or added agent takes a while to come online; poll until it has.
   const waiting = hosted.some((a) => a.status === 'setup' || a.status === 'starting' ||
     (a.status === 'active' && a.presence !== 'online'));
-  const validName = /^[A-Za-z0-9_-]{1,60}$/.test(name);
+  const validName = ACENTA_NAME.test(name);
   useEffect(() => {
     if (!waiting) return;
     const timer = setInterval(load, 15000);
@@ -110,7 +112,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
   };
 
   const handleLaunch = async () => {
-    const label = name.trim();
+    const label = name;
     if (!validName || launching) return;
     setLaunching(true);
     try {
@@ -196,7 +198,7 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {usage?.offer && <HostedOfferBar offer={usage.offer} />}
+      {usage?.offer && <HostedOfferBar offer={usage.offer} onViewPrices={provider.available && !atLimit ? () => setSetupOpen(true) : undefined} />}
       <Card>
         <CardHeader className="flex items-start gap-4">
           {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -225,13 +227,13 @@ export function HostedAgentsSection({ onChanged }: { onChanged: () => void }) {
             <DialogTitle className="flex items-center gap-3"><img src="/providers/acenta.svg" alt="" className="size-9 rounded-lg" />{t('connect.acentaTitle')}</DialogTitle>
             <DialogDescription>{t('connect.acentaSetupHint')}</DialogDescription>
           </DialogHeader>
-          <DialogBody>
+          <DialogBody className="space-y-4">
             {usage?.offer && <HostedOfferBar offer={usage.offer} />}
             <Field>
               <FieldLabel htmlFor="acenta-agent-name">{t('connect.agentName')}</FieldLabel>
               <Input id="acenta-agent-name" value={name} onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.nativeEvent.isComposing) { e.preventDefault(); handleLaunch(); } }}
-                placeholder={t('connect.acentaNamePlaceholder')} maxLength={60} disabled={launching}
+                placeholder={t('connect.acentaNamePlaceholder')} disabled={launching}
                 aria-describedby="acenta-agent-name-help" aria-invalid={name.length > 0 && !validName} />
               <p id="acenta-agent-name-help" className="text-xs text-muted-foreground">{t('connect.acentaNameHelp')}</p>
             </Field>

@@ -263,7 +263,7 @@ def _offer(offer):
         return None
     return {"name": offer.get("name") or "", "percentOff": offer.get("percent_off") or 0, "months": offer.get("months") or 0,
             "tiers": offer.get("tiers"), "endsAt": offer.get("ends_at"), "eligible": bool(offer.get("eligible")),
-            "url": offer.get("url")}
+            "url": offer.get("url"), "monthlyPrices": offer.get("monthly_prices") or {}}
 
 
 class ConnectAcentaAgentRequest(BaseModel):

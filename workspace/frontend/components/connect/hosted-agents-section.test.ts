@@ -59,24 +59,24 @@ afterEach(async () => {
   vi.unstubAllGlobals();
 });
 
-it('launches a named agent and refreshes the workspace roster', async () => {
+it('accepts a Chinese name without spaces and refreshes the workspace roster', async () => {
   await render();
   expect(container.querySelector('input')).toBeNull();
   await act(async () => button('connect.acentaGetStarted').click());
   const input = document.querySelector<HTMLInputElement>('input')!;
   expect(button('connect.acentaContinue').disabled).toBe(true);
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Research helper');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '研究 助手');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('connect.acentaContinue').click());
   expect(api.launchHostedAgent).not.toHaveBeenCalled();
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'research-helper');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '研究助手_01');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('connect.acentaContinue').click());
-  expect(api.launchHostedAgent).toHaveBeenCalledWith('research-helper');
+  expect(api.launchHostedAgent).toHaveBeenCalledWith('研究助手_01');
   expect(onChanged).toHaveBeenCalled();
 });
 
@@ -249,11 +249,19 @@ it('shows the running Acenta offer only to people who still qualify', async () =
   const usage = { hasAccount: false, billingEnabled: true, balanceEnabled: true, balanceCents: 0, spentThisMonthCents: 0,
     autoTopup: false, agents: [], manageUrl: null };
   const offer = { name: 'Black Friday', percentOff: 40, months: 6, tiers: ['standard', 'smart'],
-    endsAt: new Date(Date.now() + 86400000).toISOString(), eligible: true, url: 'https://acenta.ai/pricing' };
+    endsAt: new Date(Date.now() + 86400000).toISOString(), eligible: true, url: 'https://acenta.ai/pricing',
+    monthlyPrices: { standard: { price_cents: 2500, offer_cents: 1500 }, smart: { price_cents: 4500, offer_cents: 2700 } } };
   api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer });
   await render();
   expect(container.textContent).toContain('connect.acentaOfferBlackFriday');
-  expect(container.querySelector('a[href="https://acenta.ai/pricing"]')).not.toBeNull();
+  await act(async () => button('connect.acentaOfferPrices').click());
+  const dialog = document.querySelector('[role="dialog"]')!;
+  expect(dialog.querySelector('input')).not.toBeNull();
+  expect(dialog.textContent).toContain('Standard');
+  expect(dialog.textContent).toContain('Smart');
+  expect(button('connect.acentaContinue').disabled).toBe(true);
+  expect(dialog.querySelector('a[href="https://acenta.ai/pricing"]')).toBeNull();
+  expect(api.launchHostedAgent).not.toHaveBeenCalled();
   await act(async () => root.unmount());
   root = createRoot(container);
   api.getMyAcentaUsage.mockResolvedValue({ ...usage, offer: { ...offer, eligible: false } });
