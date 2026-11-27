@@ -18,6 +18,7 @@ const { execSync } = require('child_process');
 const { spawn, resolveWslBinary } = require('../wsl');
 
 const BaseAdapter = require('./base');
+const { createCliEventQueue } = require('./cli-event-queue');
 const { whereBinary } = require('../paths');
 const { formatAttachmentsForPrompt, SESSION_DEFAULT_RE, generateSessionTitle } = require('./utils');
 const { buildClaudeSystemPrompt } = require('./workspace-prompt');
@@ -332,8 +333,6 @@ class GeminiAdapter extends BaseAdapter {
         let hasToolUseSinceLastText = false;
         let postedThinking = false;
         let stderrBuf = '';
-        let lineBuffer = '';
-        let _pendingLines = Promise.resolve();
         // Where the CLI says a run failed: the final result event, and any
         // error-severity events along the way. See gemini-stream.js.
         let resultStatus = null;
@@ -374,14 +373,8 @@ class GeminiAdapter extends BaseAdapter {
           };
           startTimeoutMonitor();
 
-          const processLine = async (line) => {
-            line = line.trim();
-            if (!line) return;
+          const events = createCliEventQueue(async (event, next) => {
             resetTimeout();
-
-            let event;
-            try { event = JSON.parse(line); } catch { return; }
-
             const eventType = event.type;
 
             if (eventType === 'init' && event.session_id) {
@@ -395,8 +388,12 @@ class GeminiAdapter extends BaseAdapter {
                   hasToolUseSinceLastText = false;
                 }
                 lastResponseText.push(text);
-                postedThinking = true;
-                try { await this.sendThinking(msgChannel, text); } catch {}
+                const confirmedFinal = lastResponseText.length === 1 && !errorMessages.length
+                  && next?.type === 'result' && next.status === 'success';
+                if (!confirmedFinal) {
+                  postedThinking = true;
+                  try { await this.sendThinking(msgChannel, text); } catch {}
+                }
               }
             } else if (eventType === 'tool_use') {
               hasToolUseSinceLastText = true;
@@ -428,17 +425,12 @@ class GeminiAdapter extends BaseAdapter {
               resultStatus = event.status || null;
               if (event.status === 'error') resultError = event.error || null;
             }
-          };
+          });
 
           proc.on('exit', async (code, signal) => {
             if (timeoutTimer) clearInterval(timeoutTimer);
 
-            try { await _pendingLines; } catch {}
-
-            const lines = lineBuffer.split('\n');
-            for (const line of lines) {
-              try { await processLine(line); } catch {}
-            }
+            await events.finish();
 
             delete this._channelProcesses[msgChannel];
 
@@ -518,13 +510,8 @@ class GeminiAdapter extends BaseAdapter {
           });
 
           proc.stdout.on('data', (chunk) => {
-            lineBuffer += chunk.toString('utf-8');
             resetTimeout();
-            const lines = lineBuffer.split('\n');
-            lineBuffer = lines.pop();
-            for (const line of lines) {
-              _pendingLines = _pendingLines.then(() => processLine(line)).catch(() => {});
-            }
+            events.write(chunk);
           });
         });
       } catch (e) {

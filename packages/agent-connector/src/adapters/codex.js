@@ -26,6 +26,7 @@ const https = require('https');
 
 const { whereBinary } = require('../paths');
 const BaseAdapter = require('./base');
+const { createCliEventQueue } = require('./cli-event-queue');
 const { pendingImport } = require('../session-imports');
 const { redactSecrets, formatAttachmentsForPrompt, decodeConsoleOutput, BENIGN_CLI_OUTPUT, networkErrorText } = require('./utils');
 const { buildOpenclawSystemPrompt } = require('./workspace-prompt');
@@ -458,8 +459,7 @@ class CodexAdapter extends BaseAdapter {
     const summary = content || attachments.map((a) => a.filename).join(', ');
     this._log(`Processing message from ${sender} in ${msgChannel}: ${summary.slice(0, 80)}...`);
 
-    await this._autoTitleChannel(msgChannel, summary);
-    await this.sendStatus(msgChannel, 'thinking...');
+    await this._autoTitleAndSendStatus(msgChannel, summary);
 
     if (this._useCliMode) {
       // Another agent's message, not a workflow step handed on to this one.
@@ -686,14 +686,12 @@ class CodexAdapter extends BaseAdapter {
 
       const responseTexts = [];
       let hasToolUseSinceLastText = false;
-      let lineBuffer = '';
       const stderrChunks = [];
       let lastErrorMessage = '';
       let turnFailed = false;
       let turnStarted = false;
       let ranTools = false;
       let reconnectNoted = false;
-      let _pendingLines = Promise.resolve();
 
       if (proc.stderr) {
         proc.stderr.on('data', (chunk) => { stderrChunks.push(chunk); });
@@ -704,13 +702,7 @@ class CodexAdapter extends BaseAdapter {
         proc.stdin.end();
       }
 
-      const processLine = async (line) => {
-        line = line.trim();
-        if (!line) return;
-
-        let event;
-        try { event = JSON.parse(line); } catch { return; }
-
+      const events = createCliEventQueue(async (event, next) => {
         const eventType = event.type;
 
         if (eventType === 'thread.started') {
@@ -729,8 +721,9 @@ class CodexAdapter extends BaseAdapter {
               hasToolUseSinceLastText = false;
             }
             responseTexts.push(item.text);
-            // Stream as thinking (like Claude adapter)
-            try { await this.sendThinking(msgChannel, item.text); } catch {}
+            if (responseTexts.length !== 1 || turnFailed || next?.type !== 'turn.completed') {
+              try { await this.sendThinking(msgChannel, item.text); } catch {}
+            }
           } else if (item.type === 'command_execution') {
             hasToolUseSinceLastText = true;
             ranTools = true;
@@ -773,25 +766,14 @@ class CodexAdapter extends BaseAdapter {
             try { await this.sendStatus(msgChannel, status); } catch {}
           }
         }
-      };
+      });
 
       proc.stdout.on('data', (chunk) => {
-        lineBuffer += chunk.toString('utf-8');
-        const lines = lineBuffer.split('\n');
-        lineBuffer = lines.pop();
-        for (const line of lines) {
-          _pendingLines = _pendingLines.then(() => processLine(line)).catch(() => {});
-        }
+        events.write(chunk);
       });
 
       proc.on('exit', async (code, signal) => {
-        // Wait for all in-flight processLine calls
-        try { await _pendingLines; } catch {}
-
-        // Process remaining buffer
-        for (const line of lineBuffer.split('\n')) {
-          try { await processLine(line); } catch {}
-        }
+        await events.finish();
 
         delete this._channelProcesses[msgChannel];
 

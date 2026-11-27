@@ -892,8 +892,7 @@ class HermesAdapter extends BaseAdapter {
       return;
     }
 
-    await this._autoTitleChannel(msgChannel, content);
-    await this.sendStatus(msgChannel, 'thinking...');
+    await this._autoTitleAndSendStatus(msgChannel, content);
 
     try {
       const run = await this._converse(msgChannel, content);

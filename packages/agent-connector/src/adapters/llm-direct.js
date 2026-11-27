@@ -143,8 +143,7 @@ class LlmDirectAdapter extends BaseAdapter {
     const sender = msg.senderName || msg.senderType || 'user';
     this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
 
-    await this._autoTitleChannel(msgChannel, content);
-    await this.sendStatus(msgChannel, 'thinking...');
+    await this._autoTitleAndSendStatus(msgChannel, content);
 
     try {
       if (!this._directMode) {

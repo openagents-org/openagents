@@ -1692,19 +1692,25 @@ class BaseAdapter {
         if (!first && current._queueId && generation === this._stopGenerationFor(channel)) {
           try { await this.sendStatus(channel, 'processing queued message', { queue_id: current._queueId, queue_status: 'processed' }); } catch {}
         }
-        // Pinned entries may have changed while this message waited.
-        await this._prefetchPinnedContext(channel);
         this._channelRequestContent[channel] = current.originalContent ?? current.content;
-        if (channel && !channel.startsWith('dm:') && current.messageId
-            && typeof this.client?.getRecentMessages === 'function') {
-          await this._applyThreadHistory(channel, current);
+        const pinned = this._prefetchPinnedContext(channel);
+        const includeHistory = channel && !channel.startsWith('dm:') && current.messageId
+          && typeof this.client?.getRecentMessages === 'function';
+        const requester = this._sharedContextCandidate(current) ? this._sharedContextEmail(current) : null;
+        let sharedContext;
+        if (includeHistory || requester) {
+          // Fetch independent inputs together. Only history mutates the prompt here.
+          const [, , context] = await Promise.all([
+            pinned,
+            includeHistory && this._applyThreadHistory(channel, current),
+            requester && !current._sharedContextApplied ? this._fetchSharedContext(channel, requester) : null,
+          ]);
+          sharedContext = context;
+        } else {
+          await pinned;
         }
-        // A teammate's request runs under the owner-reviewed shared
-        // instructions (v1.1 M4); the block is prepended to the message.
-        // Gated synchronously so messages it cannot apply to (agents,
-        // anonymous humans, system) add no extra tick before the stop check.
         this._applyThreadCollaboration(channel, current);
-        if (this._sharedContextCandidate(current)) await this._applySharedContext(channel, current);
+        if (requester) await this._applySharedContext(channel, current, sharedContext);
         // Checked after the round trips above, which a stop can land inside:
         // a message from before the stop never reaches the CLI.
         if (generation !== this._stopGenerationFor(channel)) {
@@ -1824,12 +1830,12 @@ class BaseAdapter {
     msg._threadCollaborationApplied = true;
   }
 
-  async _applySharedContext(channel, msg) {
+  async _applySharedContext(channel, msg, prefetchedContext) {
     const email = this._sharedContextEmail(msg);
     if (!email) return false;
     this._requesterEmail[channel] = email;
     if (msg._sharedContextApplied) return true;
-    const ctx = await this._fetchSharedContext(channel, email);
+    const ctx = prefetchedContext === undefined ? await this._fetchSharedContext(channel, email) : prefetchedContext;
     const block = buildSharedContextBlock(ctx);
     if (!block) return false;
     if (msg.originalContent === undefined) msg.originalContent = msg.content;
@@ -2053,6 +2059,13 @@ class BaseAdapter {
     } catch (e) {
       this._log(`Failed to auto-title channel: ${e.message}`, 'warn');
     }
+  }
+
+  async _autoTitleAndSendStatus(channel, content) {
+    await Promise.all([
+      this._autoTitleChannel(channel, content),
+      this.sendStatus(channel, 'thinking...'),
+    ]);
   }
 
   // ------------------------------------------------------------------
