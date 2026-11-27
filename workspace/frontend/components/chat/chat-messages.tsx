@@ -26,6 +26,7 @@ import { useMessageTarget, useScrollToTarget } from './use-message-target';
 interface ChatMessagesProps {
   messages: WorkspaceMessage[];
   agents?: WorkspaceAgent[];
+  agentDisplayFallback?: { agentName: string; name: string } | null;
   className?: string;
   /** Increment to force scroll to bottom (e.g. after user sends a message). */
   scrollKey?: number;
@@ -45,7 +46,7 @@ interface ChatMessagesProps {
   targetSessionId?: string | null;
 }
 
-function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, targetSessionId }: ChatMessagesProps) {
+function ChatMessagesContent({ messages, agents, agentDisplayFallback, className, scrollKey, loadOlder, hasOlder, loadingOlder, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, targetSessionId }: ChatMessagesProps) {
   const t = useT();
   const target = useMessageTarget(targetSessionId);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -182,6 +183,7 @@ function ChatMessagesContent({ messages, agents, className, scrollKey, loadOlder
                     <ChatMessage
                       message={group.message}
                       agents={agents}
+                      fallbackLabel={agentDisplayFallback?.agentName === group.message.senderName ? agentDisplayFallback.name : undefined}
                       isLast={index === groups.length - 1}
                       onSuggestion={onSuggestion}
                       onMentionPerson={onMentionPerson}

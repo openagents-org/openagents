@@ -27,6 +27,7 @@ import { useWorkspace } from '@/lib/workspace-context';
 import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 import { useLayout } from './layout-context';
+import { AcentaSidebarRows, useAcentaSidebarAgents } from './acenta-sidebar-agents';
 import { MoreAgents } from './more-agents';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
@@ -46,16 +47,18 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
   // labels showing, only such a row repeats its name in a tooltip.
   const [truncatedAgent, setTruncatedAgent] = React.useState<string | null>(null);
 
-  const recentAgents = sidebarAgents(agents, currentUser.id);
-  const onlineAgents = recentAgents.filter((a) => a.status === 'online');
-  const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
+  const { pending: pendingCloudAgents, roster } = useAcentaSidebarAgents(agents);
+  const recentAgents = sidebarAgents(roster, currentUser.id);
+  const totalAgents = recentAgents.length + pendingCloudAgents.length;
+  const onlineAgents = recentAgents.filter(agent => agent.status === 'online');
+  const groups = sidebarAgentGroups(roster, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
   const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
   const humanNames = useHumanNames();
   // Shared agents carry their owner's name, so they never pass for the viewer's own.
   const ownerName = (email: string | null | undefined) => email ? humanNames[email.toLowerCase()] || displayNameFromEmail(email) : '';
 
-  if (recentAgents.length === 0) return null;
+  if (totalAgents === 0) return null;
   return (
     <>
       <div className="px-3">
@@ -71,7 +74,7 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
           {showLabels && (
             <SidebarGroupLabel asChild className="min-w-0 flex-1 cursor-pointer px-2">
               <CollapsibleTrigger>
-                <span className="truncate">{t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}</span>
+                <span className="truncate">{t('nav.agentsWithCount', { online: onlineAgents.length, total: totalAgents })}</span>
                 <ChevronDown
                   className={cn(
                     'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -96,7 +99,8 @@ export function RailAgents({ showLabels }: { showLabels: boolean }) {
         <CollapsibleContent>
         <SidebarGroupContent id="rail-agent-list">
           <SidebarMenu className="gap-0.5">
-            {visibleAgents.map((agent, index) => (
+            <AcentaSidebarRows agents={pendingCloudAgents} />
+              {visibleAgents.map((agent, index) => (
               <React.Fragment key={agent.agentName}>
                 {(index === 0 || index === firstSharedIndex) && <AgentSectionLabel owned={index !== firstSharedIndex} online={groups[index === firstSharedIndex ? 1 : 0].all.length} total={groups[index === firstSharedIndex ? 1 : 0].total} first={index === 0} showLabels={showLabels} />}
               <SidebarMenuItem key={agent.agentName} className="group/agent">

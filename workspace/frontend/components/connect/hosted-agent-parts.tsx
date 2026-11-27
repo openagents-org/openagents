@@ -11,8 +11,6 @@ import { cn } from '@/lib/utils';
 import { destructiveIconClass } from '@/lib/destructive-icon';
 import type { AcentaOffer, AcentaUsage, HostedAgent } from '@/lib/types';
 
-const STARTUP_WINDOW_MS = 30 * 60 * 1000;
-
 export function formatUsd(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
@@ -32,12 +30,12 @@ export function FinishSetupLink({ href }: { href: string }) {
 export function HostedPresence({ agent }: { agent: HostedAgent }) {
   const t = useT();
   if (agent.status === 'setup' && agent.setupUrl) return <FinishSetupLink href={agent.setupUrl} />;
-  const online = agent.presence === 'online';
-  const starting = !online && !!agent.createdAt && Date.now() - Date.parse(agent.createdAt) < STARTUP_WINDOW_MS;
+  const online = agent.presence === 'online' && (agent.status === 'active' || agent.status === 'linked');
+  const starting = agent.status === 'starting' || agent.status === 'launching';
   return (
     <span className={cn('flex items-center gap-1.5 text-xs', online ? 'text-success' : 'text-muted-foreground')}>
       {starting && <Spinner className="size-3" />}
-      {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : t('connect.acentaOffline')}
+      {online ? t('connect.acentaOnline') : starting ? t('connect.acentaStarting') : agent.status === 'attention' ? t('connect.acentaNeedsAttention') : t('connect.acentaOffline')}
     </span>
   );
 }
