@@ -42,7 +42,9 @@ export function artifactFromLink(href: string, files: WorkspaceFile[], tabs: Bro
     }
     const file = files.find(f => href === f.filename || decodeURIComponent(url.pathname) === `/v1/files/${f.id}` || decodeURIComponent(url.pathname).endsWith('/' + f.filename));
     if (file && (local || !/^https?:/i.test(href))) return {kind:'file',id:file.id};
-    const tab = tabs.find(t => t.liveUrl === url.href) || tabs.find(t => t.url === url.href);
+    // Only a tab's own live link identifies it. A page address does not: other
+    // threads may have that site open in a different, unrelated tab.
+    const tab = tabs.find(t => t.liveUrl === url.href);
     if (tab) return {kind:'browser',id:tab.id};
     const live = browserFabricLiveUrl(href);
     return live ? {kind:'browser',id:live} : null;
