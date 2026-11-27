@@ -269,10 +269,11 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
     // leading dot keeps listInstalledSkills from reporting it.
     stagingDir = fs.mkdtempSync(path.join(skillsDir, `.${norm.id}.staging-`));
   } catch (e) {
-    throw new Error(
+    // e.g. a full disk: nothing was touched, so a previous install is intact.
+    throw _notePreviousInstall(new Error(
       `cannot create skills directory "${destDir}" for agent type "${agentType}": ` +
       `${e && e.message ? e.message : e}`
-    );
+    ), norm, destDir);
   }
 
   let fetchResult;
@@ -295,14 +296,7 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
 
     _replaceDir(stagingDir, destDir);
   } catch (e) {
-    // Tell the caller the previous install is still in place, so the
-    // workspace keeps it removable next to the failure, and whether that
-    // install is itself missing required files (an older launcher's partial).
-    if (e && typeof e === 'object' && _findSkillMd(destDir)) {
-      e.keptPrevious = true;
-      e.previousIncomplete = norm.requiredFiles.some((f) => !_isFile(path.join(destDir, f)));
-    }
-    throw e;
+    throw _notePreviousInstall(e, norm, destDir);
   } finally {
     try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
   }
@@ -321,6 +315,19 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
 
   _log(`Installed skill "${norm.id}" → ${destDir}${partial ? ' (partial: SKILL.md only)' : ''}`);
   return { path: destDir, skillId: norm.id, partial };
+}
+
+/**
+ * Tell the caller the previous install is still in place, so the workspace
+ * keeps it removable next to the failure, and whether that install is itself
+ * missing required files (an older launcher's partial).
+ */
+function _notePreviousInstall(e, norm, destDir) {
+  if (e && typeof e === 'object' && _findSkillMd(destDir)) {
+    e.keptPrevious = true;
+    e.previousIncomplete = norm.requiredFiles.some((f) => !_isFile(path.join(destDir, f)));
+  }
+  return e;
 }
 
 function _isFile(p) {

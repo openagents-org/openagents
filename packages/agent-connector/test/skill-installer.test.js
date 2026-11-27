@@ -390,6 +390,21 @@ describe('installSkill — required files', () => {
     );
   });
 
+  it('reports the kept previous install when the staging dir cannot be created', () => {
+    installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher });
+    const realMkdtemp = fs.mkdtempSync;
+    fs.mkdtempSync = () => { const err = new Error('ENOSPC: no space left on device'); err.code = 'ENOSPC'; throw err; };
+    try {
+      assert.throws(
+        () => installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher }),
+        (e) => /ENOSPC/.test(e.message) && e.keptPrevious === true && e.previousIncomplete === false,
+      );
+    } finally {
+      fs.mkdtempSync = realMkdtemp;
+    }
+    assert.ok(fs.existsSync(path.join(workDir, '.claude', 'skills', 'rea-video', 'references', 'setup.md')));
+  });
+
   it('accepts camelCase requiredFiles', () => {
     assert.throws(
       () => installer.installSkill({

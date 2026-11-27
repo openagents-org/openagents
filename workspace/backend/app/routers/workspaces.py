@@ -1199,6 +1199,37 @@ def _resolve_registry_skill(db: Session, skill_id: str) -> tuple[Optional[object
     return (row[0], row[1]) if row else (None, None)
 
 
+def _status_skill_id(db: Session, skill_id: str) -> str:
+    """The key a skill's install state is stored under.
+
+    Built-ins live under their catalog slug even when installed or reported
+    by Registry UUID: the static catalogue the Skill Hub falls back to when
+    the Registry is unavailable only knows the slug. Everything else keeps
+    the id it was addressed by.
+    """
+    from app.skill_catalog import find_skill
+
+    if find_skill(skill_id):
+        return skill_id
+    registry_skill, version = _resolve_registry_skill(db, skill_id)
+    if (registry_skill is not None and version is not None
+            and version.source_mode == "upstream_pointer" and find_skill(registry_skill.slug)):
+        return registry_skill.slug
+    return skill_id
+
+
+def _drop_status_aliases(db: Session, skills_data: dict, skill_id: str) -> dict:
+    """Remove state stored under a built-in's other id, so one key remains."""
+    aliases, _ = _registry_status_aliases(db, skill_id)
+    stale = aliases - {skill_id}
+    if stale:
+        skills_data["skill_status"] = {
+            k: v for k, v in dict(skills_data.get("skill_status", {})).items() if k not in stale
+        }
+        skills_data["installed"] = [s for s in skills_data.get("installed", []) if s not in stale]
+    return skills_data
+
+
 def _catalog_required_files(db: Session, skill_id: str) -> list:
     """Files a catalog skill must ship, looked up by catalog slug or Registry id."""
     from app.skill_catalog import find_skill, find_skill_by_source
@@ -1338,8 +1369,8 @@ def install_skill(
             f"Registry MVP does not yet support agent type '{member.agent_type or 'unknown'}'",
         )
 
-    status_skill_id = registry_skill.id if registry_skill else body.skill_id
-    skills_data = dict(member.enabled_skills or {})
+    status_skill_id = _status_skill_id(db, registry_skill.id if registry_skill else body.skill_id)
+    skills_data = _drop_status_aliases(db, dict(member.enabled_skills or {}), status_skill_id)
     skills_data = _set_skill_status(skills_data, status_skill_id, "installing")
     member.enabled_skills = skills_data
 
@@ -1470,7 +1501,11 @@ def report_skill_status(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    skills_data = dict(member.enabled_skills or {})
+    # Launchers report built-ins under whichever id the install event named;
+    # store them under one key (the catalog slug) and drop the other alias so
+    # every view reads the same state.
+    body.skill_id = _status_skill_id(db, body.skill_id)
+    skills_data = _drop_status_aliases(db, dict(member.enabled_skills or {}), body.skill_id)
     incomplete = False
     if body.state == "uninstalled":
         # Drop the status entry entirely on uninstall.
@@ -1481,16 +1516,6 @@ def report_skill_status(
             s for s in skills_data.get("installed", []) if s != body.skill_id
         ]
     else:
-        # A built-in can be reported under its catalog slug or its Registry
-        # UUID. Keep one status per skill: drop the other key so the views
-        # that read either can't disagree.
-        aliases, _ = _registry_status_aliases(db, body.skill_id)
-        stale = aliases - {body.skill_id}
-        if stale:
-            skills_data["skill_status"] = {
-                k: v for k, v in dict(skills_data.get("skill_status", {})).items() if k not in stale
-            }
-            skills_data["installed"] = [s for s in skills_data.get("installed", []) if s not in stale]
         # Older launchers report a SKILL.md-only fetch as installed + partial,
         # and a failed reinstall can leave such a partial in place. For a
         # skill that requires its bundled files neither is usable, so keep it
