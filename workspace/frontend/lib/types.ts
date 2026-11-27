@@ -984,6 +984,7 @@ export interface AcentaOffer {
   /** False once this user has had a monthly agent (the offer is for new customers). */
   eligible: boolean;
   url: string | null;
+  monthlyPrices?: Record<string, { price_cents: number; offer_cents: number }>;
 }
 
 /** An agent whose runtime a provider hosts; it joins like any other agent. */
