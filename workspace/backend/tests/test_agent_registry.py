@@ -159,3 +159,13 @@ def test_runcrate_provider_in_catalog():
     assert runcrate.key_url and runcrate.key_url.startswith("https://www.runcrate.ai/")
     assert runcrate.models and all(m.category == "chat" for m in runcrate.models)
     assert any(m.id == "deepseek-ai/DeepSeek-V3.2" for m in runcrate.models)
+
+
+def test_llmtr_provider_in_catalog():
+    """LLMTR is an OpenAI-compatible provider with chat models and a key link."""
+    from app.services.cloud_providers import PROVIDERS
+    llmtr = PROVIDERS["llmtr"]
+    assert llmtr.base_url == "https://llmtr.com/v1"
+    assert llmtr.key_url and llmtr.key_url.startswith("https://llmtr.com/")
+    assert llmtr.models and all(m.category == "chat" for m in llmtr.models)
+    assert any(m.id == "qwen/qwen3.8-flash" for m in llmtr.models)
