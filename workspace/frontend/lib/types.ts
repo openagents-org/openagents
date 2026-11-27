@@ -225,6 +225,10 @@ export interface SkillStatusEntry {
   error?: string;
   /** Older launchers: only SKILL.md was fetched, bundled files missing. */
   partial?: boolean;
+  /** Partial install of a skill that requires its bundled files: not usable. */
+  incomplete?: boolean;
+  /** Failed reinstall that left the previous install in place. */
+  kept_previous?: boolean;
 }
 
 export interface SkillCatalogEntry {

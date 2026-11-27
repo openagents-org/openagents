@@ -16,11 +16,13 @@ import { useSkillInstall, type SkillInstallState } from './use-skill-install';
 function InstallAction({
   state,
   error,
+  keptPrevious,
   onInstall,
   onUninstall,
 }: {
   state: SkillInstallState;
   error?: string;
+  keptPrevious?: boolean;
   onInstall: () => void;
   onUninstall: () => void;
 }) {
@@ -62,11 +64,20 @@ function InstallAction({
         </>
       );
     case 'failed':
+      // A failed reinstall keeps the previous install on the agent, so it
+      // stays removable alongside the retry.
       return (
-        <WithTooltip label={error ? t('skills.failedRetryReason', { reason: error }) : t('skills.failedRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
-              <AlertCircle data-icon="inline-start" />
-              {t('skills.failedRetry')}
-            </Button></WithTooltip>
+        <>
+          <WithTooltip label={error ? t('skills.failedRetryReason', { reason: error }) : t('skills.failedRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
+                <AlertCircle data-icon="inline-start" />
+                {t('skills.failedRetry')}
+              </Button></WithTooltip>
+          {keptPrevious && (
+            <Button size="xs" variant="ghost" onClick={onUninstall}>
+              {t('common.remove')}
+            </Button>
+          )}
+        </>
       );
     default:
       return (
@@ -81,7 +92,7 @@ function InstallAction({
 /** "Add to agent": this skill's state on every online agent that can run it. */
 export function SkillAgentInstalls({ skill }: { skill: Skill }) {
   const t = useT();
-  const { onlineAgents, stateFor, errorFor, install, uninstall } = useSkillInstall(skill);
+  const { onlineAgents, stateFor, errorFor, keptPreviousFor, install, uninstall } = useSkillInstall(skill);
 
   return (
     <Card size="sm">
@@ -112,6 +123,7 @@ export function SkillAgentInstalls({ skill }: { skill: Skill }) {
                     <InstallAction
                       state={state}
                       error={errorFor(agent.agentName)}
+                      keptPrevious={keptPreviousFor(agent.agentName)}
                       onInstall={() => install(agent.agentName)}
                       onUninstall={() => uninstall(agent.agentName)}
                     />

@@ -87,8 +87,11 @@ export function useSkillInstall(skill: Skill) {
       return entry.updated_at && Date.now() - entry.updated_at > STALE_INSTALL_MS ? 'failed' : 'installing';
     }
     // Older launchers report a SKILL.md-only fetch as installed + partial.
-    // A skill that needs its bundled files can't run like that.
-    if (entry?.state === 'installed' && entry.partial && skill.requiredFiles?.length) return 'incomplete';
+    // A skill that needs its bundled files can't run like that. The backend
+    // flags it; the requiredFiles check covers backends from before the flag.
+    if (entry?.state === 'installed' && (entry.incomplete || (entry.partial && skill.requiredFiles?.length))) {
+      return 'incomplete';
+    }
     if (entry?.state === 'failed' || entry?.state === 'installed') return entry.state;
     const installed = (skills.installed as string[]) || [];
     return stateKeys.some(key => installed.includes(key)) ? 'installed' : null;
@@ -100,11 +103,17 @@ export function useSkillInstall(skill: Skill) {
     return entry?.state === 'failed' ? entry.error : undefined;
   };
 
+  /** A failed reinstall left the previous install on the agent, so it can still be removed. */
+  const keptPreviousFor = (agentName: string): boolean => {
+    const { entry } = statusEntryFor(agentName);
+    return entry?.state === 'failed' && entry.kept_previous === true;
+  };
+
   const onlineAgents = agents.filter(a => {
     if (a.status !== 'online') return false;
     if (!isRegistry || skill.sourceMode === 'upstream_pointer') return true;
     return MIRRORED_AGENT_TYPES.includes((a.agentType || '').toLowerCase());
   });
 
-  return { onlineAgents, stateFor, errorFor, install, uninstall };
+  return { onlineAgents, stateFor, errorFor, keptPreviousFor, install, uninstall };
 }

@@ -309,6 +309,67 @@ class TestPartialInstall:
         assert skills["skill_status"]["claude-api"]["partial"] is True
         assert "claude-api" in skills["installed"]
 
+    def _report(self, client, workspace, body):
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+            json=body,
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        assert resp.status_code == 200, resp.text
+
+    def test_partial_install_of_skill_with_required_files_is_not_listed(self, client, workspace, db):
+        _join_agent(client, workspace, "claude")
+        self._report(client, workspace, {"skill_id": "rea-video", "state": "installed", "partial": True})
+        skills = _member_skills(db, workspace, "claude")
+        assert skills["skill_status"]["rea-video"]["incomplete"] is True
+        assert "rea-video" not in skills["installed"]
+
+    def test_complete_install_of_skill_with_required_files_is_listed(self, client, workspace, db):
+        _join_agent(client, workspace, "claude")
+        self._report(client, workspace, {"skill_id": "rea-video", "state": "installed"})
+        skills = _member_skills(db, workspace, "claude")
+        assert "incomplete" not in skills["skill_status"]["rea-video"]
+        assert "rea-video" in skills["installed"]
+
+    def test_failed_reinstall_that_kept_the_previous_install_stays_listed(self, client, workspace, db):
+        _join_agent(client, workspace, "claude")
+        self._report(client, workspace, {"skill_id": "rea-video", "state": "installed"})
+        client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+            json={"skill_id": "rea-video"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        self._report(client, workspace, {
+            "skill_id": "rea-video", "state": "failed",
+            "error": "Install Git there and retry.", "kept_previous": True,
+        })
+        skills = _member_skills(db, workspace, "claude")
+        entry = skills["skill_status"]["rea-video"]
+        assert entry["state"] == "failed"
+        assert entry["kept_previous"] is True
+        assert entry["error"] == "Install Git there and retry."
+        assert "rea-video" in skills["installed"]
+
+    def test_failed_reinstall_that_kept_an_incomplete_install_is_not_listed(self, client, workspace, db):
+        _join_agent(client, workspace, "claude")
+        self._report(client, workspace, {"skill_id": "rea-video", "state": "installed", "partial": True})
+        self._report(client, workspace, {
+            "skill_id": "rea-video", "state": "failed", "error": "Install Git there and retry.",
+            "kept_previous": True, "previous_incomplete": True,
+        })
+        skills = _member_skills(db, workspace, "claude")
+        entry = skills["skill_status"]["rea-video"]
+        assert entry["kept_previous"] is True
+        assert entry["incomplete"] is True
+        assert "rea-video" not in skills["installed"]
+
+    def test_failed_first_install_is_not_listed(self, client, workspace, db):
+        _join_agent(client, workspace, "claude")
+        self._report(client, workspace, {"skill_id": "rea-video", "state": "failed", "error": "boom"})
+        skills = _member_skills(db, workspace, "claude")
+        assert "kept_previous" not in skills["skill_status"]["rea-video"]
+        assert "rea-video" not in skills["installed"]
+
 
 class TestStatusAuth:
     def test_status_requires_workspace_token(self, client, workspace):

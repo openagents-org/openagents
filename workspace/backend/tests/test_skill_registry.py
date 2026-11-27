@@ -514,6 +514,60 @@ def test_registry_upstream_install_carries_catalog_required_files(client, worksp
     assert payload["required_files"] == ["SKILL.md", "references/setup.md"]
 
 
+def test_partial_upstream_install_reported_by_registry_id_is_not_listed(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+    reported = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+        json={"skill_id": pointer.id, "state": "installed", "partial": True},
+        headers=_headers(workspace),
+    )
+    assert reported.status_code == 200, reported.text
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace["id"], WorkspaceMember.agent_name == "claude",
+    )).scalar_one()
+    db.refresh(member)
+    assert member.enabled_skills["skill_status"][pointer.id]["incomplete"] is True
+    assert pointer.id not in member.enabled_skills["installed"]
+    db.refresh(pointer)
+    assert pointer.install_count == 0
+
+
+def test_status_for_a_builtin_replaces_the_other_alias(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+
+    def report(skill_id, **extra):
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+            json={"skill_id": skill_id, **extra},
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        member = db.execute(select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace["id"], WorkspaceMember.agent_name == "claude",
+        )).scalar_one()
+        db.refresh(member)
+        return member.enabled_skills
+
+    report("rea-video", state="installed")
+    skills = report(pointer.id, state="installed", partial=True)
+    # The slug's earlier success must not keep the skill listed once the
+    # same skill reports incomplete under its Registry id.
+    assert "rea-video" not in skills["skill_status"]
+    assert "rea-video" not in skills["installed"]
+    assert pointer.id not in skills["installed"]
+    assert skills["skill_status"][pointer.id]["incomplete"] is True
+
+    skills = report("rea-video", state="installed")
+    assert pointer.id not in skills["skill_status"]
+    assert skills["installed"] == ["rea-video"]
+
+
 def test_mirrored_install_counter_and_slug_isolation(client, workspace, db):
     sync_builtin_registry(db)
     db.commit()

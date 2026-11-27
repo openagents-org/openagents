@@ -51,6 +51,30 @@ it('passes the launcher error through for a failed install', async () => {
   expect(hook.errorFor('claude')).toBe('Install Git there and retry.');
 });
 
+it('shows an install the backend flagged incomplete as incomplete', async () => {
+  state.status = { 'rea-video': { state: 'installed', incomplete: true, updated_at: Date.now() } };
+  expect((await probe({ ...REA_VIDEO, requiredFiles: undefined })).stateFor('claude')).toBe('incomplete');
+});
+
+it('reports a failed reinstall that kept the previous install', async () => {
+  state.status = { 'rea-video': { state: 'failed', error: 'boom', kept_previous: true, updated_at: Date.now() } };
+  const hook = await probe(REA_VIDEO);
+  expect(hook.stateFor('claude')).toBe('failed');
+  expect(hook.keptPreviousFor('claude')).toBe(true);
+});
+
+it('still offers removal when the kept previous install is incomplete', async () => {
+  state.status = { 'rea-video': { state: 'failed', error: 'boom', kept_previous: true, incomplete: true, updated_at: Date.now() } };
+  const hook = await probe(REA_VIDEO);
+  expect(hook.stateFor('claude')).toBe('failed');
+  expect(hook.keptPreviousFor('claude')).toBe(true);
+});
+
+it('has no previous install to keep after a failed first install', async () => {
+  state.status = { 'rea-video': { state: 'failed', error: 'boom', updated_at: Date.now() } };
+  expect((await probe(REA_VIDEO)).keptPreviousFor('claude')).toBe(false);
+});
+
 it('has no error for an installed skill', async () => {
   state.status = { 'rea-video': { state: 'installed', updated_at: Date.now() } };
   const hook = await probe(REA_VIDEO);

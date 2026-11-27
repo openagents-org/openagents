@@ -198,13 +198,24 @@ function defaultFetcher({ skill, destDir, log }) {
       // than the "Command failed: git clone …" message wrapping it.
       const stderr = e && e.stderr ? String(e.stderr).trim().split('\n').pop() : '';
       gitError = stderr || (e && e.message ? e.message : String(e));
-      _log(`git fetch failed (${gitError}); trying raw SKILL.md`);
+      _log(`git fetch failed (${gitError})`);
+      // A copy cut short leaves some bundled files behind. Drop them so the
+      // fallback's result is SKILL.md alone, not a mix that looks complete.
+      _emptyDir(destDir);
     } finally {
       if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
     }
   }
 
+  // A skill that needs more than SKILL.md can't be installed from the
+  // single-file fallback, so fail now with the reason git didn't work.
+  const bundled = (skill.requiredFiles || []).filter((f) => f !== 'SKILL.md');
+  if (bundled.length) {
+    throw new Error(_incompleteInstallMessage(skill, bundled, { partial: true, gitMissing, gitError }));
+  }
+
   // ── Strategy 2: raw SKILL.md over HTTPS ──
+  _log('trying raw SKILL.md');
   const sp = (sourcePath || '').replace(/^\/+|\/+$/g, '');
   for (const branch of ['main', 'master']) {
     const rawUrl = `https://raw.githubusercontent.com/${sourceRepo}/${branch}/${sp ? sp + '/' : ''}SKILL.md`;
@@ -224,7 +235,10 @@ function defaultFetcher({ skill, destDir, log }) {
     }
   }
 
-  throw new Error(`could not fetch skill "${skill.id}" from ${sourceRepo}/${sourcePath}`);
+  const why = gitMissing
+    ? ' Git is not installed on the machine running this agent; install Git there and retry.'
+    : gitError ? ` git failed (${gitError.split('\n')[0].slice(0, 300)}); check that this machine can reach GitHub, then retry.` : '';
+  throw new Error(`could not fetch skill "${skill.id}" from ${sourceRepo}/${sourcePath}.${why}`);
 }
 
 /**
@@ -274,10 +288,21 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
       );
     }
 
-    const missing = norm.requiredFiles.filter((f) => !fs.existsSync(path.join(stagingDir, f)));
+    // A partial fetch only vouches for SKILL.md, whatever else is on disk.
+    const missing = norm.requiredFiles.filter((f) =>
+      (fetchResult.partial === true && f !== 'SKILL.md') || !_isFile(path.join(stagingDir, f)));
     if (missing.length) throw new Error(_incompleteInstallMessage(norm, missing, fetchResult));
 
     _replaceDir(stagingDir, destDir);
+  } catch (e) {
+    // Tell the caller the previous install is still in place, so the
+    // workspace keeps it removable next to the failure, and whether that
+    // install is itself missing required files (an older launcher's partial).
+    if (e && typeof e === 'object' && _findSkillMd(destDir)) {
+      e.keptPrevious = true;
+      e.previousIncomplete = norm.requiredFiles.some((f) => !_isFile(path.join(destDir, f)));
+    }
+    throw e;
   } finally {
     try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
   }
@@ -298,13 +323,25 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
   return { path: destDir, skillId: norm.id, partial };
 }
 
+function _isFile(p) {
+  try { return fs.statSync(p).isFile(); } catch { return false; }
+}
+
+function _emptyDir(dir) {
+  try {
+    for (const entry of fs.readdirSync(dir)) {
+      fs.rmSync(path.join(dir, entry), { recursive: true, force: true });
+    }
+  } catch {}
+}
+
 /** Say what is missing and what the user can do about it. */
 function _incompleteInstallMessage(norm, missing, fetchResult) {
   const head = `install of "${norm.id}" is incomplete, missing ${missing.join(', ')}.`;
   const source = `github.com/${norm.sourceRepo}`;
   if (fetchResult.gitMissing) {
-    return `${head} Git is not installed on the machine running this agent, so only SKILL.md ` +
-      `could be downloaded from ${source}. Install Git there and retry.`;
+    return `${head} Git is not installed on the machine running this agent, and without it ` +
+      `only SKILL.md can be downloaded from ${source}. Install Git there and retry.`;
   }
   if (fetchResult.partial) {
     const reason = String(fetchResult.gitError || '').split('\n')[0].slice(0, 300);
