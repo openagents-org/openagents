@@ -19,6 +19,7 @@ import { AgentMessageRow } from './agent-message-row';
 interface ChatMessageProps {
   message: WorkspaceMessage;
   agents?: WorkspaceAgent[];
+  fallbackLabel?: string;
   /** True only for the trailing message — gates the suggestion chips. */
   isLast?: boolean;
   /** Send a suggested prompt as the user's message (tap-to-ask chips). */
@@ -31,7 +32,7 @@ interface ChatMessageProps {
   shareRequestStatus?: ShareRequestStatus;
 }
 
-export const ChatMessage = memo(function ChatMessage({ message, agents = [], isLast = false, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, onRecall, shareRequestStatus }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, agents = [], fallbackLabel, isLast = false, onSuggestion, onMentionPerson, onReply, onSaveKnowledge, onRecall, shareRequestStatus }: ChatMessageProps) {
   const { currentUser } = useWorkspace();
   const t = useT();
   const { formatTime } = useFormatters();
@@ -99,6 +100,7 @@ export const ChatMessage = memo(function ChatMessage({ message, agents = [], isL
       displayContent={displayContent}
       yumiWelcome={yumiWelcome}
       isLast={isLast}
+      fallbackLabel={fallbackLabel}
       onSuggestion={onSuggestion}
       onReply={onReply}
       onSaveKnowledge={onSaveKnowledge}

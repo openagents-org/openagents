@@ -121,13 +121,17 @@ def status(hosted: HostedAgent) -> dict:
 
 
 def apply_state(hosted: HostedAgent, result: dict) -> None:
-    """Mirror Acenta's state: a box waiting for payment needs the owner on Acenta."""
-    if result.get("state") == "awaiting_payment" and result.get("launch_url"):
+    """A completed checkout is followed by provisioning and a Workspace join."""
+    state = result.get("state")
+    hosted.setup_url = result.get("launch_url") if state == "awaiting_payment" else None
+    if hosted.setup_url:
         hosted.status = "setup"
-        hosted.setup_url = result["launch_url"]
-    else:
+    elif state == "ready" and result.get("workspace_connected"):
         hosted.status = "active"
-        hosted.setup_url = None
+    elif state in ("error", "stopped", "stopping", "reconnecting"):
+        hosted.status = "attention" if state == "error" else "offline"
+    else:
+        hosted.status = "starting"
 
 
 def _terminate(hosted: HostedAgent) -> None:

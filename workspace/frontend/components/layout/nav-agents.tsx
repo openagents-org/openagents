@@ -1,11 +1,12 @@
 'use client';
+import { AcentaSidebarRows, useAcentaSidebarAgents } from './acenta-sidebar-agents';
 import { MoreAgents } from './more-agents';
 import { Button } from '@/components/ui/button';
 import { AgentSectionLabel } from './agent-section-label';
 import { DmUnreadBadge } from './dm-unread-badge';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 
-import { Fragment, useMemo, useState } from 'react';
+import { Fragment, useState } from 'react';
 import { ChevronDown, Plus, Users } from 'lucide-react';
 import {
   SidebarGroup,
@@ -46,20 +47,22 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
   const { state: sidebarState } = useSidebar();
   const [truncatedAgent, setTruncatedAgent] = useState<string | null>(null);
 
-  const recentAgents = useMemo(() => sidebarAgents(agents, currentUser.id), [agents, currentUser.id]);
-  const onlineAgents = recentAgents.filter((a) => a.status === 'online');
-  const groups = sidebarAgentGroups(agents, currentUser.id, dmConversations);
+  const { pending: pendingCloudAgents, roster } = useAcentaSidebarAgents(agents);
+  const recentAgents = sidebarAgents(roster, currentUser.id);
+  const totalAgents = recentAgents.length + pendingCloudAgents.length;
+  const onlineAgents = recentAgents.filter(agent => agent.status === 'online');
+  const groups = sidebarAgentGroups(roster, currentUser.id, dmConversations);
   const visibleAgents = groups.flatMap(group => group.shown);
   const firstSharedIndex = visibleAgents.findIndex(agent => !isMySidebarAgent(agent, currentUser.id));
   const humanNames = useHumanNames();
   // Shared agents carry their owner's name, so they never pass for the viewer's own.
   const ownerName = (email: string | null | undefined) => email ? humanNames[email.toLowerCase()] || displayNameFromEmail(email) : '';
 
-  if (recentAgents.length === 0 && onlineUsers.length === 0) return null;
+  if (totalAgents === 0 && onlineUsers.length === 0) return null;
 
   return (
     <>
-      {recentAgents.length > 0 && (
+      {totalAgents > 0 && (
         <SidebarGroup>
           <div className="flex items-center">
           <SidebarGroupLabel
@@ -72,7 +75,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
               aria-expanded={open}
               aria-controls="sidebar-agent-list"
             >
-              {t('nav.agentsWithCount', { online: onlineAgents.length, total: recentAgents.length })}
+              {t('nav.agentsWithCount', { online: onlineAgents.length, total: totalAgents })}
               <ChevronDown
                 className={cn(
                   'ml-auto size-4 shrink-0 opacity-60 transition-transform duration-200',
@@ -101,6 +104,7 @@ export function NavAgents({ onNavigate }: { onNavigate?: () => void }) {
             className={cn(!open && 'hidden group-data-[collapsible=icon]:block')}
           >
             <SidebarMenu className="gap-0.25">
+              <AcentaSidebarRows agents={pendingCloudAgents} onNavigate={onNavigate} />
               {visibleAgents.map((agent, index) => {
                 // v1.1 M3: one dot vocabulary everywhere — busy (blue), waiting
                 // for a person (amber), device down (grey with a red ring).

@@ -4,6 +4,7 @@ import { BookmarkPlus, Reply } from 'lucide-react';
 import type { ApprovalRequest, WorkspaceAgent, WorkspaceMessage } from '@/lib/types';
 import type { HandoffRecord } from '@/lib/handoff';
 import { useT } from '@/lib/i18n';
+import { AcentaStarterCards } from './acenta-starter-cards';
 import { agentLabel } from '@/lib/helpers';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { MessageArtifacts } from '@/components/artifacts/message-artifacts';
@@ -37,6 +38,7 @@ export interface AgentMessageRowProps {
   displayContent: string;
   yumiWelcome: boolean;
   isLast: boolean;
+  fallbackLabel?: string;
   onSuggestion?: (text: string) => void;
   onReply?: (message: WorkspaceMessage) => void;
   /** Ask this agent to rewrite the message and save it to shared knowledge. */
@@ -45,12 +47,15 @@ export interface AgentMessageRowProps {
 
 // Full-bleed, no bubble — ChatGPT's assistant turn. The avatar and name stay:
 // a thread can have several agents, so the author still has to be readable.
-export function AgentMessageRow({ message, agents, agent, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, handoff, displayContent, yumiWelcome, isLast, onSuggestion, onReply, onSaveKnowledge }: AgentMessageRowProps) {
+export function AgentMessageRow({ message, agents, agent, agentNames, agentLabels, humanNames, selfMention, timestamp, attachments, approval, handoff, displayContent, yumiWelcome, isLast, fallbackLabel, onSuggestion, onReply, onSaveKnowledge }: AgentMessageRowProps) {
   const t = useT();
   const review = message.metadata?.review_handoff as { reviewers?: string[]; blocked?: string[] } | undefined;
   const attachedIds = attachments.map(item => item.fileId);
-  const suggestions = isLast && !yumiWelcome && onSuggestion && Array.isArray(message.metadata?.suggestions)
-    ? (message.metadata.suggestions as string[]).slice(0, 4) : [];
+  const acentaWelcome = message.metadata?.acenta_welcome === true && /^acenta-[a-f0-9]{8}$/i.test(message.senderName);
+  const suggestions = (isLast || acentaWelcome) && !yumiWelcome && onSuggestion && Array.isArray(message.metadata?.suggestions)
+    ? message.metadata.suggestions.filter((entry): entry is string => typeof entry === 'string').slice(0, 4) : [];
+  const welcomeLabel = acentaWelcome && typeof message.metadata?.agent_display_name === 'string'
+    ? message.metadata.agent_display_name : null;
 
   return (
     <Message className="gap-3 py-2">
@@ -60,7 +65,7 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
       <MessageContent className="gap-0.5">
         <MessageHeader className="flex-wrap items-baseline gap-x-2 gap-y-1">
           <span className="truncate text-sm font-semibold text-foreground">
-            {agent ? agentLabel(agent) : message.senderName}
+            {fallbackLabel || (agent?.displayName || agent?.builtin ? agentLabel(agent) : welcomeLabel || message.senderName)}
           </span>
           {agent && <AgentOwnershipBadge agent={agent} model={messageModel(message, agent)} />}
           {timestamp && <span className="font-normal">{timestamp}</span>}
@@ -104,7 +109,10 @@ export function AgentMessageRow({ message, agents, agent, agentNames, agentLabel
                 )}
               </>
             )}
-            {suggestions.length > 0 && (
+            {suggestions.length > 0 && acentaWelcome && onSuggestion && (
+              <AcentaStarterCards agentName={message.senderName} suggestions={suggestions} onSuggestion={onSuggestion} />
+            )}
+            {suggestions.length > 0 && !acentaWelcome && (
               <div className="mt-2.5 flex scroll-fade-x no-scrollbar gap-2 overflow-x-auto overscroll-x-contain">
                 {suggestions.map((s) => (
                   <Button key={s} variant="outline" size="sm" className="shrink-0" onClick={() => onSuggestion?.(s)}>
