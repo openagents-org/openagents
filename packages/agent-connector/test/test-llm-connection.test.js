@@ -366,6 +366,22 @@ describe('testLLMConnection — versioned bases and streamed answers', () => {
           res.end('data: {"error":{"message":"Insufficient balance"}}\n\n');
           return;
         }
+        if (reply === 'json-trailing') {
+          // Daily errors dashboard, 2026-11-26: a whole completion, then more.
+          res.setHeader('content-type', 'application/json');
+          res.end('{"choices":[{"finish_reason":"stop","index":0,"message":{"content":"Hi there! {not json}","reasoning_content":"say \\"hi\\""}}],"model":"m2"}\n{"usage":{}}');
+          return;
+        }
+        if (reply === 'json-then-relay-error') {
+          res.setHeader('content-type', 'application/json');
+          res.end('{"choices":[{"message":{"content":""}}]}\n{"error":{"message":"Insufficient balance"}}');
+          return;
+        }
+        if (reply === 'json-error-trailing') {
+          res.setHeader('content-type', 'application/json');
+          res.end('{"code":401,"msg":"token invalid"} trailing');
+          return;
+        }
         res.setHeader('content-type', 'application/json');
         res.end(JSON.stringify({ model: 'glm-x', choices: [{ message: { content: 'Hi' } }] }));
       });
@@ -403,6 +419,28 @@ describe('testLLMConnection — versioned bases and streamed answers', () => {
     assert.equal(res.success, true, JSON.stringify(res));
     assert.equal(res.model, 'deepseek-v4.1-flash');
     assert.equal(res.response, 'Hello there');
+  });
+
+  it('passes a completion the relay sent more output after', async () => {
+    reply = 'json-trailing';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, true, JSON.stringify(res));
+    assert.equal(res.model, 'm2');
+    assert.equal(res.response, 'Hi there! {not json}');
+  });
+
+  it('does not pass a completion the relay followed with its own error', async () => {
+    reply = 'json-then-relay-error';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, false);
+    assert.match(res.error, /^Invalid response: [^]*Insufficient balance/);
+  });
+
+  it('does not pass a relay\'s own error object with output after it', async () => {
+    reply = 'json-error-trailing';
+    const res = await test(`${origin}/v1`);
+    assert.equal(res.success, false);
+    assert.match(res.error, /Invalid response: .*token invalid/);
   });
 
   it('reads a stream that opens with a comment', async () => {

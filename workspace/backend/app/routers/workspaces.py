@@ -63,6 +63,9 @@ PUBLIC_WORKSPACE_SETTINGS = frozenset({
     # connectors instead of timed polling (see app/services/agent_stream.py).
     "realtime_stream",
 })
+# Shown to clients but set only by the server: "openagents_share" marks a
+# workspace made by OpenAgents Share (the owner sees a "keep it" banner).
+READ_ONLY_PUBLIC_SETTINGS = frozenset({"openagents_share"})
 
 
 def _extract_bearer(authorization: Optional[str]) -> Optional[str]:
@@ -183,7 +186,13 @@ def _format_workspace(ws: Workspace, members: list, now: datetime, token=None, a
     settings = ws.settings or {}
     # Only documented display/behavior settings cross the API boundary.
     # Credentials and server-only settings must never ride along in this map.
-    public_settings = {key: value for key, value in settings.items() if key in PUBLIC_WORKSPACE_SETTINGS}
+    public_settings = {key: value for key, value in settings.items()
+                       if key in PUBLIC_WORKSPACE_SETTINGS or key in READ_ONLY_PUBLIC_SETTINGS}
+    # Web and desktop clients open GET /v1/events/live when this is true. It
+    # reports the server-wide setting (on by default with Redis), not a
+    # per-workspace toggle; older clients still read it from here.
+    from app.services import agent_stream
+    public_settings["realtime_stream"] = agent_stream.live_stream_enabled()
     return {
         "workspaceId": str(ws.id),
         "slug": ws.slug,
@@ -394,7 +403,11 @@ def list_workspaces(
     workspaces = db.execute(query.order_by(Workspace.last_activity_at.desc())).scalars().all()
     now = datetime.now(timezone.utc)
 
-    results = [_format_workspace(ws, ws.members, now, authorization=authorization) for ws in workspaces]
+    # OpenAgents Share jams live in the person's jam list (GET /v1/jams),
+    # like gists beside repositories, until they keep one as a workspace.
+    from app.services.guest_links import is_room
+    results = [_format_workspace(ws, ws.members, now, authorization=authorization)
+               for ws in workspaces if not is_room(ws)]
 
     return success_response(results)
 

@@ -65,7 +65,7 @@ export function SkillsView() {
       >
         <div className="flex items-center gap-2">
           {/* Search only ever needs room for a skill name, not the page width */}
-          <SkillSearch value={search} onChange={setSearch} className="hidden w-48 md:flex lg:w-56" />
+          <SkillSearch value={search} onChange={setSearch} className="hidden h-7 w-48 md:flex lg:w-56" />
           <Button size="sm" onClick={() => setUploadOpen(true)}>
             <Upload data-icon="inline-start" />
             <span className="hidden sm:inline">{t('skills.uploadCustom')}</span>

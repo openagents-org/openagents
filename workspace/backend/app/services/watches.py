@@ -333,6 +333,10 @@ def notify_watchers(workspace_id: str, event: dict) -> None:
         ]
         if not watches:
             return
+        from app.models import WorkspaceMember
+        from app.services.room_agents import is_guest_agent
+        if is_guest_agent(db.get(WorkspaceMember, (workspace_id, sender))):
+            return  # a guest's agent in a jam never wakes other agents
 
         workspace = db.get(Workspace, workspace_id)
         if workspace is None or workspace.status == "deleted":

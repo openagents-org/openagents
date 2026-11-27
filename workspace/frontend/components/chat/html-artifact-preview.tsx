@@ -18,10 +18,12 @@ interface HtmlArtifactPreviewProps {
   senderAgentName: string | null;
   /** Open this artifact in the thread preview panel. */
   onOpenFull: (fileId: string) => void;
+  /** Offer "Request revision" (it prefills the workspace composer). */
+  canRequestRevision?: boolean;
 }
 
 /** Open HTML outputs alongside the conversation; rendering lives in ArtifactContent. */
-export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenFull }: HtmlArtifactPreviewProps) {
+export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenFull, canRequestRevision = true }: HtmlArtifactPreviewProps) {
   const t = useT();
 
   const requestRevision = () => {
@@ -44,12 +46,12 @@ export function HtmlArtifactPreview({ fileId, filename, senderAgentName, onOpenF
             {t('artifact.preview')}
           </Button>
         </WithTooltip>
-        <WithTooltip label={t('artifact.requestRevision')}>
+        {canRequestRevision && <WithTooltip label={t('artifact.requestRevision')}>
           <Button variant="outline" size="xs" onClick={requestRevision} aria-label={t('artifact.requestRevision')}>
             <MessageSquareReply data-icon="inline-start" />
             <span className="hidden sm:inline">{t('artifact.requestRevision')}</span>
           </Button>
-        </WithTooltip>
+        </WithTooltip>}
       </AttachmentActions>
     </Attachment>
   );

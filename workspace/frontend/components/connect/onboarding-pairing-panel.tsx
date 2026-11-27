@@ -2,27 +2,28 @@
 
 import type { DeviceSetupMethod } from '@/components/layout/layout-context';
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Check, Copy, Laptop, Loader2, RefreshCw, Terminal } from 'lucide-react';
+import { Check, ChevronRight, Copy, RefreshCw } from 'lucide-react';
 import { AgentJoinInstruction } from '@/components/connect/agent-join-instruction';
+import { OnboardingSetupMethod } from '@/components/connect/onboarding-setup-method';
+import { TerminalCopyButton } from '@/components/connect/terminal-copy-button';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard';
 import { useIsMobileDevice } from '@/hooks/use-mobile-device';
 import { desktopDownloads } from '@/lib/desktop-downloads';
 import { useT } from '@/lib/i18n';
 import type { PairingCode } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { Spinner } from '@/components/ui/spinner';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 
 function SetupCommand({ command, disabled = false }: { command: string; disabled?: boolean }) {
   const t = useT();
-  const { isCopied, copyToClipboard } = useCopyToClipboard();
   return (
     <div className="flex min-w-0 items-center gap-2 rounded-xl bg-[#101828] p-2.5 text-slate-100">
       <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 text-sm leading-6">{command}</code>
-      <button type="button" disabled={disabled} onClick={() => copyToClipboard(command)}
-        aria-label={t('connect.nodeCopyCommand')} className="flex shrink-0 items-center gap-1.5 rounded-lg border border-white/15 px-2.5 py-2 text-xs font-medium text-white/80 transition hover:bg-white/10 hover:text-white disabled:opacity-40">
-        {isCopied ? <Check className="size-3.5 text-emerald-400" /> : <Copy className="size-3.5" />}
-        <span>{t(isCopied ? 'onboarding.codeCopied' : 'onboarding.copyCommand')}</span>
-      </button>
+      <TerminalCopyButton text={command} label="onboarding.copyCommand" ariaLabel={t('connect.nodeCopyCommand')} disabled={disabled} />
     </div>
   );
 }
@@ -61,9 +62,9 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
   const terminal = method === 'terminal';
   const fromAgent = method === 'agent';
   const expiryBadge = (
-    <span className={cn('rounded-full px-2 py-1 text-xs font-medium', expired ? 'bg-destructive/10 text-destructive' : remaining < 300000 ? 'bg-warning/10 text-warning' : 'bg-muted text-muted-foreground')} role="timer">
+    <Badge variant={expired ? 'destructive' : remaining < 300000 ? 'warning' : 'secondary'} role="timer">
       {expired ? t('connect.nodePairingExpired') : t('connect.nodePairingExpires', { minutes: Math.max(1, Math.ceil(remaining / 60000)) })}
-    </span>
+    </Badge>
   );
   const install = os === 'windows'
     ? 'irm https://openagents.org/install.ps1 | iex'
@@ -75,39 +76,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
         <p className="mb-2 text-xs font-medium text-muted-foreground">{stepLabel ?? t('onboarding.deviceStepLabel')}</p>
         <h2 className="text-lg font-semibold tracking-tight">{t('onboarding.setupComputer')}</h2>
         <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('onboarding.setupComputerHint')}</p>
-        <div className="mt-5 grid gap-2" role="group" aria-label={t('onboarding.setupMethod')}>
-          {([
-            { id: 'terminal', icon: Terminal, label: 'onboarding.terminalServer', hint: 'onboarding.commandLineTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }, { icon: 'linux', label: 'Linux' }] },
-            { id: 'desktop', icon: Laptop, label: 'onboarding.desktopApp', hint: 'onboarding.desktopAppTarget', platforms: [{ icon: 'windows', label: 'Windows' }, { icon: 'apple', label: 'macOS' }] },
-            { id: 'agent', icon: Bot, label: 'connect.agentJoinTitle', hint: 'connect.agentJoinTarget', platforms: [{ icon: 'agents/claude', label: 'Claude Code' }, { icon: 'agents/codex', label: 'Codex' }, { icon: 'agents/opencode', label: 'OpenCode' }] },
-          ] as const).map(({ id, icon: Icon, label, hint, platforms }) => {
-            const active = method === id;
-            return (
-              <button type="button" key={id} aria-pressed={active} onClick={() => { setMethod(id); onMethodChange?.(id); }}
-                className={cn('flex min-h-16 items-center gap-3 rounded-xl border px-4 py-3 text-left transition-colors', active ? 'border-primary/60 bg-primary/5 ring-1 ring-primary/15' : 'border-border hover:border-foreground/25 hover:bg-muted/30')}>
-                <span className={cn('flex size-9 shrink-0 items-center justify-center rounded-lg', active ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground')}>
-                  <Icon className="size-4.5" />
-                </span>
-                <span className="min-w-0 flex-1 sm:flex sm:items-center sm:justify-between sm:gap-3">
-                  <span className="block min-w-0">
-                    <span className="block text-sm font-semibold">{t(label)}</span>
-                    <span className="block text-xs leading-5 text-muted-foreground">{t(hint)}</span>
-                  </span>
-                  <span className="mt-1.5 flex shrink-0 items-center gap-2.5 sm:mt-0" aria-hidden="true">
-                    {platforms.map((platform) => (
-                      <img key={platform.icon} src={platform.icon.startsWith('agents/') ? `/icons/${platform.icon}.svg` : `/icons/platforms/${platform.icon}.svg`}
-                        alt="" title={platform.label} width={14} height={14}
-                        className="size-3.5 object-contain opacity-60 dark:invert" />
-                    ))}
-                  </span>
-                </span>
-                <span aria-hidden="true" className={cn('flex size-4 shrink-0 items-center justify-center rounded-full border', active ? 'border-primary bg-primary text-primary-foreground' : 'border-border')}>
-                  {active && <Check className="size-2.5" />}
-                </span>
-              </button>
-            );
-          })}
-        </div>
+        <OnboardingSetupMethod value={method} onChange={(next) => { setMethod(next); onMethodChange?.(next); }} />
       </div>
 
       {fromAgent ? (
@@ -129,14 +98,15 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
             <h3 className="text-sm font-semibold leading-7">{t(terminal ? 'onboarding.installCliTitle' : 'onboarding.installAppTitle')}</h3>
             {terminal ? (
               <>
-                <div className="flex gap-2" role="group" aria-label={t('onboarding.setupOs')}>
+                <ToggleGroup type="single" variant="outline" size="sm" value={os} aria-label={t('onboarding.setupOs')}
+                  // Pressing the picked system again would clear it; one is always picked.
+                  onValueChange={(next) => { if (next) setOs(next as typeof os); }}>
                   {(['unix', 'windows'] as const).map((value) => (
-                    <button type="button" key={value} aria-pressed={os === value} onClick={() => setOs(value)}
-                      className={cn('rounded-md border px-3 py-1.5 text-xs', os === value ? 'border-foreground/30 bg-muted font-medium text-foreground' : 'text-muted-foreground')}>
+                    <ToggleGroupItem key={value} value={value} className="text-xs">
                       {t(value === 'unix' ? 'connect.nodeOsUnix' : 'connect.nodeOsWindows')}
-                    </button>
+                    </ToggleGroupItem>
                   ))}
-                </div>
+                </ToggleGroup>
                 <SetupCommand command={install} />
               </>
             ) : isMobile ? (
@@ -174,10 +144,12 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
             </button>
             <p className="text-sm leading-6 text-muted-foreground">{t(terminal ? 'onboarding.connectCliHint' : 'onboarding.enterAppCodeHint')}</p>
             {terminal && (
-              <details className="rounded-lg bg-muted/35 px-3 py-2.5">
-                <summary className="cursor-pointer text-xs font-medium text-muted-foreground hover:text-foreground">{t('onboarding.cliPairingFallback')}</summary>
-                <div className="mt-3"><SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /></div>
-              </details>
+              <Collapsible className="group/cli rounded-lg bg-muted/35 px-3 py-2.5">
+                <CollapsibleTrigger className="flex w-full items-center gap-1 rounded-sm text-left text-xs font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50">
+                  <ChevronRight className="size-3.5 shrink-0 transition-transform group-data-[state=open]/cli:rotate-90" />{t('onboarding.cliPairingFallback')}
+                </CollapsibleTrigger>
+                <CollapsibleContent className="pt-3"><SetupCommand command={`agn device connect ${pairing.code}`} disabled={expired} /></CollapsibleContent>
+              </Collapsible>
             )}
           </div>
         </div>
@@ -186,7 +158,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border/70 bg-muted/25 px-5 py-3 sm:px-6">
         <div className="flex min-w-44 flex-1 items-start gap-3" role="status">
-          {!expired && <Loader2 className="mt-0.5 size-4 shrink-0 animate-spin text-muted-foreground" />}
+          {!expired && <Spinner aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />}
           <div>
             <p className="text-sm font-medium">{t(expired ? 'connect.nodePairingExpired' : fromAgent ? 'connect.agentJoinWaiting' : 'onboarding.waitingComputerHint')}</p>
             {(expired || fromAgent) && (
@@ -203,7 +175,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
               {t(regenerating ? 'connect.nodeGenerating' : 'onboarding.newPairingCode')}
             </Button>
           )}
-          {onDismiss && <button type="button" onClick={onDismiss} className="text-xs text-muted-foreground hover:text-foreground">{t('connect.nodeCancel')}</button>}
+          {onDismiss && <Button type="button" variant="ghost" size="sm" onClick={onDismiss} className="text-muted-foreground">{t('connect.nodeCancel')}</Button>}
         </div>
       </div>
     </section>

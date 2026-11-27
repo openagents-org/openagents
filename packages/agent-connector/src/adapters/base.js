@@ -17,6 +17,18 @@
 
 'use strict';
 
+// Guests of a shared thread post as guest-<id>@guest.invalid (workspace
+// backend, services/thread_links.py); no account can hold that domain.
+const GUEST_DOMAIN = '@guest.invalid';
+const GUEST_DECLINED_TEXT = 'I can\'t take requests from guests on this computer yet. '
+  + 'The person who shared this thread can still answer here.';
+
+function isGuestMessage(msg) {
+  if (!msg || msg.senderType !== 'human') return false;
+  const email = String(msg.senderEmail || '').toLowerCase();
+  return email.endsWith(GUEST_DOMAIN) || !!(msg.metadata && msg.metadata.guest);
+}
+
 const crypto = require('crypto');
 const { WorkspaceClient, SessionRevokedError } = require('../workspace-client');
 const { generateSessionTitle, SESSION_DEFAULT_RE, redactSecrets, secretValues } = require('./utils');
@@ -177,7 +189,7 @@ class BaseAdapter {
    * @param {string} opts.agentName
    * @param {string} [opts.endpoint]
    */
-  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink }) {
+  constructor({ workspaceId, channelName, token, agentName, endpoint, agentEnv, agentType, workingDir, onStatus, logSink, onRelocate }) {
     this.workspaceId = workspaceId;
     this.channelName = channelName;
     this.token = token;
@@ -191,6 +203,10 @@ class BaseAdapter {
     // list / TUI can show the REAL failure instead of a swallowed log line. A
     // null reason means "healthy again" (clears any prior error).
     this._onStatus = typeof onStatus === 'function' ? onStatus : null;
+    // Set by the daemon: move this agent to another workspace on the same
+    // server (OpenAgents Share "add to my workspace"). Without it the agent
+    // doesn't advertise "relocate" and is never asked to move.
+    this._onRelocate = typeof onRelocate === 'function' ? onRelocate : null;
     this._lastReportedStatusKey = null;
     // Consecutive heartbeat failures — a transient single blip must not flip the
     // agent to a hard error (see HEARTBEAT_ERROR_THRESHOLD).
@@ -215,6 +231,11 @@ class BaseAdapter {
     this._processedIds = new Set();
     this._titledSessions = new Set();
     this._mode = 'execute';
+    // Channels whose current turn was asked for by a guest of a shared
+    // thread (OpenAgents Share). Each channel runs one turn at a time, so a
+    // per-channel flag is exact. Adapters read it through _effectiveMode().
+    this._guestChannels = new Set();
+    this._scopedOwner = null;   // set on a limited connection (see _isRestrictedTurn)
     // Workspace-selected model id (WorkspaceMember.model). Synced from
     // discover at startup and via the `model.set` control event; null means
     // the agent CLI runs with its own default.
@@ -382,6 +403,19 @@ class BaseAdapter {
    * heartbeat loops keep retrying and a later success clears it. Extracted from
    * run() so the failure-reporting can be unit-tested without the poll loop.
    */
+  /**
+   * Whether this turn runs as a guest's (read-only). Guests always do. On a
+   * limited connection (an agent a guest brought into someone's room) so does
+   * everyone but that guest: the room's owner, other guests, other agents.
+   */
+  _isRestrictedTurn(msg) {
+    if (this._scopedOwner) {
+      const email = String((msg && msg.senderEmail) || '').toLowerCase();
+      return !(msg && msg.senderType === 'human' && email && email === this._scopedOwner);
+    }
+    return isGuestMessage(msg);
+  }
+
   async _joinWorkspace() {
     try {
       const joinResult = await this.client.joinNetwork(this.agentName, this.token, {
@@ -389,8 +423,27 @@ class BaseAdapter {
         agentType: this.agentType || 'agent',
         serverHost: require('os').hostname(),
         workingDir: this.workingDir || defaultAgentWorkdir(this.agentName),
+        // "guest_turns": this client runs a shared-thread guest's turn
+        // read-only. The server routes guests' requests only to such clients.
+        capabilities: [
+          ...(this.supportsGuestRuns ? ['guest_turns'] : []),
+          // "scoped_turns": on a limited connection (an agent a guest brought
+          // into someone's room), only that guest's turns run with full
+          // rights; everyone else's run as guest turns.
+          ...(this.supportsGuestRuns ? ['scoped_turns'] : []),
+          ...(this._onRelocate ? ['relocate'] : []),
+        ],
       });
       this._sessionId = (joinResult && joinResult.session_id) || null;
+      // OpenAgents Share: this agent was brought into someone else's room.
+      // Its own person is owner_address; nobody else gets more than a guest.
+      const scoped = joinResult && joinResult.scoped;
+      this._scopedOwner = scoped ? String(scoped.owner_address || '').toLowerCase() || '\u0000none' : null;
+      // OpenAgents Share: the conversation moved while this agent was offline.
+      if (joinResult && joinResult.relocation && this._onRelocate) {
+        const relocation = joinResult.relocation;
+        setTimeout(() => { this._handleRelocate(relocation).catch(() => {}); }, 0);
+      }
       this._log(`Joined workspace ${this.workspaceId}${this._sessionId ? ` (session ${this._sessionId.slice(0, 8)})` : ''}`);
       this._reportStatus(null); // joined OK → clear any prior error
       return true;
@@ -951,11 +1004,44 @@ class BaseAdapter {
       await this._handleSkillInstall(payload);
     } else if (action === 'skill.uninstall') {
       await this._handleSkillUninstall(payload);
+    } else if (action === 'relocate') {
+      await this._handleRelocate(payload || {});
     } else if (action === 'model.set') {
       // Adapters read workspaceModel when (re)spawning their CLI; ones with
       // a staleness check (claude.js) respawn on the next message.
       this.workspaceModel = (payload && payload.model) || null;
       this._log(`Workspace model set to ${this.workspaceModel || '(default)'}`);
+    }
+  }
+
+  /**
+   * The workspace moved this agent's conversation into another workspace on
+   * the same server. Collect the new connection — once, proving it's this
+   * running agent with its session id — and hand it to the daemon, which
+   * rebinds the agent and restarts it there. The payload itself carries no
+   * secret; a stale or replayed action just fails to collect.
+   */
+  async _handleRelocate(payload) {
+    if (!this._onRelocate || !payload.relocation_id) return;
+    try {
+      const res = await this.client._post('/v1/guest-links/relocation/accept', {
+        network: this.workspaceId,
+        agent_name: this.agentName,
+        relocation_id: payload.relocation_id,
+        session_id: this._sessionId || null,
+      }, { 'X-Workspace-Token': this.token });
+      const data = (res && res.data) || res || {};
+      if (!data.token || !data.workspace_id) throw new Error('no connection in the reply');
+      this._log(`Moving to workspace ${data.slug || data.workspace_id}`);
+      await this._onRelocate({
+        workspaceId: data.workspace_id,
+        slug: data.slug || data.workspace_id,
+        name: payload.name || data.slug || data.workspace_id,
+        token: data.token,
+        endpoint: this.endpoint,
+      });
+    } catch (e) {
+      this._log(`relocate: failed: ${e.message}`, 'error');
     }
   }
 
@@ -1630,7 +1716,23 @@ class BaseAdapter {
           this._stopNoticeSent.delete(channel);
           this._stoppingChannels.delete(channel);
           this._channelTriggerId[channel] = current.messageId || null;
-          await this._handleMessage(current);
+          if (this._isRestrictedTurn(current)) {
+            if (!this.supportsGuestRuns) {
+              await this.sendResponse(channel, GUEST_DECLINED_TEXT);
+            } else {
+              // A guest's turn always runs read-only, whatever mode the
+              // owner set: no shell, no file writes, nothing beyond reading
+              // this agent's own folder and the web.
+              this._guestChannels.add(channel);
+              try {
+                await this._handleMessage(current);
+              } finally {
+                this._guestChannels.delete(channel);
+              }
+            }
+          } else {
+            await this._handleMessage(current);
+          }
         }
       } catch (e) {
         this._log(`Error ${first ? 'in channel worker' : 'processing queued message'} for ${channel}: ${e.message}`, 'error');
@@ -1957,6 +2059,20 @@ class BaseAdapter {
   // Message helpers
   // ------------------------------------------------------------------
 
+  /**
+   * Whether this adapter can run a guest's turn read-only (OpenAgents Share).
+   * Adapters that cannot enforce it leave this false, and a guest's request
+   * is answered with a notice instead of running with the owner's rights.
+   */
+  get supportsGuestRuns() {
+    return false;
+  }
+
+  /** The mode for the turn now running in `channel`: 'guest' for a guest's turn. */
+  _effectiveMode(channel) {
+    return this._guestChannels && this._guestChannels.has(channel) ? 'guest' : this._mode;
+  }
+
   async sendStatus(channel, content, extraMeta) {
     if (this._isMuted(channel)) return;
     try {
@@ -2188,3 +2304,4 @@ module.exports.PRESENCE_HEARTBEAT_DEBOUNCE_MS = PRESENCE_HEARTBEAT_DEBOUNCE_MS;
 module.exports.SHARED_CONTEXT_TTL_MS = SHARED_CONTEXT_TTL_MS;
 module.exports.buildPresenceFields = buildPresenceFields;
 module.exports.buildSharedContextBlock = buildSharedContextBlock;
+module.exports.isGuestMessage = isGuestMessage;

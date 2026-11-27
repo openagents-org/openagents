@@ -7,6 +7,7 @@ GET  /v1/events    Poll events (filter by after, target, channel, type)
 """
 
 import asyncio
+import contextvars
 import hashlib
 import json as _json
 import logging
@@ -18,8 +19,8 @@ from uuid import UUID
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import and_, cast, func, or_, select, Text
-from sqlalchemy.orm import Session
+from sqlalchemy import and_, cast, func, or_, select, Text, union_all
+from sqlalchemy.orm import Session, aliased
 from starlette.concurrency import run_in_threadpool
 
 from app import cache
@@ -175,6 +176,10 @@ def _invalidate_poll_cache(workspace_id: str, event_type: str = ""):
             pass
 
 
+# The limited connection (Node) a poll was served for, if any; see poll_events.
+_SCOPED_POLL: contextvars.ContextVar = contextvars.ContextVar("scoped_poll", default=None)
+
+
 def _resolve_and_auth_cached(db, network, token, authorization):
     """Resolve a workspace id and authorize the caller, serving the
     workspace-token path from Redis so the hot poll path never touches
@@ -220,7 +225,8 @@ def _resolve_and_auth_cached(db, network, token, authorization):
         device_workspace_id = db.execute(
             select(Node.workspace_id)
             .join(Workspace, Workspace.id == Node.workspace_id)
-            .where(Node.token == token, _workspace_filter(network), Workspace.status != "deleted")
+            .where(Node.token == token, _workspace_filter(network), Workspace.status != "deleted",
+                   Node.scope_channel.is_(None))
         ).scalar_one_or_none()
         if device_workspace_id is not None:
             return str(device_workspace_id), None, True, None
@@ -473,11 +479,11 @@ def send_event(
         except ValueError as exc:
             return json_response(ResponseCode.CONFLICT, str(exc))
         if receipt:
-            return success_response({
+            return _scrub_if_guest_agent(db, workspace, receipt.source, success_response({
                 "id": receipt.id, "type": receipt.type, "source": receipt.source,
                 "target": receipt.target, "payload": receipt.payload,
                 "timestamp": receipt.timestamp, "metadata": receipt.metadata_,
-            })
+            }))
 
     # Run through pipeline (fresh loop in this worker thread — pipeline is
     # async-shaped but contains only sync I/O, nothing bound to the main loop)
@@ -568,7 +574,7 @@ def send_event(
         from app.services.watches import notify_watchers
         background_tasks.add_task(notify_watchers, str(workspace.id), event_snapshot)
 
-    return success_response({
+    return _scrub_if_guest_agent(db, workspace, result.source, success_response({
         "id": result.id,
         "type": result.type,
         "source": result.source,
@@ -576,7 +582,18 @@ def send_event(
         "payload": result.payload,
         "timestamp": result.timestamp,
         "metadata": result.metadata,
-    })
+    }))
+
+
+def _scrub_if_guest_agent(db, workspace, source, response):
+    """A guest's agent in a jam never gets people's addresses back from its own post."""
+    if not str(source or "").startswith("openagents:"):
+        return response
+    from app.models import WorkspaceMember
+    from app.services.room_agents import is_guest_agent, scrub_for_scoped
+    if not is_guest_agent(db.get(WorkspaceMember, (str(workspace.id), str(source)[len("openagents:"):]))):
+        return response
+    return scrub_for_scoped(response, None)
 
 
 @router.post("/events/{event_id}/recall")
@@ -815,13 +832,60 @@ def poll_events(
     Supports filtering by target, channel, type, and cursor-based pagination
     using the `after` parameter (event ID — events are sorted by timestamp).
     """
+    token = _SCOPED_POLL.set(None)
+    try:
+        response = _poll_events_impl(network=network, after=after, before=before, target=target, channel=channel, type=type, target_agents=target_agents, conversation=conversation, search=search, member=member, exclude_message_types=exclude_message_types, sort=sort, limit=limit, db=db, x_workspace_token=x_workspace_token, authorization=authorization)
+        scoped = _SCOPED_POLL.get()
+    finally:
+        _SCOPED_POLL.reset(token)
+    if scoped is not None:
+        from app.services.room_agents import scrub_for_scoped
+        response = scrub_for_scoped(response, scoped)
+    return response
+
+
+def _poll_events_impl(
+    network: str = Query(..., description="Network (workspace) ID or slug"),
+    after: Optional[str] = Query(None, description="Return events after this event ID"),
+    before: Optional[str] = Query(None, description="Return events before this event ID"),
+    target: Optional[str] = Query(None, description="Filter by target address"),
+    channel: Optional[str] = Query(None, description="Filter by channel name"),
+    type: Optional[str] = Query(None, description="Filter by event type prefix"),
+    target_agents: Optional[str] = Query(None, description="Filter to events routed to this agent (metadata.target_agents contains it, plus untargeted events). Server-side counterpart of the adapter's client-side target filter."),
+    conversation: Optional[str] = Query(None, description="Filter to DM conversation between two agents (comma-separated addresses)"),
+    search: Optional[str] = Query(None, description="Search message content (case-insensitive)"),
+    member: Optional[str] = Query(None, description="Filter to channels where this agent is a member"),
+    exclude_message_types: Optional[str] = Query(None, description="Comma-separated payload.message_type values to exclude (e.g. 'thinking,status,todos'). Events without a message_type are always kept."),
+    sort: Optional[str] = Query(None, description="Sort order: 'asc' (default) or 'desc'"),
+    limit: int = Query(50, ge=1, le=500, description="Max events to return"),
+    db: Session = Depends(get_db),
+    x_workspace_token: Optional[str] = Header(None),
+    authorization: Optional[str] = Header(None),
+):
+    """
+    Poll events from the network.
+
+    Supports filtering by target, channel, type, and cursor-based pagination
+    using the `after` parameter (event ID — events are sorted by timestamp).
+    """
     # Resolve workspace + authorize. Served from Redis for the workspace-token
     # path so an at-head poll (the common idle case) never checks out a Postgres
     # connection — the DB `SELECT workspace` used to run on every poll, before
     # the cache, so even a cached-empty response cost a pooled connection.
     workspace_id, err, legacy_machine, resolved_workspace = _resolve_and_auth_cached(db, network, x_workspace_token, authorization)
     if err is not None:
-        return err
+        # OpenAgents Share: an agent a guest brought into a jam holds a
+        # limited connection. It reads only its thread (and its own control
+        # events), with people's addresses hidden (the wrapper scrubs them).
+        from app.services.room_agents import scoped_poll_node
+        scoped = scoped_poll_node(db, network, x_workspace_token, authorization)
+        if scoped is None:
+            return err
+        _SCOPED_POLL.set(scoped)
+        workspace_id, legacy_machine, resolved_workspace = str(scoped.workspace_id), True, None
+        if not ((type or "").startswith("workspace.agent.control") and target == f"openagents:{scoped.scope_agent}"):
+            channel, target = scoped.scope_channel, None
+        conversation, member, search = None, None, None
 
     # v1.1 visibility: people do not read private threads they are not in.
     # Machines (token-only callers: agents, daemons) are exempt. Deny a
@@ -1024,16 +1088,24 @@ def poll_events(
         if channel:
             query = query.where(EventRecord.target == f"channel/{channel}")
 
+        split_types = None
         if type:
             matching = None if type in POLL_PREFIXES else workspace_types_matching(db, workspace_id, type)
             if matching is not None and len(matching) <= 1:
                 # One concrete type (or none): equality lets PostgreSQL range-scan
                 # (network_id, type, ...) instead of reading every other type.
                 query = query.where(EventRecord.type.in_(matching))
+            elif matching is not None and (target or channel):
+                # Several types in one thread: an IN list makes PostgreSQL read
+                # and sort the whole thread (258k rows), and the prefix filter
+                # walks the workspace's timestamp index until it finds enough of
+                # this thread's rows (10-30 s once the thread goes quiet,
+                # 2026-11-25). Instead read each type's newest rows through
+                # (network_id, type, target, timestamp) and merge (see below).
+                split_types = sorted(matching)
             else:
-                # Several types: an IN list defeats ordered index scans (a
-                # thread's newest page read and sorted all 258k of its rows), so
-                # keep the prefix filter, which walks the timestamp index.
+                # Workspace-wide: the prefix filter walks the timestamp index,
+                # which finds recent messages quickly.
                 query = query.where(event_type_filter(type))
 
         if exclude_message_types:
@@ -1106,10 +1178,20 @@ def poll_events(
         # event the main query didn't get to see (at worst a harmless re-scan).
         head_snapshot = stream_head(db, workspace_id, type, channel, target) if target_agents else None
 
-        if sort == "desc":
-            query = query.order_by(EventRecord.timestamp.desc(), EventRecord.id.desc()).limit(limit + 1)
+        def ordered(q, model=EventRecord):
+            if sort == "desc":
+                return q.order_by(model.timestamp.desc(), model.id.desc()).limit(limit + 1)
+            return q.order_by(model.timestamp.asc(), model.id.asc()).limit(limit + 1)
+
+        if split_types:
+            # One ordered, limited index scan per type, then merge: the result is
+            # the same page the prefix filter would return.
+            parts = [ordered(query.where(EventRecord.type == t)).subquery() for t in split_types]
+            merged = union_all(*[select(part) for part in parts]).subquery()
+            merged_event = aliased(EventRecord, merged)
+            query = ordered(select(merged_event), merged_event)
         else:
-            query = query.order_by(EventRecord.timestamp.asc(), EventRecord.id.asc()).limit(limit + 1)
+            query = ordered(query)
         rows = db.execute(query).scalars().all()
 
         has_more = len(rows) > limit
@@ -1250,9 +1332,16 @@ def list_conversations(
     viewer = resolve_viewer(db, workspace, x_workspace_token, authorization)
     # Totals come from one incrementally maintained, workspace-wide summary;
     # visibility depends only on each pair's participants, so filter per viewer.
-    from app.services.dm_summary import visible_pairs, workspace_pairs
+    from app.services.dm_summary import SummaryWarmingError, visible_pairs, workspace_pairs
     from app.services.poll_queries import dm_rewrite_generation
-    all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    try:
+        all_pairs = workspace_pairs(db, workspace.id, dm_generation(workspace.id), dm_rewrite_generation(workspace.id))
+    except SummaryWarmingError as exc:
+        # Release authentication's transaction immediately; never queue a DB
+        # connection behind a slow history rebuild.
+        db.rollback()
+        from fastapi import HTTPException
+        raise HTTPException(503, str(exc), headers={"Retry-After": "5"}) from exc
     viewer_addresses = _dm_addresses(viewer) if _dm_viewer_scope(viewer) else None
     pairs = [SimpleNamespace(**row) for row in visible_pairs(all_pairs, viewer_addresses, agent, limit)]
 
@@ -1574,9 +1663,9 @@ async def live_event_stream(
     if error is not None:
         return error
     workspace_id, viewer, dm_scope, hidden = scope
-    if not await run_in_threadpool(agent_stream.workspace_stream_enabled, workspace_id):
+    if not agent_stream.live_stream_enabled():
         return json_response(
-            ResponseCode.NOT_FOUND, "Live stream is not enabled for this workspace",
+            ResponseCode.NOT_FOUND, "Live stream is not enabled on this server",
             data={"reason": "live_stream_disabled"},
         )
     stream_filter = _StreamVisibility(workspace_id, viewer, hidden) if dm_scope else None

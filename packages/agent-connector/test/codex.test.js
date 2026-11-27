@@ -126,6 +126,35 @@ describe('Codex — failure detail selection', () => {
     assert.ok(!detail.includes('line 0'), 'only the tail should be kept');
   });
 
+  it('quotes the headline of a Node exception from codex.js, not its stack', () => {
+    // Daily errors dashboard, 2026-11-25: a scoop Node install whose Codex
+    // lacked its native build read "> at file:///…/codex.js:113:20 at
+    // ModuleJob.run" on every message.
+    const stderr = [
+      'file:///C:/Users/Qa/scoop/persist/nodejs-lts/bin/node_modules/@openai/codex/bin/codex.js:108',
+      '  throw new Error(',
+      '        ^',
+      '',
+      'Error: Missing optional dependency @openai/codex-win32-x64. Reinstall Codex: npm install -g @openai/codex@latest',
+      '    at findCodexExecutable (file:///C:/Users/Qa/scoop/persist/nodejs-lts/bin/node_modules/@openai/codex/bin/codex.js:108:9)',
+      '    at file:///C:/Users/Qa/scoop/persist/nodejs-lts/bin/node_modules/@openai/codex/bin/codex.js:113:20',
+      '    at ModuleJob.run (node:internal/modules/esm/module_job:343:25)',
+      '    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)',
+      '    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5)',
+      '',
+      'Node.js v22.20.0',
+    ].join('\n');
+    const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
+    assert.match(detail, /^Error: Missing optional dependency @openai\/codex-win32-x64\. Reinstall Codex/);
+    assert.ok(!/\bat ModuleJob/.test(detail), detail);
+  });
+
+  it('keeps the tail when "at …" lines are not a stack under an exception', () => {
+    const stderr = ['Error: model refused request', 'at most 3 tool calls are allowed per turn; reduce parallelism'].join('\n');
+    const detail = CodexAdapter._failureDetail({ errorMessage: '', stderr, exitCode: 1 });
+    assert.match(detail, /Error: model refused request\nat most 3 tool calls/);
+  });
+
   it('drops tracing noise so the CLI\'s own sentence is what reaches the chat', () => {
     const stderr = [
       'Reading prompt from stdin...',

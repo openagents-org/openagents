@@ -177,6 +177,12 @@ event.listen(SessionLocal, "after_begin", apply_transaction_timeouts)
 
 Base = declarative_base()
 
+# Drop NUL characters and lone UTF-16 surrogates from every text/JSON value
+# the ORM writes; PostgreSQL rejects both (see app/db_text.py).
+from app.db_text import install_text_sanitizer  # noqa: E402
+
+install_text_sanitizer(Base)
+
 
 def get_db():
     """FastAPI dependency that provides a database session."""

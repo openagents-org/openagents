@@ -35,6 +35,7 @@ import {
 import { useFormatters, useT } from '@/lib/i18n';
 import type { AgentUsableBy } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { WithTooltip } from '@/components/ui/with-tooltip';
 
 function GranteeIcon({ kind }: { kind: GranteeKind }) {
   const Icon = kind === 'agent' ? Bot : kind === 'group' ? Users : User;
@@ -234,7 +235,7 @@ export function AgentAccessSection({
                     ))}</SelectGroup>
                   </SelectContent>
                 </Select>
-                <Button size="sm" onClick={grant} disabled={granting || picked.length === 0} className="ml-auto">
+                <Button onClick={grant} disabled={granting || picked.length === 0} className="ml-auto">
                   {granting ? <Spinner className="size-3.5" /> : <Plus className="size-3.5" />}
                   {granting ? t('agentAccess.granting') : t('agentAccess.grant')}
                 </Button>
@@ -270,9 +271,9 @@ export function AgentUsabilityLine({ agentName, className }: { agentName: string
 
   if (!usableBy) return null;
   return (
-    <Badge variant="secondary" className={cn('text-muted-foreground', className)} title={t('agentAccess.title')}>
+    <WithTooltip label={t('agentAccess.title')}><Badge variant="secondary" className={cn('text-muted-foreground', className)}>
       <Users />
       {t('agentAccess.usableBy')}: {usabilitySummary(t, usableBy)}
-    </Badge>
+    </Badge></WithTooltip>
   );
 }

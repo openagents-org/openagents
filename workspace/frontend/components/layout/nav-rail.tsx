@@ -185,7 +185,7 @@ export function NavRail() {
             Agents, with Inbox beside it while there is room. */}
         <SidebarGroup className="px-1.5 pb-0">
           <SidebarMenu>
-            <SidebarMenuItem className="flex items-center gap-2">
+            <SidebarMenuItem className="flex items-center gap-2" data-tour="manage-agents">
               <ConnectAgentButton
                 label={connectLabel}
                 active={isConnectActive}
@@ -233,7 +233,7 @@ export function NavRail() {
                 </SidebarMenuItem>
               )}
               {navItems.filter((item) => item.mode !== 'agents' || workspace?.settings?.services_enabled === true).map((item) => (
-                <SidebarMenuItem key={item.mode}>
+                <SidebarMenuItem key={item.mode} data-tour={`view-${item.mode}`}>
                   <SidebarMenuButton
                     className={cn('relative', !showLabels && 'justify-center!')}
                     aria-label={item.label}

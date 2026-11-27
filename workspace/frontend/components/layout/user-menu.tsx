@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
 import {
-  Check, EllipsisVertical, KeyRound, LayoutGrid, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
+  BookOpen, Check, Compass, EllipsisVertical, KeyRound, LayoutGrid, LayoutList, LogIn, LogOut, Monitor, Moon, Settings, Shield, Sun, User, UserPlus, MessageSquarePlus } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { toast } from 'sonner';
 import {
@@ -28,7 +28,10 @@ import { canAdminister } from '@/components/settings/admin-context';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useOpenAgentsAuth } from '@/lib/openagents-auth-context';
 import { goToCentralLogin, goToCentralLogout } from '@/lib/auth-redirects';
-import { useT } from '@/lib/i18n';
+import { useI18n, useT } from '@/lib/i18n';
+import { docsUrl } from '@/lib/docs-links';
+import { startWorkspaceTour } from '@/lib/workspace-tour';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { currentRouteSearch } from '@/lib/route-search';
 import { LanguageMenuSub } from './language-menu';
 import { HumanAvatar } from '@/components/chat/human-avatar';
@@ -52,6 +55,8 @@ const THEME_OPTIONS = [
 ] as const;
 
 export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProps = {}) {
+  const { locale } = useI18n();
+  const isMobile = useIsMobile();
   const { workspace, token, currentUser } = useWorkspace();
   const { user, isOpenAgentsDomain, signIn, signOut } = useOpenAgentsAuth();
   const me = useMe(workspace?.slug || workspace?.workspaceId);
@@ -130,7 +135,7 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
       <DropdownMenu>
         {variant === 'row' ? (
           <DropdownMenuTrigger asChild>
-            <SidebarMenuButton size="lg" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
+            <SidebarMenuButton size="lg" data-tour="user-menu" className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground">
               {user ? (
                 <HumanAvatar email={user.email} className="size-8" />
               ) : (
@@ -149,6 +154,7 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
               <Button
                 variant="ghost"
                 size="icon"
+                data-tour="user-menu"
                 aria-label={user?.email || t('userMenu.account')}
                 className="rounded-full text-muted-foreground"
               >
@@ -179,12 +185,19 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
             </>
           )}
 
-          {isOpenAgentsDomain && user && (
+          {user && (
             <>
               <DropdownMenuGroup>
-                <DropdownMenuItem onClick={() => router.push('/')}>
-                  <LayoutGrid />
-                  {t('userMenu.switchWorkspace')}
+                {isOpenAgentsDomain && (
+                  <DropdownMenuItem onClick={() => router.push('/')}>
+                    <LayoutGrid />
+                    {t('userMenu.switchWorkspace')}
+                  </DropdownMenuItem>
+                )}
+                {/* Jams (OpenAgents Jam) live apart from workspaces. */}
+                <DropdownMenuItem onClick={() => router.push('/jams')} data-user-menu-jams="">
+                  <LayoutList />
+                  {t('jams.myJams')}
                 </DropdownMenuItem>
               </DropdownMenuGroup>
               <DropdownMenuSeparator />
@@ -243,6 +256,22 @@ export function UserMenu({ side, align = 'end', variant = 'icon' }: UserMenuProp
             <MessageSquarePlus />
             {t('userMenu.sendFeedback')}
           </DropdownMenuItem>
+
+          {/* The user guide, opened outside the app (the desktop app hands
+              new windows to the system browser), and the guided tour again. */}
+          <DropdownMenuItem asChild>
+            <a href={docsUrl(locale)} target="_blank" rel="noopener noreferrer">
+              <BookOpen />
+              {t('userMenu.docs')}
+            </a>
+          </DropdownMenuItem>
+          {/* The tour points at the desktop layout's rail; phones have none. */}
+          {!isMobile && (
+            <DropdownMenuItem onClick={startWorkspaceTour}>
+              <Compass />
+              {t('userMenu.tour')}
+            </DropdownMenuItem>
+          )}
 
           {/* Full-page admin dashboard (general / members / security / devices /
               integrations / preferences). currentRouteSearch() carries an

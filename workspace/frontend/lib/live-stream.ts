@@ -1,10 +1,11 @@
 /**
- * One live connection per tab to GET /v1/events/live (beta, per-workspace
- * setting "realtime_stream"). It carries every workspace event this viewer may
- * see plus content-free "refetch this panel" topics, so the thread view, DMs
- * and side panels stop polling on timers while it is connected.
+ * One live connection per tab to GET /v1/events/live (on by default; the
+ * server reports settings.realtime_stream=false when it is turned off). It
+ * carries every workspace event this viewer may see plus content-free
+ * "refetch this panel" topics, so the thread view, DMs and side panels stop
+ * polling on timers while it is connected.
  *
- * States: 'connecting' → 'live'; 'off' (the workspace has not enabled it,
+ * States: 'connecting' → 'live'; 'off' (turned off on the server,
  * rechecked every 10 min) or 'retrying' (network trouble, backoff). Anything
  * but 'live' means callers keep their existing polling.
  */

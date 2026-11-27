@@ -109,6 +109,10 @@ export function codebuddyLoginEnv(
  * session predates the domain field and there is nothing to disagree with.
  *
  * `creds` is the parsed session file. Only `auth.domain` is read.
+ *
+ * The core applies the same rule (agent-connector's codebuddy-stream
+ * `codebuddySessionState`, behind the registry's `codebuddy_session`
+ * classifier); keep the two in step when a region is added.
  */
 export function codebuddySessionMatchesRegion(
   creds: unknown,

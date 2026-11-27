@@ -686,6 +686,21 @@ describe('probeAgentType', () => {
     }
   });
 
+  // The adapter runs a China-pinned agent with CODEBUDDY_INTERNET_ENVIRONMENT
+  // set; a probe without it asked the other site and passed for an agent
+  // that then failed every message.
+  it('asks CodeBuddy on the site the agent runs on', async () => {
+    const entry = {
+      name: 'codebuddy', label: 'CodeBuddy',
+      probe: { args: ['-e', 'console.log("site=" + (process.env.CODEBUDDY_INTERNET_ENVIRONMENT || "default"))'], timeout_s: 30 },
+    };
+    const health = { installed: true, ready: false, auth_status: 'unknown', binary: process.execPath };
+    const china = await probeAgentType(fakeConnector({ entry, health, env: { CODEBUDDY_REGION: 'china' } }), 'codebuddy');
+    assert.equal(china.reply, 'site=internal');
+    const intl = await probeAgentType(fakeConnector({ entry, health }), 'codebuddy');
+    assert.equal(intl.reply, 'site=default');
+  });
+
   it('treats exit-0-with-no-output as empty_response', async () => {
     const entry = { name: 'claude', label: 'Claude', probe: { args: ['-e', ''], timeout_s: 30 } };
     const c = fakeConnector({ entry, health: { installed: true, ready: true, binary: process.execPath } });
@@ -1238,6 +1253,29 @@ describe('failures that used to read as an unknown CLI error or a bad key', () =
     assert.equal(
       classifyFailure('API Error: 400 Your account (2104615010) does not have a valid AgentPlan subscription, or your subscription has expired.'),
       CODE.OUT_OF_CREDIT,
+    );
+    // Daily errors dashboard, 2026-11-26: twelve Claude Code tests.
+    assert.equal(
+      classifyFailure("You've hit your weekly limit · resets Nov 27, 2am (America/Sao_Paulo)"),
+      CODE.OUT_OF_CREDIT,
+    );
+    assert.equal(classifyFailure("You've hit your limit · resets 5pm"), CODE.OUT_OF_CREDIT);
+    assert.equal(classifyFailure("You've hit your usage limits for this period"), CODE.OUT_OF_CREDIT);
+    assert.equal(classifyFailure("You've hit your rate limit, try again shortly"), CODE.RATE_LIMITED);
+    assert.notEqual(classifyFailure("You've hit your concurrency limit"), CODE.OUT_OF_CREDIT);
+  });
+
+  it('reads a ChatGPT sign-in Codex can no longer renew as expired, not a bad key', () => {
+    assert.equal(
+      classifyFailure('ERROR codex_login::auth::manager: Failed to refresh token: 401 Unauthorized'),
+      CODE.SESSION_EXPIRED,
+    );
+    // An outage while refreshing is not an expired sign-in.
+    assert.notEqual(classifyFailure('Failed to refresh token: 503 Service Unavailable'), CODE.SESSION_EXPIRED);
+    // Claude Code's transient one is not this.
+    assert.notEqual(
+      classifyFailure('Failed to refresh OAuth token: another Claude Code process is refreshing it or exited mid-refresh.'),
+      CODE.SESSION_EXPIRED,
     );
   });
 

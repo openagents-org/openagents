@@ -1922,7 +1922,12 @@ class OpenCodeAdapter extends BaseAdapter {
       category = 'provider_not_configured';
     } else if (has(/econnrefused|enotfound|etimedout|eai_again|network|fetch failed|socket hang|connection (refused|reset|error)|getaddrinfo|\bdns\b/)) {
       category = 'network_error';
-    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)) {
+    } else if (has(/\b5\d\d\b|server error|internal server|bad gateway|service unavailable|gateway timeout|server is busy|system is busy|系统繁忙|服务繁忙|đang bận/)
+      // A relay that was reached and then cut the reply off: "Upstream
+      // response stream was interrupted" read as "failed for an undetermined
+      // reason" (daily errors dashboard, 2026-11-25). Not "could not reach".
+      // "Upstream HTTP/2 stream failed" is the same cut-off (2026-11-26).
+      || has(/\bstream (?:was )?(?:interrupted|disconnected)\b|upstream http\/2 stream failed/)) {
       category = 'provider_server_error';
     } else if (has(/expected '?function\.name'? to be a string/)) {
       // The provider streamed a tool call with no tool name, and the AI SDK

@@ -1,0 +1,50 @@
+{
+  "version": "1.1.18",
+  "date": "2026-11-24",
+  "entries": [
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Choose a model from the list your agent provides",
+        "zh": "从智能体提供的列表中选择模型"
+      },
+      "description": {
+        "en": "When adding an agent, the models offered by its account appear in a list. A model that is not listed can still be entered as a custom model ID.",
+        "zh": "添加智能体时，其账号可用的模型会以列表形式列出；列表以外的模型仍可通过自定义模型 ID 填写。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Consistent controls across the Workspace",
+        "zh": "工作区各处控件样式统一"
+      },
+      "description": {
+        "en": "Loading indicators, confirmation prompts, option pickers, labels and hints now share the same appearance throughout the Workspace.",
+        "zh": "加载提示、确认弹窗、选项切换、标签与提示信息在工作区各处采用统一的样式。"
+      }
+    },
+    {
+      "type": "improvement",
+      "title": {
+        "en": "Clearer agent update actions",
+        "zh": "智能体更新操作更加清晰"
+      },
+      "description": {
+        "en": "The update button on an agent's setup page spans the side panel, and the update confirmation shows the full command on a single line.",
+        "zh": "智能体配置页侧栏中的更新按钮改为整栏宽度；更新确认弹窗将完整命令显示在同一行。"
+      }
+    },
+    {
+      "type": "fix",
+      "title": {
+        "en": "Model names are no longer accepted as model IDs",
+        "zh": "不再将模型显示名误作模型 ID"
+      },
+      "description": {
+        "en": "Entering a model's display name, such as \"Opus 5 with 1M context\", now points to its model ID instead of creating an agent that fails on its first reply.",
+        "zh": "填写模型的显示名（例如「Opus 5 with 1M context」）时，会提示对应的模型 ID，避免创建出首次回复即报错的智能体。"
+      }
+    }
+  ]
+}

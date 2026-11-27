@@ -938,6 +938,24 @@ async function cmdToolMode(connector, _flags, positional) {
   }
 }
 
+async function cmdJam(flags, positional) {
+  const jam = require('./jam-setup');
+  const action = positional[0] || 'setup';
+  if (action === 'remove') {
+    const { removed } = jam.remove();
+    if (!removed.length) { print('The OpenAgents Jam skill is not installed.'); return; }
+    for (const r of removed) print(`Removed the skill from ${r.agent} (${r.folder})`);
+    return;
+  }
+  if (action !== 'setup') { print('Usage: agn jam [setup|remove] [--endpoint <url>]'); process.exitCode = 1; return; }
+  const endpoint = flags.endpoint || process.env.OPENAGENTS_ENDPOINT || jam.DEFAULT_ENDPOINT;
+  const { installed, fromServer } = await jam.setup({ endpoint });
+  for (const i of installed) print(`Installed the OpenAgents Jam skill for ${i.agent}: ${i.file}`);
+  if (!fromServer) print(`(Couldn't reach ${endpoint}; installed the built-in copy, which points at the same address.)`);
+  print('');
+  print('Now, in Claude Code (or another agent above), say "start a jam" or type /openagents-jam.');
+}
+
 async function cmdSkills(connector, _flags, positional) {
   const { SKILL_CATALOG, getSkillDefaults } = require('./skill-catalog');
   const toggleable = SKILL_CATALOG.filter(s => s.toggleable);
@@ -1096,11 +1114,13 @@ async function cmdLogin(connector, flags, positional) {
   // A type first: the first agent of a type is often named after it.
   let type = target;
   let entry = connector.registry.getEntry(target);
+  let agentEnv = null;
   if (!entry) {
     const agent = connector.config.getAgent(target);
     if (agent) {
       type = agent.type || 'openclaw';
       entry = connector.registry.getEntry(type);
+      agentEnv = agent.env || {};
     }
   }
   if (!entry) {
@@ -1109,7 +1129,7 @@ async function cmdLogin(connector, flags, positional) {
     return;
   }
   const label = entry.label || type;
-  const { loginPlan } = require('./agent-login');
+  const { loginPlan, loginEnvFor, loginInstructions } = require('./agent-login');
   const plan = loginPlan(entry);
   if (!plan) {
     print(`${label} has no sign-in of its own. Give it an API key instead, in the workspace or with: agn env ${type} --set <KEY>=<value>`);
@@ -1135,6 +1155,21 @@ async function cmdLogin(connector, flags, positional) {
   if (!process.stdin.isTTY) {
     print('Warning: this is not an interactive terminal. The sign-in may need one to take input; if it stalls, run this command in a terminal.');
   }
+  // The site the agent runs on, so the session the sign-in leaves is one it
+  // can use (CodeBuddy's region). The agent's own env first, then its type's,
+  // then — for a type — what the agents of that type agree on.
+  let typeEnv = {};
+  try { typeEnv = connector.getAgentEnv(type) || {}; } catch {}
+  let siblingEnvs = [];
+  if (!agentEnv) {
+    try {
+      siblingEnvs = (connector.config.getAgents() || [])
+        .filter((a) => (a.type || 'openclaw') === type)
+        .map((a) => ({ ...typeEnv, ...(a.env || {}) }));
+    } catch {}
+  }
+  const loginEnv = loginEnvFor(type, [agentEnv, typeEnv], siblingEnvs);
+  for (const line of loginInstructions(type, loginEnv)) print(line);
   print('');
   // The CLI owns the terminal until it is done. Ctrl+C reaches it too, and it
   // decides what that means; this process waits to report the result.
@@ -1145,7 +1180,7 @@ async function cmdLogin(connector, flags, positional) {
     try {
       child = spawn(shell ? `"${bin}"` : bin, plan.args, {
         stdio: 'inherit',
-        env: getEnhancedEnv(),
+        env: { ...getEnhancedEnv(), ...loginEnv },
         shell,
       });
     } catch (e) {
@@ -1161,7 +1196,11 @@ async function cmdLogin(connector, flags, positional) {
   // The CLI's word is not enough (some exit 0 on a cancelled login): ask the
   // same readiness check the daemon uses, with keys not counting.
   let ready = false;
-  try { ready = !!connector.installer.healthCheck(type, { cliLogin: true }).ready; } catch {}
+  // On the agent's env where there is one, so a session for the other site
+  // does not count (CodeBuddy).
+  try {
+    ready = !!connector.installer.healthCheck(type, agentEnv ? { cliLogin: true, agentEnv } : { cliLogin: true }).ready;
+  } catch {}
   // Have a running daemon re-detect and report, so the workspace updates now.
   try { connector.sendDaemonCommand('detect'); } catch {}
   print('');
@@ -1282,6 +1321,8 @@ Commands:
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
   skills [agent] [action]     Manage agent skills (enable/disable)
+  jam setup [--endpoint URL]  Install the OpenAgents Jam skill: then say "start a jam" in Claude Code
+  jam remove                  Remove the OpenAgents Jam skill
   tool-mode [agent] [mode]    View/set tool mode (mcp or skills)
   autostart [--disable]       Enable/disable auto-start on login
   test-llm <type>             Test LLM connection
@@ -1380,6 +1421,7 @@ async function main() {
     workspace: () => cmdWorkspace(connector, flags, positional),
     env: () => cmdEnv(connector, flags, positional),
     skills: () => cmdSkills(connector, flags, positional),
+    jam: () => cmdJam(flags, positional),
     'tool-mode': () => cmdToolMode(connector, flags, positional),
     'test-llm': () => cmdTestLLM(connector, flags, positional),
     probe: () => cmdProbe(connector, flags, positional),

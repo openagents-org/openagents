@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
+import { useCallback, useMemo, type ReactNode } from 'react';
 import { Download, Eye, FileIcon, Folder } from 'lucide-react';
 import { toast } from 'sonner';
 import { isWebProject, projectDisplayName } from '@/lib/web-projects';
@@ -27,6 +27,19 @@ function isPreviewable(contentType: string, filename: string): boolean {
   return false;
 }
 
+/**
+ * Where attachment bytes come from and what clicking does. The workspace uses
+ * its own API; the shared-thread pages pass their link-scoped one.
+ */
+export interface AttachmentSource {
+  /** An inline image preview for an image attachment. */
+  image: (item: MessageAttachment, props: { alt: string; className: string }) => ReactNode;
+  open: (item: MessageAttachment) => void;
+  download: (item: MessageAttachment) => void;
+  /** No "Request revision" (only the workspace composer can take it). */
+  readOnly?: boolean;
+}
+
 /** Normalises the loose attachment records stored in message metadata. */
 export function attachmentsFromMetadata(metadata: Record<string, unknown> | undefined): MessageAttachment[] {
   const raw = (metadata?.attachments as Record<string, unknown>[]) || [];
@@ -38,15 +51,17 @@ export function attachmentsFromMetadata(metadata: Record<string, unknown> | unde
   }));
 }
 
-export function MessageAttachments({ items, senderAgentName = null }: { items: MessageAttachment[]; senderAgentName?: string | null }) {
+export function MessageAttachments({ items, senderAgentName = null, source }: { items: MessageAttachment[]; senderAgentName?: string | null; source?: AttachmentSource }) {
   const openPreview = useCallback((fileId: string) => {
-    openArtifactPreview({ kind: 'file', id: fileId });
-  }, []);
+    const item = (items || []).find((a) => a.fileId === fileId);
+    if (source && item) source.open(item);
+    else openArtifactPreview({ kind: 'file', id: fileId });
+  }, [items, source]);
 
   // Regenerate URLs from fileId to ensure they include current auth token
   const fixedItems = useMemo(() =>
-    (items || []).map((a) => ({ ...a, url: workspaceApi.getFileUrl(a.fileId) })),
-    [items]
+    (items || []).map((a) => ({ ...a, url: source ? '' : workspaceApi.getFileUrl(a.fileId) })),
+    [items, source]
   );
   if (fixedItems.length === 0) return null;
 
@@ -68,12 +83,12 @@ export function MessageAttachments({ items, senderAgentName = null }: { items: M
               aria-label={img.filename}
               className="block max-w-sm overflow-hidden rounded-lg border text-left outline-none transition-colors hover:border-foreground/20 focus-visible:ring-3 focus-visible:ring-ring/50"
             >
-              <AuthenticatedImage
+              {source ? source.image(img, { alt: img.filename, className: 'max-h-64 w-auto object-contain' }) : <AuthenticatedImage
                 fileId={img.fileId}
                 alt={img.filename}
                 className="max-h-64 w-auto object-contain"
                 loading="lazy"
-              />
+              />}
             </button>
           ))}
         </div>
@@ -88,6 +103,7 @@ export function MessageAttachments({ items, senderAgentName = null }: { items: M
               url={file.url}
               senderAgentName={senderAgentName}
               onOpenFull={openPreview}
+              canRequestRevision={!source?.readOnly}
             />
           ))}
         </div>
@@ -97,7 +113,7 @@ export function MessageAttachments({ items, senderAgentName = null }: { items: M
           {files.map((file) => {
             const name = projectDisplayName(file.filename, file.contentType);
             const previewable = isPreviewable(file.contentType, file.filename);
-            const download = () => void workspaceApi.downloadFile(file.fileId, file.filename)
+            const download = source ? () => source.download(file) : () => void workspaceApi.downloadFile(file.fileId, file.filename)
               .catch(error => toast.error(error instanceof Error ? error.message : 'Download failed'));
             return (
               <Attachment key={file.fileId} size="sm" className="max-w-64">

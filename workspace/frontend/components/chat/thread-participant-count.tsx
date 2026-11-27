@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { AgentAvatar } from '@/components/agents/agent-avatar';
 import { HumanAvatar } from './human-avatar';
 import { Bot, Users, UserPlus, Plus } from 'lucide-react';
@@ -12,45 +12,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { displayNameFromEmail } from '@/lib/collab';
 import { AddThreadParticipants } from './add-thread-participants';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
-import { Item, ItemContent, ItemDescription, ItemGroup, ItemMedia, ItemTitle } from '@/components/ui/item';
+import { ROSTER_TRIGGER as TRIGGER, RosterList } from './thread-roster-list';
 import { WithTooltip } from '@/components/ui/with-tooltip';
-
-const TRIGGER = 'px-1.5 font-normal tabular-nums text-muted-foreground';
-
-type RosterEntry = { key: string; media: ReactNode; title: string; description?: string };
-
-function RosterList({ title, empty, items, add }: {
-  title: string;
-  empty: string;
-  items: RosterEntry[];
-  add: { label: string; icon: ReactNode; onClick: () => void } | null;
-}) {
-  return (
-    <>
-      <h4 className="px-1 text-sm font-medium">{title}</h4>
-      {items.length ? (
-        <ItemGroup className="no-scrollbar max-h-72 gap-0 overflow-y-auto">
-          {items.map((item) => (
-            <Item key={item.key} size="xs" className="px-1">
-              <ItemMedia>{item.media}</ItemMedia>
-              <ItemContent>
-                <ItemTitle className="truncate" title={item.title}>{item.title}</ItemTitle>
-                {item.description && <ItemDescription className="truncate" title={item.description}>{item.description}</ItemDescription>}
-              </ItemContent>
-            </Item>
-          ))}
-        </ItemGroup>
-      ) : <p className="px-1 text-sm text-muted-foreground">{empty}</p>}
-      {add && <>
-        <Separator />
-        <Button variant="ghost" size="sm" className="w-full justify-start" onClick={add.onClick}>
-          {add.icon}{add.label}
-        </Button>
-      </>}
-    </>
-  );
-}
 
 /** Count joined people and all thread agents, including offline agents. */
 export function ThreadParticipantCount({ channelName }: { channelName: string }) {

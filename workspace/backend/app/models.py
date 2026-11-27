@@ -162,6 +162,10 @@ class WorkspaceMember(Base):
     status = Column(Text, default="offline")         # online | offline
     last_heartbeat = Column(DateTime(timezone=True), nullable=True)
     joined_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    # What the connected client says it can do, refreshed on every join, e.g.
+    # ["guest_turns"]: it runs a shared-thread guest's turn read-only. A client
+    # that never says so is never handed a guest's request.
+    capabilities = Column(JSONB, nullable=True)
     # Opaque token assigned on each /v1/join. Subsequent heartbeats and
     # message posts must carry this id; a newer join rotates it so any
     # stale client (e.g. ghost adapter, second daemon on same config)
@@ -512,6 +516,12 @@ class Node(Base):
     # revocation. Stored raw for parity with workspaces.password_hash; hashing
     # both is a later hardening pass.
     token = Column(Text, nullable=True, unique=True, index=True)
+    # A limited connection (OpenAgents Share: an agent a guest brought into a
+    # jam): it may only run scope_agent and only in the thread scope_channel —
+    # join, heartbeat, read that thread, post there as that agent. NULL = the
+    # usual full device connection.
+    scope_channel = Column(Text, nullable=True)
+    scope_agent = Column(Text, nullable=True)
     name = Column(Text, nullable=True)                  # display name (defaults to hostname)
     hostname = Column(Text, nullable=True)
     device_type = Column(Text, default="unknown")       # server | laptop | desktop | unknown
@@ -712,6 +722,101 @@ class PublicShare(Base):
             postgresql_where=text("revoked_at IS NULL"),
             sqlite_where=text("revoked_at IS NULL"),
         ),
+    )
+
+
+class ThreadGuestLink(Base):
+    """A link that lets anyone holding it into ONE thread as a guest.
+
+    Made by OpenAgents Share: a person shares an agent from their own coding
+    session, and the people they send the link to read that thread and post
+    in it without an account. A guest sees nothing else in the workspace.
+
+    ``token`` is the secret in the URL (/jam/<token>). It is kept so
+    the owner can copy the link again. ``expires_at`` NULL means the link never
+    expires (the owner's choice, and the default); revoking stamps
+    ``revoked_at`` and is final. ``publish_key_hash`` makes a retried publish
+    return the same workspace, thread and link instead of a second copy.
+    ``post_window_*`` is a coarse per-link posting budget, so a leaked link
+    cannot flood the owner's agent.
+    """
+    __tablename__ = "thread_guest_links"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    workspace_id = Column(UUID(as_uuid=False), ForeignKey("workspaces.id", ondelete="CASCADE"), nullable=False)
+    channel_name = Column(Text, nullable=False)
+    token = Column(Text, unique=True, nullable=False)
+    created_by = Column(Text, nullable=False)          # "human:<email>" or "share:anonymous"
+    owner_name = Column(Text, nullable=True)           # how guests see the person who shared
+    can_post = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
+    # "none": a guest's request to the agent runs at once. "owner": it waits
+    # until the owner approves it (ThreadGuestRequest).
+    approval_mode = Column(Text, nullable=False, default="none", server_default=text("'none'"))
+    # Like Google Docs: "link" — anyone with the link; "invited" — only people
+    # signed in with one of invited_emails (lowercased).
+    access = Column(Text, nullable=False, default="link", server_default=text("'link'"))
+    # Guests may bring their own agents into the jam (limited connections).
+    allow_guest_agents = Column(Boolean, nullable=False, default=True, server_default=text("TRUE"))
+    invited_emails = Column(JSONB, nullable=False, default=list, server_default=text("'[]'"))
+    publish_key_hash = Column(Text, unique=True, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_started_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_thread_guest_links_channel", "workspace_id", "channel_name"),
+    )
+
+
+class ThreadGuestRequest(Base):
+    """A guest's request to a thread's agent, waiting for the owner's decision.
+
+    Only links with approval_mode "owner" make these. The guest's message is
+    stored (and shown) at once but held from the agent; approving re-posts it
+    for the agent (``released_event_id``), declining tells the guest.
+    """
+    __tablename__ = "thread_guest_requests"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
+    guest_id = Column(Text, nullable=False)
+    event_id = Column(Text, nullable=False)
+    status = Column(Text, nullable=False, default="pending")   # pending | approved | declined
+    decided_by = Column(Text, nullable=True)
+    decided_at = Column(DateTime(timezone=True), nullable=True)
+    released_event_id = Column(Text, nullable=True)
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+    __table_args__ = (
+        Index("idx_thread_guest_requests_link", "link_id", "status"),
+    )
+
+
+class ThreadGuest(Base):
+    """One person who opened a thread link and chose a display name.
+
+    The browser keeps ``session`` (returned once); only its SHA-256 is stored.
+    A guest posts as ``human:guest-<id>@guest.invalid`` — an address that can
+    never belong to a real account — and every message carries
+    ``metadata.guest``, so nothing mistakes a guest for a member.
+    """
+    __tablename__ = "thread_guests"
+
+    id = Column(Text, primary_key=True, default=_uuid)
+    link_id = Column(Text, ForeignKey("thread_guest_links.id", ondelete="CASCADE"), nullable=False)
+    display_name = Column(Text, nullable=False)
+    email = Column(Text, nullable=True)   # set for invite-only jams: the signed-in invitee
+    session_hash = Column(Text, unique=True, nullable=False)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_started_at = Column(DateTime(timezone=True), nullable=True)
+    post_window_count = Column(Integer, nullable=False, default=0, server_default=text("0"))
+    created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+    last_seen_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("idx_thread_guests_link", "link_id"),
     )
 
 
@@ -1813,6 +1918,26 @@ class DirectThreadPreference(Base):
     starred = Column(Boolean, nullable=False, default=False, server_default=text('FALSE'))
 
 
+class DmPairSummary(Base):
+    """Per-pair DM totals for GET /v1/events/conversations, maintained by the
+    PostgreSQL trigger ``events_dm_pair_summary`` (migration 101). Rows of a
+    workspace are only complete once ``DmSummaryBackfill`` has a row for it;
+    ``msg_count`` <= 0 means no messages remain."""
+    __tablename__ = 'dm_pair_summaries'
+    workspace_id = Column(UUID(as_uuid=False), primary_key=True)
+    agent_a = Column(Text, primary_key=True)
+    agent_b = Column(Text, primary_key=True)
+    msg_count = Column(BigInteger, nullable=False, default=0, server_default=text('0'))
+    last_ts = Column(BigInteger, nullable=False, default=0, server_default=text('0'))
+
+
+class DmSummaryBackfill(Base):
+    """A workspace whose dm_pair_summaries include its full history."""
+    __tablename__ = 'dm_summary_backfills'
+    workspace_id = Column(UUID(as_uuid=False), primary_key=True)
+    completed_at = Column(DateTime(timezone=True), nullable=False, default=_now, server_default=text('NOW()'))
+
+
 class PersonalSetting(Base):
     """One person's own settings in a workspace, shared by all their devices
     (web, desktop app, phone). ``key`` names the setting — "thread_projects"
@@ -1904,3 +2029,12 @@ class OAuthAuthorizationCode(Base):
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=_now, server_default=text("NOW()"))
+
+
+class JamSetupDraft(Base):
+    __tablename__ = "jam_setup_drafts"
+
+    key_hash = Column(Text, primary_key=True)
+    draft = Column(JSONB, nullable=False)
+    published_workspace = Column(Text, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

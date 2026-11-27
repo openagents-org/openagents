@@ -84,18 +84,21 @@ export function SetupTypeInfo({
         ))}
       </dl>
       {onOpenType && (
-        <div className="mt-3 flex flex-wrap gap-2">
+        // Full width of the rail, at the form's own button size: the update is
+        // the one action here, and a small button floated at the left of an
+        // empty column read as an afterthought.
+        <div className="mt-4 flex flex-col gap-1">
           {update?.latest && (
-            <Button size="sm" onClick={onOpenType} data-testid="setup-type-update">
-              <RefreshCw />
+            <Button size="lg" className="w-full" onClick={onOpenType} data-testid="setup-type-update">
+              <RefreshCw data-icon="inline-start" />
               {t("agents.actions.updateToVersion", { version: update.latest })}
             </Button>
           )}
           {entry.installed && (
-            <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={onOpenType}
+            <Button variant="ghost" className="w-full text-muted-foreground" onClick={onOpenType}
               data-testid="setup-type-manage">
               {t("agents.shared.aside.manage")}
-              <ChevronRight />
+              <ChevronRight data-icon="inline-end" />
             </Button>
           )}
         </div>

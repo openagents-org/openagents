@@ -25,8 +25,17 @@ afterEach(async () => {
 async function render(value = pairing, extra: Partial<React.ComponentProps<typeof OnboardingPairingPanel>> = {}) {
   await act(async () => root.render(React.createElement(I18nProvider, { initialLocale: 'en-US', hasStoredLocale: true, children: React.createElement(OnboardingPairingPanel, { pairing: value, ...extra }) })));
 }
+/** The folded "pair from the command line" fallback under the code. */
+function fallback() {
+  return container.querySelector<HTMLButtonElement>('[data-slot="collapsible-trigger"]')!;
+}
 function button(text: string) {
-  return [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => b.textContent?.includes(text))!;
+  // A setup method is a radio card: its button sits in a label that carries the text.
+  return [...container.querySelectorAll<HTMLButtonElement>('button')].find(b => (b.closest('label') ?? b).textContent?.includes(text))!;
+}
+/** Picked, for a toggle (aria-pressed) and for a radio card or single toggle group (aria-checked). */
+function isOn(element: HTMLElement) {
+  return element.getAttribute('aria-pressed') === 'true' || element.getAttribute('aria-checked') === 'true';
 }
 it('keeps desktop setup focused, and copies the pairing code', async () => {
   await render();
@@ -39,9 +48,11 @@ it('keeps desktop setup focused, and copies the pairing code', async () => {
 });
 it('starts with command-line setup and switches the install command for Windows', async () => {
   await render();
-  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Command line'))).toBe(true);
   expect(container.textContent).not.toContain('Recommended');
-  expect(container.querySelector('details')?.open).toBe(false);
+  expect(fallback().getAttribute('aria-expanded')).toBe('false');
+  expect([...container.querySelectorAll('code')].map(c => c.textContent)).not.toContain('agn device connect TEST-CODE');
+  await act(async () => fallback().click());
   expect(button('TEST-CODE').disabled).toBe(false);
   await act(async () => button('TEST-CODE').click());
   expect(copy).toHaveBeenCalledWith('TEST-CODE');
@@ -62,6 +73,7 @@ it('stops offering an expired pairing code on both setup paths', async () => {
   expect(container.querySelector('[role="status"]')?.textContent).toContain('Code expired');
   await act(async () => button('Command line').click());
   expect(button('TEST-CODE').disabled).toBe(true);
+  await act(async () => fallback().click());
   const copies = container.querySelectorAll<HTMLButtonElement>('button[aria-label="Copy command"]');
   expect(copies[0].disabled).toBe(false);
   expect(copies[1].disabled).toBe(true);
@@ -83,9 +95,9 @@ it.each(['Command line', 'Desktop app'])('renews an expired code without resetti
   await act(async () => pending.click());
   expect(renew).toHaveBeenCalledTimes(1);
   await render({ ...pairing, code: 'NEWX-CODE' }, { onRegenerate: renew });
-  expect(button(method).getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button(method))).toBe(true);
   if (method === 'Command line') {
-    expect(button('Windows').getAttribute('aria-pressed')).toBe('true');
+    expect(isOn(button('Windows'))).toBe(true);
     expect(container.querySelector('code')?.textContent).toContain('install.ps1');
   } else expect(container.querySelectorAll('a')).toHaveLength(3);
   expect(button('NEWX-CODE').disabled).toBe(false);
@@ -97,15 +109,15 @@ it.each(['Command line', 'Desktop app'])('renews an expired code without resetti
 it('honors an explicit location choice while allowing manual changes until another request', async () => {
   const computer = { method: 'desktop' as const };
   await render(pairing, { methodRequest: computer });
-  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Desktop app'))).toBe(true);
   expect(container.querySelectorAll('a')).toHaveLength(3);
   await act(async () => button('Command line').click());
   await render(pairing, { methodRequest: computer });
-  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Command line'))).toBe(true);
   await render(pairing, { methodRequest: { method: 'desktop' } });
-  expect(button('Desktop app').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Desktop app'))).toBe(true);
   await render(pairing, { methodRequest: { method: 'terminal' } });
-  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Command line'))).toBe(true);
 });
 
 
@@ -116,13 +128,13 @@ it('preserves a manual setup choice when a cached panel becomes visible again', 
   await act(async () => button('Command line').click());
   await act(async () => cached(false));
   await act(async () => cached(true));
-  expect(button('Command line').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('Command line'))).toBe(true);
 });
 
 it('gives instructions to paste into Claude Code or Codex, with the code in the command', async () => {
   await render();
   await act(async () => button('From your agent').click());
-  expect(button('From your agent').getAttribute('aria-pressed')).toBe('true');
+  expect(isOn(button('From your agent'))).toBe(true);
   const text = container.querySelector('pre')?.textContent || '';
   expect(text).toContain('Connect yourself to my OpenAgents workspace.');
   expect(text).toContain('npx -y @openagents-org/agent-launcher@latest join TEST-CODE');

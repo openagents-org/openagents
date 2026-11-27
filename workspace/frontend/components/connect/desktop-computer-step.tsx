@@ -1,11 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, Laptop, Loader2, Monitor, Server } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Laptop, Monitor, Server } from 'lucide-react';
 import { Button } from '@/components/ui/reui/button';
 import { workspaceApi } from '@/lib/api';
 import { useT } from '@/lib/i18n';
 import type { DesktopComputer, DesktopHost } from '@/lib/desktop-host';
+import { Spinner } from '@/components/ui/spinner';
 
 /** Only the device connection is desktop-specific. Agent setup stays shared. */
 export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnected, onOtherDevice }: {
@@ -148,7 +149,7 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
 
           <div className="mt-auto pt-1">
             {phase === 'loading' ? (
-              <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" />{t('onboarding.checkingComputer')}</div>
+              <div className="flex h-11 items-center justify-center gap-2 text-sm text-muted-foreground"><Spinner aria-hidden="true" className="size-4" />{t('onboarding.checkingComputer')}</div>
             ) : error === 'load' || error === 'offline' ? (
               <div className="flex flex-wrap gap-2">
                 {/* Offline goes back through connect: the desktop app then
@@ -159,7 +160,7 @@ export function DesktopComputerStep({ host, workspaceId, workspaceName, onConnec
               </div>
             ) : (
               <Button variant="primary" className="min-h-11 w-full whitespace-normal" onClick={connect} disabled={!editable || working}>
-                {working ? <Loader2 className="size-4 shrink-0 animate-spin" /> : <Laptop className="size-4 shrink-0" />}
+                {working ? <Spinner aria-hidden="true" className="size-4 shrink-0" /> : <Laptop className="size-4 shrink-0" />}
                 {t(phase === 'connecting' ? 'onboarding.connectingComputer' : phase === 'waiting' ? 'onboarding.waitingComputer' : 'onboarding.connectComputerToWorkspace')}
                 {!working && <ArrowRight className="size-4 shrink-0" />}
               </Button>

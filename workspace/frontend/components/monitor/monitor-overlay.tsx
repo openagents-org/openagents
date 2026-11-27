@@ -236,7 +236,7 @@ export function MonitorOverlay({ sessionId, session, initialMessages, open, onOp
             const isStopping = stoppingSessionIds.has(sessionId);
             if (!isClaude || (!isWorking && !isStopping)) return null;
             return (
-              <Button variant="destructive" size="xs" onClick={() => stopAllAgents(sessionId)} disabled={isStopping} className="shrink-0">
+              <Button variant="destructive" size="sm" onClick={() => stopAllAgents(sessionId)} disabled={isStopping} className="shrink-0">
                 <Square data-icon="inline-start" className="fill-current" />
                 {isStopping ? t('chat.stopping') : t('chat.stop')}
               </Button>

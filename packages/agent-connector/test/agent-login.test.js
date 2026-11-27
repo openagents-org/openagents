@@ -7,7 +7,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { isHeadless, loginArgs, loginPlan, agnLoginCommand } = require('../src/agent-login');
+const { isHeadless, loginArgs, loginPlan, loginEnvFor, loginInstructions, agnLoginCommand } = require('../src/agent-login');
 const BUNDLED = require('../registry.json');
 
 const CLI = path.join(__dirname, '..', 'bin', 'agent-connector.js');
@@ -54,6 +54,28 @@ describe('agent-login', () => {
 
   it('names the command the workspace shows', () => {
     assert.equal(agnLoginCommand('codex'), 'agn login codex');
+  });
+
+  // Launched bare, CodeBuddy signs in against the international site, and a
+  // China-pinned agent cannot use that session.
+  it('opens CodeBuddy on the site the agent runs on', () => {
+    const CHINA = { CODEBUDDY_INTERNET_ENVIRONMENT: 'internal' };
+    assert.deepEqual(loginEnvFor('codebuddy', [{ CODEBUDDY_REGION: 'china' }, {}]), CHINA);
+    // The agent's own setting wins over its type's.
+    assert.deepEqual(loginEnvFor('codebuddy', [{ CODEBUDDY_REGION: 'international' }, { CODEBUDDY_REGION: 'china' }]), {});
+    assert.deepEqual(loginEnvFor('codebuddy', [null, { CODEBUDDY_REGION: 'china' }]), CHINA);
+    // For a type, the agents of that type decide when they agree.
+    assert.deepEqual(loginEnvFor('codebuddy', [null, {}], [{ CODEBUDDY_REGION: 'china' }, { CODEBUDDY_REGION: 'China' }]), CHINA);
+    assert.deepEqual(loginEnvFor('codebuddy', [null, {}], [{ CODEBUDDY_REGION: 'china' }, { CODEBUDDY_REGION: 'international' }]), {});
+    assert.deepEqual(loginEnvFor('codex', [{ CODEBUDDY_REGION: 'china' }]), {});
+  });
+
+  it('tells a CodeBuddy user to run /login inside the CLI', () => {
+    const lines = loginInstructions('codebuddy', {}).join('\n');
+    assert.match(lines, /\/login/);
+    assert.match(lines, /codebuddy\.ai/);
+    assert.match(loginInstructions('codebuddy', { CODEBUDDY_INTERNET_ENVIRONMENT: 'internal' }).join('\n'), /codebuddy\.cn/);
+    assert.deepEqual(loginInstructions('codex', {}), []);
   });
 });
 

@@ -246,6 +246,31 @@ it('saves a rename of a signed-in agent the device does not see as signed in', a
   expect(sent(api)[0][1]).toBe('configure_agent');
 });
 
+it('does not call an agent signed out when its smoke test just answered on the sign-in', async () => {
+  const api = await open({
+    ...CODEBUDDY_NOT_DETECTED,
+    editAgent: {
+      name: 'codebuddy', type: 'codebuddy', status: 'running', authMode: 'cli_login', apiKeyMasked: null,
+      probe: { ok: true, at: '2026-11-25T07:24:04Z', method: 'cli', code: 'ok' },
+    } as NodeAgent,
+  });
+  expect(credentialSelect().value).toBe('__sign_in__');
+  expect(notSignedIn()).toBeNull();
+  await submit();
+  expect(sent(api)).toHaveLength(1);
+});
+
+it('still warns when the last smoke test did not answer', async () => {
+  await open({
+    ...CODEBUDDY_NOT_DETECTED,
+    editAgent: {
+      name: 'codebuddy', type: 'codebuddy', status: 'running', authMode: 'cli_login', apiKeyMasked: null,
+      probe: { ok: false, at: '2026-11-25T07:24:04Z', method: 'cli', code: 'not_logged_in' },
+    } as NodeAgent,
+  });
+  expect(notSignedIn()!.textContent).toContain(t('connect.byokNotSignedInHint'));
+});
+
 it('marks only key-only types as needing a credential', async () => {
   await open();
   expect(host.querySelector('[data-testid="agent-setup-title-required"]')).not.toBeNull();

@@ -15,6 +15,7 @@ import { useThreadBrowserMessages } from '@/hooks/use-thread-browser-messages';
 import { useComposingSignal } from '@/hooks/use-composing-signal';
 import { Spinner } from '@/components/ui/spinner';
 import { ShareDialog } from './share-dialog';
+import { isGuestAddress } from '@/lib/guest-sender';
 import { HumanProfile } from './human-profile';
 import { arrangeQueuedMessages } from './use-queued-messages';
 import { useLayout } from '@/components/layout/layout-context';
@@ -38,12 +39,16 @@ import { useThreadDm } from './use-thread-dm';
 import { useChatSend, type ReplyTargets } from './use-chat-send';
 import { ChatViewHeader } from './chat-view-header';
 import { ConnectAgentNotice, OfflineAgentsBanner, ProbeFailureBanner, type FailingProbe } from './chat-view-banners';
+import { KeepWorkspaceBanner } from '@/components/share/keep-workspace-banner';
+import { WorkspaceGuestRequests } from '@/components/share/workspace-guest-requests';
+import { isSharedThreadName } from '@/lib/guest-links';
+import { isReleasedCopy } from '@/lib/share-requests';
 import { NoThreadSelected, ThreadEmpty } from './chat-view-empty';
 
 export { resetOptimisticStoreForTests } from './chat-message-cache';
 
 export function ChatView() {
-  const { workspace, agents, loading: workspaceLoading, workspaceLoadError, currentUser, currentSessionId, setCurrentSessionId, sessions, markSessionUnarchived, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
+  const { workspace, token: workspaceToken, agents, loading: workspaceLoading, workspaceLoadError, currentUser, currentSessionId, setCurrentSessionId, sessions, markSessionUnarchived, consumeSkipFocus, createRoutine, routines, updateRoutine, knowledge } = useWorkspace();
   const hasConnectedAgent = agents.some((agent) => !agent.builtin && agent.status === 'online');
   const needsConnection = !workspaceLoading && !workspaceLoadError && !hasConnectedAgent;
   const t = useT();
@@ -119,7 +124,8 @@ export function ChatView() {
   const browserMessages = useThreadBrowserMessages(displayMessages);
   const { sessionPendingQueue, setPendingQueue } = usePendingQueue(currentSessionId);
   // Queued messages wait in the Queue tab, not in the chat log.
-  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages, sessionPendingQueue), [displayMessages, sessionPendingQueue]);
+  // A guest request approved by the owner is re-posted for the agent; the original stays in the log.
+  const chatLogMessages = useMemo(() => arrangeQueuedMessages(displayMessages.filter((m) => !isReleasedCopy(m)), sessionPendingQueue), [displayMessages, sessionPendingQueue]);
   useThreadActivity(currentSessionId, chatLogMessages, displayMessages);
 
   const handleSend = useChatSend({
@@ -166,6 +172,18 @@ export function ChatView() {
       />
       <ThreadResources key={currentSessionId} messages={browserMessages} queueMessages={displayMessages} pendingQueue={sessionPendingQueue} />
 
+      {workspace && workspaceToken && !workspace.creatorEmail
+        && Boolean((workspace.settings as Record<string, unknown> | undefined)?.openagents_share) && (
+        <KeepWorkspaceBanner
+          workspaceId={workspace.workspaceId}
+          slug={workspace.slug}
+          threadName={currentSessionId || undefined}
+          token={workspaceToken}
+          share={Boolean((workspace.settings as Record<string, unknown> | undefined)?.openagents_share)}
+          claimed={Boolean(workspace.creatorEmail)}
+        />
+      )}
+      {!isDM && currentSessionId && isSharedThreadName(currentSessionId) && <WorkspaceGuestRequests key={currentSessionId} channel={currentSessionId} />}
       {!needsConnection && <OfflineAgentsBanner participants={participants} agents={agents} />}
       <ProbeFailureBanner failing={failingProbes} retesting={retesting} onRetest={retestAgent} onDismiss={dismissProbe} />
       {needsConnection && !dmWithPerson && !hasYumi && <ConnectAgentNotice onConnect={() => openView('connect')} />}
@@ -192,7 +210,8 @@ export function ChatView() {
             onReply={canCompose ? (message) => {
               setReplyTargets(previous => ({ ...previous, [currentSessionId]: message }));
               const email = message.senderType === 'agent' ? normalizeAgentAddress(message.senderAddress || message.senderName) : (message.senderAddress || '').replace(/^human:/, '');
-              if (email && (message.senderType === 'agent' || email.includes('@')) && !currentDraft.includes(`@${email}`)) appendMention(email);
+              // A shared-thread guest has no mentionable address; the citation names them.
+              if (email && !isGuestAddress(email) && (message.senderType === 'agent' || email.includes('@')) && !currentDraft.includes(`@${email}`)) appendMention(email);
               focusComposer();
             } : undefined}
             onSaveKnowledge={canCompose ? (message) => {

@@ -21,7 +21,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Header, Query
 from pydantic import BaseModel
 from sqlalchemy import select, func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from app.config import config
 from app.database import get_db
@@ -42,6 +42,9 @@ AGENT_TIMEOUT = timedelta(seconds=config.AGENT_TIMEOUT_SECONDS)
 # Request models
 # ---------------------------------------------------------------------------
 
+KNOWN_AGENT_CAPABILITIES = frozenset({"guest_turns", "relocate", "scoped_turns"})
+
+
 class JoinRequest(BaseModel):
     agent_name: str
     token: str                         # workspace token
@@ -49,6 +52,7 @@ class JoinRequest(BaseModel):
     agent_type: Optional[str] = None   # "claude", "openclaw", etc.
     server_host: Optional[str] = None  # hostname/IP where agent runs
     working_dir: Optional[str] = None  # working directory on the server
+    capabilities: Optional[List[str]] = None  # what the client can do, e.g. ["guest_turns"]
 
 class LeaveRequest(BaseModel):
     agent_name: str
@@ -138,6 +142,12 @@ def _check_lifecycle_auth(
     """
     if _verify_workspace_access(workspace, token, authorization):
         return None
+    if token and not authorization:
+        # A guest's agent in a jam (limited connection): only as itself.
+        from app.services.room_agents import scoped_node
+        node = scoped_node(object_session(workspace), workspace.id, token)
+        if node is not None:
+            return None if node.scope_agent == agent_name else json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
     if config.ENFORCE_AGENT_LIFECYCLE_AUTH:
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid credentials")
     logger.warning(
@@ -257,6 +267,8 @@ def join_network(
         payload["server_host"] = body.server_host
     if body.working_dir:
         payload["working_dir"] = body.working_dir
+    # Only capabilities this server knows; anything else is dropped.
+    payload["capabilities"] = sorted({c for c in (body.capabilities or []) if c in KNOWN_AGENT_CAPABILITIES})
     # A join authenticated with a node token is attributable to a device —
     # stamp it so "which machine runs this agent" is a column, not a guess.
     if body.token:
@@ -290,13 +302,21 @@ def join_network(
             )
         return json_response(ResponseCode.UNAUTHORIZED, "Invalid network token")
 
-    return success_response({
+    response = {
         "network_id": str(workspace.id),
         "agent_name": body.agent_name,
         "role": result.metadata.get("role", "member"),
         "status": "online",
         "session_id": result.metadata.get("session_id"),
-    })
+    }
+    # OpenAgents Share: this agent's conversation moved while it was offline.
+    from app.services.guest_links import pending_relocation
+    relocation = pending_relocation(db, workspace, body.agent_name, result.metadata.get("session_id"))
+    if relocation:
+        response["relocation"] = relocation
+    from app.services.room_agents import join_extras
+    response.update(join_extras(db, workspace, body.token, body.agent_name))
+    return success_response(response)
 
 
 # ---------------------------------------------------------------------------

@@ -201,7 +201,7 @@ function CodeForm({ login }: { login: CliLoginApi }): React.JSX.Element {
           placeholder={t("agents.cliLogin.codePlaceholder")}
           className="h-8 font-mono text-xs"
         />
-        <Button type="submit" size="sm" disabled={!code.trim()}>
+        <Button type="submit" disabled={!code.trim()}>
           {t("agents.cliLogin.submitCode")}
         </Button>
       </div>

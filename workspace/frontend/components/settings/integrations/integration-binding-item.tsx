@@ -84,7 +84,7 @@ export function IntegrationBindingItem({
           onChange={onChangeAgent}
         />
         {editable && (
-          <IconAction label={t('admin.integrationRemove')} destructive onClick={onRemove}>
+          <IconAction size="icon" label={t('admin.integrationRemove')} destructive onClick={onRemove}>
             <Trash2 />
           </IconAction>
         )}

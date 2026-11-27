@@ -13,8 +13,8 @@ import { cn } from '@/lib/utils';
 type Section = { slug: string; labelKey: MessageKey; icon: LucideIcon };
 
 /** Personal settings first (every member has them), then the workspace's own,
- * which only owners and admins see. */
-const GROUPS: { labelKey: MessageKey; sections: Section[] }[] = [
+ * which only owners and admins see. The search palette lists them too. */
+export const SETTINGS_GROUPS: { labelKey: MessageKey; sections: Section[] }[] = [
   {
     labelKey: 'admin.navGroupPersonal',
     sections: [
@@ -50,7 +50,7 @@ export function SettingsNav({
   query: string;
 }) {
   const t = useT();
-  const groups = GROUPS
+  const groups = SETTINGS_GROUPS
     .map((group) => ({ ...group, sections: group.sections.filter(({ slug }) => canAccessSettingsSection(me, slug)) }))
     .filter((group) => group.sections.length > 0);
 
