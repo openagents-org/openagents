@@ -67,11 +67,17 @@ it('launches a named agent and refreshes the workspace roster', async () => {
   const input = document.querySelector<HTMLInputElement>('input')!;
   expect(button('connect.acentaContinue').disabled).toBe(true);
   await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, ' Research helper ');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'Research helper');
     input.dispatchEvent(new Event('input', { bubbles: true }));
   });
   await act(async () => button('connect.acentaContinue').click());
-  expect(api.launchHostedAgent).toHaveBeenCalledWith('Research helper');
+  expect(api.launchHostedAgent).not.toHaveBeenCalled();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'research-helper');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => button('connect.acentaContinue').click());
+  expect(api.launchHostedAgent).toHaveBeenCalledWith('research-helper');
   expect(onChanged).toHaveBeenCalled();
 });
 
@@ -266,7 +272,7 @@ it('opens the DM with an agent right after adding it, where its welcome arrives'
   api.listMyAcentaAgents.mockResolvedValue({ hasAccount: true, agentLimit: 3, agents: [
     { id: 'a1', name: 'Helper', agentName: 'acenta-a1', state: 'ready', tier: 'standard', url: '', here: false, workspaces: 0 },
   ] });
-  api.connectAcentaAgent.mockResolvedValue({ agentName: 'acenta-a1' });
+  api.connectAcentaAgent.mockResolvedValue({ agentName: 'acenta-a1', presence: 'online' });
   await render();
   const add = [...document.querySelectorAll<HTMLButtonElement>('button')].find((b) => /add/i.test(b.textContent || '') || /add/i.test(b.getAttribute('aria-label') || ''));
   await act(async () => { add!.click(); });

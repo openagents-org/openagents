@@ -153,6 +153,41 @@ const REGIONS = {
 };
 
 /**
+ * The domains a session for each pinned region signs in from: the CLI's own
+ * internalDomain list, as a suffix match so the staging hosts match too.
+ * `international` pins nothing, so the CLI follows whatever site the session
+ * on disk belongs to and any session will do.
+ */
+const REGION_SESSION_DOMAINS = {
+  china: /(?:codebuddy|workbuddy)\.cn$|copilot\.tencent\.com$/i,
+};
+
+/**
+ * What the session file a `/login` leaves says about signing in THIS agent:
+ * 'ready', or 'no_credentials' when there is no session in it or the session
+ * belongs to the other site (the CLI keeps one session, and an agent pinned to
+ * the China site cannot authenticate on a codebuddy.ai one).
+ *
+ * Mirrors the desktop app's codebuddySessionMatchesRegion
+ * (packages/launcher/src/main/agents/codebuddy-signin.ts). Only `auth.domain`
+ * is read; the token beside it is never touched.
+ *
+ * @param {object} creds - the parsed session file
+ * @param {object} agentEnv - the agent's configured environment
+ */
+function codebuddySessionState(creds, agentEnv = {}) {
+  const auth = creds && typeof creds === 'object' ? creds.auth : null;
+  if (!auth || typeof auth !== 'object') return 'no_credentials';
+  const region = String((agentEnv && agentEnv.CODEBUDDY_REGION) || '').trim().toLowerCase();
+  const domains = REGION_SESSION_DOMAINS[region];
+  if (!domains) return 'ready';
+  const domain = typeof auth.domain === 'string' ? auth.domain.trim() : '';
+  // A session older than the domain field has nothing to disagree with.
+  if (!domain) return 'ready';
+  return domains.test(domain) ? 'ready' : 'no_credentials';
+}
+
+/**
  * Environment overlay for one headless run — pure, so the whole auth/region
  * story is testable without spawning anything.
  *
@@ -502,6 +537,7 @@ module.exports = {
   DISALLOWED_TOOLS,
   ERROR_CATEGORIES,
   REGIONS,
+  codebuddySessionState,
   parseCodeBuddyVersion,
   compareVersions,
   classifyCodeBuddyVersion,

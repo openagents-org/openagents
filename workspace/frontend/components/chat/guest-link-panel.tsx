@@ -500,7 +500,7 @@ function GeneralAccess({ link, client, setLinks }: {
                 data-invite-input=""
               />
             </div>
-            <Button size="sm" className="shrink-0" disabled={busy === 'invite' || (!chips.length && !text.trim())} onClick={() => void invite()} data-invite-send="">
+            <Button size="lg" className="shrink-0" disabled={busy === 'invite' || (!chips.length && !text.trim())} onClick={() => void invite()} data-invite-send="">
               {busy === 'invite' && <Spinner data-icon="inline-start" />}{t('share.invite')}
             </Button>
           </div>

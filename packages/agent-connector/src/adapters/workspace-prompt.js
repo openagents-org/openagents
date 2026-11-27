@@ -425,6 +425,8 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
   // Browser
   if (!disabled.has('browser')) {
     let s = '\n### Shared Browser\n\n';
+    // Reads name the thread too: only attributed activity opens its live preview.
+    const browserQuery = `source=openagents:${agentName}&channel=${channelName}`;
 
     s += (
       'The shared browser is a real cloud browser (backed by BrowserFabric) ' +
@@ -450,15 +452,7 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
         `"source":"openagents:${agentName}"}'\n` +
         'If it returns error_code AUTH_REQUIRED or BOT_CHALLENGE, open the URL ' +
         'in a shared tab (below) and share its `live_url` so a human can log in.\n\n' +
-        `**To browse interactively** (click/type/login), run these steps (use \`${execTool}\` for each):\n` +
-        `Step 1 — open tab: ` +
-        `${curl} -s -X POST ${baseUrl}/v1/browser/tabs ` +
-        `-H "${h}" -H "Content-Type: application/json" ` +
-        `-d '{"url":"https://example.com","network":"${workspaceId}",` +
-        `"source":"openagents:${agentName}","channel":"${channelName}"}'\n` +
-        `Step 2 — read content: ` +
-        `${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/TAB_ID/snapshot\n` +
-        '(Replace TAB_ID with the `id` from the step 1 response)\n\n'
+        'To browse interactively, open a tab below, then use its returned ID to get page content.\n\n'
       );
     }
 
@@ -466,9 +460,9 @@ function buildApiSkillsPrompt({ endpoint, workspaceId, token, agentName, channel
       '**List open tabs:**\n' +
       `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs?network=${workspaceId}\`\n\n` +
       '**Get page content (text):**\n' +
-      `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}/snapshot\`\n\n` +
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/browser/tabs/{tab_id}/snapshot?${browserQuery}"\`\n\n` +
       '**Get screenshot (PNG):**\n' +
-      `\`${curl} -s -H "${h}" ${baseUrl}/v1/browser/tabs/{tab_id}/screenshot\`\n`
+      `\`${curl} -s -H "${h}" "${baseUrl}/v1/browser/tabs/{tab_id}/screenshot?${browserQuery}"\`\n`
     );
 
     if (!isPlan) {

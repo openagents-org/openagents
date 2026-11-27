@@ -479,6 +479,9 @@ export interface BrowserTabActivity {
   action: string;
   actor: string;
   at: string;
+  /** Thread or DM the action was explicitly made for, verified by the backend.
+   * Absent for unattributed (legacy) calls, which never open a preview on their own. */
+  channel?: string | null;
 }
 
 export interface BrowserTab {
@@ -988,7 +991,7 @@ export interface HostedAgent {
   agentName: string;
   displayName: string;
   provider: string;
-  status: 'launching' | 'setup' | 'active' | 'terminating' | 'linked';
+  status: 'launching' | 'setup' | 'active' | 'terminating' | 'linked' | 'starting' | 'attention' | 'offline';
   /** Added here from the owner's Acenta account; removing only disconnects it. */
   linked?: boolean;
   externalId?: string | null;

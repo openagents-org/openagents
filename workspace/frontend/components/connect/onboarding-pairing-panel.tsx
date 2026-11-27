@@ -175,7 +175,7 @@ export function OnboardingPairingPanel({ pairing, onDismiss, onRegenerate, regen
               {t(regenerating ? 'connect.nodeGenerating' : 'onboarding.newPairingCode')}
             </Button>
           )}
-          {onDismiss && <Button type="button" variant="ghost" size="xs" onClick={onDismiss} className="text-muted-foreground">{t('connect.nodeCancel')}</Button>}
+          {onDismiss && <Button type="button" variant="ghost" size="sm" onClick={onDismiss} className="text-muted-foreground">{t('connect.nodeCancel')}</Button>}
         </div>
       </div>
     </section>

@@ -90,13 +90,9 @@ export function LauncherUpdateBanner({
     icon = <AlertTriangle className="h-4 w-4 text-destructive" />
     message = t("settings.updates.bannerInstallFailed", { version })
     action = (
-      <button
-        type="button"
-        className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-        onClick={() => window.api.openExternal(state.downloadUrl)}
-      >
+      <Button size="xs" onClick={() => window.api.openExternal(state.downloadUrl)}>
         {t("settings.updates.downloadPage")}
-      </button>
+      </Button>
     )
   } else if (status === "downloading") {
     icon = <Download className="h-4 w-4 animate-pulse text-primary" />
@@ -123,13 +119,9 @@ export function LauncherUpdateBanner({
             label={t("settings.updates.bannerWhatsNew")}
           />
         )}
-        <button
-          type="button"
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
-          onClick={() => void install()}
-        >
+        <Button size="xs" onClick={() => void install()}>
           {t("settings.updates.actionRestartInstall")}
-        </button>
+        </Button>
       </>
     )
   } else {
@@ -143,9 +135,8 @@ export function LauncherUpdateBanner({
             label={t("settings.updates.bannerWhatsNew")}
           />
         )}
-        <button
-          type="button"
-          className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:opacity-90"
+        <Button
+          size="xs"
           onClick={() => {
             // Start the download AND navigate, so the progress the user was just
             // promised is on screen immediately rather than behind a second click.
@@ -154,7 +145,7 @@ export function LauncherUpdateBanner({
           }}
         >
           {t("settings.updates.bannerUpdateNow")}
-        </button>
+        </Button>
       </>
     )
   }

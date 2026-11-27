@@ -4,7 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 const opened=vi.fn();
 vi.mock('./browser-thumbnail',()=>({BrowserThumbnail:()=>null}));
-vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>({workspace:{slug:'demo'},files:[],browserTabs:[{id:'tab',url:'https://example.com/'}]})}));
+vi.mock('@/lib/workspace-context',()=>({useWorkspace:()=>({workspace:{slug:'demo'},files:[],browserTabs:[{id:'tab',url:'https://example.com/',liveUrl:'https://browser.example/live/tab'}]})}));
 vi.mock('@/lib/i18n',()=>({useT:()=>(key:string)=>key}));
 import { MessageArtifacts } from './message-artifacts';
 import { ARTIFACT_OPEN_EVENT } from '@/lib/thread-artifacts';
@@ -22,10 +22,15 @@ it('avoids duplicate attachment cards and links inside code samples',async()=>{
   expect(host.querySelector('button')).toBeNull();
 });
 it('opens shared browser links but never pretends an unuploaded device file is available',async()=>{
-  await act(async()=>root.render(React.createElement(MessageArtifacts,{content:'[Report](/home/agent/mcp-report.html) [Live dashboard](https://example.com/)',attachedIds:[]})));
+  await act(async()=>root.render(React.createElement(MessageArtifacts,{content:'[Report](/home/agent/mcp-report.html) [Live dashboard](https://browser.example/live/tab)',attachedIds:[]})));
   expect(host.querySelectorAll('button')).toHaveLength(1);
   await act(async()=>host.querySelector('button')!.click());
   expect(opened.mock.calls[0][0].detail).toEqual({kind:'browser',id:'tab'});
+});
+
+it('does not turn an ordinary page address into whichever workspace tab has that site open',async()=>{
+  await act(async()=>root.render(React.createElement(MessageArtifacts,{content:'See [the site](https://example.com/)',attachedIds:[]})));
+  expect(host.querySelector('button')).toBeNull();
 });
 
 it('ignores placeholder links and inline Markdown examples',async()=>{

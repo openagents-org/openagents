@@ -157,7 +157,7 @@ export function RoutineList() {
                     aria-pressed={filter === value}
                     onClick={() => setFilter(value)}
                     className={cn(
-                      "flex items-center gap-2 rounded-md border border-transparent px-2.5 py-1.5 text-xs text-muted-foreground hover:text-foreground",
+                      "flex h-8 items-center gap-2 rounded-md border border-transparent px-2.5 text-xs text-muted-foreground hover:text-foreground",
                       filter === value &&
                         "border-border bg-muted text-foreground",
                     )}
@@ -187,7 +187,7 @@ export function RoutineList() {
               </div>
               <Button
                 variant="ghost"
-                size="icon-sm"
+                size="icon"
                 aria-label={t("common.refresh")}
                 onClick={() =>
                   void refreshRoutines().catch(() =>

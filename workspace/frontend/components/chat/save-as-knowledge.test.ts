@@ -44,3 +44,23 @@ it('offers no save for an empty, pending or read-only message', async () => {
   }))));
   expect(saveButton()).toBeUndefined();
 });
+
+it('keeps Acenta starter cards available after a reply and opens assistant setup', async () => {
+  const send = vi.fn();
+  const welcome = {
+    ...(message as object),
+    senderName: 'acenta-1a2b3c4d',
+    metadata: { acenta_welcome: true, suggestions: ['Help me find a job', 'Be my personal assistant'] },
+  } as never;
+  const render = (isLast: boolean) => act(async () => root.render(React.createElement(
+    AgentMessageRow, props({ message: welcome, isLast, onSuggestion: send }),
+  )));
+  const buttonWith = (text: string) => Array.from(host.querySelectorAll('button')).find(button => button.textContent?.includes(text));
+  await render(true);
+  await act(async () => buttonWith('Be my personal assistant')!.click());
+  await act(async () => buttonWith('connect.acentaAssistantCalendar')!.click());
+  expect(send).toHaveBeenCalledWith(expect.stringContaining('calendar export'));
+  await render(false);
+  expect(buttonWith('Help me find a job')).toBeDefined();
+  expect(buttonWith('connect.acentaAssistantCalendar')).toBeDefined();
+});

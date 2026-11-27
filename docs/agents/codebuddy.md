@@ -83,10 +83,18 @@ Two ways, and the agent needs exactly one:
 The credential a `/login` writes lands under
 `~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/` (macOS),
 `%LOCALAPPDATA%\CodeBuddyExtension\…` (Windows), or
-`~/.local/share/CodeBuddyExtension/…` (Linux). The launcher does not read it:
-the agent is registered as `unverifiable`, so readiness stays honest — "sign-in
-not confirmed" until a task confirms it — instead of guessing from a file whose
-mere existence proves nothing.
+`~/.local/share/CodeBuddyExtension/…` (Linux). Both the desktop app and the core
+(`check_ready.creds_file*` with the `codebuddy_session` classifier) read it as
+the sign-in probe, and read only `auth.domain` from it: a session for the other
+site does not count for an agent pinned to the China site, since the CLI keeps
+one session and that agent cannot authenticate on it. With no session file the
+agent stays `unverifiable` — "sign-in not confirmed" until a run confirms it,
+because a sign-in can also be kept where neither looks.
+
+`agn login codebuddy` opens the CLI on the agent's site (the same
+`CODEBUDDY_INTERNET_ENVIRONMENT` the adapter sets) and says to run `/login`.
+The smoke test runs on that site too, so it cannot pass on the other site's
+session while every real message fails to sign in.
 
 ## Sites are separate accounts
 

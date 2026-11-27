@@ -6,6 +6,10 @@
     "getStarted": "Get started",
     "progress": "{{current}} / {{total}}",
     "steps": {
+      "modes": {
+        "title": "Computer and Workspace",
+        "body": "Computer is where you manage the agents on this computer: install, sign in, configure, and add them to a workspace. Workspace is where you talk and work with your team and its agents. Switch between them here."
+      },
       "dashboard": {
         "title": "Connect Agents",
         "body": "Start with a recommended agent, or browse and connect more. Every agent you add is listed below, where you configure, start, stop and add it to a workspace."
@@ -13,6 +17,10 @@
       "workspaces": {
         "title": "Connected Workspaces",
         "body": "Every workspace this device has joined, with its agents and activity. $t(common.actions.addWorkspace) takes a pairing code for another one — a device can belong to several at once."
+      },
+      "help": {
+        "title": "Help",
+        "body": "Come back here to see this tour again or to open the user guide."
       }
     }
   },

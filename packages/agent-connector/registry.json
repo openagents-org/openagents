@@ -2282,6 +2282,11 @@
       "saved_env_key": "CODEBUDDY_API_KEY",
       "login_command": "codebuddy",
       "unverifiable": true,
+      "creds_file": "~/.local/share/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info",
+      "creds_file_macos": "~/Library/Application Support/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info",
+      "creds_file_windows": "%LOCALAPPDATA%/CodeBuddyExtension/Data/Public/auth/Tencent-Cloud.coding-copilot.info",
+      "creds_no_parse": true,
+      "creds_classifier": "codebuddy_session",
       "not_ready_message": "Not signed in for this site. Sign in with the Login button — it opens the CLI on the site CODEBUDDY_REGION selects, where you run /login — or set CODEBUDDY_API_KEY / CODEBUDDY_AUTH_TOKEN in Configure. A session for the other site does not carry over: the CLI keeps only one, and codebuddy.ai and codebuddy.cn are separate accounts.",
       "auth_detected_labels": {
         "cli_login": "CodeBuddy sign-in detected",
