@@ -11,7 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { randomUUID } = require('crypto');
+const { createHash, randomUUID } = require('crypto');
 
 // Checked in order; the first match wins. `session` is the env var holding
 // the host's own session id, when the host exports one.
@@ -118,6 +118,25 @@ function claudeProjectDir(configDir, cwd) {
 
 const snapshotMarker = (file) => `${file}.openagents-snapshot`;
 
+// Bind a marker to the file we created and to its last contents. A replaced
+// file can contain identical bytes, and an in-place rewrite can keep the
+// same file ID. Older empty markers carry no ownership evidence.
+function snapshotRecord(stat, bytes) {
+  if (!stat.isFile() || !stat.ino || !stat.birthtimeNs) return null;
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  return `v1 ${stat.dev} ${stat.ino} ${stat.birthtimeNs} ${stat.mtimeNs} ${digest}\n`;
+}
+
+function isClaudeSnapshot(file) {
+  let fd;
+  try {
+    const record = fs.readFileSync(snapshotMarker(file), 'utf8');
+    if (!record.startsWith('v1 ')) return false;
+    fd = fs.openSync(file, 'r');
+    return record === snapshotRecord(fs.fstatSync(fd, { bigint: true }), fs.readFileSync(fd));
+  } catch { return false; } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
 function completeTranscript(file) {
   const data = fs.readFileSync(file);
   return data.subarray(0, data.lastIndexOf(0x0a) + 1);
@@ -168,17 +187,18 @@ function originalClaudeNames(dir, sessionId) {
     if (sessionId) {
       const name = `${sessionId}.jsonl`;
       const file = path.join(dir, name);
-      return fs.statSync(file).isFile() && !fs.existsSync(snapshotMarker(file)) ? [name] : [];
+      return fs.statSync(file).isFile() && !isClaudeSnapshot(file) ? [name] : [];
     }
     const names = new Set(fs.readdirSync(dir));
-    return [...names].filter((name) => /^[0-9a-f-]{36}\.jsonl$/i.test(name) && !names.has(snapshotMarker(name)));
+    return [...names].filter((name) => /^[0-9a-f-]{36}\.jsonl$/i.test(name)
+      && (!names.has(snapshotMarker(name)) || !isClaudeSnapshot(path.join(dir, name))));
   } catch { return []; }
 }
 
 function claudeTranscripts(configDir, sessionId, source) {
   const projects = path.join(configDir, 'projects');
   const originals = new Map();
-  if (source && path.basename(source) === `${sessionId}.jsonl` && fs.existsSync(source) && !fs.existsSync(snapshotMarker(source))) {
+  if (source && path.basename(source) === `${sessionId}.jsonl` && fs.existsSync(source) && !isClaudeSnapshot(source)) {
     originals.set(path.basename(source), source);
   }
   let dirs = [];
@@ -212,28 +232,61 @@ function snapshotTranscript(src, destDir) {
   const data = completeTranscript(src);
   const marker = snapshotMarker(dest);
   const temp = `${dest}.${randomUUID()}.tmp`;
+  const claim = `${temp}.marker`;
+  let record;
   try {
-    fs.writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
     if (fs.existsSync(marker) && fs.existsSync(dest)) {
-      const previous = fs.readFileSync(dest);
-      if (data.equals(previous)) return dest;
-      if (!data.subarray(0, previous.length).equals(previous)) throw new Error('The staged Claude transcript has different history');
-      fs.renameSync(temp, dest);
+      // Append through a verified open handle. Replacing the pathname while
+      // this runs cannot redirect the write to the replacement.
+      const fd = fs.openSync(dest, fs.constants.O_RDWR | fs.constants.O_APPEND);
+      try {
+        const stat = fs.fstatSync(fd, { bigint: true });
+        const previous = fs.readFileSync(fd);
+        if (data.equals(previous)) return dest;
+        const expected = snapshotRecord(stat, previous);
+        if (!expected || fs.readFileSync(marker, 'utf8') !== expected) {
+          throw new Error('A personal Claude transcript already exists in the agent working directory');
+        }
+        if (!data.subarray(0, previous.length).equals(previous)) throw new Error('The staged Claude transcript has different history');
+        // Only one writer can claim this revision. If interrupted, an
+        // unmarked transcript is treated as personal on the next attempt.
+        fs.renameSync(marker, claim);
+        const current = fs.fstatSync(fd, { bigint: true });
+        if (fs.readFileSync(claim, 'utf8') !== expected || current.size !== stat.size || current.mtimeNs !== stat.mtimeNs) {
+          throw new Error('The staged Claude transcript changed during refresh');
+        }
+        fs.unlinkSync(claim);
+        fs.writeFileSync(fd, data.subarray(previous.length));
+        record = snapshotRecord(fs.fstatSync(fd, { bigint: true }), data);
+      } finally { fs.closeSync(fd); }
     } else {
       // Publish exclusively. A personal transcript may appear after the scan.
       try {
+        fs.writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
+        record = snapshotRecord(fs.statSync(temp, { bigint: true }), data);
         try { fs.linkSync(temp, dest); } catch (e) {
           if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS'].includes(e.code)) throw e;
-          fs.copyFileSync(temp, dest, fs.constants.COPYFILE_EXCL);
+          const fd = fs.openSync(dest, 'wx', 0o600);
+          try {
+            fs.writeFileSync(fd, data);
+            record = snapshotRecord(fs.fstatSync(fd, { bigint: true }), data);
+          } finally { fs.closeSync(fd); }
         }
       } catch (e) {
         if (e.code !== 'EEXIST') throw e;
         if (fs.readFileSync(dest).equals(data)) return dest;
         throw new Error('A personal Claude transcript already exists in the agent working directory');
       }
-      fs.writeFileSync(marker, '', { mode: 0o600 });
+    }
+    if (record) {
+      // The record comes from the created/opened file, never from a later
+      // lookup of dest. An orphaned sidecar is harmless to a new file there.
+      fs.writeFileSync(claim, record, { mode: 0o600, flag: 'wx' });
+      fs.renameSync(claim, marker);
+      if (!isClaudeSnapshot(dest)) throw new Error('The staged Claude transcript changed before use');
     }
   } finally {
+    fs.rmSync(claim, { force: true });
     fs.rmSync(temp, { force: true });
   }
   return dest;

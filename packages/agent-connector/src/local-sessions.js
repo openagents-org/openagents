@@ -381,6 +381,20 @@ function opencodePageSql(pageSize, cursor) {
     ORDER BY s.time_updated DESC, s.id`.replace(/\s+/g, ' ');
 }
 
+function opencodeDatabase(env, run, deadline) {
+  return path.isAbsolute(env.OPENCODE_DB || '') ? env.OPENCODE_DB : (run(['db', 'path'], env, deadline) || '').trim();
+}
+
+function opencodeRows(database, sql, deadline) {
+  if (path.isAbsolute(database)) {
+    const rows = querySqlite(database, sql, deadline);
+    if (rows) return rows;
+    const migrated = "SELECT name FROM sqlite_master WHERE type='table' AND name='session_v2' AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='session')";
+    if (querySqlite(database, migrated, deadline)?.length) throw new Error(OPENCODE_MIGRATED);
+  }
+  throw new Error('Could not read the OpenCode session database. Check the database path and read access.');
+}
+
 function listOpencode({ env, limit, run, skip }) {
   const deadline = Date.now() + 35000; // leave room for the device command's 40s deadline
   let pageSize = Math.max(200, limit);
@@ -391,19 +405,12 @@ function listOpencode({ env, limit, run, skip }) {
     let rows;
     if (!database) {
       const output = run(['db', '--format', 'json', sql], env, deadline);
-      if (output === null) return []; // no CLI installed
+      if (output === null && !path.isAbsolute(env.OPENCODE_DB || '')) return [];
       rows = jsonFrom(output);
     }
     if (!Array.isArray(rows)) {
-      database ||= path.isAbsolute(env.OPENCODE_DB || '') ? env.OPENCODE_DB : (run(['db', 'path'], env, deadline) || '').trim();
-      rows = path.isAbsolute(database) ? querySqlite(database, sql, deadline) : null;
-      if (!rows) {
-        const migrated = "SELECT name FROM sqlite_master WHERE type='table' AND name='session_v2' AND NOT EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='session')";
-        if (path.isAbsolute(database) && querySqlite(database, migrated, deadline)?.length) {
-          throw new Error(OPENCODE_MIGRATED);
-        }
-        throw new Error('Could not read the OpenCode session database. Check the database path and read access.');
-      }
+      database ||= opencodeDatabase(env, run, deadline);
+      rows = opencodeRows(database, sql, deadline);
     }
     for (const row of rows) {
       if (!row.id || skip.has(row.id) || !row.first_prompt?.trim() || ranByOpenAgents(row.first_prompt, row.directory, env)) continue;
@@ -428,21 +435,46 @@ function listOpencode({ env, limit, run, skip }) {
 function readOpencode(id, { env, run }) {
   // Never something the CLI would take for an option.
   if (!/^[A-Za-z0-9][A-Za-z0-9_-]{3,79}$/.test(String(id || ''))) return null;
-  const exported = jsonFrom(run(['export', id], env));
-  if (!exported || !Array.isArray(exported.messages)) return null;
+  const deadline = Date.now() + 60000; // shared by export, path lookup and the targeted read
+  let exported, exportError;
+  try { exported = jsonFrom(run(['export', id], env, deadline)); } catch (e) { exportError = e; }
   const messages = [];
-  for (const msg of exported.messages) {
-    const info = (msg && msg.info) || {};
-    const role = info.role === 'assistant' ? 'assistant' : info.role === 'user' ? 'user' : null;
-    if (!role) continue;
-    const at = msIso(info.time && info.time.created);
-    for (const part of (msg.parts || [])) {
-      if (part.type === 'text' && typeof part.text === 'string' && part.text.trim() && !part.synthetic) messages.push({ role, text: part.text, at });
-      else if (part.type === 'tool' && part.tool) messages.push({ role: 'tool', text: toolNote(part.tool, part.state && part.state.input), at });
-    }
+  function addPart(role, at, part) {
+    if (!part || (role !== 'user' && role !== 'assistant')) return;
+    if (part.type === 'text' && typeof part.text === 'string' && part.text.trim() && !part.synthetic) messages.push({ role, text: part.text, at });
+    else if (part.type === 'tool' && part.tool) messages.push({ role: 'tool', text: toolNote(part.tool, part.state && part.state.input), at });
   }
-  const info = exported.info || {};
-  return { id: info.id || id, cwd: info.directory || null, messages };
+  if (Array.isArray(exported?.messages)) {
+    for (const msg of exported.messages) {
+      const info = msg?.info;
+      for (const part of msg?.parts || []) addPart(info?.role, msIso(info?.time?.created), part);
+    }
+    return { id: exported.info?.id || id, cwd: exported.info?.directory || null, messages };
+  }
+
+  // LEFT JOIN keeps an existing empty session distinct from a missing ID.
+  // Read one session in a single SQLite snapshot, in the same order as the picker.
+  const sql = `SELECT s.directory, json_extract(m.data, '$.role') AS role,
+      COALESCE(json_extract(m.data, '$.time.created'), m.time_created) AS created,
+      json_remove(p.data, '$.state.output', '$.state.attachments', '$.state.metadata', '$.metadata') AS part
+    FROM session s
+    LEFT JOIN message m ON m.session_id = s.id AND json_extract(m.data, '$.role') IN ('user','assistant')
+    LEFT JOIN part p ON p.message_id = m.id AND json_extract(p.data, '$.type') IN ('text','tool')
+    WHERE s.id = '${id}' AND s.parent_id IS NULL ORDER BY m.time_created, m.id, p.time_created, p.id`.replace(/\s+/g, ' ');
+  let rows;
+  if (!exportError && !path.isAbsolute(env.OPENCODE_DB || '')) {
+    rows = jsonFrom(run(['db', '--format', 'json', sql], env, deadline));
+  }
+  if (!Array.isArray(rows)) {
+    const database = opencodeDatabase(env, run, deadline);
+    if (!path.isAbsolute(database)) throw exportError || new Error('OpenCode could not export this session or locate its database. Check the database path and read access.');
+    rows = opencodeRows(database, sql, deadline);
+  }
+  if (!rows.length) return null;
+  for (const row of rows) {
+    if (row.part) addPart(row.role, msIso(row.created), JSON.parse(row.part));
+  }
+  return { id, cwd: rows[0].directory || null, messages };
 }
 
 // ── Hermes ─────────────────────────────────────────────────────────────────

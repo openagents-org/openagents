@@ -240,6 +240,65 @@ describe('adapters continue an imported session', () => {
     assert.ok(fs.existsSync(staged + '.openagents-snapshot'));
   });
 
+  for (const kind of ['replaced', 'edited', 'rewritten', 'legacy marker']) {
+    it(`keeps a personal Claude transcript visible and unchanged with a ${kind} snapshot`, () => {
+      const src = claudeSession(1);
+      const first = fs.readFileSync(src);
+      if (kind === 'edited') claudeSession(2);
+      const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+      const dest = snapshotTranscript(src, dir);
+      if (kind === 'replaced') {
+        fs.renameSync(dest, path.join(tmp, 'old-snapshot'));
+        fs.writeFileSync(dest, first); // identical content in a different file
+      } else if (kind === 'edited') {
+        fs.writeFileSync(dest, first); // same file ID, personal contents
+      } else if (kind === 'rewritten') {
+        fs.writeFileSync(dest, first); // same file ID and bytes, a later writer
+        fs.utimesSync(dest, 1700000000, 1700000000); // distinct even on coarse clocks
+      } else {
+        fs.writeFileSync(dest + '.openagents-snapshot', '');
+      }
+      fs.unlinkSync(src);
+      assert.deepEqual(listLocalSessions('claude').map(s => s.id), [SID]);
+      assert.equal(readLocalSession('claude', SID).file, dest);
+      claudeSession(3);
+      assert.throws(() => snapshotTranscript(src, dir), /personal Claude transcript/);
+      assert.deepEqual(fs.readFileSync(dest), first);
+    });
+  }
+
+  it('preserves a file that replaces the marked pathname during a refresh', (t) => {
+    const src = claudeSession(1);
+    const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+    const dest = snapshotTranscript(src, dir);
+    const first = fs.readFileSync(dest);
+    claudeSession(2);
+    const write = fs.writeFileSync;
+    t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+      if (typeof file === 'number') {
+        fs.renameSync(dest, path.join(tmp, 'opened-snapshot'));
+        write(dest, first);
+      }
+      return write(file, ...args);
+    });
+    assert.throws(() => snapshotTranscript(src, dir), /changed before use/);
+    assert.deepEqual(fs.readFileSync(dest), first);
+    fs.unlinkSync(src);
+    assert.equal(readLocalSession('claude', SID).file, dest);
+  });
+
+  it('records the exclusively created snapshot when hard links are unavailable', (t) => {
+    t.mock.method(fs, 'linkSync', () => { throw Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }); });
+    const src = claudeSession(1);
+    const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+    const dest = snapshotTranscript(src, dir);
+    claudeSession(2);
+    assert.equal(snapshotTranscript(src, dir), dest);
+    assert.deepEqual(fs.readFileSync(dest), fs.readFileSync(src));
+    fs.unlinkSync(src);
+    assert.deepEqual(listLocalSessions('claude'), []);
+  });
+
   it('remembers both pre-upgrade Claude maps and later fork IDs after their channel is cleared', () => {
     const source = claudeSession(1);
     const previous = 'aaaa1111-2222-3333-4444-555555555555';

@@ -201,6 +201,7 @@ describe('local sessions', () => {
     assert.equal(s.title, 'Draft a README');
     assert.ok(calls.includes('export ses_new'));
     assert.equal(readLocalSession('opencode', 'bad id;rm', { env, run }), null);
+    assert.throws(() => readLocalSession('opencode', 'ses_new', { env, run: () => '' }), /could not export.*database/i);
     assert.throws(() => listLocalSessions('opencode', { env, run: () => '' }), /Could not read the OpenCode session database/);
     // No CLI: nothing to import, no error.
     assert.deepEqual(listLocalSessions('opencode', { env, run: () => null }), []);
@@ -221,18 +222,21 @@ describe('local sessions', () => {
     const message = db.prepare('INSERT INTO message VALUES (?,?,?,?)');
     const part = db.prepare('INSERT INTO part VALUES (?,?,?,?)');
     let seq = 0;
+    const exportedMessages = [];
     const add = (id, role, data) => {
       const key = String(++seq);
-      message.run(key, id, seq, JSON.stringify({ role }));
+      const info = { role, time: { created: 1762000000000 + seq } };
+      message.run(key, id, seq, JSON.stringify(info));
       part.run(key, key, seq, JSON.stringify(data));
+      if (id === 'mine') exportedMessages.push({ info, parts: [data] });
     };
     add('synthetic', 'user', { type: 'text', text: 'prefill', synthetic: true });
     add('mine', 'user', { type: 'text', text: '\t\u00a0\u3000' });
     add('mine', 'user', { type: 'text', text: '\u00a0'.repeat(2050) + 'Which file?' });
     add('mine', 'assistant', { type: 'text', text: '\u2028\ufeff' });
     add('mine', 'assistant', { type: 'reasoning', text: 'intermediate' });
-    add('mine', 'assistant', { type: 'tool', tool: 'read' });
-    add('mine', 'assistant', { type: 'text', text: 'README.md' });
+    add('mine', 'assistant', { type: 'tool', tool: 'read', state: { input: { filePath: 'README.md' }, output: 'private tool output' } });
+    add('mine', 'assistant', { type: 'text', text: 'README.md sk-test1234567890abcdefghij' });
     add('mapped', 'user', { type: 'text', text: 'A plain user prompt' });
     add('child', 'user', { type: 'text', text: 'child' });
     add('workspace', 'user', { type: 'text', text: "You are agent 'writer' connected to an OpenAgents workspace." });
@@ -250,6 +254,32 @@ describe('local sessions', () => {
       } });
       assert.deepEqual(fallback, direct);
       assert.deepEqual(calls, [['db', '--format'], ['db', 'path']]);
+      const dbBefore = fs.readFileSync(file);
+      const exported = readLocalSession('opencode', 'mine', { env, run: () => JSON.stringify({
+        info: { id: 'mine', directory: '/projects/mine' }, messages: exportedMessages,
+      }) });
+      const unavailable = { env: { ...env, OPENCODE_DB: file }, run: () => null };
+      assert.deepEqual(listLocalSessions('opencode', unavailable), direct);
+      const imported = readLocalSession('opencode', 'mine', unavailable);
+      assert.deepEqual(imported, exported);
+      assert.deepEqual(imported.messages.map(m => m.role), ['user', 'tool', 'assistant']);
+      assert.match(imported.messages[2].text, /\[REDACTED\]/);
+      assert.doesNotMatch(JSON.stringify(imported), /private tool output|intermediate/);
+      const brokenExport = { env, run: args => args[0] === 'export' ? 'invalid JSON' : file };
+      assert.deepEqual(readLocalSession('opencode', 'mine', brokenExport), exported);
+      const queryOnly = { env, run: args => {
+        if (args[0] === 'export') return '';
+        assert.deepEqual(args.slice(0, 3), ['db', '--format', 'json']);
+        return JSON.stringify(db.prepare(args[3]).all());
+      } };
+      assert.deepEqual(readLocalSession('opencode', 'mine', queryOnly), exported);
+      for (const id of ['empty', 'synthetic']) {
+        assert.throws(() => readLocalSession('opencode', id, unavailable), /no user messages/);
+      }
+      for (const id of ['absent', 'child', 'workspace', 'mapped']) {
+        assert.equal(readLocalSession('opencode', id, unavailable), null);
+      }
+      assert.deepEqual(fs.readFileSync(file), dbBefore);
       if (process.platform === 'win32') {
         // A custom .cmd without a native target can return its DB path, even
         // when its own path contains spaces and literal percent signs.
@@ -257,6 +287,7 @@ describe('local sessions', () => {
         fs.writeFileSync(shim, '@echo off\r\nif "%~1 %~2"=="db path" echo(%OA_TEST_DB%\r\n');
         t.mock.method(require('../src/adapters/opencode'), 'findOpencodeBinary', () => shim);
         assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+        assert.deepEqual(readLocalSession('opencode', 'mine', { env: { ...env, OA_TEST_DB: file } }), exported);
         // A wrapper that supports SQL should also work without a separate
         // sqlite3 command; the whole query must reach it as a single argument.
         const cli = path.join(home, 'test-opencode.cjs');
@@ -267,6 +298,7 @@ console.log(JSON.stringify(db.prepare(sql).all()));
 db.close();`);
         fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "%~dp0test-opencode.cjs" %*\r\n`);
         assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+        assert.deepEqual(readLocalSession('opencode', 'mine', { env: { ...env, OA_TEST_DB: file } }), exported);
       }
     } finally { db.close(); }
   });
@@ -320,6 +352,7 @@ db.close();`);
     try {
       db.exec('CREATE TABLE session_v2 (id TEXT)');
       assert.throws(() => listLocalSessions('opencode', { env: { ...env, OPENCODE_DB: file }, run: () => '' }), /newer format.*1\.x/);
+      assert.throws(() => readLocalSession('opencode', 'ses_new', { env: { ...env, OPENCODE_DB: file }, run: () => '' }), /newer format.*1\.x/);
       assert.deepEqual(db.prepare('SELECT name FROM sqlite_master').all().map(row => row.name), ['session_v2']);
     } finally { db.close(); }
   });
