@@ -15,10 +15,12 @@ import { useSkillInstall, type SkillInstallState } from './use-skill-install';
 
 function InstallAction({
   state,
+  error,
   onInstall,
   onUninstall,
 }: {
   state: SkillInstallState;
+  error?: string;
   onInstall: () => void;
   onUninstall: () => void;
 }) {
@@ -45,9 +47,23 @@ function InstallAction({
           {t('skills.installing')}
         </Button>
       );
+    case 'incomplete':
+      // Installed by an older launcher that only got SKILL.md; reinstalling
+      // through a current one either completes it or fails with the reason.
+      return (
+        <>
+          <WithTooltip label={t('skills.incompleteRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
+                <AlertCircle data-icon="inline-start" />
+                {t('skills.incompleteRetry')}
+              </Button></WithTooltip>
+          <Button size="xs" variant="ghost" onClick={onUninstall}>
+            {t('common.remove')}
+          </Button>
+        </>
+      );
     case 'failed':
       return (
-        <WithTooltip label={t('skills.failedRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
+        <WithTooltip label={error ? t('skills.failedRetryReason', { reason: error }) : t('skills.failedRetryHint')}><Button size="xs" variant="destructive" onClick={onInstall}>
               <AlertCircle data-icon="inline-start" />
               {t('skills.failedRetry')}
             </Button></WithTooltip>
@@ -65,7 +81,7 @@ function InstallAction({
 /** "Add to agent": this skill's state on every online agent that can run it. */
 export function SkillAgentInstalls({ skill }: { skill: Skill }) {
   const t = useT();
-  const { onlineAgents, stateFor, install, uninstall } = useSkillInstall(skill);
+  const { onlineAgents, stateFor, errorFor, install, uninstall } = useSkillInstall(skill);
 
   return (
     <Card size="sm">
@@ -84,7 +100,7 @@ export function SkillAgentInstalls({ skill }: { skill: Skill }) {
                   key={agent.agentName}
                   variant="outline"
                   size="xs"
-                  className={state === 'failed' ? 'border-destructive/30' : undefined}
+                  className={state === 'failed' || state === 'incomplete' ? 'border-destructive/30' : undefined}
                 >
                   <ItemMedia>
                     <AgentAvatar name={agent.agentName} size={20} status={agent.status} showStatus />
@@ -95,6 +111,7 @@ export function SkillAgentInstalls({ skill }: { skill: Skill }) {
                   <ItemActions>
                     <InstallAction
                       state={state}
+                      error={errorFor(agent.agentName)}
                       onInstall={() => install(agent.agentName)}
                       onUninstall={() => uninstall(agent.agentName)}
                     />

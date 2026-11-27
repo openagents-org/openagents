@@ -1354,18 +1354,25 @@ def install_skill(
                 "source_repo": registry_version.source_repo,
                 "source_path": registry_version.source_path,
             })
+            from app.skill_catalog import find_skill_by_source
+            upstream = find_skill_by_source(registry_version.source_repo, registry_version.source_path)
+            if upstream and upstream.get("required_files"):
+                event_skill["required_files"] = list(upstream["required_files"])
         _emit_agent_control_event(db, workspace, agent_name, "skill.install", {"skill": event_skill})
     else:
         # Carry the catalog metadata the launcher needs to fetch the skill.
-        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
-            "skill": {
-                "id": skill["id"],
-                "name": skill.get("name", skill["id"]),
-                "description": skill.get("description", ""),
-                "source_repo": skill.get("source_repo", ""),
-                "source_path": skill.get("source_path", ""),
-            },
-        })
+        event_skill = {
+            "id": skill["id"],
+            "name": skill.get("name", skill["id"]),
+            "description": skill.get("description", ""),
+            "source_repo": skill.get("source_repo", ""),
+            "source_path": skill.get("source_path", ""),
+        }
+        # Files the launcher must find before reporting installed; anything
+        # less is a failed install rather than a partial one.
+        if skill.get("required_files"):
+            event_skill["required_files"] = list(skill["required_files"])
+        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {"skill": event_skill})
     from app.models import AgentSkillInstallation
     selected_version_id = (
         registry_version.id if registry_version

@@ -489,6 +489,31 @@ def test_builtin_install_increments_the_registry_counter(client, workspace, db):
     assert builtin.install_count == 1
 
 
+def test_registry_upstream_install_carries_catalog_required_files(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+
+    installed = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+        json={"skill_id": pointer.id},
+        headers=_headers(workspace),
+    )
+    assert installed.status_code == 200, installed.text
+    events = client.get(
+        "/v1/events",
+        params={
+            "network": workspace["id"], "type": "workspace.agent.control",
+            "target": "openagents:claude",
+        },
+        headers=_headers(workspace),
+    ).json()["data"]["events"]
+    payload = next(e for e in events if e["payload"].get("action") == "skill.install")["payload"]["skill"]
+    assert payload["source_type"] == "registry_upstream"
+    assert payload["required_files"] == ["SKILL.md", "references/setup.md"]
+
+
 def test_mirrored_install_counter_and_slug_isolation(client, workspace, db):
     sync_builtin_registry(db)
     db.commit()

@@ -100,6 +100,23 @@ function _assertSafeSourcePath(sp) {
   }
 }
 
+/**
+ * Relative paths a catalog entry says must be present for the install to
+ * count (e.g. a setup guide under references/). Each segment gets the same
+ * guard as source_path so a crafted entry can't probe outside the skill dir.
+ */
+function _normalizeRequiredFiles(raw) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) throw new Error('required_files must be a list of relative paths');
+  return raw.map((file) => {
+    const segs = typeof file === 'string' ? file.split('/') : [];
+    if (!segs.length || segs.some((seg) => seg === '..' || !_PATH_SEG_RE.test(seg))) {
+      throw new Error(`unsafe required file "${file}"`);
+    }
+    return segs.join('/');
+  });
+}
+
 function normalizeSkill(skill) {
   if (!skill || typeof skill !== 'object') {
     throw new Error('skill metadata missing');
@@ -117,6 +134,7 @@ function normalizeSkill(skill) {
     description: skill.description || '',
     sourceRepo,
     sourcePath,
+    requiredFiles: _normalizeRequiredFiles(skill.required_files || skill.requiredFiles),
   };
 }
 
@@ -152,9 +170,13 @@ function defaultFetcher({ skill, destDir, log }) {
     throw new Error(`skill "${skill.id}" has no source_repo; cannot fetch`);
   }
   const _log = log || (() => {});
+  // Why the full checkout was skipped, so an incomplete install can say what
+  // to fix: install Git, or make GitHub reachable.
+  const gitMissing = !_gitAvailable();
+  let gitError = '';
 
   // ── Strategy 1: git sparse-checkout ──
-  if (_gitAvailable()) {
+  if (!gitMissing) {
     let tmp;
     try {
       tmp = fs.mkdtempSync(path.join(os.tmpdir(), `skill-${skill.id}-`));
@@ -172,7 +194,11 @@ function defaultFetcher({ skill, destDir, log }) {
       _log(`Fetched ${sourceRepo}/${sp} via git sparse-checkout`);
       return { partial: false };
     } catch (e) {
-      _log(`git fetch failed (${e && e.message ? e.message : e}); trying raw SKILL.md`);
+      // git's own last stderr line ("Could not resolve host…") says more
+      // than the "Command failed: git clone …" message wrapping it.
+      const stderr = e && e.stderr ? String(e.stderr).trim().split('\n').pop() : '';
+      gitError = stderr || (e && e.message ? e.message : String(e));
+      _log(`git fetch failed (${gitError}); trying raw SKILL.md`);
     } finally {
       if (tmp) { try { fs.rmSync(tmp, { recursive: true, force: true }); } catch {} }
     }
@@ -191,7 +217,7 @@ function defaultFetcher({ skill, destDir, log }) {
         // Only the SKILL.md was retrieved — any bundled scripts/references the
         // skill ships were NOT fetched. Signal "partial" so installSkill can
         // warn; skills that depend on those files may not be fully functional.
-        return { partial: true };
+        return { partial: true, gitMissing, gitError };
       }
     } catch {
       // try next branch
@@ -221,8 +247,13 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
 
   // Ensure the parent skills directory exists / is writable. A clear error
   // here distinguishes "no permission / bad working dir" from fetch failures.
+  let stagingDir;
   try {
-    fs.mkdirSync(destDir, { recursive: true });
+    fs.mkdirSync(skillsDir, { recursive: true });
+    // Fetch into a sibling staging dir and swap it in only once it checks
+    // out, so a failed reinstall leaves the previous install working. The
+    // leading dot keeps listInstalledSkills from reporting it.
+    stagingDir = fs.mkdtempSync(path.join(skillsDir, `.${norm.id}.staging-`));
   } catch (e) {
     throw new Error(
       `cannot create skills directory "${destDir}" for agent type "${agentType}": ` +
@@ -230,28 +261,31 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
     );
   }
 
-  // Re-installing: start clean so stale files from a prior version don't linger.
+  let fetchResult;
   try {
-    for (const entry of fs.readdirSync(destDir)) {
-      fs.rmSync(path.join(destDir, entry), { recursive: true, force: true });
+    const doFetch = fetcher || defaultFetcher;
+    fetchResult = doFetch({ skill: norm, destDir: stagingDir, log: _log }) || {};
+
+    // No silent success: a real install must produce a SKILL.md.
+    if (!_findSkillMd(stagingDir)) {
+      throw new Error(
+        `install of "${norm.id}" produced no SKILL.md in ${destDir} ` +
+        `(fetched from ${norm.sourceRepo}/${norm.sourcePath})`
+      );
     }
-  } catch {}
 
-  const doFetch = fetcher || defaultFetcher;
-  const fetchResult = doFetch({ skill: norm, destDir, log: _log }) || {};
+    const missing = norm.requiredFiles.filter((f) => !fs.existsSync(path.join(stagingDir, f)));
+    if (missing.length) throw new Error(_incompleteInstallMessage(norm, missing, fetchResult));
 
-  // No silent success: a real install must produce a SKILL.md.
-  const skillMd = _findSkillMd(destDir);
-  if (!skillMd) {
-    throw new Error(
-      `install of "${norm.id}" produced no SKILL.md in ${destDir} ` +
-      `(fetched from ${norm.sourceRepo}/${norm.sourcePath})`
-    );
+    _replaceDir(stagingDir, destDir);
+  } finally {
+    try { fs.rmSync(stagingDir, { recursive: true, force: true }); } catch {}
   }
 
   // A partial fetch (SKILL.md only, bundled scripts/references missing) is a
   // known degraded state — succeed but WARN loudly so it isn't mistaken for a
-  // fully-functional install.
+  // fully-functional install. Skills that declare required files never get
+  // here partial: the check above fails them instead.
   const partial = fetchResult.partial === true;
   if (partial) {
     _log(
@@ -262,6 +296,45 @@ function installSkill({ skill, agentType, workingDir, fetcher, log }) {
 
   _log(`Installed skill "${norm.id}" → ${destDir}${partial ? ' (partial: SKILL.md only)' : ''}`);
   return { path: destDir, skillId: norm.id, partial };
+}
+
+/** Say what is missing and what the user can do about it. */
+function _incompleteInstallMessage(norm, missing, fetchResult) {
+  const head = `install of "${norm.id}" is incomplete, missing ${missing.join(', ')}.`;
+  const source = `github.com/${norm.sourceRepo}`;
+  if (fetchResult.gitMissing) {
+    return `${head} Git is not installed on the machine running this agent, so only SKILL.md ` +
+      `could be downloaded from ${source}. Install Git there and retry.`;
+  }
+  if (fetchResult.partial) {
+    const reason = String(fetchResult.gitError || '').split('\n')[0].slice(0, 300);
+    return `${head} Downloading the full skill from ${source} with git failed` +
+      `${reason ? ` (${reason})` : ''}. Check that this machine can reach GitHub, then retry.`;
+  }
+  return `${head} ${source}/${norm.sourcePath} does not ship these files.`;
+}
+
+/**
+ * Move a verified staging dir into place. The previous install is set aside
+ * first and restored if the move fails, then removed once the new one is in.
+ */
+function _replaceDir(stagingDir, destDir) {
+  let backup = null;
+  if (fs.existsSync(destDir)) {
+    backup = path.join(path.dirname(destDir), `.${path.basename(destDir)}.previous-${process.pid}-${Date.now()}`);
+    fs.renameSync(destDir, backup);
+  }
+  try {
+    fs.renameSync(stagingDir, destDir);
+  } catch (e) {
+    if (backup) {
+      try { fs.renameSync(backup, destDir); } catch {}
+    }
+    throw new Error(`cannot move the new install into "${destDir}": ${e && e.message ? e.message : e}`);
+  }
+  if (backup) {
+    try { fs.rmSync(backup, { recursive: true, force: true }); } catch {}
+  }
 }
 
 /**
@@ -341,7 +414,8 @@ function listInstalledSkills({ agentType, workingDir }) {
   }
   const out = [];
   for (const ent of entries) {
-    if (!ent.isDirectory()) continue;
+    // Dot dirs are in-flight installs (staging) or set-aside previous ones.
+    if (!ent.isDirectory() || ent.name.startsWith('.')) continue;
     const dir = path.join(skillsDir, ent.name);
     const skillMd = _findSkillMd(dir);
     if (!skillMd) continue;

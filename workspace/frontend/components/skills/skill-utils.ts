@@ -49,6 +49,7 @@ export function registrySkillToSkill(skill: RegistrySkill, featured = false): Sk
     sourceType: 'registry',
     sourceRepo: latest?.sourceRepo || builtin?.sourceRepo,
     sourcePath: latest?.sourcePath || builtin?.sourcePath,
+    requiredFiles: builtin?.requiredFiles,
     packageType: latest?.packageType,
     registrySkillId: skill.id,
     slug: skill.slug,

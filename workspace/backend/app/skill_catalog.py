@@ -724,6 +724,9 @@ SKILL_CATALOG: List[dict] = [
         "source_repo": "JuneYaooo/rea-video",
         "source_path": "skills/rea-video",
         "author": "JuneYaooo",
+        # The CLI setup guide lives under references/; a SKILL.md-only fetch
+        # leaves the agent unable to install the CLI on first use.
+        "required_files": ["SKILL.md", "references/setup.md"],
     },
 ]
 
@@ -811,6 +814,14 @@ _WORKSPACE_MODULES = {"files", "browser", "tunnel", "todos", "timers", "routines
 def get_catalog() -> List[dict]:
     """Return the full third-party skill catalog."""
     return list(SKILL_CATALOG)
+
+
+def find_skill_by_source(source_repo: Optional[str], source_path: Optional[str]) -> Optional[dict]:
+    """Look up a catalog entry by its upstream location, as registry pointers carry it."""
+    for entry in SKILL_CATALOG:
+        if entry.get("source_repo") == source_repo and entry.get("source_path") == source_path:
+            return entry
+    return None
 
 
 def find_skill(skill_id: str) -> Optional[dict]:

@@ -122,6 +122,28 @@ class TestSkillInstallRequest:
         assert payload["skill"]["source_path"] == "skills/claude-api"
         assert skill_events[0]["target"] == "openagents:claude"
 
+    def test_install_event_carries_required_files(self, client, workspace):
+        _join_agent(client, workspace, "claude")
+        client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+            json={"skill_id": "rea-video"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        events = _control_events(client, workspace, "claude")
+        payload = next(e for e in events if e["payload"].get("action") == "skill.install")["payload"]
+        assert payload["skill"]["required_files"] == ["SKILL.md", "references/setup.md"]
+
+    def test_install_event_omits_required_files_when_catalog_has_none(self, client, workspace):
+        _join_agent(client, workspace, "claude")
+        client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+            json={"skill_id": "claude-api"},
+            headers={"X-Workspace-Token": workspace["token"]},
+        )
+        events = _control_events(client, workspace, "claude")
+        payload = next(e for e in events if e["payload"].get("action") == "skill.install")["payload"]
+        assert "required_files" not in payload["skill"]
+
     def test_install_unknown_skill_returns_404(self, client, workspace):
         _join_agent(client, workspace, "claude")
         resp = client.post(
