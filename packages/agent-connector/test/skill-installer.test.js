@@ -228,6 +228,204 @@ describe('installSkill', () => {
     assert.equal(res.partial, true);
     assert.ok(logs.some((l) => /WARNING: only SKILL\.md/.test(l)), 'warns loudly about partial install');
   });
+
+  it('keeps the previous install when a reinstall fails', () => {
+    installer.installSkill({ skill: SAMPLE_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fixtureFetcher });
+    const dir = path.join(workDir, '.claude', 'skills', 'claude-api');
+    const boomFetcher = ({ destDir }) => {
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'half.txt'), 'x', 'utf-8');
+      throw new Error('network down');
+    };
+    assert.throws(
+      () => installer.installSkill({ skill: SAMPLE_SKILL, agentType: 'claude', workingDir: workDir, fetcher: boomFetcher }),
+      /network down/,
+    );
+    assert.ok(fs.existsSync(path.join(dir, 'SKILL.md')), 'previous SKILL.md still there');
+    assert.ok(fs.existsSync(path.join(dir, 'helper.py')), 'previous bundled file still there');
+    assert.equal(fs.existsSync(path.join(dir, 'half.txt')), false, 'nothing from the failed fetch leaked in');
+    assert.deepEqual(
+      fs.readdirSync(path.join(workDir, '.claude', 'skills')), ['claude-api'],
+      'no staging or backup dirs left behind',
+    );
+  });
+});
+
+describe('installSkill — required files', () => {
+  let workDir;
+  beforeEach(() => { workDir = tmpWorkDir(); });
+  afterEach(() => { try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {} });
+
+  const REQUIRED_SKILL = {
+    id: 'rea-video',
+    name: 'rea-video',
+    source_repo: 'JuneYaooo/rea-video',
+    source_path: 'skills/rea-video',
+    required_files: ['SKILL.md', 'references/setup.md'],
+  };
+
+  function fullFetcher({ destDir }) {
+    fs.mkdirSync(path.join(destDir, 'references'), { recursive: true });
+    fs.writeFileSync(path.join(destDir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+    fs.writeFileSync(path.join(destDir, 'references', 'setup.md'), '# setup\n', 'utf-8');
+    return { partial: false };
+  }
+
+  function skillMdOnly(result) {
+    return ({ destDir }) => {
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+      return result;
+    };
+  }
+
+  it('installs when every required file is present', () => {
+    const res = installer.installSkill({
+      skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher,
+    });
+    assert.equal(res.partial, false);
+    assert.ok(fs.existsSync(path.join(res.path, 'references', 'setup.md')));
+  });
+
+  it('fails instead of going partial when Git is missing, and says to install Git', () => {
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: true, gitMissing: true, gitError: '' }),
+      }),
+      (e) => /incomplete, missing references\/setup\.md/.test(e.message) && /Install Git/.test(e.message),
+    );
+    assert.equal(fs.existsSync(path.join(workDir, '.claude', 'skills', 'rea-video')), false, 'nothing installed');
+  });
+
+  it('fails when the git clone failed, and points at GitHub connectivity', () => {
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: true, gitMissing: false, gitError: 'Could not resolve host: github.com\nmore' }),
+      }),
+      (e) => /git failed \(Could not resolve host: github\.com\)/.test(e.message) && /reach GitHub/.test(e.message),
+    );
+  });
+
+  it('fails when a full fetch still lacks a required file', () => {
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: false }),
+      }),
+      /does not ship these files/,
+    );
+  });
+
+  it('keeps a working install when the reinstall comes back incomplete', () => {
+    installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher });
+    const dir = path.join(workDir, '.claude', 'skills', 'rea-video');
+    assert.throws(() => installer.installSkill({
+      skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+      fetcher: skillMdOnly({ partial: true, gitMissing: true }),
+    }));
+    assert.ok(fs.existsSync(path.join(dir, 'references', 'setup.md')), 'previous complete install kept');
+    assert.deepEqual(installer.listInstalledSkills({ agentType: 'claude', workingDir: workDir }).map((s) => s.id), ['rea-video']);
+  });
+
+  it('fails a partial fetch even when a cut-short copy left the required files behind', () => {
+    installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher });
+    const halfCopy = ({ destDir }) => {
+      fullFetcher({ destDir });
+      fs.writeFileSync(path.join(destDir, 'references', 'setup.md'), '# half\n', 'utf-8');
+      return { partial: true, gitMissing: false, gitError: 'early EOF' };
+    };
+    assert.throws(
+      () => installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: halfCopy }),
+      (e) => /missing references\/setup\.md/.test(e.message) && /early EOF/.test(e.message) && e.keptPrevious === true,
+    );
+    const setup = path.join(workDir, '.claude', 'skills', 'rea-video', 'references', 'setup.md');
+    assert.equal(fs.readFileSync(setup, 'utf-8'), '# setup\n', 'previous complete install untouched');
+  });
+
+  it('does not count a directory as a required file', () => {
+    const dirInstead = ({ destDir }) => {
+      fs.mkdirSync(path.join(destDir, 'references', 'setup.md'), { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+      return { partial: false };
+    };
+    assert.throws(
+      () => installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: dirInstead }),
+      /missing references\/setup\.md/,
+    );
+  });
+
+  it('does not mark a first install that failed as keeping a previous one', () => {
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: true, gitMissing: true }),
+      }),
+      (e) => e.keptPrevious === undefined,
+    );
+  });
+
+  it('flags a kept previous install that was itself missing required files', () => {
+    const dir = path.join(workDir, '.claude', 'skills', 'rea-video');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: true, gitMissing: true }),
+      }),
+      (e) => e.keptPrevious === true && e.previousIncomplete === true,
+    );
+  });
+
+  it('does not flag a kept complete install as incomplete', () => {
+    installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher });
+    assert.throws(
+      () => installer.installSkill({
+        skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir,
+        fetcher: skillMdOnly({ partial: true, gitMissing: true }),
+      }),
+      (e) => e.keptPrevious === true && e.previousIncomplete === false,
+    );
+  });
+
+  it('reports the kept previous install when the staging dir cannot be created', () => {
+    installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher });
+    const realMkdtemp = fs.mkdtempSync;
+    fs.mkdtempSync = () => { const err = new Error('ENOSPC: no space left on device'); err.code = 'ENOSPC'; throw err; };
+    try {
+      assert.throws(
+        () => installer.installSkill({ skill: REQUIRED_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fullFetcher }),
+        (e) => /ENOSPC/.test(e.message) && e.keptPrevious === true && e.previousIncomplete === false,
+      );
+    } finally {
+      fs.mkdtempSync = realMkdtemp;
+    }
+    assert.ok(fs.existsSync(path.join(workDir, '.claude', 'skills', 'rea-video', 'references', 'setup.md')));
+  });
+
+  it('accepts camelCase requiredFiles', () => {
+    assert.throws(
+      () => installer.installSkill({
+        skill: { id: 's1', sourceRepo: 'a/b', sourcePath: 'p', requiredFiles: ['references/setup.md'] },
+        agentType: 'claude', workingDir: workDir, fetcher: skillMdOnly({ partial: true, gitMissing: true }),
+      }),
+      /missing references\/setup\.md/,
+    );
+  });
+
+  for (const bad of ['../outside.md', '/etc/passwd', 'references/../../x', '-flag', '', 42]) {
+    it(`rejects an unsafe required file ${JSON.stringify(bad)}`, () => {
+      assert.throws(
+        () => installer.installSkill({
+          skill: { ...REQUIRED_SKILL, required_files: [bad] },
+          agentType: 'claude', workingDir: workDir, fetcher: fullFetcher,
+        }),
+        /unsafe required file/,
+      );
+    });
+  }
 });
 
 describe('installSkill — security hardening', () => {
@@ -289,6 +487,43 @@ describe('installSkill — security hardening', () => {
 // ---------------------------------------------------------------------------
 // installUploadedSkill (custom / workspace_file skills)
 // ---------------------------------------------------------------------------
+
+describe('defaultFetcher without Git', () => {
+  let workDir;
+  let savedPath;
+  beforeEach(() => {
+    workDir = tmpWorkDir();
+    savedPath = process.env.PATH;
+    // An empty PATH: no git, and no curl for the HTTPS fallback either.
+    process.env.PATH = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-empty-path-'));
+  });
+  afterEach(() => {
+    process.env.PATH = savedPath;
+    try { fs.rmSync(workDir, { recursive: true, force: true }); } catch {}
+  });
+
+  it('fails a skill with bundled required files without trying the SKILL.md fallback', () => {
+    const logs = [];
+    assert.throws(
+      () => installer.installSkill({
+        skill: {
+          id: 'rea-video', source_repo: 'JuneYaooo/rea-video', source_path: 'skills/rea-video',
+          required_files: ['SKILL.md', 'references/setup.md'],
+        },
+        agentType: 'claude', workingDir: workDir, log: (m) => logs.push(m),
+      }),
+      (e) => /missing references\/setup\.md/.test(e.message) && /Install Git/.test(e.message),
+    );
+    assert.equal(logs.some((l) => /trying raw SKILL\.md/.test(l)), false, 'no fallback attempt');
+  });
+
+  it('keeps the Git reason when both git and the fallback fail', () => {
+    assert.throws(
+      () => installer.installSkill({ skill: SAMPLE_SKILL, agentType: 'claude', workingDir: workDir }),
+      (e) => /could not fetch skill "claude-api"/.test(e.message) && /Git is not installed/.test(e.message),
+    );
+  });
+});
 
 describe('installUploadedSkill', () => {
   let workDir;
@@ -539,6 +774,13 @@ describe('listInstalledSkills', () => {
     assert.deepEqual(installer.listInstalledSkills({ agentType: 'codex', workingDir: workDir }), []);
   });
 
+  it('skips dot dirs left by an in-flight or interrupted install', () => {
+    const skillsDir = path.join(workDir, '.claude', 'skills');
+    fs.mkdirSync(path.join(skillsDir, '.rea-video.staging-abc'), { recursive: true });
+    fs.writeFileSync(path.join(skillsDir, '.rea-video.staging-abc', 'SKILL.md'), '---\nname: x\n---\n', 'utf-8');
+    assert.deepEqual(installer.listInstalledSkills({ agentType: 'claude', workingDir: workDir }), []);
+  });
+
   it('parses SKILL.md frontmatter for installed skills', () => {
     installer.installSkill({ skill: SAMPLE_SKILL, agentType: 'codex', workingDir: workDir, fetcher: fixtureFetcher });
     const list = installer.listInstalledSkills({ agentType: 'codex', workingDir: workDir });
@@ -604,6 +846,86 @@ describe('BaseAdapter skill.install control action', () => {
     assert.equal(last.state, 'failed');
     assert.match(last.error, /boom-fetch/);
     assert.equal(client.calls.some((c) => c.state === 'installed'), false);
+  });
+
+  it('reports failed with the reason when a required file did not arrive', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'claude',
+      agentType: 'claude', workingDir: workDir,
+    });
+    const client = fakeClient();
+    adapter.client = client;
+    const skillMdOnly = ({ destDir }) => {
+      fs.mkdirSync(destDir, { recursive: true });
+      fs.writeFileSync(path.join(destDir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+      return { partial: true, gitMissing: true };
+    };
+    const realInstall = require('../src/skill-installer').installSkill;
+    require('../src/skill-installer').installSkill = (args) => realInstall({ ...args, fetcher: skillMdOnly });
+    try {
+      await adapter._onControlAction('skill.install', { skill: {
+        id: 'rea-video', name: 'rea-video', source_repo: 'JuneYaooo/rea-video', source_path: 'skills/rea-video',
+        required_files: ['SKILL.md', 'references/setup.md'],
+      } });
+    } finally {
+      require('../src/skill-installer').installSkill = realInstall;
+    }
+
+    const last = client.calls[client.calls.length - 1];
+    assert.equal(last.state, 'failed');
+    assert.match(last.error, /Install Git/);
+    assert.equal(client.calls.some((c) => c.state === 'installed'), false);
+  });
+
+  it('reports that the previous install was kept when a reinstall fails', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'claude',
+      agentType: 'claude', workingDir: workDir,
+    });
+    const client = fakeClient();
+    adapter.client = client;
+    const realInstall = require('../src/skill-installer').installSkill;
+    realInstall({ skill: SAMPLE_SKILL, agentType: 'claude', workingDir: workDir, fetcher: fixtureFetcher });
+    require('../src/skill-installer').installSkill = (args) =>
+      realInstall({ ...args, fetcher: () => { throw new Error('network down'); } });
+    try {
+      await adapter._onControlAction('skill.install', { skill: SAMPLE_SKILL });
+    } finally {
+      require('../src/skill-installer').installSkill = realInstall;
+    }
+
+    const last = client.calls[client.calls.length - 1];
+    assert.equal(last.state, 'failed');
+    assert.equal(last.keptPrevious, true);
+    assert.ok(fs.existsSync(path.join(workDir, '.claude', 'skills', 'claude-api', 'SKILL.md')));
+  });
+
+  it('reports that the kept previous install is incomplete', async () => {
+    const adapter = new BaseAdapter({
+      workspaceId: 'ws', channelName: 'c', token: 't', agentName: 'claude',
+      agentType: 'claude', workingDir: workDir,
+    });
+    const client = fakeClient();
+    adapter.client = client;
+    const dir = path.join(workDir, '.claude', 'skills', 'rea-video');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'SKILL.md'), '---\nname: rea-video\n---\n', 'utf-8');
+    const realInstall = require('../src/skill-installer').installSkill;
+    require('../src/skill-installer').installSkill = (args) =>
+      realInstall({ ...args, fetcher: () => { throw new Error('network down'); } });
+    try {
+      await adapter._onControlAction('skill.install', { skill: {
+        id: 'rea-video', name: 'rea-video', source_repo: 'JuneYaooo/rea-video', source_path: 'skills/rea-video',
+        required_files: ['SKILL.md', 'references/setup.md'],
+      } });
+    } finally {
+      require('../src/skill-installer').installSkill = realInstall;
+    }
+
+    const last = client.calls[client.calls.length - 1];
+    assert.equal(last.state, 'failed');
+    assert.equal(last.keptPrevious, true);
+    assert.equal(last.previousIncomplete, true);
   });
 
   it('ignores skill.install with no skill metadata', async () => {

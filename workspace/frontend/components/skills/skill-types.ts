@@ -19,6 +19,8 @@ export interface Skill {
   sourcePath?: string;
   author?: string;
   featured?: boolean;
+  /** Files the launcher must have fetched for the install to work. */
+  requiredFiles?: string[];
   // Custom (workspace_file) skills — uploaded .md/.zip packages.
   sourceType?: 'catalog' | 'workspace_file' | 'registry';
   fileId?: string;

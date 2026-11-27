@@ -16,6 +16,7 @@ export const SKILLS: Skill[] = [
   { id: 'skill-creator', name: 'Skill Creator', category: 'ai-ml', logo: `${SI}/anthropic.svg`, tags: ['meta', 'evals', 'authoring'], sourceRepo: 'anthropics/skills', sourcePath: 'skills/skill-creator', author: 'Anthropic' },
   { id: 'ai-sdk', name: 'Vercel AI SDK', category: 'ai-ml', logo: `${SI}/vercel.svg`, tags: ['streaming', 'react', 'rag'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/ai-sdk', author: 'Community' },
   { id: 'hypit', name: 'Hypit', category: 'ai-ml', logo: 'https://avatars.githubusercontent.com/u/274059971', tags: ['video', 'svml', 'authoring'], sourceRepo: 'hypit-ai/hypit', sourcePath: 'skills/hypit', author: 'Hypit' },
+  { id: 'rea-video', name: 'rea-video', category: 'ai-ml', logo: 'https://avatars.githubusercontent.com/u/60815510', tags: ['video', 'forensics', 'remake'], sourceRepo: 'JuneYaooo/rea-video', sourcePath: 'skills/rea-video', author: 'JuneYaooo', requiredFiles: ['SKILL.md', 'references/setup.md'] },
   // Frontend
   { id: 'nextjs', name: 'Next.js', category: 'frontend', logo: `${SI}/nextdotjs.svg`, tags: ['react', 'ssr', 'app-router'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/nextjs', author: 'Community', featured: true },
   { id: 'angular', name: 'Angular', category: 'frontend', logo: `${SI}/angular.svg`, tags: ['typescript', 'spa', 'rxjs'], sourceRepo: 'TerminalSkills/skills', sourcePath: 'skills/angular', author: 'Community' },

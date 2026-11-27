@@ -489,6 +489,117 @@ def test_builtin_install_increments_the_registry_counter(client, workspace, db):
     assert builtin.install_count == 1
 
 
+def test_registry_upstream_install_carries_catalog_required_files(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+
+    installed = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+        json={"skill_id": pointer.id},
+        headers=_headers(workspace),
+    )
+    assert installed.status_code == 200, installed.text
+    events = client.get(
+        "/v1/events",
+        params={
+            "network": workspace["id"], "type": "workspace.agent.control",
+            "target": "openagents:claude",
+        },
+        headers=_headers(workspace),
+    ).json()["data"]["events"]
+    payload = next(e for e in events if e["payload"].get("action") == "skill.install")["payload"]["skill"]
+    assert payload["source_type"] == "registry_upstream"
+    assert payload["required_files"] == ["SKILL.md", "references/setup.md"]
+
+
+def test_partial_upstream_install_reported_by_registry_id_is_stored_under_the_slug(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+    reported = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+        json={"skill_id": pointer.id, "state": "installed", "partial": True},
+        headers=_headers(workspace),
+    )
+    assert reported.status_code == 200, reported.text
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace["id"], WorkspaceMember.agent_name == "claude",
+    )).scalar_one()
+    db.refresh(member)
+    assert pointer.id not in member.enabled_skills["skill_status"]
+    assert member.enabled_skills["skill_status"]["rea-video"]["incomplete"] is True
+    assert "rea-video" not in member.enabled_skills["installed"]
+    db.refresh(pointer)
+    assert pointer.install_count == 0
+
+
+def test_installing_a_builtin_by_registry_id_tracks_it_under_the_slug(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+    installed = client.post(
+        f"/v1/workspaces/{workspace['id']}/members/claude/skills/install",
+        json={"skill_id": pointer.id},
+        headers=_headers(workspace),
+    )
+    assert installed.status_code == 200, installed.text
+    status = installed.json()["data"]["skillStatus"]
+    assert status["rea-video"]["state"] == "installing"
+    assert pointer.id not in status
+
+
+def test_builtin_state_reported_by_either_id_lands_under_the_slug(client, workspace, db):
+    sync_builtin_registry(db)
+    db.commit()
+    pointer = db.execute(select(RegistrySkill).where(RegistrySkill.slug == "rea-video")).scalar_one()
+    _join_agent(client, workspace)
+
+    def report(skill_id, **extra):
+        resp = client.post(
+            f"/v1/workspaces/{workspace['id']}/members/claude/skills/status",
+            json={"skill_id": skill_id, **extra},
+            headers=_headers(workspace),
+        )
+        assert resp.status_code == 200, resp.text
+        member = db.execute(select(WorkspaceMember).where(
+            WorkspaceMember.workspace_id == workspace["id"], WorkspaceMember.agent_name == "claude",
+        )).scalar_one()
+        db.refresh(member)
+        return member.enabled_skills
+
+    report("rea-video", state="installed")
+    # A later incomplete report under the Registry id replaces the slug's
+    # success instead of sitting beside it.
+    skills = report(pointer.id, state="installed", partial=True)
+    assert pointer.id not in skills["skill_status"]
+    assert skills["skill_status"]["rea-video"]["incomplete"] is True
+    assert skills["installed"] == []
+
+    # A success reported by Registry id is visible under the slug, which is
+    # all the static catalogue can look up.
+    skills = report(pointer.id, state="installed")
+    assert pointer.id not in skills["skill_status"]
+    assert skills["skill_status"]["rea-video"]["state"] == "installed"
+    assert skills["installed"] == ["rea-video"]
+
+    # State left under the Registry id by an earlier build is folded in.
+    member = db.execute(select(WorkspaceMember).where(
+        WorkspaceMember.workspace_id == workspace["id"], WorkspaceMember.agent_name == "claude",
+    )).scalar_one()
+    legacy = dict(member.enabled_skills)
+    legacy["skill_status"] = {**legacy["skill_status"], pointer.id: {"state": "installed"}}
+    legacy["installed"] = legacy["installed"] + [pointer.id]
+    member.enabled_skills = legacy
+    db.commit()
+    skills = report("rea-video", state="installed")
+    assert pointer.id not in skills["skill_status"]
+    assert skills["installed"] == ["rea-video"]
+
+
 def test_mirrored_install_counter_and_slug_isolation(client, workspace, db):
     sync_builtin_registry(db)
     db.commit()

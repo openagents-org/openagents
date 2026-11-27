@@ -1052,6 +1052,10 @@ class SkillStatusRequest(BaseModel):
     path: Optional[str] = None
     error: Optional[str] = None
     partial: Optional[bool] = None  # SKILL.md fetched but bundled files missing
+    # A failed reinstall that left the previous install in place on disk,
+    # and whether that previous install is itself missing required files.
+    kept_previous: Optional[bool] = None
+    previous_incomplete: Optional[bool] = None
     version_id: Optional[str] = None
 
 
@@ -1134,12 +1138,16 @@ def _emit_agent_control_event(db, workspace, agent_name: str, action: str, paylo
 
 def _set_skill_status(skills_data: dict, skill_id: str, state: str,
                       path: Optional[str] = None, error: Optional[str] = None,
-                      partial: Optional[bool] = None) -> dict:
+                      partial: Optional[bool] = None,
+                      kept_previous: Optional[bool] = None,
+                      incomplete: bool = False) -> dict:
     """Update the per-skill status map inside an ``enabled_skills`` dict.
 
-    Keeps the legacy ``installed`` list in sync (only successfully-installed
-    skills appear there, so existing readers keep working) and stores richer
-    state under ``skill_status`` for the UI.
+    Keeps the legacy ``installed`` list in sync (only skills usable on disk
+    appear there, so existing readers keep working) and stores richer state
+    under ``skill_status`` for the UI. A failed reinstall that kept the
+    previous install stays listed; an install missing files its skill
+    requires does not, whether it just landed or is the one kept.
     """
     status_map = dict(skills_data.get("skill_status", {}))
     entry = {"state": state, "updated_at": int(time.time() * 1000)}
@@ -1149,11 +1157,15 @@ def _set_skill_status(skills_data: dict, skill_id: str, state: str,
         entry["error"] = error[:2000]
     if partial:
         entry["partial"] = True
+    if incomplete:
+        entry["incomplete"] = True
+    if kept_previous and state == "failed":
+        entry["kept_previous"] = True
     status_map[skill_id] = entry
     skills_data["skill_status"] = status_map
 
     installed = [s for s in skills_data.get("installed", []) if s != skill_id]
-    if state == "installed":
+    if (state == "installed" or entry.get("kept_previous")) and not incomplete:
         installed.append(skill_id)
     skills_data["installed"] = installed
     return skills_data
@@ -1185,6 +1197,49 @@ def _resolve_registry_skill(db: Session, skill_id: str) -> tuple[Optional[object
         )
     ).first()
     return (row[0], row[1]) if row else (None, None)
+
+
+def _status_skill_id(db: Session, skill_id: str) -> str:
+    """The key a skill's install state is stored under.
+
+    Built-ins live under their catalog slug even when installed or reported
+    by Registry UUID: the static catalogue the Skill Hub falls back to when
+    the Registry is unavailable only knows the slug. Everything else keeps
+    the id it was addressed by.
+    """
+    from app.skill_catalog import find_skill
+
+    if find_skill(skill_id):
+        return skill_id
+    registry_skill, version = _resolve_registry_skill(db, skill_id)
+    if (registry_skill is not None and version is not None
+            and version.source_mode == "upstream_pointer" and find_skill(registry_skill.slug)):
+        return registry_skill.slug
+    return skill_id
+
+
+def _drop_status_aliases(db: Session, skills_data: dict, skill_id: str) -> dict:
+    """Remove state stored under a built-in's other id, so one key remains."""
+    aliases, _ = _registry_status_aliases(db, skill_id)
+    stale = aliases - {skill_id}
+    if stale:
+        skills_data["skill_status"] = {
+            k: v for k, v in dict(skills_data.get("skill_status", {})).items() if k not in stale
+        }
+        skills_data["installed"] = [s for s in skills_data.get("installed", []) if s not in stale]
+    return skills_data
+
+
+def _catalog_required_files(db: Session, skill_id: str) -> list:
+    """Files a catalog skill must ship, looked up by catalog slug or Registry id."""
+    from app.skill_catalog import find_skill, find_skill_by_source
+
+    entry = find_skill(skill_id)
+    if entry is None:
+        _, version = _resolve_registry_skill(db, skill_id)
+        if version is not None and version.source_mode == "upstream_pointer":
+            entry = find_skill_by_source(version.source_repo, version.source_path)
+    return list((entry or {}).get("required_files") or [])
 
 
 def _registry_status_aliases(db: Session, skill_id: str) -> tuple[set[str], Optional[object]]:
@@ -1314,8 +1369,8 @@ def install_skill(
             f"Registry MVP does not yet support agent type '{member.agent_type or 'unknown'}'",
         )
 
-    status_skill_id = registry_skill.id if registry_skill else body.skill_id
-    skills_data = dict(member.enabled_skills or {})
+    status_skill_id = _status_skill_id(db, registry_skill.id if registry_skill else body.skill_id)
+    skills_data = _drop_status_aliases(db, dict(member.enabled_skills or {}), status_skill_id)
     skills_data = _set_skill_status(skills_data, status_skill_id, "installing")
     member.enabled_skills = skills_data
 
@@ -1354,18 +1409,25 @@ def install_skill(
                 "source_repo": registry_version.source_repo,
                 "source_path": registry_version.source_path,
             })
+            from app.skill_catalog import find_skill_by_source
+            upstream = find_skill_by_source(registry_version.source_repo, registry_version.source_path)
+            if upstream and upstream.get("required_files"):
+                event_skill["required_files"] = list(upstream["required_files"])
         _emit_agent_control_event(db, workspace, agent_name, "skill.install", {"skill": event_skill})
     else:
         # Carry the catalog metadata the launcher needs to fetch the skill.
-        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {
-            "skill": {
-                "id": skill["id"],
-                "name": skill.get("name", skill["id"]),
-                "description": skill.get("description", ""),
-                "source_repo": skill.get("source_repo", ""),
-                "source_path": skill.get("source_path", ""),
-            },
-        })
+        event_skill = {
+            "id": skill["id"],
+            "name": skill.get("name", skill["id"]),
+            "description": skill.get("description", ""),
+            "source_repo": skill.get("source_repo", ""),
+            "source_path": skill.get("source_path", ""),
+        }
+        # Files the launcher must find before reporting installed; anything
+        # less is a failed install rather than a partial one.
+        if skill.get("required_files"):
+            event_skill["required_files"] = list(skill["required_files"])
+        _emit_agent_control_event(db, workspace, agent_name, "skill.install", {"skill": event_skill})
     from app.models import AgentSkillInstallation
     selected_version_id = (
         registry_version.id if registry_version
@@ -1439,7 +1501,12 @@ def report_skill_status(
     if not member:
         return json_response(ResponseCode.NOT_FOUND, "Member not found")
 
-    skills_data = dict(member.enabled_skills or {})
+    # Launchers report built-ins under whichever id the install event named;
+    # store them under one key (the catalog slug) and drop the other alias so
+    # every view reads the same state.
+    body.skill_id = _status_skill_id(db, body.skill_id)
+    skills_data = _drop_status_aliases(db, dict(member.enabled_skills or {}), body.skill_id)
+    incomplete = False
     if body.state == "uninstalled":
         # Drop the status entry entirely on uninstall.
         status_map = dict(skills_data.get("skill_status", {}))
@@ -1449,8 +1516,17 @@ def report_skill_status(
             s for s in skills_data.get("installed", []) if s != body.skill_id
         ]
     else:
+        # Older launchers report a SKILL.md-only fetch as installed + partial,
+        # and a failed reinstall can leave such a partial in place. For a
+        # skill that requires its bundled files neither is usable, so keep it
+        # off the installed list every view reads.
+        incomplete = bool(
+            (body.state == "installed" and body.partial)
+            or (body.state == "failed" and body.kept_previous and body.previous_incomplete)
+        ) and bool(_catalog_required_files(db, body.skill_id))
         skills_data = _set_skill_status(
-            skills_data, body.skill_id, body.state, body.path, body.error, body.partial
+            skills_data, body.skill_id, body.state, body.path, body.error, body.partial,
+            kept_previous=body.kept_previous, incomplete=incomplete,
         )
     member.enabled_skills = skills_data
 
@@ -1477,7 +1553,7 @@ def report_skill_status(
         installation.updated_at = datetime.now(timezone.utc)
         if body.state == "installed":
             installation.installed_at = datetime.now(timezone.utc)
-            if previous_state != "installed":
+            if previous_state != "installed" and not incomplete:
                 # Built-ins report under their catalog slug, mirrored UGC under
                 # the Registry UUID — resolve both so popularity is comparable
                 # across the two source modes.

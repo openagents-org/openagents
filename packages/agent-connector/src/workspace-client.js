@@ -740,11 +740,13 @@ class WorkspaceClient {
    * Skill Hub UI can render installing / installed / failed states. Best
    * effort — returns the updated payload or throws (caller decides).
    */
-  async reportSkillStatus(workspaceId, agentName, token, { skillId, state, path: installPath, error, partial, versionId } = {}) {
+  async reportSkillStatus(workspaceId, agentName, token, { skillId, state, path: installPath, error, partial, keptPrevious, previousIncomplete, versionId } = {}) {
     const body = { skill_id: skillId, state };
     if (installPath) body.path = installPath;
     if (error) body.error = String(error).slice(0, 2000);
     if (partial) body.partial = true;
+    if (keptPrevious) body.kept_previous = true;
+    if (previousIncomplete) body.previous_incomplete = true;
     if (versionId) body.version_id = versionId;
     const data = await this._post(
       `/v1/workspaces/${workspaceId}/members/${encodeURIComponent(agentName)}/skills/status`,

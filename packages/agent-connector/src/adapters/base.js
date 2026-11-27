@@ -1133,6 +1133,8 @@ class BaseAdapter {
       try {
         await this.client.reportSkillStatus(this.workspaceId, this.agentName, this.token, {
           skillId: reportSkillId, state: 'failed', error: msg, versionId,
+          keptPrevious: Boolean(e && e.keptPrevious),
+          previousIncomplete: Boolean(e && e.previousIncomplete),
         });
       } catch (e2) {
         this._log(`skill.install: also failed to report 'failed': ${e2 && e2.message ? e2.message : e2}`, 'warn');

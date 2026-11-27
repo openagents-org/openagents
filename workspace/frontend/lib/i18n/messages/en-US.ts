@@ -3116,6 +3116,9 @@ export const messages = {
     installing: 'Installing…',
     failedRetry: 'Failed · Retry',
     failedRetryHint: 'Installation failed — click to retry',
+    failedRetryReason: 'Installation failed: {reason} Click to retry.',
+    incompleteRetry: 'Incomplete · Reinstall',
+    incompleteRetryHint: 'Only SKILL.md was installed and the files this skill needs are missing. Click to reinstall.',
     installStarted: 'Installing {skill} on {agent}…',
     installFailed: 'Failed to request skill install',
     removed: '{skill} removed from {agent}',
@@ -3285,6 +3288,8 @@ export const messages = {
       'sn-md-to-html-report': 'Convert Markdown research reports to polished HTML with charts and styling',
       hypit:
         'Produce complete videos with AI agents — author, preview, review and build Hypit/SVML projects, then batch-expand them into variants',
+      'rea-video':
+        'Reverse-engineer a video shot by shot — live action, AI, 3D, code-rendered or screen capture, plus editing, sound and a remake plan',
     },
   },
 

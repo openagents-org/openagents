@@ -3076,6 +3076,9 @@ export const messages: Messages = {
     installing: '安装中…',
     failedRetry: '失败 · 重试',
     failedRetryHint: '安装失败 —— 点击重试',
+    failedRetryReason: '安装失败：{reason} 点击重试。',
+    incompleteRetry: '安装不完整 · 重装',
+    incompleteRetryHint: '只装上了 SKILL.md，缺少这个技能需要的文件。点击重新安装。',
     installStarted: '正在将 {skill} 安装到 {agent}…',
     installFailed: '请求安装技能失败',
     removed: '已从 {agent} 移除 {skill}',
@@ -3236,6 +3239,7 @@ export const messages: Messages = {
       'sn-image-base': '图像生成、图像识别(VLM)与文本优化 API',
       'sn-md-to-html-report': '将 Markdown 研究报告转换为带图表与样式的精美 HTML',
       hypit: '用 AI agent 完成整支视频 —— 创作、预览、审校与构建 Hypit/SVML 项目，并批量扩展出多个变体',
+      'rea-video': '逐镜头逆向拆解视频 —— 判断实拍、AI 生成、3D、代码渲染或录屏，拆出剪辑包装、声音，并给出复刻方案',
     },
   },
 

@@ -3,12 +3,13 @@
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
 import { workspaceApi } from '@/lib/api';
+import type { SkillStatusEntry } from '@/lib/types';
 import { useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
 import type { Skill } from './skill-types';
 import { extractErrorMessage } from './skill-utils';
 
-export type SkillInstallState = 'installing' | 'installed' | 'failed' | null;
+export type SkillInstallState = 'installing' | 'installed' | 'incomplete' | 'failed' | null;
 
 /** Past this an "installing" report has stalled; offer a retry instead of a spinner. */
 const STALE_INSTALL_MS = 2 * 60 * 1000;
@@ -58,6 +59,22 @@ export function useSkillInstall(skill: Skill) {
     }
   }, [skill, refreshWorkspace, t]);
 
+  // Registry UUIDs were briefly used for upstream catalog state. Read both
+  // keys so users on that build can still see and remove their installation;
+  // all new upstream actions use the historical catalog slug.
+  const stateKeys = Array.from(new Set([skill.installId || skill.id, skill.id]));
+
+  const statusEntryFor = (agentName: string) => {
+    const agent = agents.find(a => a.agentName === agentName);
+    const skills = (agent?.enabledSkills as Record<string, unknown>) || {};
+    const statusMap = (skills.skill_status as Record<string, SkillStatusEntry>) || {};
+    const entry = stateKeys
+      .map(key => statusMap[key])
+      .filter((candidate): candidate is SkillStatusEntry => Boolean(candidate))
+      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))[0];
+    return { skills, entry };
+  };
+
   // Resolve the install state for this skill on a given agent. Prefer the
   // richer skill_status map (installing/installed/failed) the launcher reports
   // back; fall back to the legacy `installed` list for older backends.
@@ -65,23 +82,31 @@ export function useSkillInstall(skill: Skill) {
     // Optimistic local state wins until the next discovery refresh confirms
     // the launcher's reported status.
     if (pendingAgent === agentName) return 'installing';
-    const agent = agents.find(a => a.agentName === agentName);
-    const skills = (agent?.enabledSkills as Record<string, unknown>) || {};
-    const statusMap = (skills.skill_status as Record<string, { state?: string; updated_at?: number }>) || {};
-    // Registry UUIDs were briefly used for upstream catalog state. Read both
-    // keys so users on that build can still see and remove their installation;
-    // all new upstream actions use the historical catalog slug.
-    const stateKeys = Array.from(new Set([skill.installId || skill.id, skill.id]));
-    const entry = stateKeys
-      .map(key => statusMap[key])
-      .filter((candidate): candidate is { state?: string; updated_at?: number } => Boolean(candidate))
-      .sort((a, b) => (b.updated_at || 0) - (a.updated_at || 0))[0];
+    const { skills, entry } = statusEntryFor(agentName);
     if (entry?.state === 'installing') {
       return entry.updated_at && Date.now() - entry.updated_at > STALE_INSTALL_MS ? 'failed' : 'installing';
+    }
+    // Older launchers report a SKILL.md-only fetch as installed + partial.
+    // A skill that needs its bundled files can't run like that. The backend
+    // flags it; the requiredFiles check covers backends from before the flag.
+    if (entry?.state === 'installed' && (entry.incomplete || (entry.partial && skill.requiredFiles?.length))) {
+      return 'incomplete';
     }
     if (entry?.state === 'failed' || entry?.state === 'installed') return entry.state;
     const installed = (skills.installed as string[]) || [];
     return stateKeys.some(key => installed.includes(key)) ? 'installed' : null;
+  };
+
+  /** The launcher's reason for a failed install, if it sent one. */
+  const errorFor = (agentName: string): string | undefined => {
+    const { entry } = statusEntryFor(agentName);
+    return entry?.state === 'failed' ? entry.error : undefined;
+  };
+
+  /** A failed reinstall left the previous install on the agent, so it can still be removed. */
+  const keptPreviousFor = (agentName: string): boolean => {
+    const { entry } = statusEntryFor(agentName);
+    return entry?.state === 'failed' && entry.kept_previous === true;
   };
 
   const onlineAgents = agents.filter(a => {
@@ -90,5 +115,5 @@ export function useSkillInstall(skill: Skill) {
     return MIRRORED_AGENT_TYPES.includes((a.agentType || '').toLowerCase());
   });
 
-  return { onlineAgents, stateFor, install, uninstall };
+  return { onlineAgents, stateFor, errorFor, keptPreviousFor, install, uninstall };
 }
