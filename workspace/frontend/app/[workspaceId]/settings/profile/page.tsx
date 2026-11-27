@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { WithTooltip } from '@/components/ui/with-tooltip';
 import { SectionHeader } from '@/components/settings/section-chrome';
+import { PublicProfileCard } from '@/components/settings/public-profile-card';
 import { SettingsCard } from '@/components/settings/settings-card';
 import { SaveButton } from '@/components/settings/save-button';
 import {
@@ -213,6 +214,7 @@ export default function ProfileSettingsPage() {
       <SettingsCard title={t('profile.emailTitle')} description={t('profile.emailHint')}>
         <Input aria-label={t('profile.emailTitle')} value={profile.email} readOnly disabled className="max-w-sm" />
       </SettingsCard>
+      {idToken && <PublicProfileCard key={profile.email} idToken={idToken} displayName={profile.displayName ?? ''} />}
     </div>
   );
 }
