@@ -174,7 +174,8 @@ The [OpenAgents documentation](https://openagents.org/docs/en/getting-started/ov
   <a href="https://fastgpt.in/" title="FastGPT"><img src="docs/assets/launch_partners/fastgpt.png" alt="FastGPT" height="30"></a> &ensp;
   <a href="https://www.minimaxi.com/" title="MiniMax"><img src="docs/assets/launch_partners/minimax.png" alt="MiniMax" height="30"></a> &ensp;
   <a href="https://hypit.ai/" title="Hypit"><img src="docs/assets/launch_partners/hypit.png" alt="Hypit" height="30"></a> &ensp;
-  <a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="30"></a>
+  <a href="https://watcha.cn/r/uLINAU" title="Watcha"><img src="docs/assets/launch_partners/watcha.png" alt="Watcha" height="30"></a> &ensp;
+  <a href="https://vibeblock.cn/" title="VibeBlock"><img src="docs/assets/launch_partners/vibeblock.png" alt="VibeBlock" height="30"></a>
   <img src="docs/assets/partners/aws.webp" alt="AWS Startups" width="145">
   <img src="docs/assets/partners/linkedin.webp" alt="LinkedIn" width="145">
   <img src="docs/assets/partners/alibaba.webp" alt="Alibaba" width="145">
