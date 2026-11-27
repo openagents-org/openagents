@@ -133,7 +133,9 @@ interface LayoutState {
   selectedBrowser: ArtifactReference | null;
   browserView: BrowserView | null;
   browserWatchOnly: boolean;
-  setBrowserView: (view: BrowserView, browser?: ArtifactReference, watchOnly?: boolean) => void;
+  /** `browser: null` clears the selection; `watchOnly` marks a preview that
+   * opened on its own and stays bound to the thread's activity. */
+  setBrowserView: (view: BrowserView, browser?: ArtifactReference | null, watchOnly?: boolean) => void;
   hasSavedThreadView: boolean;
   applyThreadArtifactDefault: (artifact: ArtifactReference | null, unavailable?: boolean) => void;
   conversationWidth: number;
@@ -238,7 +240,7 @@ export function LayoutProvider({ children }: { children: ReactNode }) {
   const { selectedArtifact, selectedBrowser, browserView, browserWatchOnly, previewOpen: showBrowserPreview, conversationWidth } = threadView.state;
   const setSelectedArtifact = useCallback((artifact: ArtifactReference | null) => threadView.update({ selectedArtifact: artifact }), [threadView.update]);
   const setShowBrowserPreview = useCallback((open: boolean) => threadView.update({ previewOpen: open }), [threadView.update]);
-  const setBrowserView = useCallback((view: BrowserView, browser?: ArtifactReference, watchOnly = false) => threadView.update({ browserView: view, browserWatchOnly: watchOnly, ...(view === 'closed' ? { selectedBrowser: null } : browser ? { selectedBrowser: browser } : {}) }), [threadView.update]);
+  const setBrowserView = useCallback((view: BrowserView, browser?: ArtifactReference | null, watchOnly = false) => threadView.update({ browserView: view, browserWatchOnly: watchOnly, ...(view === 'closed' || browser === null ? { selectedBrowser: null } : browser ? { selectedBrowser: browser } : {}) }), [threadView.update]);
   const setConversationWidth = useCallback((width: number) => threadView.update({ conversationWidth: width }), [threadView.update]);
   const [threadFilter, setThreadFilter] = useState<'all' | 'channels' | 'starred' | 'archived' | 'dms'>('all');
   const [viewMode, setViewMode] = useState<ViewMode>('threads');

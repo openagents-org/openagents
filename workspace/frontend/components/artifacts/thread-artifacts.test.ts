@@ -55,7 +55,10 @@ it('recognizes canonical document links, uploaded paths, and existing live tabs'
   expect(artifactFromLink('uploaded_files/report.md',files,[],'demo')).toEqual({kind:'file',id:'doc'});
   expect(artifactFromLink('https://evil.example/uploaded_files/report.md',files,[],'demo')).toBeNull();
   expect(artifactFromLink('/other/files/doc',[],[],'demo')).toBeNull();
-  expect(artifactFromLink('https://example.com/',[],[{id:'tab',url:'https://example.com/'}] as any,'demo')).toEqual({kind:'browser',id:'tab'});
+  const tabs=[{id:'tab',url:'https://example.com/',liveUrl:'https://browser.example/live/tab'}] as any;
+  expect(artifactFromLink('https://browser.example/live/tab',[],tabs,'demo')).toEqual({kind:'browser',id:'tab'});
+  // A page address is not a tab identity: another thread may have that site open.
+  expect(artifactFromLink('https://example.com/',[],tabs,'demo')).toBeNull();
 });
 it('fetches HTML through the authenticated API and isolates scripts from the app origin',async()=>{
   mocks.workspace.files=[{id:'html',filename:'dashboard.html',contentType:'text/html'}];

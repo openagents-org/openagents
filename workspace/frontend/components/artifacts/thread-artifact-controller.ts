@@ -2,11 +2,10 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
-import { browserPreviewPreferenceKey, browserPreviewDismissed } from '@/lib/browser-preview-preference';
 import { workspaceApi } from '@/lib/api';
 import { ARTIFACT_OPEN_EVENT, artifactFromLink, type ArtifactReference } from '@/lib/thread-artifacts';
 
-/** Personal choices win; the owner's pin is only the first-visit default. */
+/** Personal choices win; the owner's pin is only the first-visit default for documents. */
 export function useThreadArtifactPreview() {
   const { workspace, currentSessionId, currentUser, loading, files, browserTabs } = useWorkspace();
   const { viewMode, openArtifact, hasSavedThreadView, applyThreadArtifactDefault } = useLayout();
@@ -19,10 +18,8 @@ export function useThreadArtifactPreview() {
     if (currentSessionId && !currentSessionId.startsWith('dm:')) {
       void workspaceApi.getThreadArtifact(currentSessionId).then(setting => {
         if (!active || manual.current !== revision) return;
-        if (setting.artifact) {
-          if (setting.artifact.kind === 'browser' && browserPreviewDismissed(browserPreviewPreferenceKey(workspace?.workspaceId || '', currentUser.id, currentSessionId))) return;
-          applyThreadArtifactDefault(setting.artifact);
-        }
+        // A pinned browser is ignored here: it never opens the overlay on arrival.
+        if (setting.artifact) applyThreadArtifactDefault(setting.artifact);
         else if (setting.unavailable) applyThreadArtifactDefault(null, true);
       }).catch(() => {});
     }

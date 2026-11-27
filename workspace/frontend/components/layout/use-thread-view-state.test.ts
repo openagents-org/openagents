@@ -21,17 +21,52 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
-it('restores independent artifact, browser, sidebar and width choices across thread switches and reloads', async () => {
+it('restores independent artifact, sidebar and width choices across thread switches and reloads', async () => {
   await render();
-  const saved = { selectedArtifact: { kind: 'file' as const, id: 'doc' }, selectedBrowser: { kind: 'browser' as const, id: 'tab' }, previewOpen: true, browserView: 'minimized' as const, sidebarOpen: false, conversationWidth: 36 };
+  const saved = { selectedArtifact: { kind: 'file' as const, id: 'doc' }, previewOpen: true, sidebarOpen: false, conversationWidth: 36 };
   await act(async () => view.update(saved));
   scope[2] = 'thread-b'; await render();
-  expect(view.state.selectedArtifact).toBeNull(); expect(view.state.browserView).toBeNull();
-  await act(async () => view.update({ previewOpen: false, browserView: 'closed' }));
+  expect(view.state.selectedArtifact).toBeNull();
+  await act(async () => view.update({ previewOpen: false }));
   scope[2] = 'thread-a'; await render(); expect(view.state).toMatchObject(saved);
   await act(async () => root.unmount()); root = createRoot(host); await render();
   expect(view.state).toMatchObject(saved);
-  scope[2] = 'thread-b'; await render(); expect(view.state.browserView).toBe('closed'); expect(view.state.previewOpen).toBe(false);
+  scope[2] = 'thread-b'; await render(); expect(view.state.previewOpen).toBe(false);
+});
+it('keeps an opened, minimized or fullscreen browser for one visit only; switching back or reloading collapses it', async () => {
+  const browser = { kind: 'browser' as const, id: 'tab' };
+  for (const browserView of ['compact', 'minimized', 'fullscreen'] as const) {
+    scope[2] = 'thread-a'; await render();
+    await act(async () => view.update({ selectedBrowser: browser, browserView, browserWatchOnly: true }));
+    expect(view.state).toMatchObject({ selectedBrowser: browser, browserView, browserWatchOnly: true });
+    scope[2] = 'thread-b'; await render();
+    expect(view.state).toMatchObject({ selectedBrowser: null, browserView: null, browserWatchOnly: false });
+    scope[2] = 'thread-a'; await render();
+    expect(view.state.selectedBrowser).toBeNull(); expect(view.state.browserView).toBeNull();
+  }
+  await act(async () => view.update({ selectedBrowser: browser, browserView: 'compact' }));
+  await act(async () => root.unmount()); root = createRoot(host); await render();
+  expect(view.state.selectedBrowser).toBeNull();
+  expect([...storage.values()].join('')).not.toContain('"tab"');
+});
+it('ignores browser choices stored by older versions', async () => {
+  storage.set('oa-thread-view:["workspace","alice","thread-a"]', JSON.stringify({ version: 1, selectedBrowser: { kind: 'browser', id: 'tab' }, browserView: 'fullscreen', conversationWidth: 40 }));
+  await render();
+  expect(view.state).toMatchObject({ selectedBrowser: null, browserView: null, conversationWidth: 40 });
+});
+it('discards a late browser update from the thread the viewer already left', async () => {
+  await render(); const stale = view.update;
+  scope[2] = 'thread-b'; await render();
+  await act(async () => stale({ selectedBrowser: { kind: 'browser', id: 'late' }, browserView: 'compact' }));
+  expect(view.state.selectedBrowser).toBeNull();
+  // Nor does it disturb a browser the viewer opened in the current thread.
+  await act(async () => view.update({ selectedBrowser: { kind: 'browser', id: 'mine' }, browserView: 'minimized' }));
+  await act(async () => stale({ browserView: 'closed', selectedBrowser: null }));
+  expect(view.state).toMatchObject({ selectedBrowser: { id: 'mine' }, browserView: 'minimized' });
+});
+it('never opens a pinned browser on arrival', async () => {
+  await render(); await act(async () => view.applyDefault({ kind: 'browser', id: 'pinned' }));
+  expect(view.state.selectedBrowser).toBeNull(); expect(view.state.browserView).toBeNull();
 });
 it('isolates preferences by viewer and workspace', async () => {
   await render(); await act(async () => view.update({ previewOpen: true, conversationWidth: 32 }));
@@ -54,8 +89,8 @@ it('keeps preferences in memory when storage is blocked and does not persist tem
   await act(async () => view.update({ selectedBrowser: { kind: 'browser', id: 'https://example.com/live/secret' } }));
   expect([...storage.values()].join('')).not.toContain('secret');
   vi.stubGlobal('localStorage', { getItem: () => { throw Error('blocked'); }, setItem: () => { throw Error('blocked'); } });
-  await act(async () => view.update({ browserView: 'closed' }));
-  scope[2] = 'other'; await render(); scope[2] = 'thread-a'; await render(); expect(view.state.browserView).toBe('closed');
+  await act(async () => view.update({ conversationWidth: 30 }));
+  scope[2] = 'other'; await render(); scope[2] = 'thread-a'; await render(); expect(view.state.conversationWidth).toBe(30);
 });
 it('ignores corrupt storage and does not write before the viewer and thread are known', async () => {
   storage.set('oa-thread-view:["workspace","alice","thread-a"]', '{broken');
