@@ -38,7 +38,11 @@ export function isImportableType(type: string | null | undefined): type is Impor
 
 export interface LocalSession { id: string; type: string; title: string; cwd: string | null; updatedAt: string; messageCount: number | null }
 type ImportedThread = { channel: string; channelStatus?: 'active' | 'archived'; existing?: boolean };
-type Outcome = { state: 'running' } | ({ state: 'done' } & ImportedThread) | { state: 'error'; message: string };
+type Outcome =
+  | { state: 'running' }
+  | { state: 'pending'; commandId: string }
+  | ({ state: 'done' } & ImportedThread)
+  | { state: 'error'; message: string };
 
 /** Wait for a device command to finish: up to ~2 minutes (the device picks it up within ~10 s). */
 export async function waitForNodeCommand(nodeId: string, commandId: string, tries = 80): Promise<NodeCommand | null> {
@@ -139,23 +143,33 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   const runImport = async () => {
     const ids = [...picked];
     setPhase('importing');
-    setOutcomes(Object.fromEntries(ids.map((id) => [id, { state: 'running' } as Outcome])));
-    await Promise.all(ids.map(async (id) => {
+    const running = Object.fromEntries<Outcome>(ids.map((id) => [id, { state: 'running' }]));
+    setOutcomes((prev) => ({ ...prev, ...running }));
+    const results = await Promise.all(ids.map(async (id) => {
       let outcome: Outcome;
       try {
-        const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'import_local_session', { type, id, agent: target || null });
-        const done = await waitForNodeCommand(node.nodeId, cmd.commandId);
+        const previous = outcomes[id];
+        // A timeout only ends the wait in this dialog. The device can still finish the command.
+        const { commandId } = previous?.state === 'pending'
+          ? previous
+          : await workspaceApi.enqueueNodeCommand(node.nodeId, 'import_local_session', { type, id, agent: target || null });
+        const done = await waitForNodeCommand(node.nodeId, commandId);
         const data = done?.result?.data as Partial<ImportedThread> | undefined;
-        outcome = done?.result?.ok && data?.channel
-          ? { state: 'done', channel: data.channel, channelStatus: data.channelStatus, existing: data.existing }
-          : { state: 'error', message: done ? (done.result?.message || t('importSessions.importFailed')) : t('importSessions.stillImporting') };
+        if (!done) {
+          outcome = { state: 'pending', commandId };
+        } else if (done.result?.ok && data?.channel) {
+          outcome = { state: 'done', channel: data.channel, channelStatus: data.channelStatus, existing: data.existing };
+        } else {
+          outcome = { state: 'error', message: done.result?.message || t('importSessions.importFailed') };
+        }
       } catch (e) {
         outcome = { state: 'error', message: e instanceof Error ? e.message : t('importSessions.importFailed') };
       }
       setOutcomes((prev) => ({ ...prev, [id]: outcome }));
+      return outcome.state;
     }));
     setPicked(new Set());
-    setPhase('refreshing');
+    setPhase(results.includes('done') ? 'refreshing' : 'idle');
   };
 
   const finished = Object.entries(outcomes).filter(([, o]) => o.state === 'done') as [string, Extract<Outcome, { state: 'done' }>][];
@@ -199,13 +213,14 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
                 const o = outcomes[s.id];
                 return (
                   <label key={s.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/40">
-                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={busy || !!o} aria-label={s.title} className="mt-1" />
+                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={busy || o?.state === 'done'} aria-label={s.title} className="mt-1" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{s.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {[s.cwd, typeof s.messageCount === 'number' ? t(s.messageCount === 1 ? 'importSessions.message' : 'importSessions.messages', { count: s.messageCount }) : null, timeAgo(s.updatedAt)].filter(Boolean).join(' · ')}
                       </span>
                       {o?.state === 'error' && <span className="block text-xs text-destructive">{o.message}</span>}
+                      {o?.state === 'pending' && <span className="block text-xs text-muted-foreground">{t('importSessions.stillImporting')}</span>}
                     </span>
                     {o?.state === 'running' && <Spinner aria-hidden="true" className="mt-1 size-4 text-muted-foreground" />}
                     {o?.state === 'done' && <Check className="mt-1 size-4 text-emerald-600" />}

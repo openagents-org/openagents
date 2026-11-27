@@ -1674,10 +1674,15 @@ class ClaudeAdapter extends BaseAdapter {
             try { await this.sendError(msgChannel, this._silenceNotice(result.stderrTail)); } catch {}
             break;
           }
-          if (attempt === 0 && this._channelSessions[msgChannel]) {
+          // A first fork has no saved channel session yet. Replay only if it
+          // exited before producing text or using a tool.
+          const forkStarted = forkSourceId && (pp.everPostedAnything || pp.hasToolUseSinceLastText);
+          if (resumed && !forkStarted) {
             this._log(`Stale session detected, retrying without resume`);
-            delete this._channelSessions[msgChannel];
-            this._saveSessions();
+            if (this._channelSessions[msgChannel]) {
+              delete this._channelSessions[msgChannel];
+              this._saveSessions();
+            }
             try {
               await this.sendStatus(
                 msgChannel,

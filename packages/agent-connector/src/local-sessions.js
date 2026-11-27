@@ -37,7 +37,8 @@ const DEFAULT_LIMIT = 200;      // sessions listed, newest first
 
 // ── secrets ────────────────────────────────────────────────────────────────
 
-const PRIVATE_KEY = /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g;
+// OpenCode's bounded prompt preview can end before the PEM footer.
+const PRIVATE_KEY = /-----BEGIN ([A-Z ]*PRIVATE KEY)-----[\s\S]*?(?:-----END \1-----|$)/g;
 
 /** Text with credentials masked: the same rules as everything adapters post
  *  (adapters/utils.js redactSecrets), plus whole private-key blocks. */

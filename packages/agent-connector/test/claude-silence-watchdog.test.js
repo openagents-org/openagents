@@ -131,6 +131,64 @@ describe('a fresh process that goes silent', () => {
   });
 });
 
+describe('the first turn of an imported Claude session', () => {
+  function forkAdapter() {
+    const adapter = mkAdapter();
+    adapter._buildClaudeCmd = ClaudeAdapter.prototype._buildClaudeCmd;
+    adapter._findClaudeBinary = () => 'claude';
+    adapter._buildSkillsCmd = (cmd) => ({ cmd });
+    adapter._importArgs = () => ['--resume', 'personal-source', '--fork-session'];
+    return adapter;
+  }
+
+  it('retries an early fork exit once with the channel recap and no resume arguments', async () => {
+    const adapter = forkAdapter();
+    const attempts = [];
+    adapter._spawnPersistentProc = (_channel, cmd, _env, source) => {
+      attempts.push({ resume: cmd.includes('--resume'), fork: cmd.includes('--fork-session'), source });
+      return mkPP();
+    };
+    adapter._buildChannelRecap = async () => attempts.length ? 'Updated history' : 'Initial history';
+    const prompts = [];
+    adapter._sendToPersistentProc = async (pp, prompt) => {
+      prompts.push(prompt);
+      if (attempts.length === 1) return { exited: true, code: 1 };
+      pp.lastResponseText = ['Answer from the recap'];
+      return { resultEvent: {} };
+    };
+
+    await adapter._handleMessage({ content: 'Which file?', sessionId: 'general' });
+
+    assert.deepEqual(attempts, [
+      { resume: true, fork: true, source: 'personal-source' },
+      { resume: false, fork: false, source: null },
+    ]);
+    assert.equal(prompts[1], 'Updated history\n\n---\n\nWhich file?');
+    assert.equal(adapter._channelSessions.general, undefined);
+    assert.deepEqual(adapter.responses, ['Answer from the recap']);
+    assert.deepEqual(adapter.errors, []);
+  });
+
+  for (const [activity, flags] of [
+    ['posting text', { everPostedAnything: true }],
+    ['starting a tool', { hasToolUseSinceLastText: true }],
+  ]) {
+    it(`does not replay a fork that exits after ${activity}`, async () => {
+      const adapter = forkAdapter();
+      let calls = 0;
+      adapter._spawnPersistentProc = () => mkPP(flags);
+      adapter._sendToPersistentProc = async () => {
+        calls++;
+        return { exited: true, code: 1 };
+      };
+
+      await adapter._handleMessage({ content: 'Which file?', sessionId: 'general' });
+
+      assert.equal(calls, 1);
+    });
+  }
+});
+
 describe('a long-lived process that goes silent', () => {
   it('is restarted once, with a status saying so, and the message sent again', async () => {
     const adapter = mkAdapter();

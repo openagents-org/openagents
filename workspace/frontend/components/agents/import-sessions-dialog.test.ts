@@ -148,6 +148,68 @@ it('keeps batch results in the dialog until every import and the thread list ref
   expect(q('#route')!.textContent).toBe('threads/detail/archived');
 });
 
+it('retries a failed session in place and keeps earlier successes across batches', async () => {
+  await render();
+  const first = q('[aria-label="Add pagination"]') as HTMLButtonElement;
+  const second = q('[aria-label="Fix login"]') as HTMLButtonElement;
+  const submit = q('[data-testid="import-sessions-submit"]') as HTMLButtonElement;
+  const links = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="import-sessions-done"] button'));
+  const failure = 'Could not read this session';
+
+  await act(async () => first.click());
+  await act(async () => submit.click());
+  await tick();
+  expect(links()[0].textContent).toContain('Add pagination');
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+
+  api.get.mockResolvedValueOnce({ status: 'error', result: { ok: false, message: failure } });
+  await act(async () => second.click());
+  await act(async () => submit.click());
+  expect(links()).toHaveLength(1);
+  expect(links()[0].disabled).toBe(true);
+  await tick();
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(links()[0].disabled).toBe(false);
+  expect(first.disabled).toBe(true);
+  expect(second.disabled).toBe(false);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain(failure);
+
+  await act(async () => second.click());
+  await act(async () => submit.click());
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).not.toContain(failure);
+  await tick();
+  expect(ws.refresh).toHaveBeenCalledTimes(2);
+  expect(links().map(b => b.textContent)).toEqual(['Add pagination', 'Fix login']);
+  expect(links().every(b => !b.disabled)).toBe(true);
+  const imports = api.enqueue.mock.calls.filter(([, action]) => action === 'import_local_session');
+  expect(imports.map(([, , args]) => args.id)).toEqual(['s1', 's2', 's2']);
+  await act(async () => links()[0].click());
+  expect(ws.open).toHaveBeenCalledWith('channel-s1');
+});
+
+it('checks the original device command when retrying an import that is still running', async () => {
+  await render();
+  let ready = false;
+  api.get.mockImplementation(async (_node: string, id: string) => ready
+    ? commands.find(c => c.commandId === id)
+    : { status: 'running' });
+  const box = q('[aria-label="Fix login"]') as HTMLButtonElement;
+  const submit = q('[data-testid="import-sessions-submit"]') as HTMLButtonElement;
+  await act(async () => box.click());
+  await act(async () => submit.click());
+  await tick(120000);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('importSessions.stillImporting');
+  expect(ws.refresh).not.toHaveBeenCalled();
+
+  ready = true;
+  await act(async () => box.click());
+  await act(async () => submit.click());
+  await tick();
+  expect(api.enqueue.mock.calls.filter(([, action]) => action === 'import_local_session')).toHaveLength(1);
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(q('[data-testid="import-sessions-done"] button')!.textContent).toContain('Fix login');
+});
+
 it.each(['close', 'open result'])('can %s after a mixed batch when thread refresh never settles', async (action) => {
   const close = vi.fn();
   ws.refresh.mockImplementationOnce(() => new Promise<void>(() => {}));

@@ -160,6 +160,7 @@ describe('local sessions', () => {
   it('masks private keys and tokens', () => {
     const out = maskSecrets('-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY----- and ghp_abcdefghijklmnopqrstuvwxyz0123');
     assert.ok(!out.includes('abc\n') && !out.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'));
+    assert.ok(out.startsWith('[REDACTED_PRIVATE_KEY] and '));
   });
 
   it('counts OpenCode messages in one query and skips workspace runs', () => {
@@ -216,7 +217,7 @@ describe('local sessions', () => {
       CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
       CREATE TABLE part (id TEXT, message_id TEXT, time_created INTEGER, data TEXT);`);
     const session = db.prepare('INSERT INTO session VALUES (?,?,?,?)');
-    for (const [index, id] of ['empty', 'synthetic', 'mine', 'mapped', 'child', 'workspace', 'hi'].entries()) {
+    for (const [index, id] of ['empty', 'synthetic', 'mine', 'mapped', 'child', 'workspace', 'hi', 'pem-preview'].entries()) {
       session.run(id, '/projects/' + id, id === 'child' ? 'mine' : null, 1762000000000 + index);
     }
     const message = db.prepare('INSERT INTO message VALUES (?,?,?,?)');
@@ -241,12 +242,18 @@ describe('local sessions', () => {
     add('child', 'user', { type: 'text', text: 'child' });
     add('workspace', 'user', { type: 'text', text: "You are agent 'writer' connected to an OpenAgents workspace." });
     add('hi', 'user', { type: 'text', text: 'hi' });
+    add('pem-preview', 'user', { type: 'text', text: [
+      'Review this example', '-----BEGIN PRIVATE KEY-----', 'fixture only\n'.repeat(240), '-----END PRIVATE KEY-----',
+    ].join('\n') });
     const agentDir = path.join(env.OPENAGENTS_HOME, 'agents', 'writer');
     fs.mkdirSync(agentDir, { recursive: true });
     fs.writeFileSync(path.join(agentDir, 'sessions-0123456789abcdef.json'), JSON.stringify({ thread: 'mapped' }));
     try {
       const direct = listLocalSessions('opencode', { env, run: (args) => JSON.stringify(db.prepare(args[3]).all()) });
-      assert.deepEqual(direct.map((s) => [s.id, s.title, s.messageCount]), [['hi', 'hi', 1], ['mine', 'Which file?', 2]]);
+      const maskedTitle = 'Review this example [REDACTED_PRIVATE_KEY]';
+      assert.deepEqual(direct.map((s) => [s.id, s.title, s.messageCount]), [
+        ['pem-preview', maskedTitle, 1], ['hi', 'hi', 1], ['mine', 'Which file?', 2],
+      ]);
       const calls = [];
       const fallback = listLocalSessions('opencode', { env, run: (args) => {
         calls.push(args.slice(0, 2));
@@ -260,6 +267,7 @@ describe('local sessions', () => {
       }) });
       const unavailable = { env: { ...env, OPENCODE_DB: file }, run: () => null };
       assert.deepEqual(listLocalSessions('opencode', unavailable), direct);
+      assert.equal(readLocalSession('opencode', 'pem-preview', unavailable).title, maskedTitle);
       const imported = readLocalSession('opencode', 'mine', unavailable);
       assert.deepEqual(imported, exported);
       assert.deepEqual(imported.messages.map(m => m.role), ['user', 'tool', 'assistant']);
