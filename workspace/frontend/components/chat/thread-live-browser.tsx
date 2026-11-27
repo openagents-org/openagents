@@ -5,7 +5,8 @@ import { Globe, Maximize2, Minimize2, Minus, X } from 'lucide-react';
 import { BrowserThumbnail } from '@/components/artifacts/browser-thumbnail';
 import { BrowserArtifactPreview } from '@/components/artifacts/browser-artifact-preview';
 import { ForcedStreamQuality } from '@/lib/browser-stream-quality';
-import { liveThreadBrowserTab, tabHasFreshAgentActivity } from '@/components/browser/agent-activity';
+import { liveThreadBrowserTab, tabHasFreshAgentActivity, tabStillFollowsThread } from '@/components/browser/agent-activity';
+import type { BrowserView } from '@/components/layout/use-thread-view-state';
 import { useWorkspace } from '@/lib/workspace-context';
 import { useLayout } from '@/components/layout/layout-context';
 import { useT } from '@/lib/i18n';
@@ -23,9 +24,13 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   const { selectedBrowser, browserView, browserWatchOnly, setBrowserView } = useLayout();
   const t = useT();
   const minimized = browserView === 'minimized';
-  const setMinimized = (value: boolean) => setBrowserView(value ? 'minimized' : 'compact', id ? { kind: 'browser', id } : undefined, !interactive);
+  // Resizing keeps the tab on screen while the agent pauses between actions.
+  // A preview that opened automatically stays "followed" (watch-only), so it
+  // is still bound to this thread; see `followLost`.
+  const keep = (view: BrowserView) => setBrowserView(view, id ? { kind: 'browser', id } : undefined, selected ? browserWatchOnly : true);
+  const setMinimized = (value: boolean) => keep(value ? 'minimized' : 'compact');
   const fullscreen = browserView === 'fullscreen';
-  const setFullscreen = (value: boolean) => setBrowserView(value ? 'fullscreen' : 'compact', id ? { kind: 'browser', id } : undefined, !interactive);
+  const setFullscreen = (value: boolean) => keep(value ? 'fullscreen' : 'compact');
   const [frameFailed, setFrameFailed] = useState<string | null>(null);
   const [visible, setVisible] = useState(true);
   const preferenceKey = browserPreviewPreferenceKey(workspace?.workspaceId || '', currentUser.id, currentSessionId || '');
@@ -40,18 +45,23 @@ export function ThreadLiveBrowser({ messages = [] }: { messages?: WorkspaceMessa
   const selectedRef = selectedBrowser?.id || null;
   const selectedTab = selectedRef ? browserTabs.find(tab => tab.id === selectedRef)
     || resolveThreadBrowserLink(selectedRef, browserTabs, currentSessionId || '', messages) : undefined;
-  const selected = selectedRef ? selectedTab?.id || selectedRef : null;
+  // A followed preview ends as soon as another thread (or an unattributed call)
+  // drives the tab: only a browser the viewer opened by hand ignores ownership.
+  const followLost = !!selectedRef && browserWatchOnly && !!selectedTab && !tabStillFollowsThread(selectedTab, currentSessionId || '');
+  const selected = selectedRef && !followLost ? selectedTab?.id || selectedRef : null;
   const automatic = browserView !== 'closed' && dismissal?.key === preferenceKey && !dismissal.dismissed ? automaticTab?.id : null;
   const id = selected || automatic;
   const tab = selected ? selectedTab : automaticTab;
   const interactive = (!!selected && !browserWatchOnly) || !tab || !!tab.asleep || agentReferences.has(tab.id);
 
   useEffect(() => { setFrameFailed(null); }, [id]);
+  useEffect(() => { if (followLost) setBrowserView('compact', null); }, [followLost, setBrowserView]);
   useEffect(() => {
+    if (followLost) return;
     if (selectedRef && selectedTab && selectedRef !== selectedTab.id) {
       setBrowserView(browserView || 'compact', { kind: 'browser', id: selectedTab.id }, browserWatchOnly);
     }
-  }, [selectedRef, selectedTab?.id, browserView, browserWatchOnly, setBrowserView]);
+  }, [followLost, selectedRef, selectedTab?.id, browserView, browserWatchOnly, setBrowserView]);
   useEffect(() => {
     const update = () => setVisible(!document.hidden);
     update(); document.addEventListener('visibilitychange', update);

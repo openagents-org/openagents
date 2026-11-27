@@ -341,3 +341,18 @@ describe('durable browser previews', () => {
     }
   });
 });
+
+describe('browser reads name the thread', () => {
+  const { SHARED_SKILL_CHANNEL } = require('../src/adapters/workspace-prompt');
+  for (const build of [buildClaudeSkillMd, buildCursorSkillMd, buildOpenCodeSkillMd, buildOpenclawSkillMd]) {
+    it(`${build.name} passes source and channel on snapshot and screenshot`, () => {
+      // Only activity attributed to a thread opens that thread's live preview.
+      const md = build({ ...COMMON, agentName: 'browser-agent', browserEnabled: true });
+      const query = `source=openagents:browser-agent&channel=${SHARED_SKILL_CHANNEL}`;
+      for (const read of ['TAB_ID/snapshot', '{tab_id}/snapshot', '{tab_id}/screenshot']) {
+        assert.ok(md.includes(`"https://example.test/v1/browser/tabs/${read}?${query}"`), read);
+      }
+      assert.ok(!/\/v1\/browser\/tabs\/[^\s"?]+\/(snapshot|screenshot)[`\s]/.test(md));
+    });
+  }
+});

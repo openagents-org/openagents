@@ -24,8 +24,8 @@ let layout: any;
 /** The same wiring as LayoutProvider + ChatView, without the rest of the app. */
 function App() {
   const view = useThreadViewState(h.ws.workspace.workspaceId, h.ws.currentUser.id, h.ws.currentSessionId);
-  const setBrowserView = useCallback((browserView: BrowserView, browser?: ArtifactReference, watchOnly = false) =>
-    view.update({ browserView, browserWatchOnly: watchOnly, ...(browserView === 'closed' ? { selectedBrowser: null } : browser ? { selectedBrowser: browser } : {}) }), [view.update]);
+  const setBrowserView = useCallback((browserView: BrowserView, browser?: ArtifactReference | null, watchOnly = false) =>
+    view.update({ browserView, browserWatchOnly: watchOnly, ...(browserView === 'closed' || browser === null ? { selectedBrowser: null } : browser ? { selectedBrowser: browser } : {}) }), [view.update]);
   const openArtifact = useCallback((artifact: ArtifactReference) =>
     view.update({ selectedBrowser: artifact, browserView: 'compact', browserWatchOnly: false }), [view.update]);
   layout = { ...view.state, setBrowserView, openArtifact, applyDefault: view.applyDefault };
@@ -99,4 +99,50 @@ it('does not follow unattributed activity into a running thread, and Close in B 
   await visit('A'); await visit('B'); expect(shown()).toBeNull();
   h.ws.browserTabs = [{ ...shared('A'), artifactChannels: ['A', 'B'] }];
   await visit('A'); expect(shown()).not.toBeNull();
+});
+
+const click = async (label: string) => { await act(async () => (host.querySelector(`[aria-label="${label}"]`) as HTMLButtonElement).click()); };
+const quiet = (channel: string | undefined) => ({ ...shared(channel), activity: { ...shared(channel).activity, at: '2020-01-01T00:00:00Z' } });
+
+it('keeps an enlarged or minimized automatic preview bound to its thread when another thread takes the tab over', async () => {
+  for (const resize of ['threadLiveBrowser.expand', 'threadLiveBrowser.minimize']) {
+    h.ws.activeSessionIds = new Set(['A', 'B']);
+    h.ws.browserTabs = [shared('A')];
+    await visit('A');
+    expect(shown()).not.toBeNull();
+    await click(resize);
+    // A pause between the agent's actions does not take the view away.
+    h.ws.browserTabs = [quiet('A')]; await render();
+    expect(shown()).not.toBeNull();
+    // The same agent now drives the tab for B: A must not keep showing it.
+    h.ws.browserTabs = [shared('B')]; await render();
+    expect(shown()).toBeNull();
+    expect(layout.selectedBrowser).toBeNull();
+    // Once B goes quiet, A does not resurface the stream.
+    h.ws.browserTabs = [{ ...shared('B'), activity: null }]; await render();
+    expect(shown()).toBeNull();
+    await visit('B'); await visit('C');
+  }
+});
+
+it('drops an enlarged automatic preview when the tab is driven without saying which thread it is for', async () => {
+  h.ws.activeSessionIds = new Set(['A']);
+  h.ws.browserTabs = [shared('A')];
+  await visit('A');
+  await click('threadLiveBrowser.expand');
+  expect(host.querySelector('[data-browser-overlay="fullscreen"]')).not.toBeNull();
+  h.ws.browserTabs = [shared(undefined)]; await render();
+  expect(shown()).toBeNull();
+  // A's own activity opens it again, in the compact view.
+  h.ws.browserTabs = [shared('A')]; await render();
+  expect(host.querySelector('[data-browser-overlay="compact"]')).not.toBeNull();
+});
+
+it('keeps a browser the viewer opened by hand, enlarged, while another thread drives it', async () => {
+  h.ws.browserTabs = [quiet('A')];
+  await visit('A');
+  await act(async () => layout.openArtifact({ kind: 'browser', id: 'shared' }));
+  await click('threadLiveBrowser.expand');
+  h.ws.browserTabs = [shared('B')]; await render();
+  expect(host.querySelector('[data-browser-overlay="fullscreen"] [data-preview="shared"]')).not.toBeNull();
 });

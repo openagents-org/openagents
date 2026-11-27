@@ -61,6 +61,13 @@ export function liveThreadBrowserTab(tabs: BrowserTab[], channel: string, now = 
     .sort((a, b) => Date.parse(b.activity!.at) - Date.parse(a.activity!.at))[0];
 }
 
+/** Whether a live preview this thread is already showing may stay up after its
+ * activity goes quiet: only until the tab's latest action is made for another
+ * thread, or does not say which thread it was for (the agent may have moved on). */
+export function tabStillFollowsThread(tab: BrowserTab, channel: string): boolean {
+  return !!channel && (!tab.activity || tab.activity.channel === channel);
+}
+
 /** Sidebar-grade check from the polled signal alone. */
 export function tabHasFreshAgentActivity(tab: BrowserTab, now = Date.now()): boolean {
   const a = tab.activity;

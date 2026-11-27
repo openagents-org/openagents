@@ -26,7 +26,7 @@ beforeEach(() => {
   h.layout.setBrowserView.mockImplementation((view, browser, watchOnly = false) => {
     h.layout.browserWatchOnly = watchOnly;
     h.layout.browserView = view;
-    if (view === 'closed') h.layout.selectedBrowser = null;
+    if (view === 'closed' || browser === null) h.layout.selectedBrowser = null;
     else if (browser) h.layout.selectedBrowser = browser;
     root.render(React.createElement(ThreadLiveBrowser));
   });
