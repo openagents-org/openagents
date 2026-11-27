@@ -11,6 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { createHash, randomUUID } = require('crypto');
 
 // Checked in order; the first match wins. `session` is the env var holding
 // the host's own session id, when the host exports one.
@@ -115,17 +116,109 @@ function claudeProjectDir(configDir, cwd) {
   return path.join(configDir, 'projects', String(cwd).replace(/[^A-Za-z0-9]/g, '-'));
 }
 
-/** The transcript file of a Claude Code session, searched across projects, or null. */
-function findClaudeTranscript(sessionId, configDir) {
-  if (!/^[A-Za-z0-9-]+$/.test(String(sessionId || ''))) return null;
-  const projects = path.join(configDir, 'projects');
-  let dirs = [];
-  try { dirs = fs.readdirSync(projects); } catch { return null; }
-  for (const d of dirs) {
-    const file = path.join(projects, d, `${sessionId}.jsonl`);
-    try { if (fs.statSync(file).isFile()) return file; } catch {}
+const snapshotMarker = (file) => `${file}.openagents-snapshot`;
+
+// Bind a marker to the file we created and to its last contents. A replaced
+// file can contain identical bytes, and an in-place rewrite can keep the
+// same file ID. Older empty markers carry no ownership evidence.
+function snapshotRecord(stat, bytes) {
+  if (!stat.isFile() || !stat.ino || !stat.birthtimeNs) return null;
+  const digest = createHash('sha256').update(bytes).digest('hex');
+  return `v1 ${stat.dev} ${stat.ino} ${stat.birthtimeNs} ${stat.mtimeNs} ${digest}\n`;
+}
+
+function isClaudeSnapshot(file) {
+  let fd;
+  try {
+    const record = fs.readFileSync(snapshotMarker(file), 'utf8');
+    if (!record.startsWith('v1 ')) return false;
+    fd = fs.openSync(file, 'r');
+    return record === snapshotRecord(fs.fstatSync(fd, { bigint: true }), fs.readFileSync(fd));
+  } catch { return false; } finally { if (fd !== undefined) fs.closeSync(fd); }
+}
+
+function completeTranscript(file) {
+  const data = fs.readFileSync(file);
+  return data.subarray(0, data.lastIndexOf(0x0a) + 1);
+}
+
+function completeTranscriptSize(fd, buffer) {
+  let end = fs.fstatSync(fd).size;
+  while (end > 0) {
+    const start = Math.max(0, end - buffer.length);
+    const bytes = fs.readSync(fd, buffer, 0, end - start, start);
+    const newline = buffer.subarray(0, bytes).lastIndexOf(0x0a);
+    if (newline >= 0) return start + newline + 1;
+    end = start;
   }
-  return null;
+  return 0;
+}
+
+// A cross-project continuation and an old, unmarked snapshot can both start
+// with the original cwd. Only complete JSONL records establish which extends which.
+function preferClaudeOriginal(file, other, sessionId) {
+  let leftFd, rightFd;
+  try {
+    try { leftFd = fs.openSync(file, 'r'); } catch { return other; }
+    try { rightFd = fs.openSync(other, 'r'); } catch { return file; }
+    const left = Buffer.allocUnsafe(64 * 1024);
+    const right = Buffer.allocUnsafe(left.length);
+    const leftSize = completeTranscriptSize(leftFd, left);
+    const rightSize = completeTranscriptSize(rightFd, right);
+    const common = Math.min(leftSize, rightSize);
+    for (let offset = 0; offset < common; offset += left.length) {
+      const size = Math.min(left.length, common - offset);
+      const a = fs.readSync(leftFd, left, 0, size, offset);
+      const b = fs.readSync(rightFd, right, 0, size, offset);
+      if (a === size && b === size && left.subarray(0, size).equals(right.subarray(0, size))) continue;
+      // The picker can show this ID, but a direct read must not guess a branch.
+      if (sessionId) throw new Error(`Two Claude transcripts for ${sessionId} have different histories in different projects`);
+      return file;
+    }
+    return rightSize > leftSize ? other : file;
+  } finally {
+    if (leftFd !== undefined) fs.closeSync(leftFd);
+    if (rightFd !== undefined) fs.closeSync(rightFd);
+  }
+}
+
+function originalClaudeNames(dir, sessionId) {
+  try {
+    if (sessionId) {
+      const name = `${sessionId}.jsonl`;
+      const file = path.join(dir, name);
+      return fs.statSync(file).isFile() && !isClaudeSnapshot(file) ? [name] : [];
+    }
+    const names = new Set(fs.readdirSync(dir));
+    return [...names].filter((name) => /^[0-9a-f-]{36}\.jsonl$/i.test(name)
+      && (!names.has(snapshotMarker(name)) || !isClaudeSnapshot(path.join(dir, name))));
+  } catch { return []; }
+}
+
+function claudeTranscripts(configDir, sessionId, source) {
+  const projects = path.join(configDir, 'projects');
+  const originals = new Map();
+  if (source && path.basename(source) === `${sessionId}.jsonl` && fs.existsSync(source) && !isClaudeSnapshot(source)) {
+    originals.set(path.basename(source), source);
+  }
+  let dirs = [];
+  try { dirs = fs.readdirSync(projects, { withFileTypes: true }); } catch { /* no local projects */ }
+  for (const dir of dirs) {
+    if (!dir.isDirectory()) continue;
+    const project = path.join(projects, dir.name);
+    for (const name of originalClaudeNames(project, sessionId)) {
+      const file = path.join(project, name);
+      const previous = originals.get(name);
+      originals.set(name, previous && path.relative(file, previous) ? preferClaudeOriginal(previous, file, sessionId) : file);
+    }
+  }
+  return [...originals.values()];
+}
+
+/** The original transcript, including a seed supplied from a different config directory. */
+function findClaudeTranscript(sessionId, configDir, source) {
+  if (!/^[A-Za-z0-9-]+$/.test(String(sessionId || ''))) return null;
+  return claudeTranscripts(configDir, sessionId, source)[0] || null;
 }
 
 /**
@@ -133,11 +226,69 @@ function findClaudeTranscript(sessionId, configDir) {
  * complete lines: the source may be a chat that is still writing to it.
  */
 function snapshotTranscript(src, destDir) {
-  const text = fs.readFileSync(src, 'utf-8');
-  const end = text.lastIndexOf('\n');
   fs.mkdirSync(destDir, { recursive: true, mode: 0o700 });
   const dest = path.join(destDir, path.basename(src));
-  fs.writeFileSync(dest, end >= 0 ? text.slice(0, end + 1) : '', { mode: 0o600 });
+  if (fs.existsSync(dest) && !path.relative(fs.realpathSync(src), fs.realpathSync(dest))) return src;
+  const data = completeTranscript(src);
+  const marker = snapshotMarker(dest);
+  const temp = `${dest}.${randomUUID()}.tmp`;
+  const claim = `${temp}.marker`;
+  let record;
+  try {
+    if (fs.existsSync(marker) && fs.existsSync(dest)) {
+      // Append through a verified open handle. Replacing the pathname while
+      // this runs cannot redirect the write to the replacement.
+      const fd = fs.openSync(dest, fs.constants.O_RDWR | fs.constants.O_APPEND);
+      try {
+        const stat = fs.fstatSync(fd, { bigint: true });
+        const previous = fs.readFileSync(fd);
+        if (data.equals(previous)) return dest;
+        const expected = snapshotRecord(stat, previous);
+        if (!expected || fs.readFileSync(marker, 'utf8') !== expected) {
+          throw new Error('A personal Claude transcript already exists in the agent working directory');
+        }
+        if (!data.subarray(0, previous.length).equals(previous)) throw new Error('The staged Claude transcript has different history');
+        // Only one writer can claim this revision. If interrupted, an
+        // unmarked transcript is treated as personal on the next attempt.
+        fs.renameSync(marker, claim);
+        const current = fs.fstatSync(fd, { bigint: true });
+        if (fs.readFileSync(claim, 'utf8') !== expected || current.size !== stat.size || current.mtimeNs !== stat.mtimeNs) {
+          throw new Error('The staged Claude transcript changed during refresh');
+        }
+        fs.unlinkSync(claim);
+        fs.writeFileSync(fd, data.subarray(previous.length));
+        record = snapshotRecord(fs.fstatSync(fd, { bigint: true }), data);
+      } finally { fs.closeSync(fd); }
+    } else {
+      // Publish exclusively. A personal transcript may appear after the scan.
+      try {
+        fs.writeFileSync(temp, data, { mode: 0o600, flag: 'wx' });
+        record = snapshotRecord(fs.statSync(temp, { bigint: true }), data);
+        try { fs.linkSync(temp, dest); } catch (e) {
+          if (!['ENOTSUP', 'EOPNOTSUPP', 'EPERM', 'ENOSYS'].includes(e.code)) throw e;
+          const fd = fs.openSync(dest, 'wx', 0o600);
+          try {
+            fs.writeFileSync(fd, data);
+            record = snapshotRecord(fs.fstatSync(fd, { bigint: true }), data);
+          } finally { fs.closeSync(fd); }
+        }
+      } catch (e) {
+        if (e.code !== 'EEXIST') throw e;
+        if (fs.readFileSync(dest).equals(data)) return dest;
+        throw new Error('A personal Claude transcript already exists in the agent working directory');
+      }
+    }
+    if (record) {
+      // The record comes from the created/opened file, never from a later
+      // lookup of dest. An orphaned sidecar is harmless to a new file there.
+      fs.writeFileSync(claim, record, { mode: 0o600, flag: 'wx' });
+      fs.renameSync(claim, marker);
+      if (!isClaudeSnapshot(dest)) throw new Error('The staged Claude transcript changed before use');
+    }
+  } finally {
+    fs.rmSync(claim, { force: true });
+    fs.rmSync(temp, { force: true });
+  }
   return dest;
 }
 
@@ -201,7 +352,7 @@ function opencodeTranscript(exported, maxChars = 30000) {
 
 module.exports = {
   detectHostAgent, sandboxedHost, hostFreeEnv, hostAuthEnv,
-  claudeConfigDir, claudeProjectDir, findClaudeTranscript, snapshotTranscript,
+  claudeConfigDir, claudeProjectDir, claudeTranscripts, findClaudeTranscript, snapshotTranscript,
   pickOpencodeSession, opencodeSessionModel, opencodeTranscript,
   HOST_SESSION_KEYS,
 };

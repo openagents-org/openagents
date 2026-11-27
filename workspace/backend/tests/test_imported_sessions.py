@@ -109,6 +109,18 @@ def test_importing_the_same_session_again_returns_its_thread(client, db):
     again = _upload(client, ws, node_id, {"command_id": cid2, "messages": MESSAGES, "final": True}).json()["data"]
     assert again["channel"] == first and again["existing"] is True
 
+    # Even an older device only reports the name of the reused thread.
+    reported = {"ok": True, "data": {"channel": first, "existing": True}}
+    result = client.post(f"/v1/nodes/commands/{cid2}/result", json=reported, headers=_tok(ws["device_token"]))
+    assert result.status_code == 200
+    url = f"/v1/nodes/{node_id}/commands/{cid2}"
+    assert client.get(url, headers=_owner()).json()["data"]["result"]["data"]["channelStatus"] == "active"
+    channel = db.query(Channel).filter_by(workspace_id=ws["workspaceId"], name=first).one()
+    channel.status = "archived"
+    db.commit()
+    assert client.get(url, headers=_owner()).json()["data"]["result"]["data"]["channelStatus"] == "archived"
+    assert "data" not in client.get(url, headers=_tok(ws["device_token"])).json()["data"]["result"]
+
 
 def test_a_half_made_import_is_replaced(client, db):
     ws, node_id = _setup(client, db)

@@ -13,6 +13,7 @@ import {
 } from "@renderer/components/ui/dialog"
 import { Skeleton } from "@renderer/components/ui/skeleton"
 import { capture } from "@renderer/lib/analytics"
+import { useAgentsStore } from "@renderer/store/agents"
 import { ConnectWorkspacePair } from "./connect-workspace-pair"
 import { ConnectWorkspacePicker } from "./connect-workspace-picker"
 import type { WorkspaceOption } from "./workspace-option-row"
@@ -43,7 +44,6 @@ function pairedOnly(
 }
 
 export function ConnectWorkspaceDialog({
-  open,
   agentName,
   onClose,
   showToast,
@@ -51,7 +51,6 @@ export function ConnectWorkspaceDialog({
   importTool,
   onImport,
 }: {
-  open: boolean
   agentName: string
   onClose: () => void
   showToast: (msg: string, type?: ToastType) => void
@@ -73,11 +72,11 @@ export function ConnectWorkspaceDialog({
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[] | null>(null)
   // Joined, and its past sessions are on offer.
   const [offerImport, setOfferImport] = useState(false)
+  const joining = useAgentsStore(s => s.pendingAgentActions.has(agentName))
+  const network = useAgentsStore(s => s.agents.find(a => a.name === agentName)?.network)
 
   useEffect(() => {
-    if (!open) return
     setWorkspaces(null)
-    setOfferImport(false)
     let cancelled = false
 
     void (async () => {
@@ -116,17 +115,27 @@ export function ConnectWorkspaceDialog({
     return () => {
       cancelled = true
     }
-  }, [open, reload])
+  }, [reload])
 
   const options = workspaces || []
+  const current = options.find(ws => ws.slug === network || ws.id === network)
+  const unavailable = (ref: string) => joining || ref === network || ref === current?.slug || ref === current?.id
 
   const doConnect = async (slug: string): Promise<void> => {
+    const store = useAgentsStore.getState()
+    if (unavailable(slug) || store.pendingAgentActions.has(agentName)) return
+    store.addPendingAction(agentName)
     try {
       showToast(
         t("agents.connectDialog.toast.connecting", { name: agentName }),
         "info",
       )
       await window.api.connectWorkspace(agentName, slug)
+      // A reopened dialog sees the completed bind immediately, even while
+      // the authoritative agent list is still being refreshed.
+      useAgentsStore.setState(({ agents }) => ({
+        agents: agents.map(agent => agent.name === agentName ? { ...agent, network: slug } : agent),
+      }))
       capture("workspace_connected", { agent_name: agentName })
       window.api.signalReload()
       showToast(t("agents.connectDialog.toast.connectedTo", { slug }), "success")
@@ -140,6 +149,8 @@ export function ConnectWorkspaceDialog({
         }),
         "error",
       )
+    } finally {
+      store.removePendingAction(agentName)
     }
   }
 
@@ -151,7 +162,7 @@ export function ConnectWorkspaceDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
       {/* The handle is on the shell rather than only on the list, so "the
           dialog never opened" and "it opened with nothing to offer" stay
           separate failures for the e2e matrix. */}
@@ -211,6 +222,7 @@ export function ConnectWorkspaceDialog({
         ) : (
           <ConnectWorkspacePicker
             options={options}
+            unavailable={unavailable}
             onConnect={(slug) => void doConnect(slug)}
             onPaired={onPaired}
             onCancel={onClose}

@@ -119,16 +119,56 @@ describe('plan nudge vs background work', () => {
 });
 
 describe('stream handling (fake CLI)', () => {
-  function attach(adapter) {
+  function attach(adapter, forkSourceId) {
     const proc = fakeProc();
     spawnImpl = () => proc;
     try {
-      const pp = adapter._spawnPersistentProc('general', ['claude'], process.env);
+      const pp = adapter._spawnPersistentProc('general', ['claude'], process.env, forkSourceId);
       return { pp, proc };
     } finally {
       spawnImpl = null;
     }
   }
+
+  it('keeps the fork source personal and guest results out of the owner session on normal and stopped turns', async (t) => {
+    const fs = require('fs'), path = require('path'), os = require('os');
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-fork-ids-'));
+    const saved = process.env.OPENAGENTS_HOME;
+    process.env.OPENAGENTS_HOME = home;
+    t.after(() => {
+      if (saved === undefined) delete process.env.OPENAGENTS_HOME; else process.env.OPENAGENTS_HOME = saved;
+      fs.rmSync(home, { recursive: true, force: true });
+    });
+    const adapter = mkAdapter();
+    const { pp, proc } = attach(adapter, 'personal-id');
+    const ids = path.join(home, 'sessions', 'workspace-claude.ids');
+    for (const stopped of [false, true]) {
+      pp.userStopped = stopped;
+      pp.messageResolve = () => {};
+      proc.emitLine({ type: 'system', subtype: 'init', session_id: 'personal-id' });
+      proc.emitLine({ type: 'result', session_id: 'personal-id' });
+      await settle(pp);
+      assert.equal(adapter._channelSessions.general, undefined);
+      assert.equal(fs.existsSync(ids), false);
+    }
+    proc.emitLine({ type: 'system', subtype: 'init', session_id: 'fork-id' });
+    proc.emitLine({ type: 'result', session_id: 'fork-id' });
+    await settle(pp);
+    assert.equal(adapter._channelSessions.general, 'fork-id');
+    assert.equal(fs.readFileSync(ids, 'utf8').trim(), 'fork-id');
+
+    // A guest process can finish after the channel has returned to its owner.
+    const guest = attach(adapter);
+    guest.pp.spawnMode = 'guest';
+    for (const [sessionId, stopped] of [['guest-id', false], ['stopped-guest-id', true]]) {
+      guest.pp.userStopped = stopped;
+      guest.pp.messageResolve = () => {};
+      guest.proc.emitLine({ type: 'result', session_id: sessionId });
+      await settle(guest.pp);
+      assert.equal(adapter._channelSessions.general, 'fork-id');
+    }
+    assert.deepEqual(fs.readFileSync(ids, 'utf8').trim().split('\n'), ['fork-id', 'guest-id', 'stopped-guest-id']);
+  });
 
   it('attaches the CLI-reported response model and clears it for the next turn', async () => {
     const adapter = mkAdapter();

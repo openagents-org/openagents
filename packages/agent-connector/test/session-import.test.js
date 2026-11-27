@@ -1,6 +1,6 @@
 'use strict';
 
-const { describe, it, beforeEach, afterEach } = require('node:test');
+const { describe, it, beforeEach, afterEach, mock } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -13,7 +13,8 @@ const { recordImport, pendingImport, importsFile } = require('../src/session-imp
 const ClaudeAdapter = require('../src/adapters/claude');
 const CodexAdapter = require('../src/adapters/codex');
 const OpenCodeAdapter = require('../src/adapters/opencode');
-const { claudeProjectDir } = require('../src/host-agent');
+const { claudeProjectDir, snapshotTranscript } = require('../src/host-agent');
+const { listLocalSessions, readLocalSession } = require('../src/local-sessions');
 
 const SID = '11111111-2222-3333-4444-555555555555';
 const CODEX_SID = '01a11d54-e2e8-7aa3-9fb3-579101b2b98e';
@@ -21,12 +22,14 @@ const CODEX_SID = '01a11d54-e2e8-7aa3-9fb3-579101b2b98e';
 let tmp; let saved;
 beforeEach(() => {
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'oa-import-'));
-  saved = { HOME: process.env.HOME, CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME };
-  process.env.HOME = tmp; // ~/.openagents/sessions/imports_*.json land here
+  saved = { CLAUDE_CONFIG_DIR: process.env.CLAUDE_CONFIG_DIR, CODEX_HOME: process.env.CODEX_HOME, OPENAGENTS_HOME: process.env.OPENAGENTS_HOME };
+  mock.method(os, 'homedir', () => tmp); // keep the adapter's import and copy records in the fixture
   process.env.CLAUDE_CONFIG_DIR = path.join(tmp, 'claude');
   process.env.CODEX_HOME = path.join(tmp, 'codex');
+  process.env.OPENAGENTS_HOME = path.join(tmp, 'custom-openagents');
 });
 afterEach(() => {
+  mock.restoreAll();
   for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   fs.rmSync(tmp, { recursive: true, force: true });
 });
@@ -107,6 +110,15 @@ describe('import_local_session (daemon)', () => {
     assert.equal(result().ok, false);
     assert.match(result().message, /no longer on this device/);
   });
+
+  it('does not create an empty thread if a selected session no longer has any messages', async () => {
+    claudeSession(0);
+    const { daemon, calls, node, result } = daemonWith(null);
+    await daemon._runNodeCommand(node, { commandId: 'empty', action: 'import_local_session', args: { type: 'claude', id: SID } });
+    assert.equal(result().ok, false);
+    assert.match(result().message, /no messages to import/);
+    assert.equal(calls.length, 0);
+  });
 });
 
 describe('adapters continue an imported session', () => {
@@ -119,12 +131,191 @@ describe('adapters continue an imported session', () => {
     a._findClaudeBinary = () => process.execPath;
     a._channelSessions = {};
     const built = a._buildClaudeCmd('hi', 'ch-imp');
+    assert.equal(built.forkSourceId, SID);
     const i = built.cmd.indexOf('--resume');
     assert.deepEqual(built.cmd.slice(i, i + 3), ['--resume', SID, '--fork-session']);
     assert.ok(fs.existsSync(path.join(claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, workDir), `${SID}.jsonl`)));
+    claudeSession(2); // the person keeps chatting in the original after the fork
+    assert.deepEqual(listLocalSessions('claude').map((s) => s.id), [SID]);
+    assert.equal(readLocalSession('claude', SID).file, file);
+    assert.equal(readLocalSession('claude', SID).messages.length, 4);
     // Another channel, and a second try of the same one, start fresh.
     assert.ok(!a._buildClaudeCmd('hi', 'ch-other').cmd.includes('--resume'));
     assert.ok(!a._buildClaudeCmd('hi', 'ch-imp').cmd.includes('--fork-session'));
+    fs.unlinkSync(file);
+    assert.deepEqual(listLocalSessions('claude'), []);
+    assert.equal(readLocalSession('claude', SID), null);
+  });
+
+  it('prefers the original over an unmarked legacy snapshot when listing, reading and continuing', () => {
+    const file = claudeSession(1);
+    const configDir = process.env.CLAUDE_CONFIG_DIR;
+    const legacyDir = claudeProjectDir(configDir, '/aaa');
+    fs.mkdirSync(legacyDir, { recursive: true });
+    const snapshot = path.join(legacyDir, path.basename(file));
+    fs.copyFileSync(file, snapshot);
+    claudeSession(2);
+    const later = new Date(Date.now() + 10000);
+    fs.utimesSync(snapshot, later, later);
+    assert.deepEqual(listLocalSessions('claude').map((s) => [s.id, s.messageCount]), [[SID, 4]]);
+    assert.equal(readLocalSession('claude', SID).file, file);
+    const original = fs.readFileSync(file);
+    recordImport('w1', 'cc', 'old', { type: 'claude', session_id: SID, file: snapshot });
+    const workingDir = path.join(tmp, 'agent');
+    const a = new ClaudeAdapter({ workspaceId: 'w1', channelName: 'old', agentName: 'cc', workingDir });
+    assert.deepEqual(a._importArgs('old'), ['--resume', SID, '--fork-session']);
+    assert.deepEqual(fs.readFileSync(path.join(claudeProjectDir(configDir, workingDir), path.basename(file))), original);
+    // A pre-fix import could also point back at the user's own project. A fork
+    // there must not stage the stale snapshot on top of the personal transcript.
+    a.workingDir = '/work/app';
+    recordImport('w1', 'cc', 'same-project', { type: 'claude', session_id: SID, file: snapshot });
+    assert.deepEqual(a._importArgs('same-project'), ['--resume', SID, '--fork-session']);
+    recordImport('w1', 'cc', 'without-path', { type: 'claude', session_id: SID });
+    assert.deepEqual(a._importArgs('without-path'), ['--resume', SID, '--fork-session']);
+    assert.deepEqual(fs.readFileSync(file), original);
+  });
+
+  it('reads a cross-project continuation and preserves both personal files when forking from either project', () => {
+    const original = claudeSession(2);
+    const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/continued');
+    fs.mkdirSync(dir, { recursive: true });
+    const continued = path.join(dir, path.basename(original));
+    const longer = fs.readFileSync(original);
+    fs.writeFileSync(continued, longer);
+    claudeSession(1);
+    const shorter = fs.readFileSync(original);
+    assert.deepEqual(listLocalSessions('claude').map(s => [s.id, s.messageCount]), [[SID, 4]]);
+    assert.equal(readLocalSession('claude', SID).file, continued);
+    const agent = new ClaudeAdapter({ workspaceId: 'w1', agentName: 'cc', workingDir: '/work/continued' });
+    assert.deepEqual(agent._forkArgs(SID, original), ['--resume', SID, '--fork-session']);
+    agent.workingDir = '/work/app';
+    recordImport('w1', 'cc', 'collision', { type: 'claude', session_id: SID, file: original });
+    agent.toolMode = 'mcp';
+    agent._seedArgs = () => assert.fail('an unavailable import must use channel history');
+    agent._buildMcpCmd = cmd => ({ cmd });
+    agent._findClaudeBinary = () => process.execPath;
+    assert.ok(!agent._buildClaudeCmd('hi', 'collision').cmd.includes('--resume'));
+    for (const [file, bytes] of [[original, shorter], [continued, longer]]) {
+      assert.deepEqual(fs.readFileSync(file), bytes);
+      assert.equal(fs.existsSync(file + '.openagents-snapshot'), false);
+    }
+    // The common prefix and the unfinished final row can each exceed a read block.
+    const prefix = JSON.stringify({ type: 'metadata', pad: 'x'.repeat(70000) }) + '\n';
+    fs.writeFileSync(original, prefix + shorter.toString() + '{"partial":"' + 'x'.repeat(70000));
+    fs.writeFileSync(continued, prefix + longer.toString());
+    assert.equal(readLocalSession('claude', SID).file, continued);
+    fs.writeFileSync(continued, prefix + longer.toString().replace('question 0', 'different question'));
+    assert.throws(() => readLocalSession('claude', SID), /different histories/);
+    assert.throws(() => agent._forkArgs(SID, original), /different histories/);
+  });
+
+  it('does not replace or mark a personal transcript that appears during staging', (t) => {
+    const src = claudeSession(1);
+    const destDir = path.join(tmp, 'stage');
+    const dest = path.join(destDir, path.basename(src));
+    const link = fs.linkSync;
+    t.mock.method(fs, 'linkSync', (temp, file) => {
+      fs.writeFileSync(file, 'personal continuation\n');
+      return link(temp, file);
+    });
+    assert.throws(() => snapshotTranscript(src, destDir), /personal Claude transcript/);
+    assert.equal(fs.readFileSync(dest, 'utf8'), 'personal continuation\n');
+    assert.deepEqual(fs.readdirSync(destDir), [path.basename(src)]);
+  });
+
+  it('reuses an identical personal file without marking it and refreshes an owned snapshot', () => {
+    const src = claudeSession(1);
+    const dir = path.join(tmp, 'agent-project');
+    fs.mkdirSync(dir);
+    const dest = path.join(dir, path.basename(src));
+    fs.copyFileSync(src, dest);
+    assert.equal(snapshotTranscript(src, dir), dest);
+    assert.equal(fs.existsSync(dest + '.openagents-snapshot'), false);
+    const stagedDir = path.join(tmp, 'second-agent');
+    const staged = snapshotTranscript(src, stagedDir);
+    claudeSession(2);
+    assert.throws(() => snapshotTranscript(src, dir), /personal Claude transcript/);
+    assert.equal(snapshotTranscript(src, stagedDir), staged);
+    assert.deepEqual(fs.readFileSync(staged), fs.readFileSync(src));
+    assert.ok(fs.existsSync(staged + '.openagents-snapshot'));
+  });
+
+  for (const kind of ['replaced', 'edited', 'rewritten', 'legacy marker']) {
+    it(`keeps a personal Claude transcript visible and unchanged with a ${kind} snapshot`, () => {
+      const src = claudeSession(1);
+      const first = fs.readFileSync(src);
+      if (kind === 'edited') claudeSession(2);
+      const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+      const dest = snapshotTranscript(src, dir);
+      if (kind === 'replaced') {
+        fs.renameSync(dest, path.join(tmp, 'old-snapshot'));
+        fs.writeFileSync(dest, first); // identical content in a different file
+      } else if (kind === 'edited') {
+        fs.writeFileSync(dest, first); // same file ID, personal contents
+      } else if (kind === 'rewritten') {
+        fs.writeFileSync(dest, first); // same file ID and bytes, a later writer
+        fs.utimesSync(dest, 1700000000, 1700000000); // distinct even on coarse clocks
+      } else {
+        fs.writeFileSync(dest + '.openagents-snapshot', '');
+      }
+      fs.unlinkSync(src);
+      assert.deepEqual(listLocalSessions('claude').map(s => s.id), [SID]);
+      assert.equal(readLocalSession('claude', SID).file, dest);
+      claudeSession(3);
+      assert.throws(() => snapshotTranscript(src, dir), /personal Claude transcript/);
+      assert.deepEqual(fs.readFileSync(dest), first);
+    });
+  }
+
+  it('preserves a file that replaces the marked pathname during a refresh', (t) => {
+    const src = claudeSession(1);
+    const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+    const dest = snapshotTranscript(src, dir);
+    const first = fs.readFileSync(dest);
+    claudeSession(2);
+    const write = fs.writeFileSync;
+    t.mock.method(fs, 'writeFileSync', (file, ...args) => {
+      if (typeof file === 'number') {
+        fs.renameSync(dest, path.join(tmp, 'opened-snapshot'));
+        write(dest, first);
+      }
+      return write(file, ...args);
+    });
+    assert.throws(() => snapshotTranscript(src, dir), /changed before use/);
+    assert.deepEqual(fs.readFileSync(dest), first);
+    fs.unlinkSync(src);
+    assert.equal(readLocalSession('claude', SID).file, dest);
+  });
+
+  it('records the exclusively created snapshot when hard links are unavailable', (t) => {
+    t.mock.method(fs, 'linkSync', () => { throw Object.assign(new Error('unsupported'), { code: 'ENOTSUP' }); });
+    const src = claudeSession(1);
+    const dir = claudeProjectDir(process.env.CLAUDE_CONFIG_DIR, '/work/other');
+    const dest = snapshotTranscript(src, dir);
+    claudeSession(2);
+    assert.equal(snapshotTranscript(src, dir), dest);
+    assert.deepEqual(fs.readFileSync(dest), fs.readFileSync(src));
+    fs.unlinkSync(src);
+    assert.deepEqual(listLocalSessions('claude'), []);
+  });
+
+  it('remembers both pre-upgrade Claude maps and later fork IDs after their channel is cleared', () => {
+    const source = claudeSession(1);
+    const previous = 'aaaa1111-2222-3333-4444-555555555555';
+    const fork = 'bbbb1111-2222-3333-4444-555555555555';
+    for (const id of [previous, fork]) fs.copyFileSync(source, path.join(path.dirname(source), id + '.jsonl'));
+    const maps = path.join(tmp, '.openagents', 'sessions');
+    fs.mkdirSync(maps, { recursive: true });
+    fs.writeFileSync(path.join(maps, 'w1_cc.json'), JSON.stringify({ channel: previous }));
+    assert.ok(!listLocalSessions('claude').some((s) => s.id === previous), 'reads the adapter map even with OPENAGENTS_HOME set');
+    const agent = new ClaudeAdapter({ workspaceId: 'w1', channelName: 'channel', agentName: 'cc' });
+    agent._channelSessions.channel = fork;
+    agent._saveSessions();
+    delete agent._channelSessions.channel;
+    agent._saveSessions();
+    assert.deepEqual(listLocalSessions('claude').map((s) => s.id), [SID]);
+    assert.equal(readLocalSession('claude', fork), null);
+    assert.equal(readLocalSession('claude', previous), null);
   });
 
   it('Codex resumes a copy under a new id, never the user\'s own rollout', () => {

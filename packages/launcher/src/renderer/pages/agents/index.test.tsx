@@ -1,8 +1,10 @@
 import React from "react"
 import { describe, it, expect, beforeEach, vi } from "vitest"
-import { render, screen, waitFor, within } from "@testing-library/react"
+import { act, render, screen, waitFor, within } from "@testing-library/react"
 import userEvent from "@testing-library/user-event"
 import Agents from "./index"
+// Preload the setup chunk before timing interactions with the lazy form.
+import "./local-agent-setup"
 import { useAgentsStore } from "../../store/agents"
 import { useUiStore } from "../../store/ui"
 import type { Agent } from "../../types"
@@ -198,6 +200,78 @@ describe("Agents page — new agent connect flow", () => {
     await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
     expect(screen.queryByTestId("connect-ws-import-offer")).toBeNull()
   })
+
+  it("does not offer an import when a saved agent joins from the list after canceling its first join", async () => {
+    const paired = {
+      connected: true, workspaceSlug: "team-a", workspaceName: "Team A",
+      workspaces: [{ nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" }], revoked: [],
+    }
+    let saved = false
+    const api = installApi({
+      listAgents: vi.fn(async () => saved ? [makeAgent({ name: "my-new-agent", network: null })] : []),
+      addAgent: vi.fn(async () => { saved = true }),
+      listWorkspaces: vi.fn().mockResolvedValue([{ id: "id-1", slug: "team-a", name: "Team A", endpoint: "", token: "t" }]),
+      getNodeStatus: vi.fn().mockResolvedValue(paired),
+      refreshNodeStatus: vi.fn().mockResolvedValue(paired),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+
+    await createAndReachConfigure(user, "my-new-agent")
+    await screen.findByRole("radio", { name: /team a/i })
+    await user.click(screen.getByRole("button", { name: /^cancel$/i }))
+    await user.click(await screen.findByRole("button", { name: /^join workspace$/i }))
+    await user.click(await screen.findByRole("radio", { name: /team a/i }))
+    await user.click(screen.getByRole("button", { name: /^connect$/i }))
+
+    expect(api.connectWorkspace).toHaveBeenCalledWith("my-new-agent", "team-a")
+    await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
+    expect(screen.queryByTestId("connect-ws-import-offer")).toBeNull()
+  })
+
+  it.each(["setup", "list"])("ignores a late %s join after the list dialog reopens", async (source) => {
+    const paired = {
+      connected: true, workspaceSlug: "team-a", workspaceName: "Team A",
+      workspaces: [
+        { nodeId: "n1", workspaceId: "id-1", workspaceSlug: "team-a" },
+        { nodeId: "n2", workspaceId: "id-2", workspaceSlug: "team-b" },
+      ], revoked: [],
+    }
+    let saved = source === "list"
+    let network: string | null = null
+    let finish!: () => void
+    const pending = new Promise<void>(resolve => { finish = resolve })
+    const api = installApi({
+      listAgents: vi.fn(async () => saved ? [makeAgent({ name: "late-agent", network })] : []),
+      addAgent: vi.fn(async () => { saved = true }),
+      listWorkspaces: vi.fn().mockResolvedValue([
+        { id: "id-1", slug: "team-a", name: "Team A" }, { id: "id-2", slug: "team-b", name: "Team B" },
+      ]),
+      getNodeStatus: vi.fn().mockResolvedValue(paired),
+      refreshNodeStatus: vi.fn().mockResolvedValue(paired),
+      connectWorkspace: vi.fn(async () => { await pending; network = "team-a" }),
+    })
+    const user = userEvent.setup()
+    render(<Agents showToast={showToast} />)
+    if (source === "setup") await createAndReachConfigure(user, "late-agent")
+    else await user.click(await screen.findByRole("button", { name: /^join workspace$/i }))
+    await user.click(await screen.findByRole("radio", { name: /team a/i }))
+    await user.click(screen.getByRole("button", { name: /^connect$/i }))
+    await user.keyboard("{Escape}")
+    await waitFor(() => expect(screen.queryByTestId("connect-ws")).toBeNull())
+    await user.click(await screen.findByRole("button", { name: /^join workspace$/i }))
+    await user.click(await screen.findByRole("radio", { name: /team b/i }))
+    expect(screen.getByTestId("ws-connect-submit")).toBeDisabled()
+    await act(async () => finish())
+    expect(api.signalReload).toHaveBeenCalled()
+    expect(api.connectWorkspace).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("radio", { name: /team b/i })).toBeChecked()
+    expect(screen.getByTestId("ws-connect-submit")).toBeEnabled()
+    await user.dblClick(screen.getByRole("radio", { name: /team a/i }))
+    expect(screen.getByTestId("ws-connect-submit")).toBeDisabled()
+    expect(api.connectWorkspace).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId("connect-ws-import-offer")).toBeNull()
+  }, 15000)
 
   it("lets the user skip the connect step", async () => {
     installApi()

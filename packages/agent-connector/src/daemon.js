@@ -749,18 +749,12 @@ class Daemon {
     return next;
   }
 
-  /** Where this device's agents work: sessions run there are theirs, not the owner's. */
-  _agentWorkdirs() {
-    let agents = [];
-    try { agents = this.config.getAgents() || []; } catch {}
-    return agents.map((a) => resolveAgentWorkdir(a.path) || defaultAgentWorkdir(a.name)).filter(Boolean);
-  }
-
   async _importOne(n, args, commandId) {
     const { runLocalSessions } = require('./local-sessions-worker');
     const type = String(args.type || '');
     const session = await runLocalSessions('readLocalSession', [type, String(args.id || '')]);
     if (!session) throw new Error('That session is no longer on this device');
+    if (!session.messages.length) throw new Error('There are no messages to import in this session');
     const agentName = String(args.agent || '').trim();
     const client = this._nodeClientFor(n);
     const BATCH = Daemon.IMPORT_BATCH;
@@ -768,7 +762,7 @@ class Daemon {
     // owner started; every call names it.
     const head = { command_id: commandId, title: session.title, cwd: session.cwd, truncated: session.truncated, total: session.total };
     const batches = [];
-    for (let i = 0; i < Math.max(session.messages.length, 1); i += BATCH) batches.push(session.messages.slice(i, i + BATCH));
+    for (let i = 0; i < session.messages.length; i += BATCH) batches.push(session.messages.slice(i, i + BATCH));
     const first = await client.importSession(n.node_id, n.token, { ...head, messages: batches[0], final: batches.length === 1 });
     const channel = first && first.channel;
     if (!channel) throw new Error('The workspace did not create a thread for the import');
@@ -1425,9 +1419,7 @@ async _runNodeCommand(n, cmd) {
         const { runLocalSessions } = require('./local-sessions-worker');
         const sessions = await runLocalSessions('listLocalSessions', [args.type, {
           limit: Number(args.limit) || 200,
-          excludeCwds: this._agentWorkdirs(),
-          excludeIds: require('./session-imports').copiedIds(),
-        }]);
+        }], { timeoutMs: 40000 });
         data = { type: args.type, sessions };
         ok = true;
         message = `Found ${sessions.length} session(s)`;

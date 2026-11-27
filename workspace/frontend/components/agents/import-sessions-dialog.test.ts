@@ -5,19 +5,22 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ enqueue: vi.fn(), get: vi.fn() }));
 const ws = vi.hoisted(() => ({ refresh: vi.fn(async () => {}), open: vi.fn() }));
+vi.mock('@/hooks/use-mobile', () => ({ useIsMobile: () => true }));
 vi.mock('@/lib/api', () => ({ workspaceApi: { enqueueNodeCommand: api.enqueue, getNodeCommand: api.get } }));
 vi.mock('@/lib/workspace-context', () => ({ useWorkspace: () => ({
   agents: [
     { agentName: 'coder', displayName: null, role: 'member', ownerEmail: 'me@x.com' },
     { agentName: 'theirs', displayName: 'Someone else’s agent', role: 'member', ownerEmail: 'other@x.com' },
   ],
-  refreshWorkspace: ws.refresh, setCurrentSessionId: ws.open, currentUser: { id: 'me@x.com' },
+  sessions: [{ sessionId: 'channel-s1', status: 'active' }, { sessionId: 'channel-s2', status: 'archived' }],
+  refreshAgents: () => ws.refresh(), setCurrentSessionId: ws.open, currentUser: { id: 'me@x.com' },
 }) }));
 const t = (key: string, vars?: Record<string, unknown>) => (vars ? `${key} ${JSON.stringify(vars)}` : key);
 const formatters = { timeAgo: () => '2d ago' };
 vi.mock('@/lib/i18n', () => ({ useT: () => t, useFormatters: () => formatters }));
 
 import { ImportSessionsDialog } from './import-sessions-dialog';
+import { LayoutProvider, useLayout } from '@/components/layout/layout-context';
 
 const node = { nodeId: 'n1', name: 'laptop', hostname: 'laptop', agents: [{ name: 'coder', type: 'codex', status: 'running' }] } as never;
 const SESSIONS = [
@@ -32,7 +35,7 @@ beforeEach(() => {
   vi.useFakeTimers();
   commands = [];
   let n = 0;
-  api.enqueue.mockReset(); api.get.mockReset(); ws.open.mockReset();
+  api.enqueue.mockReset(); api.get.mockReset(); ws.open.mockReset(); ws.refresh.mockClear();
   api.enqueue.mockImplementation(async (_node: string, action: string, args: Record<string, unknown>) => {
     const commandId = `c${++n}`;
     const data = action === 'list_local_sessions' ? { sessions: SESSIONS } : { channel: `channel-${args.id}`, resumable: true };
@@ -45,14 +48,52 @@ beforeEach(() => {
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 const tick = async (ms = 1600) => { await act(async () => { await vi.advanceTimersByTimeAsync(ms); }); };
-const render = async () => {
-  await act(async () => root.render(React.createElement(ImportSessionsDialog, { open: true, onOpenChange: () => {}, node, type: 'codex', agentName: 'coder' })));
+function DevicePage({ onClose }: { onClose: (open: boolean) => void }) {
+  const { openView, setThreadFilter, viewMode, mobilePane, threadFilter } = useLayout();
+  const [open, setOpen] = React.useState(false);
+  return React.createElement(React.Fragment, null,
+    React.createElement('button', { id: 'devices', onClick: () => { openView('connect'); setThreadFilter('dms'); setOpen(true); } }, 'Devices'),
+    React.createElement('output', { id: 'route' }, [viewMode, mobilePane, threadFilter].join('/')),
+    React.createElement(ImportSessionsDialog, { open, onOpenChange: (v) => { setOpen(v); onClose(v); }, node, type: 'codex', agentName: 'coder' }));
+}
+const renderPage = async (onClose: (open: boolean) => void) =>
+  act(async () => root.render(React.createElement(LayoutProvider, { children: React.createElement(DevicePage, { onClose }) })));
+const render = async (onClose = vi.fn()) => {
+  await renderPage(onClose);
+  await act(async () => document.querySelector<HTMLButtonElement>('#devices')!.click());
   await tick();
 };
 const q = (sel: string) => document.body.querySelector(sel);
 
+it('keeps only the newest row per ID from older devices when searching and selecting sessions', async () => {
+  api.get.mockResolvedValueOnce({ status: 'done', result: { ok: true, data: { sessions: [
+    SESSIONS[0], { ...SESSIONS[0], title: 'Stale copy', cwd: '/old', updatedAt: '2026-11-18T00:00:00Z' }, SESSIONS[1],
+  ] } } });
+  await render();
+  const rows = () => [...document.querySelectorAll('[data-testid="import-sessions-list"] [role="checkbox"]')];
+  const input = q('input[aria-label="importSessions.search"]') as HTMLInputElement;
+  const search = (text: string) => act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, text);
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(rows()).toHaveLength(2);
+  await search('/work/api');
+  expect(rows().map(r => r.getAttribute('aria-label'))).toEqual(['Add pagination']);
+  await act(async () => (rows()[0] as HTMLButtonElement).click());
+  await search('no such session');
+  expect(rows()).toHaveLength(0);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('importSessions.empty');
+  await search('pagination');
+  expect(rows()).toHaveLength(1);
+  expect(rows()[0].getAttribute('aria-checked')).toBe('true');
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  expect(commands.filter(c => c.action === 'import_local_session')).toHaveLength(1);
+});
+
 it('lists the device\'s sessions for the tool and imports the picked ones into the chosen agent', async () => {
   await render();
+  expect(q('#route')!.textContent).toBe('connect/list/dms');
   expect(api.enqueue).toHaveBeenCalledWith('n1', 'list_local_sessions', { type: 'codex' });
   expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('Add pagination');
   const box = document.body.querySelector<HTMLButtonElement>('[aria-label="Add pagination"]')!;
@@ -65,6 +106,163 @@ it('lists the device\'s sessions for the tool and imports the picked ones into t
   expect(done.textContent).toContain('Add pagination');
   await act(async () => done.querySelector('button')!.click());
   expect(ws.open).toHaveBeenCalledWith('channel-s1');
+  expect(q('#route')!.textContent).toBe('threads/detail/all');
+});
+
+it('keeps batch results in the dialog until every import and the thread list refresh finish', async () => {
+  const close = vi.fn();
+  let finishRefresh!: () => void;
+  ws.refresh.mockImplementationOnce(() => new Promise<void>((resolve) => { finishRefresh = resolve; }));
+  let secondDone = false;
+  api.get.mockImplementation(async (_node: string, id: string) => {
+    const command = commands.find((c) => c.commandId === id);
+    if (id !== 'c3') return command;
+    return secondDone
+      ? { status: 'done', result: { ok: true, data: { channel: 'channel-s2', existing: true } } }
+      : { status: 'running' };
+  });
+  await render(close);
+  for (const title of ['Add pagination', 'Fix login']) {
+    await act(async () => (q(`[aria-label="${title}"]`) as HTMLButtonElement).click());
+  }
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  const resultButtons = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="import-sessions-done"] button'));
+  expect(resultButtons()).toHaveLength(1);
+  expect(resultButtons()[0].disabled).toBe(true);
+  await act(async () => resultButtons()[0].click());
+  expect(close).not.toHaveBeenCalled();
+  expect(ws.open).not.toHaveBeenCalled();
+  expect(ws.refresh).not.toHaveBeenCalled();
+  secondDone = true;
+  await tick();
+  expect(resultButtons()).toHaveLength(2);
+  expect(resultButtons().every((b) => b.disabled)).toBe(true);
+  await act(async () => finishRefresh());
+  const reused = resultButtons()[1];
+  expect(reused.disabled).toBe(false);
+  expect(reused.textContent).toContain('importSessions.alreadyImported');
+  await act(async () => reused.click());
+  expect(close).toHaveBeenCalledWith(false);
+  expect(ws.open).toHaveBeenCalledWith('channel-s2');
+  expect(q('#route')!.textContent).toBe('threads/detail/archived');
+});
+
+it('retries a failed session in place and keeps earlier successes across batches', async () => {
+  await render();
+  const first = q('[aria-label="Add pagination"]') as HTMLButtonElement;
+  const second = q('[aria-label="Fix login"]') as HTMLButtonElement;
+  const submit = q('[data-testid="import-sessions-submit"]') as HTMLButtonElement;
+  const links = () => Array.from(document.querySelectorAll<HTMLButtonElement>('[data-testid="import-sessions-done"] button'));
+  const failure = 'Could not read this session';
+
+  await act(async () => first.click());
+  await act(async () => submit.click());
+  await tick();
+  expect(links()[0].textContent).toContain('Add pagination');
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+
+  api.get.mockResolvedValueOnce({ status: 'error', result: { ok: false, message: failure } });
+  await act(async () => second.click());
+  await act(async () => submit.click());
+  expect(links()).toHaveLength(1);
+  expect(links()[0].disabled).toBe(true);
+  await tick();
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(links()[0].disabled).toBe(false);
+  expect(first.disabled).toBe(true);
+  expect(second.disabled).toBe(false);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain(failure);
+
+  await act(async () => second.click());
+  await act(async () => submit.click());
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).not.toContain(failure);
+  await tick();
+  expect(ws.refresh).toHaveBeenCalledTimes(2);
+  expect(links().map(b => b.textContent)).toEqual(['Add pagination', 'Fix login']);
+  expect(links().every(b => !b.disabled)).toBe(true);
+  const imports = api.enqueue.mock.calls.filter(([, action]) => action === 'import_local_session');
+  expect(imports.map(([, , args]) => args.id)).toEqual(['s1', 's2', 's2']);
+  await act(async () => links()[0].click());
+  expect(ws.open).toHaveBeenCalledWith('channel-s1');
+});
+
+it('checks the original device command when retrying an import that is still running', async () => {
+  await render();
+  let ready = false;
+  api.get.mockImplementation(async (_node: string, id: string) => ready
+    ? commands.find(c => c.commandId === id)
+    : { status: 'running' });
+  const box = q('[aria-label="Fix login"]') as HTMLButtonElement;
+  const submit = q('[data-testid="import-sessions-submit"]') as HTMLButtonElement;
+  await act(async () => box.click());
+  await act(async () => submit.click());
+  await tick(120000);
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('importSessions.stillImporting');
+  expect(ws.refresh).not.toHaveBeenCalled();
+
+  ready = true;
+  await act(async () => box.click());
+  await act(async () => submit.click());
+  await tick();
+  expect(api.enqueue.mock.calls.filter(([, action]) => action === 'import_local_session')).toHaveLength(1);
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(q('[data-testid="import-sessions-done"] button')!.textContent).toContain('Fix login');
+});
+
+it.each(['close', 'open result'])('can %s after a mixed batch when thread refresh never settles', async (action) => {
+  const close = vi.fn();
+  ws.refresh.mockImplementationOnce(() => new Promise<void>(() => {}));
+  api.get.mockImplementation(async (_node: string, id: string) => id === 'c3'
+    ? { status: 'done', result: { ok: false, message: 'Could not read this session' } }
+    : commands.find(c => c.commandId === id));
+  await render(close);
+  for (const title of ['Add pagination', 'Fix login']) {
+    await act(async () => (q(`[aria-label="${title}"]`) as HTMLButtonElement).click());
+  }
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  const result = q('[data-testid="import-sessions-done"] button') as HTMLButtonElement;
+  expect(result.textContent).toContain('Add pagination');
+  expect(q('[data-testid="import-sessions-list"]')!.textContent).toContain('Could not read this session');
+  if (action === 'close') {
+    const button = [...document.querySelectorAll('button')].find(b => b.textContent === 'common.close')!;
+    expect(button.disabled).toBe(false);
+    await act(async () => button.click());
+  } else {
+    await tick(5000);
+    expect(result.disabled).toBe(false);
+    await act(async () => result.click());
+    expect(ws.open).toHaveBeenCalledWith('channel-s1');
+  }
+  expect(close).toHaveBeenCalledWith(false);
+});
+
+it.each([
+  ['channel-s1', 'archived', 'archived'],     // cached as active
+  ['channel-missing', 'archived', 'archived'],
+  ['channel-s2', 'active', 'all'],            // cached as archived
+])('opens reused %s in its current filter at the original five-second deadline', async (channel, channelStatus, filter) => {
+  const close = vi.fn();
+  ws.refresh.mockImplementationOnce(() => new Promise<void>(() => {}));
+  api.get.mockImplementation(async (_node: string, id: string) => id === 'c2'
+    ? { status: 'done', result: { ok: true, data: { channel, channelStatus, existing: true } } }
+    : commands.find(c => c.commandId === id));
+  await render(close);
+  await act(async () => (q('[aria-label="Add pagination"]') as HTMLButtonElement).click());
+  await act(async () => (q('[data-testid="import-sessions-submit"]') as HTMLButtonElement).click());
+  await tick();
+  const link = q('[data-testid="import-sessions-done"] button') as HTMLButtonElement;
+  await tick(4000);
+  await renderPage(close); // workspace publishes a new refreshAgents callback
+  await tick(999);
+  expect(link.disabled).toBe(true);
+  await tick(1);
+  expect(ws.refresh).toHaveBeenCalledTimes(1);
+  expect(link.disabled).toBe(false);
+  await act(async () => link.click());
+  expect(ws.open).toHaveBeenCalledWith(channel);
+  expect(q('#route')!.textContent).toBe(`threads/detail/${filter}`);
 });
 
 it('says when the device cannot list its sessions', async () => {

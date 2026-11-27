@@ -241,6 +241,7 @@ export const messages = {
 
   importSessions: {
     title: 'Import past sessions',
+    alreadyImported: 'Previously imported',
     description: 'Bring your own sessions from {device} into the workspace. Each one you pick becomes a private thread.',
     tool: 'Tool',
     search: 'Search sessions',

@@ -11,7 +11,7 @@
  * same tool on the same device continues the real session from a copy.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useEffectEvent, useMemo, useState } from 'react';
 import { Check, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -21,6 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { workspaceApi } from '@/lib/api';
 import { useFormatters, useT } from '@/lib/i18n';
 import { useWorkspace } from '@/lib/workspace-context';
+import { useLayout } from '@/components/layout/layout-context';
+import { threadFilterFor } from '@/lib/inbox';
 import { isOwnedAgent } from '@/lib/sidebar-agents';
 import type { NodeCommand, WorkspaceNode } from '@/lib/types';
 import { Spinner } from '@/components/ui/spinner';
@@ -35,7 +37,12 @@ export function isImportableType(type: string | null | undefined): type is Impor
 }
 
 export interface LocalSession { id: string; type: string; title: string; cwd: string | null; updatedAt: string; messageCount: number | null }
-type Outcome = { state: 'running' } | { state: 'done'; channel: string; resumable: boolean } | { state: 'error'; message: string };
+type ImportedThread = { channel: string; channelStatus?: 'active' | 'archived'; existing?: boolean };
+type Outcome =
+  | { state: 'running' }
+  | { state: 'pending'; commandId: string }
+  | ({ state: 'done' } & ImportedThread)
+  | { state: 'error'; message: string };
 
 /** Wait for a device command to finish: up to ~2 minutes (the device picks it up within ~10 s). */
 export async function waitForNodeCommand(nodeId: string, commandId: string, tries = 80): Promise<NodeCommand | null> {
@@ -58,7 +65,8 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 }) {
   const t = useT();
   const { timeAgo } = useFormatters();
-  const { agents, refreshWorkspace, setCurrentSessionId, currentUser } = useWorkspace();
+  const { agents, sessions: threads, refreshAgents, setCurrentSessionId, currentUser } = useWorkspace();
+  const { openView, openMobileDetail, threadFilter, setThreadFilter } = useLayout();
   const [type, setType] = useState<ImportableType>(initialType || 'claude');
   const [sessions, setSessions] = useState<LocalSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +74,21 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [target, setTarget] = useState<string>(agentName || '');
   const [outcomes, setOutcomes] = useState<Record<string, Outcome>>({});
-  const importing = Object.values(outcomes).some((o) => o.state === 'running');
+  const [phase, setPhase] = useState<'idle' | 'importing' | 'refreshing'>('idle');
+  const importing = phase === 'importing';
+  const busy = phase !== 'idle';
+
+  // One deadline per batch, even if discovery updates the workspace context.
+  const refreshThreads = useEffectEvent(() => refreshAgents({ panels: false }));
+  useEffect(() => {
+    if (phase !== 'refreshing') return;
+    if (!open) { setPhase('idle'); return; }
+    let active = true;
+    const finish = () => { if (active) setPhase('idle'); };
+    const timer = setTimeout(finish, 5000);
+    void refreshThreads().then(finish, finish);
+    return () => { active = false; clearTimeout(timer); };
+  }, [phase, open]);
 
   // The device's sessions for the chosen tool.
   useEffect(() => {
@@ -81,7 +103,12 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         if (!done) { setError(t('importSessions.deviceSilent')); return; }
         if (!done.result?.ok) { setError(done.result?.message || t('importSessions.listFailed')); return; }
         const data = done.result.data as { sessions?: LocalSession[] } | undefined;
-        setSessions(data?.sessions || []);
+        // Older devices may list multiple files for one ID, newest first.
+        const byId = new Map<string, LocalSession>();
+        for (const session of data?.sessions || []) {
+          if (!byId.has(session.id)) byId.set(session.id, session);
+        }
+        setSessions([...byId.values()]);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : t('importSessions.listFailed'));
       }
@@ -115,27 +142,49 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 
   const runImport = async () => {
     const ids = [...picked];
-    setOutcomes(Object.fromEntries(ids.map((id) => [id, { state: 'running' } as Outcome])));
-    await Promise.all(ids.map(async (id) => {
+    setPhase('importing');
+    const running = Object.fromEntries<Outcome>(ids.map((id) => [id, { state: 'running' }]));
+    setOutcomes((prev) => ({ ...prev, ...running }));
+    const results = await Promise.all(ids.map(async (id) => {
       let outcome: Outcome;
       try {
-        const cmd = await workspaceApi.enqueueNodeCommand(node.nodeId, 'import_local_session', { type, id, agent: target || null });
-        const done = await waitForNodeCommand(node.nodeId, cmd.commandId);
-        const data = done?.result?.data as { channel?: string; resumable?: boolean } | undefined;
-        outcome = done?.result?.ok && data?.channel
-          ? { state: 'done', channel: data.channel, resumable: !!data.resumable }
-          : { state: 'error', message: done ? (done.result?.message || t('importSessions.importFailed')) : t('importSessions.stillImporting') };
+        const previous = outcomes[id];
+        // A timeout only ends the wait in this dialog. The device can still finish the command.
+        const { commandId } = previous?.state === 'pending'
+          ? previous
+          : await workspaceApi.enqueueNodeCommand(node.nodeId, 'import_local_session', { type, id, agent: target || null });
+        const done = await waitForNodeCommand(node.nodeId, commandId);
+        const data = done?.result?.data as Partial<ImportedThread> | undefined;
+        if (!done) {
+          outcome = { state: 'pending', commandId };
+        } else if (done.result?.ok && data?.channel) {
+          outcome = { state: 'done', channel: data.channel, channelStatus: data.channelStatus, existing: data.existing };
+        } else {
+          outcome = { state: 'error', message: done.result?.message || t('importSessions.importFailed') };
+        }
       } catch (e) {
         outcome = { state: 'error', message: e instanceof Error ? e.message : t('importSessions.importFailed') };
       }
       setOutcomes((prev) => ({ ...prev, [id]: outcome }));
+      return outcome.state;
     }));
     setPicked(new Set());
-    await refreshWorkspace().catch(() => {});
+    setPhase(results.includes('done') ? 'refreshing' : 'idle');
   };
 
   const finished = Object.entries(outcomes).filter(([, o]) => o.state === 'done') as [string, Extract<Outcome, { state: 'done' }>][];
-  const openThread = (channel: string) => { onOpenChange(false); setCurrentSessionId(channel); };
+  const openThread = ({ channel, channelStatus }: ImportedThread) => {
+    const thread = threads.find((s) => s.sessionId === channel);
+    setThreadFilter(threadFilterFor({
+      status: channelStatus ?? thread?.status ?? 'active',
+      starred: thread?.starred ?? false,
+      isChannel: thread?.isChannel,
+    }, threadFilter));
+    onOpenChange(false);
+    setCurrentSessionId(channel);
+    openView('threads');
+    openMobileDetail();
+  };
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!importing) onOpenChange(v); }}>
@@ -146,7 +195,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         </DialogHeader>
         <DialogBody className="space-y-3">
           <div className="flex gap-2">
-            <Select value={type} onValueChange={(v) => setType(v as ImportableType)} disabled={importing}>
+            <Select value={type} onValueChange={(v) => setType(v as ImportableType)} disabled={busy}>
               <SelectTrigger aria-label={t('importSessions.tool')} className="h-9 w-40"><SelectValue /></SelectTrigger>
               <SelectContent>{IMPORTABLE_TYPES.map((ty) => <SelectItem key={ty} value={ty}>{TOOL_LABELS[ty]}</SelectItem>)}</SelectContent>
             </Select>
@@ -164,13 +213,14 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
                 const o = outcomes[s.id];
                 return (
                   <label key={s.id} className="flex cursor-pointer items-start gap-3 border-b px-3 py-2 last:border-b-0 hover:bg-muted/40">
-                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={importing || !!o} aria-label={s.title} className="mt-1" />
+                    <Checkbox checked={picked.has(s.id)} onCheckedChange={() => toggle(s.id)} disabled={busy || o?.state === 'done'} aria-label={s.title} className="mt-1" />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{s.title}</span>
                       <span className="block truncate text-xs text-muted-foreground">
                         {[s.cwd, typeof s.messageCount === 'number' ? t(s.messageCount === 1 ? 'importSessions.message' : 'importSessions.messages', { count: s.messageCount }) : null, timeAgo(s.updatedAt)].filter(Boolean).join(' · ')}
                       </span>
                       {o?.state === 'error' && <span className="block text-xs text-destructive">{o.message}</span>}
+                      {o?.state === 'pending' && <span className="block text-xs text-muted-foreground">{t('importSessions.stillImporting')}</span>}
                     </span>
                     {o?.state === 'running' && <Spinner aria-hidden="true" className="mt-1 size-4 text-muted-foreground" />}
                     {o?.state === 'done' && <Check className="mt-1 size-4 text-emerald-600" />}
@@ -181,7 +231,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
 
           <div className="flex items-center gap-2">
             <span className="shrink-0 text-xs text-muted-foreground">{t('importSessions.agent')}</span>
-            <Select value={target} onValueChange={setTarget} disabled={importing}>
+            <Select value={target} onValueChange={setTarget} disabled={busy}>
               <SelectTrigger aria-label={t('importSessions.agent')} className="h-9 min-w-0 flex-1"><SelectValue placeholder={t('importSessions.noAgent')} /></SelectTrigger>
               <SelectContent>
                 {choices.map((c) => <SelectItem key={c.name} value={c.name}>{c.label}{c.resumes ? ` · ${t('importSessions.continues')}` : ''}</SelectItem>)}
@@ -197,8 +247,9 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
             <div className="rounded-md border bg-muted/30 p-2 text-sm" data-testid="import-sessions-done">
               <p className="mb-1 text-xs text-muted-foreground">{t('importSessions.imported', { count: finished.length })}</p>
               {finished.map(([id, o]) => (
-                <Button key={id} type="button" variant="link" size="xs" className="h-auto w-full justify-start px-0" onClick={() => openThread(o.channel)}>
+                <Button key={id} type="button" variant="link" size="xs" disabled={busy} className="h-auto w-full justify-start px-0" onClick={() => openThread(o)}>
                   <span className="truncate">{(sessions || []).find((s) => s.id === id)?.title || id}</span>
+                  {o.existing && <span className="shrink-0 text-muted-foreground">{t('importSessions.alreadyImported')}</span>}
                 </Button>
               ))}
             </div>
@@ -206,7 +257,7 @@ export function ImportSessionsDialog({ open, onOpenChange, node, type: initialTy
         </DialogBody>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={importing}>{t('common.close')}</Button>
-          <Button onClick={() => void runImport()} disabled={importing || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
+          <Button onClick={() => void runImport()} disabled={busy || picked.size === 0 || !!error || !target} data-testid="import-sessions-submit">
             {importing ? <Spinner aria-hidden="true" className="size-4" /> : null}
             {t('importSessions.import', { count: picked.size })}
           </Button>

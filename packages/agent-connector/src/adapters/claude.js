@@ -12,6 +12,7 @@
 'use strict';
 
 const fs = require('fs');
+const { rememberWorkspaceSessions } = require('../session-origins');
 const os = require('os');
 const path = require('path');
 const { execSync } = require('child_process');
@@ -26,7 +27,7 @@ const { buildClaudeSystemPrompt, buildClaudeSkillMd, buildPinnedSections, worksp
 const { pinnedFingerprint, sampleRecap } = require('./decision-log');
 const { defaultAgentWorkdir, whichBinary, whereBinary } = require('../paths');
 const { isPostinstallStub } = require('../postinstall-stub');
-const { claudeConfigDir, claudeProjectDir, snapshotTranscript } = require('../host-agent');
+const { claudeConfigDir, claudeProjectDir, findClaudeTranscript, snapshotTranscript } = require('../host-agent');
 const { pendingImport } = require('../session-imports');
 
 const IS_WINDOWS = process.platform === 'win32';
@@ -146,6 +147,7 @@ class ClaudeAdapter extends BaseAdapter {
         const data = JSON.parse(fs.readFileSync(this._sessionsFile, 'utf-8'));
         if (data && typeof data === 'object') {
           Object.assign(this._channelSessions, data);
+          rememberWorkspaceSessions('claude', Object.values(data));
           this._log(`Loaded ${Object.keys(data).length} session(s)`);
         }
       }
@@ -156,6 +158,7 @@ class ClaudeAdapter extends BaseAdapter {
 
   _saveSessions() {
     try {
+      rememberWorkspaceSessions('claude', Object.values(this._channelSessions));
       const dir = path.dirname(this._sessionsFile);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(this._sessionsFile, JSON.stringify(this._channelSessions));
@@ -548,21 +551,25 @@ class ClaudeAdapter extends BaseAdapter {
     // owner's next request. The thread's recent messages come in the prompt.
     if (runMode === 'guest') skipResume = true;
     const sessionId = this._channelSessions[channelName];
-    let seeded = false;
+    let forkSourceId = null;
     if (sessionId && !skipResume) {
       cmd.push('--resume', sessionId);
     } else if (!skipResume && !Object.prototype.hasOwnProperty.call(this._channelSessions, channelName)) {
       const seed = this._importArgs(channelName) || this._seedArgs();
-      if (seed) { cmd.push(...seed); seeded = true; }
+      if (seed?.length) { cmd.push(...seed); forkSourceId = seed[1]; }
     }
 
-    // ── Skills mode: write SKILL.md, no MCP server ──
-    if (this.toolMode === 'skills') {
-      return { ...this._buildSkillsCmd(cmd, channelName), seeded };
-    }
+    const built = this.toolMode === 'skills' ? this._buildSkillsCmd(cmd, channelName) : this._buildMcpCmd(cmd, channelName);
+    return { ...built, seeded: !!forkSourceId, forkSourceId };
+  }
 
-    // ── MCP mode (default): spawn MCP server ──
-    return { ...this._buildMcpCmd(cmd, channelName), seeded };
+  _forkArgs(id, transcript) {
+    const configDir = claudeConfigDir(this.agentEnv || process.env);
+    const source = findClaudeTranscript(id, configDir, transcript);
+    if (!source) throw new Error('transcript is gone');
+    const destDir = claudeProjectDir(configDir, this.workingDir || defaultAgentWorkdir(this.agentName));
+    if (path.relative(path.dirname(source), destDir)) snapshotTranscript(source, destDir);
+    return ['--resume', id, '--fork-session'];
   }
 
   /**
@@ -571,25 +578,21 @@ class ClaudeAdapter extends BaseAdapter {
    * Same as the seed below, but per channel: the session's transcript is
    * copied under this agent's working folder (Claude Code resumes only
    * sessions filed under its cwd) and forked, so the user's own file is never
-   * written to. A transcript that is gone leaves the channel to start fresh
-   * with the imported thread history.
+   * written to. An import that cannot be forked returns an empty argument
+   * list and continues with the imported thread history; null means no import.
    */
   _importArgs(channelName) {
     // Once per channel: a fork that fails to resume is retried fresh, not re-forked.
     this._adoptedImports = this._adoptedImports || new Set();
-    if (this._adoptedImports.has(channelName)) return null;
+    if (this._adoptedImports.has(channelName)) return [];
     const entry = pendingImport(this.workspaceId, this.agentName, channelName, 'claude');
-    if (!entry || !entry.file) return null;
+    if (!entry) return null;
     this._adoptedImports.add(channelName);
     try {
-      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
-      if (path.resolve(path.dirname(entry.file)) !== path.resolve(destDir)) snapshotTranscript(entry.file, destDir);
-      else if (!fs.existsSync(entry.file)) throw new Error('transcript is gone');
-      return ['--resume', entry.session_id, '--fork-session'];
+      return this._forkArgs(entry.session_id, entry.file);
     } catch (e) {
       this._log(`Imported session ${entry.session_id} unavailable for ${channelName} (${e.message}); starting fresh`);
-      return null;
+      return []; // Use the imported thread history even if the agent also has a join seed.
     }
   }
 
@@ -605,14 +608,7 @@ class ClaudeAdapter extends BaseAdapter {
     const seed = this._seedSession;
     if (!seed) return null;
     try {
-      const workDir = this.workingDir || defaultAgentWorkdir(this.agentName);
-      const destDir = claudeProjectDir(claudeConfigDir(this.agentEnv || process.env), workDir);
-      if (path.resolve(path.dirname(seed.transcript)) !== path.resolve(destDir)) {
-        snapshotTranscript(seed.transcript, destDir);
-      } else if (!fs.existsSync(seed.transcript)) {
-        throw new Error('transcript is gone');
-      }
-      return ['--resume', seed.session_id, '--fork-session'];
+      return this._forkArgs(seed.session_id, seed.transcript);
     } catch (e) {
       this._log(`Seed conversation ${seed.session_id} unavailable (${e.message}); new channels start fresh`);
       this._seedSession = null;
@@ -936,7 +932,7 @@ class ClaudeAdapter extends BaseAdapter {
    * Spawn a persistent Claude process for a channel that accepts messages
    * via stdin (--input-format stream-json). Returns the persistent proc entry.
    */
-  _spawnPersistentProc(channel, cmd, cleanEnv) {
+  _spawnPersistentProc(channel, cmd, cleanEnv, forkSourceId) {
     // Remove -p and its argument from cmd — prompts go via stdin
     const filteredCmd = [];
     for (let i = 0; i < cmd.length; i++) {
@@ -1008,6 +1004,16 @@ class ClaudeAdapter extends BaseAdapter {
       let event;
       try { event = JSON.parse(line); } catch { return; }
       const eventType = event.type;
+      // Some CLIs can echo the requested resume ID. It is the person's source,
+      // never a workspace fork to record, resume, or hide from the picker.
+      const sessionId = event.session_id === forkSourceId ? null : event.session_id;
+      // An interrupted run may report its ID only on init. Guest transcripts
+      // also belong in the workspace history used to filter the picker.
+      const isInit = eventType === 'system' && event.subtype === 'init';
+      if (sessionId && (isInit || eventType === 'result')) {
+        rememberWorkspaceSessions('claude', [sessionId]);
+        if (eventType === 'result') this._rememberSession(pp, sessionId);
+      }
 
       // The user stopped this process. What it wrote before dying is still
       // queued here, and posting any of it — a thinking block, a tool status,
@@ -1015,10 +1021,6 @@ class ClaudeAdapter extends BaseAdapter {
       // and makes the thread read as running again. Keep the session id so
       // the next message resumes the conversation; drop everything else.
       if (pp.userStopped) {
-        if (eventType === 'result' && event.session_id) {
-          this._rememberSession(pp, event.session_id);
-          this._saveSessions();
-        }
         if (eventType === 'result' && pp.messageResolve) {
           pp.messageResolve({ resultEvent: event });
           pp.messageResolve = null;
@@ -1073,8 +1075,6 @@ class ClaudeAdapter extends BaseAdapter {
         }
       } else if (eventType === 'result') {
         pp.awaitingToolResult = false;
-        const sessionId = event.session_id;
-        if (sessionId) this._rememberSession(pp, sessionId);
         if (event.is_error) {
           // Capture the error so _handleMessage can surface it to the user.
           // Without this, an auth/API failure (e.g. 401 invalid token) is only
@@ -1585,7 +1585,7 @@ class ClaudeAdapter extends BaseAdapter {
 
     let mcpConfigFile = null;
     let cmd;
-    let seeded = false;
+    let forkSourceId;
 
     const cleanEnv = ClaudeAdapter._buildChildEnv(this.agentEnv || process.env);
 
@@ -1624,7 +1624,7 @@ class ClaudeAdapter extends BaseAdapter {
         });
         cmd = built.cmd;
         mcpConfigFile = built.mcpConfigFile;
-        seeded = !!built.seeded;
+        forkSourceId = built.forkSourceId;
       } catch (e) {
         await this.sendError(msgChannel, e.message);
         return;
@@ -1632,7 +1632,7 @@ class ClaudeAdapter extends BaseAdapter {
 
       try {
         if (await this._bailOnStopDuringTurn(msgChannel)) return;
-        const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv);
+        const pp = this._spawnPersistentProc(msgChannel, cmd, cleanEnv, forkSourceId);
         // Remember the spawn-time configuration so the fast-path can detect
         // staleness on later messages — the pinned knowledge and the mode
         // (which fixes both the system prompt and the permission flags).
@@ -1643,7 +1643,7 @@ class ClaudeAdapter extends BaseAdapter {
         ]);
         pp.spawnMode = this._effectiveMode(msgChannel);
         pp.spawnModel = this.workspaceModel || null;
-        const resumed = attempt === 0 && (!!this._channelSessions[msgChannel] || seeded);
+        const resumed = attempt === 0 && (!!this._channelSessions[msgChannel] || !!forkSourceId);
         this._log(`Spawned persistent process for ${msgChannel} (attempt ${attempt + 1})`);
 
         let result = await this._sendToPersistentProc(pp, effectiveContent);
@@ -1674,10 +1674,15 @@ class ClaudeAdapter extends BaseAdapter {
             try { await this.sendError(msgChannel, this._silenceNotice(result.stderrTail)); } catch {}
             break;
           }
-          if (attempt === 0 && this._channelSessions[msgChannel]) {
+          // A first fork has no saved channel session yet. Replay only if it
+          // exited before producing text or using a tool.
+          const forkStarted = forkSourceId && (pp.everPostedAnything || pp.hasToolUseSinceLastText);
+          if (resumed && !forkStarted) {
             this._log(`Stale session detected, retrying without resume`);
-            delete this._channelSessions[msgChannel];
-            this._saveSessions();
+            if (this._channelSessions[msgChannel]) {
+              delete this._channelSessions[msgChannel];
+              this._saveSessions();
+            }
             try {
               await this.sendStatus(
                 msgChannel,

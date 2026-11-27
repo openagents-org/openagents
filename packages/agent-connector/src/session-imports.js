@@ -52,23 +52,4 @@ function pendingImport(workspaceId, agentName, channel, type) {
   return entry;
 }
 
-// Copies the adapters make to continue an import (a Codex rollout under a new
-// id lands in the same sessions folder): kept out of the import picker.
-function copiesFile() {
-  return path.join(os.homedir(), '.openagents', 'sessions', 'import-copies.json');
-}
-
-function copiedIds() {
-  try {
-    const ids = JSON.parse(fs.readFileSync(copiesFile(), 'utf-8'));
-    return Array.isArray(ids) ? ids.filter((v) => typeof v === 'string') : [];
-  } catch { return []; }
-}
-
-function recordCopy(id) {
-  const ids = [...new Set([...copiedIds(), String(id)])].slice(-5000);
-  fs.mkdirSync(path.dirname(copiesFile()), { recursive: true, mode: 0o700 });
-  fs.writeFileSync(copiesFile(), JSON.stringify(ids), { mode: 0o600 });
-}
-
-module.exports = { importsFile, recordImport, pendingImport, copiedIds, recordCopy };
+module.exports = { importsFile, recordImport, pendingImport };

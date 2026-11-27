@@ -97,6 +97,60 @@ describe('local sessions', () => {
     assert.deepEqual(s.messages.map((m) => m.role), ['tool', 'assistant']);
   });
 
+  it('lists and imports the newest rollout for each Codex metadata ID, even under a different filename', () => {
+    const aliasEnv = { ...env, CODEX_HOME: path.join(home, 'aliases'), OPENAGENTS_HOME: path.join(home, 'alias-oa') };
+    const dir = path.join(aliasEnv.CODEX_HOME, 'sessions');
+    fs.mkdirSync(dir, { recursive: true });
+    const alias = '11111111-1111-1111-1111-111111111111';
+    const other = '22222222-2222-2222-2222-222222222222';
+    const write = (fileId, id, title, mtime) => {
+      const file = path.join(dir, `rollout-2026-11-01-${fileId}.jsonl`);
+      fs.writeFileSync(file, jsonl([
+        { type: 'session_meta', payload: { id, cwd: '/work' } },
+        { type: 'response_item', payload: { type: 'message', role: 'user', content: title } },
+      ]));
+      fs.utimesSync(file, mtime, mtime);
+      return file;
+    };
+    write(other, other, 'Another session', 100);
+    const older = write(CODEX_ID, CODEX_ID, 'Older rollout', 200);
+    const latest = write(alias, CODEX_ID, 'Latest rollout', 300);
+    write('33333333-3333-3333-3333-333333333333', CODEX_ID, '', 400);
+    write('44444444-4444-4444-4444-444444444444', CODEX_ID, 'You previously worked in this channel', 500);
+
+    const list = listLocalSessions('codex', { env: aliasEnv, limit: 2 });
+    assert.deepEqual(list.map(s => [s.id, s.title]), [[CODEX_ID, 'Latest rollout'], [other, 'Another session']]);
+    const imported = readLocalSession('codex', list[0].id, { env: aliasEnv });
+    assert.equal(imported.file, latest);
+    assert.equal(imported.messages[0].text, list[0].title);
+    assert.equal(readLocalSession('codex', alias, { env: aliasEnv }), null);
+    assert.deepEqual(listLocalSessions('codex', { env: aliasEnv, excludeIds: [CODEX_ID] }).map(s => s.id), [other]);
+    const tracked = path.join(aliasEnv.OPENAGENTS_HOME, 'sessions');
+    fs.mkdirSync(tracked, { recursive: true });
+    fs.writeFileSync(path.join(tracked, 'workspace-codex.ids'), alias + '\n');
+    assert.equal(listLocalSessions('codex', { env: aliasEnv })[0].title, 'Older rollout');
+    assert.equal(readLocalSession('codex', CODEX_ID, { env: aliasEnv }).file, older);
+  });
+
+  it('counts imported conversation turns in spaced JSONL, including those after a long preamble', () => {
+    for (const [type, id] of [['claude', CLAUDE_ID], ['codex', CODEX_ID]]) {
+      const source = readLocalSession(type, id, { env });
+      const spacedEnv = {
+        ...env, CODEX_HOME: path.join(home, 'spaced-codex'), CLAUDE_CONFIG_DIR: path.join(home, 'spaced-claude'),
+      };
+      const dir = type === 'codex' ? path.join(spacedEnv.CODEX_HOME, 'sessions') : path.join(spacedEnv.CLAUDE_CONFIG_DIR, 'projects', '-work');
+      fs.mkdirSync(dir, { recursive: true });
+      const rows = fs.readFileSync(source.file, 'utf8').trimEnd().split('\n');
+      rows.splice(1, 0, ...Array(401).fill('{"type":"progress"}'));
+      fs.writeFileSync(path.join(dir, path.basename(source.file)), rows.map(row => row.replace(/":/g, '": ')).join('\r\n'));
+      const [listed] = listLocalSessions(type, { env: spacedEnv });
+      const imported = readLocalSession(type, id, { env: spacedEnv });
+      assert.equal(listed.title, source.title);
+      assert.deepEqual(imported.messages, source.messages);
+      assert.equal(listed.messageCount, imported.messages.filter(m => m.role !== 'tool').length);
+    }
+  });
+
   it('refuses unknown types and odd ids, and finds nothing for a missing session', () => {
     assert.throws(() => listLocalSessions('aider', { env }), /not supported/);
     assert.equal(readLocalSession('claude', '../../etc/passwd', { env }), null);
@@ -106,17 +160,20 @@ describe('local sessions', () => {
   it('masks private keys and tokens', () => {
     const out = maskSecrets('-----BEGIN RSA PRIVATE KEY-----\nabc\n-----END RSA PRIVATE KEY----- and ghp_abcdefghijklmnopqrstuvwxyz0123');
     assert.ok(!out.includes('abc\n') && !out.includes('ghp_abcdefghijklmnopqrstuvwxyz0123'));
+    assert.ok(out.startsWith('[REDACTED_PRIVATE_KEY] and '));
   });
 
-  it('lists and reads OpenCode sessions through its CLI, leaving out agent folders', () => {
+  it('counts OpenCode messages in one query and skips workspace runs', () => {
     const calls = [];
     const run = (args) => {
       calls.push(args.join(' '));
-      if (args[0] === 'session') {
+      if (args[0] === 'db') {
         return JSON.stringify([
-          { id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', time: { updated: 1762000000000 } },
-          { id: 'ses_new', title: 'Write the README', directory: '/work/docs', time: { updated: 1763000000000 } },
-          { id: 'ses_oa', title: 'Agent run', directory: path.join(env.OPENAGENTS_HOME, 'agents', 'oc'), time: { updated: 1764000000000 } },
+          { id: 'ses_old', title: 'Refactor billing', directory: '/work/billing', updated: 1762000000000, message_count: 0 },
+          { id: 'ses_new', title: 'Write the README', directory: '/work/docs', updated: 1763000000000, message_count: 2, first_prompt: 'Draft a README' },
+          { id: 'ses_oa', title: 'Agent run', directory: path.join(env.OPENAGENTS_HOME, 'agents', 'oc'), updated: 1764000000000, message_count: 2 },
+          { id: 'ses_workspace', title: 'Update the docs', directory: '/work/docs', updated: 1765000000000, message_count: 2,
+            first_prompt: "You are agent 'docs' connected to an OpenAgents workspace." },
         ]);
       }
       return 'some log line\n' + JSON.stringify({
@@ -132,18 +189,180 @@ describe('local sessions', () => {
       });
     };
     const list = listLocalSessions('opencode', { env, run });
-    assert.deepEqual(list.map((x) => x.id), ['ses_new', 'ses_old']);
+    assert.deepEqual(list.map((x) => x.id), ['ses_new']);
     assert.equal(list[0].cwd, '/work/docs');
-    assert.equal(list[0].messageCount, null);
+    assert.equal(list[0].title, 'Draft a README');
+    assert.equal(list[0].messageCount, 2);
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /^db --format json SELECT /);
     const s = readLocalSession('opencode', 'ses_new', { env, run });
     assert.deepEqual(s.messages.map((m) => [m.role, m.text]), [
       ['user', 'Draft a README'], ['tool', 'Used write'], ['assistant', 'Written.'],
     ]);
-    assert.equal(s.title, 'Write the README');
+    assert.equal(s.title, 'Draft a README');
     assert.ok(calls.includes('export ses_new'));
     assert.equal(readLocalSession('opencode', 'bad id;rm', { env, run }), null);
+    assert.throws(() => readLocalSession('opencode', 'ses_new', { env, run: () => '' }), /could not export.*database/i);
+    assert.throws(() => listLocalSessions('opencode', { env, run: () => '' }), /Could not read the OpenCode session database/);
     // No CLI: nothing to import, no error.
     assert.deepEqual(listLocalSessions('opencode', { env, run: () => null }), []);
+  });
+
+  it('uses the same titles, counts and workspace exclusions for OpenCode SQL and the read-only fallback', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const file = path.join(home, 'OpenCode review.db');
+    const db = new DatabaseSync(file);
+    db.exec(`CREATE TABLE session (id TEXT, directory TEXT, parent_id TEXT, time_updated INTEGER);
+      CREATE TABLE message (id TEXT, session_id TEXT, time_created INTEGER, data TEXT);
+      CREATE TABLE part (id TEXT, message_id TEXT, time_created INTEGER, data TEXT);`);
+    const session = db.prepare('INSERT INTO session VALUES (?,?,?,?)');
+    for (const [index, id] of ['empty', 'synthetic', 'mine', 'mapped', 'child', 'workspace', 'hi', 'pem-preview'].entries()) {
+      session.run(id, '/projects/' + id, id === 'child' ? 'mine' : null, 1762000000000 + index);
+    }
+    const message = db.prepare('INSERT INTO message VALUES (?,?,?,?)');
+    const part = db.prepare('INSERT INTO part VALUES (?,?,?,?)');
+    let seq = 0;
+    const exportedMessages = [];
+    const add = (id, role, data) => {
+      const key = String(++seq);
+      const info = { role, time: { created: 1762000000000 + seq } };
+      message.run(key, id, seq, JSON.stringify(info));
+      part.run(key, key, seq, JSON.stringify(data));
+      if (id === 'mine') exportedMessages.push({ info, parts: [data] });
+    };
+    add('synthetic', 'user', { type: 'text', text: 'prefill', synthetic: true });
+    add('mine', 'user', { type: 'text', text: '\t\u00a0\u3000' });
+    add('mine', 'user', { type: 'text', text: '\u00a0'.repeat(2050) + 'Which file?' });
+    add('mine', 'assistant', { type: 'text', text: '\u2028\ufeff' });
+    add('mine', 'assistant', { type: 'reasoning', text: 'intermediate' });
+    add('mine', 'assistant', { type: 'tool', tool: 'read', state: { input: { filePath: 'README.md' }, output: 'private tool output' } });
+    add('mine', 'assistant', { type: 'text', text: 'README.md sk-test1234567890abcdefghij' });
+    add('mapped', 'user', { type: 'text', text: 'A plain user prompt' });
+    add('child', 'user', { type: 'text', text: 'child' });
+    add('workspace', 'user', { type: 'text', text: "You are agent 'writer' connected to an OpenAgents workspace." });
+    add('hi', 'user', { type: 'text', text: 'hi' });
+    add('pem-preview', 'user', { type: 'text', text: [
+      'Review this example', '-----BEGIN PRIVATE KEY-----', 'fixture only\n'.repeat(240), '-----END PRIVATE KEY-----',
+    ].join('\n') });
+    const agentDir = path.join(env.OPENAGENTS_HOME, 'agents', 'writer');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'sessions-0123456789abcdef.json'), JSON.stringify({ thread: 'mapped' }));
+    try {
+      const direct = listLocalSessions('opencode', { env, run: (args) => JSON.stringify(db.prepare(args[3]).all()) });
+      const maskedTitle = 'Review this example [REDACTED_PRIVATE_KEY]';
+      assert.deepEqual(direct.map((s) => [s.id, s.title, s.messageCount]), [
+        ['pem-preview', maskedTitle, 1], ['hi', 'hi', 1], ['mine', 'Which file?', 2],
+      ]);
+      const calls = [];
+      const fallback = listLocalSessions('opencode', { env, run: (args) => {
+        calls.push(args.slice(0, 2));
+        return args[1] === 'path' ? file : '';
+      } });
+      assert.deepEqual(fallback, direct);
+      assert.deepEqual(calls, [['db', '--format'], ['db', 'path']]);
+      const dbBefore = fs.readFileSync(file);
+      const exported = readLocalSession('opencode', 'mine', { env, run: () => JSON.stringify({
+        info: { id: 'mine', directory: '/projects/mine' }, messages: exportedMessages,
+      }) });
+      const unavailable = { env: { ...env, OPENCODE_DB: file }, run: () => null };
+      assert.deepEqual(listLocalSessions('opencode', unavailable), direct);
+      assert.equal(readLocalSession('opencode', 'pem-preview', unavailable).title, maskedTitle);
+      const imported = readLocalSession('opencode', 'mine', unavailable);
+      assert.deepEqual(imported, exported);
+      assert.deepEqual(imported.messages.map(m => m.role), ['user', 'tool', 'assistant']);
+      assert.match(imported.messages[2].text, /\[REDACTED\]/);
+      assert.doesNotMatch(JSON.stringify(imported), /private tool output|intermediate/);
+      const brokenExport = { env, run: args => args[0] === 'export' ? 'invalid JSON' : file };
+      assert.deepEqual(readLocalSession('opencode', 'mine', brokenExport), exported);
+      const queryOnly = { env, run: args => {
+        if (args[0] === 'export') return '';
+        assert.deepEqual(args.slice(0, 3), ['db', '--format', 'json']);
+        return JSON.stringify(db.prepare(args[3]).all());
+      } };
+      assert.deepEqual(readLocalSession('opencode', 'mine', queryOnly), exported);
+      for (const id of ['empty', 'synthetic']) {
+        assert.throws(() => readLocalSession('opencode', id, unavailable), /no user messages/);
+      }
+      for (const id of ['absent', 'child', 'workspace', 'mapped']) {
+        assert.equal(readLocalSession('opencode', id, unavailable), null);
+      }
+      assert.deepEqual(fs.readFileSync(file), dbBefore);
+      if (process.platform === 'win32') {
+        // A custom .cmd without a native target can return its DB path, even
+        // when its own path contains spaces and literal percent signs.
+        const shim = path.join(home, 'OpenCode %TEMP% shim.cmd');
+        fs.writeFileSync(shim, '@echo off\r\nif "%~1 %~2"=="db path" echo(%OA_TEST_DB%\r\n');
+        t.mock.method(require('../src/adapters/opencode'), 'findOpencodeBinary', () => shim);
+        assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+        assert.deepEqual(readLocalSession('opencode', 'mine', { env: { ...env, OA_TEST_DB: file } }), exported);
+        // A wrapper that supports SQL should also work without a separate
+        // sqlite3 command; the whole query must reach it as a single argument.
+        const cli = path.join(home, 'test-opencode.cjs');
+        fs.writeFileSync(cli, `const [cmd, flag, format, sql] = process.argv.slice(2);
+if (cmd !== 'db' || flag !== '--format' || format !== 'json' || process.argv.length !== 6) process.exit(1);
+const db = new (require('node:sqlite').DatabaseSync)(process.env.OA_TEST_DB, { readOnly: true });
+console.log(JSON.stringify(db.prepare(sql).all()));
+db.close();`);
+        fs.writeFileSync(shim, `@echo off\r\n"${process.execPath}" "%~dp0test-opencode.cjs" %*\r\n`);
+        assert.deepEqual(listLocalSessions('opencode', { env: { ...env, OA_TEST_DB: file } }), direct);
+        assert.deepEqual(readLocalSession('opencode', 'mine', { env: { ...env, OA_TEST_DB: file } }), exported);
+      }
+    } finally { db.close(); }
+  });
+
+  it('pages past 2000 newer excluded roots, including roots with identical timestamps', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const db = new DatabaseSync(':memory:');
+    try {
+      db.exec(`CREATE TABLE session (id TEXT PRIMARY KEY, directory TEXT, parent_id TEXT, time_updated INTEGER);
+        CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT);
+        CREATE INDEX messages_by_session ON message(session_id);
+        CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT);
+        CREATE INDEX parts_by_message ON part(message_id);
+        WITH RECURSIVE seq(n) AS (VALUES(1) UNION ALL SELECT n+1 FROM seq WHERE n < 2000)
+        INSERT INTO session SELECT printf('agent_%04d', n), '/repo', NULL, 100 FROM seq;
+        INSERT INTO session VALUES ('personal', '/repo', NULL, 100), ('older', '/repo', NULL, 99);
+        INSERT INTO message SELECT id, id, 1, '{"role":"user"}' FROM session;
+        INSERT INTO part SELECT id, id, 1, '{"type":"text","text":"A question"}' FROM session;`);
+      const excludeIds = db.prepare("SELECT id FROM session WHERE id LIKE 'agent_%'").all().map(row => row.id);
+      const run = args => JSON.stringify(db.prepare(args[3]).all());
+      assert.deepEqual(listLocalSessions('opencode', { env, run, excludeIds }).map(s => s.id), ['personal', 'older']);
+    } finally { db.close(); }
+  });
+
+  it('reports a CLI timeout without retrying the SQL and limits the read-only fallback to the remaining time', (t) => {
+    const bin = path.join(home, 'opencode.exe');
+    t.mock.method(require('../src/adapters/opencode'), 'findOpencodeBinary', () => bin);
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => now);
+    const timedOut = { status: null, error: { code: 'ETIMEDOUT' }, signal: 'SIGTERM' };
+    const spawn = t.mock.method(require('child_process'), 'spawnSync', () => timedOut);
+    assert.throws(() => listLocalSessions('opencode', { env }), /OpenCode sessions timed out/);
+    assert.equal(spawn.mock.callCount(), 1);
+    const db = path.join(home, 'fallback.db');
+    spawn.mock.mockImplementation((command, args, opts) => {
+      if (command !== bin) { assert.equal(opts.timeout, 9000); return timedOut; }
+      if (args[1] === 'path') { now += 7000; return { status: 0, stdout: db }; }
+      now += 19000;
+      return { status: 1, stdout: '' };
+    });
+    assert.throws(() => listLocalSessions('opencode', { env }), /OpenCode sessions timed out/);
+    assert.equal(spawn.mock.callCount(), 4);
+  });
+
+  it('reports a migrated OpenCode database without changing its tables', (t) => {
+    let DatabaseSync;
+    try { ({ DatabaseSync } = require('node:sqlite')); } catch { return t.skip('node:sqlite unavailable'); }
+    const file = path.join(home, 'migrated.db');
+    const db = new DatabaseSync(file);
+    try {
+      db.exec('CREATE TABLE session_v2 (id TEXT)');
+      assert.throws(() => listLocalSessions('opencode', { env: { ...env, OPENCODE_DB: file }, run: () => '' }), /newer format.*1\.x/);
+      assert.throws(() => readLocalSession('opencode', 'ses_new', { env: { ...env, OPENCODE_DB: file }, run: () => '' }), /newer format.*1\.x/);
+      assert.deepEqual(db.prepare('SELECT name FROM sqlite_master').all().map(row => row.name), ['session_v2']);
+    } finally { db.close(); }
   });
 
   it('lists and reads Hermes sessions from its SQLite store, skipping the workspace\'s own runs', (t) => {
@@ -224,11 +443,19 @@ describe('local sessions: what is left out', () => {
     assert.deepEqual(readLocalSession('claude', ID, { env }).messages.map((m) => m.role), ['user', 'assistant']);
   });
 
-  it('leaves out sessions run in an agent\'s folder and copies made to continue an import', () => {
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/x'] }).length, 0);
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work'] }).length, 0);
-    assert.equal(listLocalSessions('claude', { env, excludeCwds: ['/work/xy'] }).length, 1);
-    assert.equal(listLocalSessions('claude', { env, excludeIds: [ID] }).length, 0);
+  it('keeps personal sessions in a shared folder and skips recorded workspace runs and copies', () => {
+    const agentSession = '22222222-3333-4444-5555-666666666666';
+    const project = path.join(env.CLAUDE_CONFIG_DIR, 'projects', '-work-x');
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(path.join(project, `${agentSession}.jsonl`), jsonl([
+      { sessionId: agentSession, cwd: '/work/x', type: 'user', message: { role: 'user', content: 'Fix this bug' } },
+    ]));
+    const maps = path.join(env.OPENAGENTS_HOME, 'sessions');
+    fs.mkdirSync(maps, { recursive: true });
+    fs.writeFileSync(path.join(maps, 'workspace_agent.json'), JSON.stringify({ thread: agentSession }));
+
+    assert.deepEqual(listLocalSessions('claude', { env }).map((session) => session.id), [ID]);
+    assert.deepEqual(listLocalSessions('claude', { env, excludeIds: [ID] }), []);
   });
 });
 
@@ -283,5 +510,9 @@ describe('local sessions: newer Codex context blocks', () => {
   it('titles a session by what the person typed, and leaves out Codex\'s own reviewer runs', () => {
     const list = listLocalSessions('codex', { env });
     assert.deepEqual(list.map((s) => s.title).sort(), ['Add tests', 'Write a migration for users']);
+    for (const session of list) {
+      assert.equal(session.messageCount, 2);
+      assert.equal(session.messageCount, readLocalSession('codex', session.id, { env }).messages.length);
+    }
   });
 });
