@@ -1,6 +1,6 @@
 """Live browser cards stay attached to the right conversation."""
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, Mock
 import pytest
 from sqlalchemy import select
 from app.models import BrowserTab, Channel, EventRecord, Workspace
@@ -61,11 +61,14 @@ def test_operations_on_existing_tab_publish_preview(client, db, workspace, setup
     manager.get_current_url = AsyncMock(return_value=None)
     monkeypatch.setattr(browser.BrowserManager, 'get', lambda: manager)
     monkeypatch.setattr(browser, '_ensure_connected', AsyncMock())
+    record_activity = Mock(wraps=browser._record_activity)
+    monkeypatch.setattr(browser, '_record_activity', record_activity)
     args = {'source':'openagents:agent-alpha','channel':'browser-demo'}
     headers = {'X-Workspace-Token': workspace['token']}
     url = f'/v1/browser/tabs/{tab.id}/{action}'
     response = client.get(url,params=args,headers=headers) if payload is None else client.post(url,json={**args,**payload},headers=headers)
     assert response.status_code == 200, response.text
+    record_activity.assert_called_once_with(tab.id, action, args['source'], args['channel'])
     db.expire_all()
     assert len(cards(db,tab)) == 1
     assert tab.artifact_channels == ['browser-demo']

@@ -1147,7 +1147,11 @@ async def navigate_tab(
     tab.url = result.get("url", body.url)
     tab.title = result.get("title")
     _touch(tab)
-    _record_activity(tab_id, "navigate", _actor_for(tab, body.source))
+    actor = _actor_for(tab, body.source)
+    # Agent activity is published after resolving its thread below. An
+    # unattributed intermediate record would close a followed preview.
+    if not actor.startswith("openagents:"):
+        _record_activity(tab_id, "navigate", actor)
 
     event = Event(
         type="workspace.browser.tab.navigated",
@@ -1157,14 +1161,14 @@ async def navigate_tab(
     )
     await _emit_event(event, workspace, db, token=x_workspace_token or workspace.password_hash)
 
-    await _record_browser_work(db, workspace, tab, _actor_for(tab, body.source), body.channel, "navigate")
+    await _record_browser_work(db, workspace, tab, actor, body.channel, "navigate")
 
     # Slack browser preview (best-effort, after the response) — see open_tab.
     try:
         from app.services.browser_preview import schedule_browser_preview
         schedule_browser_preview(
             background_tasks, workspace, body.channel, tab,
-            _actor_for(tab, body.source), "navigated",
+            actor, "navigated",
         )
     except Exception as e:
         logger.debug("browser preview hook failed for %s: %s", tab_id, e)
