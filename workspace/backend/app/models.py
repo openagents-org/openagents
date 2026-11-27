@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import (
+    String,
+    CheckConstraint,
     BigInteger,
     Boolean,
     Column,
@@ -419,6 +421,20 @@ class User(Base):
 
     __table_args__ = (
         UniqueConstraint("email", name="uq_users_email"),
+    )
+
+
+class PublicProfile(Base):
+    __tablename__ = "public_profiles"
+
+    user_id = Column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    handle = Column(String(28), nullable=False)
+    bio = Column(String(160), nullable=False, default="", server_default="")
+    is_public = Column(Boolean, nullable=False, default=False, server_default=text("FALSE"))
+
+    __table_args__ = (
+        UniqueConstraint("handle", name="uq_public_profiles_handle"),
+        CheckConstraint("handle = lower(handle)", name="ck_public_profiles_handle_lowercase"),
     )
 
 

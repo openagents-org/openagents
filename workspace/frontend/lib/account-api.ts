@@ -146,3 +146,20 @@ export interface OAuthApproval { client_id: string; redirect_uri: string; code_c
 export function approveOAuth(idToken: string, approval: OAuthApproval): Promise<{ redirect: string; client_name: string }> {
   return bearerFetch('/v1/oauth/approve', idToken, { method: 'POST', body: JSON.stringify(approval) });
 }
+
+export interface AccountPublicProfile {
+  handle: string | null;
+  bio: string;
+  isPublic: boolean;
+}
+
+export function getAccountPublicProfile(idToken: string, signal?: AbortSignal) {
+  return bearerFetch<AccountPublicProfile>('/v1/account/public-profile', idToken, { signal });
+}
+
+export function saveAccountPublicProfile(idToken: string, profile: AccountPublicProfile) {
+  return bearerFetch<AccountPublicProfile>('/v1/account/public-profile', idToken, {
+    method: 'PUT',
+    body: JSON.stringify({ handle: profile.handle, bio: profile.bio, is_public: profile.isPublic }),
+  });
+}
