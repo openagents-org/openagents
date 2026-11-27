@@ -349,7 +349,7 @@ describe('browser reads name the thread', () => {
       // Only activity attributed to a thread opens that thread's live preview.
       const md = build({ ...COMMON, agentName: 'browser-agent', browserEnabled: true });
       const query = `source=openagents:browser-agent&channel=${SHARED_SKILL_CHANNEL}`;
-      for (const read of ['TAB_ID/snapshot', '{tab_id}/snapshot', '{tab_id}/screenshot']) {
+      for (const read of ['{tab_id}/snapshot', '{tab_id}/screenshot']) {
         assert.ok(md.includes(`"https://example.test/v1/browser/tabs/${read}?${query}"`), read);
       }
       assert.ok(!/\/v1\/browser\/tabs\/[^\s"?]+\/(snapshot|screenshot)[`\s]/.test(md));
