@@ -652,8 +652,7 @@ class OpenCodeAdapter extends BaseAdapter {
     // channel, so a person replying in the routine thread continues that run.
     if (sender === 'system:routine') this._freshChannels.add(msgChannel);
 
-    await this._autoTitleChannel(msgChannel, content);
-    await this.sendStatus(msgChannel, 'thinking...');
+    await this._autoTitleAndSendStatus(msgChannel, content);
 
     try {
       let responseText;

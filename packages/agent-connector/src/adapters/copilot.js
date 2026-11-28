@@ -432,8 +432,7 @@ class CopilotAdapter extends BaseAdapter {
       return;
     }
 
-    await this._autoTitleChannel(channel, content);
-    await this.sendStatus(channel, 'thinking...');
+    await this._autoTitleAndSendStatus(channel, content);
 
     const fullPrompt = `${this._buildSystemContext(channel)}\n\n---\n\nUser message:\n${content}`;
 

@@ -1002,11 +1002,24 @@ class ClaudeAdapter extends BaseAdapter {
       proc.stderr.on('data', (chunk) => { pp.stderrBuf += chunk.toString('utf-8'); });
     }
 
-    const processLine = async (line) => {
-      line = line.trim();
-      if (!line) return;
-      let event;
-      try { event = JSON.parse(line); } catch { return; }
+    // The CLI often sends the same text in an assistant frame and a result
+    // a few milliseconds later. Keep ordinary progress in order, but avoid
+    // posting that final answer to Workspace twice.
+    let checkNextFrame;
+    function waitForMatchingResult(text) {
+      return new Promise((resolve) => {
+        const finish = (event) => {
+          clearTimeout(timer);
+          checkNextFrame = undefined;
+          resolve(event?.type === 'result' && !event.is_error
+            && typeof event.result === 'string' && event.result.trim() === text);
+        };
+        const timer = setTimeout(finish, 100);
+        checkNextFrame = finish;
+      });
+    }
+
+    const processEvent = async (event, matchingResult) => {
       const eventType = event.type;
 
       // The user stopped this process. What it wrote before dying is still
@@ -1039,7 +1052,9 @@ class ClaudeAdapter extends BaseAdapter {
             pp.lastResponseText.push(block.text.trim());
             pp.postedThinking = true;
             pp.everPostedAnything = true;
-            try { await this.sendThinking(pp.msgChannel, block.text.trim()); } catch {}
+            if (!(matchingResult && await matchingResult) && !pp.userStopped) {
+              try { await this.sendThinking(pp.msgChannel, block.text.trim()); } catch {}
+            }
           } else if (block.type === 'tool_use') {
             pp.hasToolUseSinceLastText = true;
             pp.postedThinking = false;
@@ -1132,7 +1147,15 @@ class ClaudeAdapter extends BaseAdapter {
       const lines = pp.lineBuffer.split('\n');
       pp.lineBuffer = lines.pop();
       for (const line of lines) {
-        pp.pendingLines = pp.pendingLines.then(() => processLine(line)).catch(() => {});
+        let event;
+        try { event = JSON.parse(line); } catch { continue; }
+        if (!event) continue;
+        if (event.type !== 'rate_limit_event') checkNextFrame?.(event);
+        const blocks = event.message?.content;
+        const singleText = event.type === 'assistant' && blocks?.length === 1
+          && blocks[0]?.type === 'text' && typeof blocks[0].text === 'string';
+        const matchingResult = singleText ? waitForMatchingResult(blocks[0].text.trim()) : null;
+        pp.pendingLines = pp.pendingLines.then(() => processEvent(event, matchingResult)).catch(() => {});
       }
     });
 
@@ -1450,22 +1473,7 @@ class ClaudeAdapter extends BaseAdapter {
     });
   }
 
-  async _handleMessage(msg) {
-    let content = (msg.content || '').trim();
-    const attachments = msg.attachments || [];
-
-    const attText = formatAttachmentsForPrompt(attachments, this.toolMode);
-    if (attText) {
-      content = content ? content + attText : attText.trim();
-    }
-
-    if (!content) return;
-
-    const msgChannel = msg.sessionId || this.channelName;
-    this._stoppingChannels.delete(msgChannel);
-    const sender = msg.senderName || msg.senderType || 'user';
-    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
-
+  async _prepareSession(msgChannel, content) {
     // Auto-title + resume-from on first encounter
     if (!this._titledSessions.has(msgChannel)) {
       this._titledSessions.add(msgChannel);
@@ -1489,12 +1497,30 @@ class ClaudeAdapter extends BaseAdapter {
         }
       } catch {}
     }
+  }
 
-    await this.sendStatus(msgChannel, 'thinking...');
+  async _handleMessage(msg) {
+    let content = (msg.content || '').trim();
+    const attachments = msg.attachments || [];
 
-    // Read the channel's pinned knowledge (glossary) up front — the
-    // fast-path staleness check and any (re)spawn below both need it.
-    const glossary = await this._fetchGlossary(msgChannel);
+    const attText = formatAttachmentsForPrompt(attachments, this.toolMode);
+    if (attText) {
+      content = content ? content + attText : attText.trim();
+    }
+
+    if (!content) return;
+
+    const msgChannel = msg.sessionId || this.channelName;
+    this._stoppingChannels.delete(msgChannel);
+    const sender = msg.senderName || msg.senderType || 'user';
+    this._log(`Processing message from ${sender} in ${msgChannel}: ${content.slice(0, 80)}...`);
+
+    const [glossary, initialBrowserEnabled] = await Promise.all([
+      this._fetchGlossary(msgChannel),
+      this._persistentProcs[msgChannel]?.alive ? undefined : this.getBrowserEnabled(),
+      this._prepareSession(msgChannel, content),
+      this.sendStatus(msgChannel, 'thinking...'),
+    ]);
     // null fingerprint = a fetch failed, current state unknown; never treat
     // that as a change (it would churn respawns on every workspace hiccup).
     // The fingerprint covers entry ids AND content — both are pinned into
@@ -1616,7 +1642,7 @@ class ClaudeAdapter extends BaseAdapter {
       }
 
       try {
-        const browserEnabled = await this.getBrowserEnabled();
+        const browserEnabled = initialBrowserEnabled ?? await this.getBrowserEnabled();
         const built = this._buildClaudeCmd(effectiveContent, msgChannel, {
           skipResume: attempt > 0,
           browserEnabled,

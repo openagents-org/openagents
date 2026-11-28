@@ -100,8 +100,23 @@ describe('GeminiAdapter — what a run posts', () => {
     }];
     await a._handleMessage(MSG);
     assert.deepEqual(a.posted.response, ['Hello there']);
+    assert.deepEqual(a.posted.thinking, []);
     assert.deepEqual(a.posted.error, []);
     assert.equal(a._channelSessions['chan-1'], 'S-new');
+  });
+
+  it('shows progress before tools and preserves streamed answer fragments', async () => {
+    const a = makeAdapter();
+    script = [{ events: [
+      { type: 'message', role: 'assistant', content: 'Checking' },
+      { type: 'tool_use', tool_name: 'read_file' },
+      { type: 'message', role: 'assistant', content: 'All ' },
+      { type: 'message', role: 'assistant', content: 'done' },
+      { type: 'result', status: 'success' },
+    ] }];
+    await a._handleMessage(MSG);
+    assert.deepEqual(a.posted.thinking, ['Checking', 'All ', 'done']);
+    assert.deepEqual(a.posted.response, ['All done']);
   });
 
   it('runs with the working directory trusted, unless the agent says otherwise', async () => {

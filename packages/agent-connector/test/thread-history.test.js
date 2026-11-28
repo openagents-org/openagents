@@ -57,6 +57,49 @@ describe('recent shared thread history', () => {
     assert.ok(a.handled[0].content.endsWith(current.content));
     assert.equal(a.handled[0].originalContent, current.content);
   });
+  it('starts independent context reads together and composes the prompt in precedence order', async () => {
+    const a = adapter([]);
+    const started = [];
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    a._prefetchPinnedContext = async () => { started.push('pins'); await gate; };
+    a.client.getRecentMessages = async () => {
+      started.push('history'); await gate;
+      return [message('1', 'Sam', 'history marker')];
+    };
+    a.client.getSharedContext = async () => {
+      started.push('shared'); await gate;
+      return { apply: true, shared_instructions: 'owner marker' };
+    };
+    const turn = a._channelWorker('general', {
+      ...current, senderEmail: 'maya@example.com',
+      metadata: { thread_agent_instructions: { bot: 'collaboration marker' } },
+    });
+    try {
+      assert.deepEqual(started.sort(), ['history', 'pins', 'shared']);
+      assert.equal(a.handled.length, 0);
+    } finally {
+      release();
+      await turn;
+    }
+    assert.match(a.handled[0].content, /owner marker.*collaboration marker.*history marker.*@bot summarize/s);
+    assert.equal(a.handled[0].originalContent, current.content);
+  });
+  it('starts the working status while the first title lookup is pending', async () => {
+    const a = adapter([]);
+    let release;
+    const title = new Promise(resolve => { release = resolve; });
+    a.client.getSession = () => title;
+    const statuses = [];
+    a.sendStatus = async (channel, text) => { statuses.push([channel, text]); };
+    const start = a._autoTitleAndSendStatus('general', 'hello');
+    try {
+      assert.deepEqual(statuses, [['general', 'thinking...']]);
+    } finally {
+      release({ title: 'Existing title' });
+      await start;
+    }
+  });
   it('does not load shared history for DMs or synthetic nudges', async () => {
     const a = adapter([]);
     a.client.getRecentMessages = async () => assert.fail('unexpected read');

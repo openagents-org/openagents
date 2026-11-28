@@ -245,8 +245,7 @@ class NanoClawAdapter extends BaseAdapter {
       return;
     }
 
-    await this._autoTitleChannel(channel, content);
-    await this.sendStatus(channel, 'thinking...');
+    await this._autoTitleAndSendStatus(channel, content);
 
     // Stopped while this turn was being prepared: inject nothing (no tokens).
     if (this._stoppedBeforeStart(channel)) {

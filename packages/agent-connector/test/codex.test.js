@@ -21,6 +21,29 @@ const CodexAdapter = require('../src/adapters/codex');
 // live workspace model selection
 // ---------------------------------------------------------------------------
 
+it('Codex streams text before tools and skips the preview next to turn.completed', async () => {
+  const previews = [];
+  const a = Object.assign(new CodexAdapter({
+    workspaceId: 'ws-stream-test', channelName: 'general', agentName: 'codex', token: 'test',
+    workingDir: os.tmpdir(), agentEnv: {},
+  }), {
+    _log() {},
+    sendThinking: async (_, text) => { previews.push(text); },
+    sendStatus: async () => {},
+  });
+  const events = [
+    { type: 'item.completed', item: { type: 'agent_message', text: 'Checking' } },
+    { type: 'item.completed', item: { type: 'command_execution', command: 'ls' } },
+    { type: 'item.completed', item: { type: 'agent_message', text: 'Done' } },
+    { type: 'turn.completed' },
+  ];
+  const output = events.map(event => JSON.stringify(event)).join('\n') + '\n';
+  const cmd = [process.execPath, '-e', 'process.stdout.write(' + JSON.stringify(output) + ')'];
+  const result = await a._spawnCodex(cmd, process.env, 'general', 'hello');
+  assert.deepStrictEqual(previews, ['Checking']);
+  assert.strictEqual(result.responseText, 'Done');
+});
+
 describe('Codex — live workspace model selection', () => {
   it('passes a custom Responses provider to the real CLI without exposing its key in arguments', async () => {
     let invocation;

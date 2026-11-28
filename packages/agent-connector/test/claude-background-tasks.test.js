@@ -130,6 +130,59 @@ describe('stream handling (fake CLI)', () => {
     }
   }
 
+  it('posts a matching final answer once, including across stdout chunks', async () => {
+    const adapter = mkAdapter();
+    const progress = [];
+    adapter.sendThinking = async (_, text) => progress.push(text);
+    const { pp, proc } = attach(adapter);
+    proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'Done.' }] } });
+    await tick();
+    proc.emitLine({ type: 'result', result: 'Done.' });
+    await pp.pendingLines;
+    assert.deepEqual(progress, []);
+    assert.deepEqual(adapter.responses, ['Done.']);
+  });
+
+  it('publishes interim text on timeout and before subsequent tools', async () => {
+    const adapter = mkAdapter();
+    const progress = [];
+    adapter.sendThinking = adapter.sendStatus = async (_, text) => progress.push(text);
+    const { pp, proc } = attach(adapter);
+    const text = (value) => proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: value }] } });
+    text('Starting.');
+    await pp.pendingLines;
+    assert.deepEqual(progress, ['Starting.']);
+    text('Reading.');
+    proc.emitLine({ type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Read', input: { file_path: 'README.md' } }] } });
+    await pp.pendingLines;
+    assert.deepEqual(progress, ['Starting.', 'Reading.', 'Read › README.md']);
+  });
+
+  it('keeps the preview when the following result is an error', async () => {
+    const adapter = mkAdapter();
+    const progress = [];
+    adapter.sendThinking = async (_, text) => progress.push(text);
+    const { pp, proc } = attach(adapter);
+    proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'Partial output.' }] } });
+    proc.emitLine({ type: 'result', is_error: true, result: 'Partial output.' });
+    await pp.pendingLines;
+    assert.deepEqual(progress, ['Partial output.']);
+  });
+
+  it('drops a pending preview when the turn is stopped', async () => {
+    const adapter = mkAdapter();
+    const progress = [];
+    adapter.sendThinking = async (_, text) => progress.push(text);
+    const { pp, proc } = attach(adapter);
+    proc.emitLine({ type: 'assistant', message: { content: [{ type: 'text', text: 'Working.' }] } });
+    await tick();
+    pp.userStopped = true;
+    proc.emitLine({ type: 'result', result: 'Cancelled', is_error: true });
+    await pp.pendingLines;
+    assert.deepEqual(progress, []);
+    assert.deepEqual(adapter.responses, []);
+  });
+
   it('attaches the CLI-reported response model and clears it for the next turn', async () => {
     const adapter = mkAdapter();
     const replies = [];
