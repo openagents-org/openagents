@@ -12,6 +12,7 @@ import pytest
 
 from openagents.tools.cloro_search import search_cloro
 
+# Bing returns organicResults in the same shape as Google.
 GOOGLE_RESPONSE = {
     "success": True,
     "result": {
@@ -66,15 +67,16 @@ class TestSearchCloro:
         with patch("openagents.tools.cloro_search.requests.post") as post:
             result = search_cloro("test", engine="unknown")
         post.assert_not_called()
-        assert "engine must be one of" in result
+        assert result == "cloro search error: engine must be one of: google, bing, aimode, bing_aimode"
 
-    def test_google_sends_query_and_formats_results(self, api_key):
+    @pytest.mark.parametrize("engine", ["google", "bing"])
+    def test_search_engine_sends_query_and_formats_results(self, api_key, engine):
         with patch("openagents.tools.cloro_search.requests.post", return_value=_response(GOOGLE_RESPONSE)) as post:
-            result = search_cloro("openagents", country="DE")
+            result = search_cloro("openagents", engine=engine, country="DE")
 
         url = post.call_args.args[0]
         kwargs = post.call_args.kwargs
-        assert url == "https://api.cloro.dev/v1/monitor/google"
+        assert url == f"https://api.cloro.dev/v1/monitor/{engine}"
         assert kwargs["json"] == {"query": "openagents", "country": "DE"}
         assert kwargs["headers"]["Authorization"] == "Bearer test-key"
         assert "1. OpenAgents" in result

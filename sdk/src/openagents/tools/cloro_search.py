@@ -1,8 +1,8 @@
 """
 cloro web search tool for OpenAgents.
 
-This module returns live Google results, or the answer and cited sources of
-Google AI Mode or Bing AI Mode, through the cloro API
+This module returns live Google or Bing results, or the answer and cited
+sources of Google AI Mode or Bing AI Mode, through the cloro API
 (https://cloro.dev/docs).
 
 Requires: CLORO_API_KEY environment variable.
@@ -17,9 +17,10 @@ import requests
 logger = logging.getLogger(__name__)
 
 API_URL = "https://api.cloro.dev/v1/monitor"
-# Google returns organic results. The two AI Modes return an answer with its cited sources.
+# Google and Bing return organic results. The two AI Modes return an answer with its cited sources.
 ENDPOINTS = {
     "google": "google",
+    "bing": "bing",
     "aimode": "aimode",
     "bing_aimode": "bing/aimode",
 }
@@ -31,8 +32,7 @@ def _get_api_key() -> str:
     api_key = os.environ.get("CLORO_API_KEY", "")
     if not api_key:
         raise ValueError(
-            "CLORO_API_KEY environment variable is required. "
-            "Get your key from: https://dashboard.cloro.dev/api-keys"
+            "CLORO_API_KEY environment variable is required. Get your key from: https://dashboard.cloro.dev/api-keys"
         )
     return api_key
 
@@ -43,10 +43,11 @@ def search_cloro(query: str, engine: str = "google", num_results: int = 5, count
 
     Args:
         query: The search query, or the prompt for an AI Mode engine
-        engine: 'google' (default) for organic results, 'aimode' for the
-                Google AI Mode answer, or 'bing_aimode' for the Bing AI Mode
-                answer. Bing AI Mode accepts prompts of up to 3,500
-                characters after URL encoding.
+        engine: 'google' (default) for Google organic results, 'bing' for
+                Bing organic results, 'aimode' for the Google AI Mode answer,
+                or 'bing_aimode' for the Bing AI Mode answer. Bing and Bing AI
+                Mode accept queries of up to 3,500 characters after URL
+                encoding.
         num_results: Number of results or sources to return (default 5)
         country: ISO 3166-1 alpha-2 country code for localized results (default 'US')
 
@@ -61,7 +62,7 @@ def search_cloro(query: str, engine: str = "google", num_results: int = 5, count
     except ValueError as e:
         return str(e)
 
-    if engine == "google":
+    if engine in ("google", "bing"):
         body = {"query": query, "country": country}
     else:
         body = {"prompt": query, "country": country, "include": {"markdown": True}}
@@ -95,7 +96,7 @@ def search_cloro(query: str, engine: str = "google", num_results: int = 5, count
         return f"cloro search error: {message}"
 
     result = data.get("result") or {}
-    if engine == "google":
+    if engine in ("google", "bing"):
         entries = [
             (item.get("title"), item.get("link"), item.get("snippet")) for item in result.get("organicResults") or []
         ]
