@@ -2319,6 +2319,11 @@ export const messages: Messages = {
   },
 
   workspaceGate: {
+    openWorkspace: '打开工作区',
+    opening: '正在打开工作区…',
+    tokenLabel: '工作区令牌',
+    invalidToken: '此令牌无效或已过期。请从另一台电脑重新复制。',
+    accessUnavailable: '无法连接到工作区，请重试。',
     workspace: '工作区',
     guest: '访客',
     signInTitle: '登录后访问该工作区',

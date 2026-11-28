@@ -1,5 +1,7 @@
 'use client';
 
+import { readWorkspaceCookie, setWorkspaceCookie } from '@/lib/workspace-cookie';
+import { WorkspaceAccessGate } from '@/components/workspace-access-gate';
 import { getApiBaseUrl } from '@/lib/api-base';
 
 import { use, Suspense, useEffect, useState } from 'react';
@@ -47,24 +49,6 @@ function WorkspaceLoadingSplash() {
       `}</style>
     </div>
   );
-}
-
-// Share the cookie across openagents.org subdomains, but fall back to a
-// host-only cookie anywhere else. A browser silently drops a cookie whose
-// Domain attribute it is not a member of, so hardcoding the attribute means no
-// cookie at all on a self-hosted deployment.
-function workspaceCookieDomain(hostname: string): string {
-  return hostname === 'openagents.org' || hostname.endsWith('.openagents.org')
-    ? ';domain=.openagents.org'
-    : '';
-}
-
-function setWorkspaceCookie(slug: string, token: string) {
-  const maxAge = 30 * 24 * 60 * 60;
-  const domain = workspaceCookieDomain(window.location.hostname);
-  const shared = `path=/;max-age=${maxAge};secure;samesite=lax${domain}`;
-  document.cookie = `oa_workspace=${encodeURIComponent(JSON.stringify({ slug, token }))};${shared}`;
-  document.cookie = `oa_has_workspace=1;${shared}`;
 }
 
 function IdentityGate({ children }: { children: React.ReactNode }) {
@@ -189,14 +173,18 @@ function BearerWorkspace({ workspaceId, idToken }: { workspaceId: string; idToke
 function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   const t = useT();
   const searchParams = useSearchParams();
-  const token = searchParams.get('token');
+  const urlToken = searchParams.get('token');
+  const [saved, setSaved] = useState<{ slug: string; token: string } | null>(null);
+  const [cookieResolved, setCookieResolved] = useState(false);
   const { user, idToken, loading: authLoading, isOpenAgentsDomain, signIn } = useOpenAgentsAuth();
 
+  // Saved tokens are scoped to this workspace and never replace hosted identity.
+  const token = urlToken || (!isOpenAgentsDomain && saved?.slug === workspaceId ? saved.token : null);
   useEffect(() => {
-    if (token) {
-      setWorkspaceCookie(workspaceId, token);
-    }
-  }, [workspaceId, token]);
+    if (urlToken?.trim()) setWorkspaceCookie(workspaceId, urlToken);
+    setSaved(readWorkspaceCookie(workspaceId));
+    setCookieResolved(true);
+  }, [workspaceId, urlToken]);
 
   // "Add this workspace to my account": a signed-in user who opened a shared
   // ?token= link is persisted as a member so it shows on their Membership Home.
@@ -213,7 +201,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
   }, [authLoading, isOpenAgentsDomain, user, idToken]);
 
   // Wait for the person's identity before ever configuring a token-only client.
-  if (authLoading || (isOpenAgentsDomain && (!user || !idToken))) return <WorkspaceLoadingSplash />;
+  if (authLoading || (!isOpenAgentsDomain && !cookieResolved) || (isOpenAgentsDomain && (!user || !idToken))) return <WorkspaceLoadingSplash />;
 
   // Has workspace token in URL — use it directly
   if (token) {
@@ -261,19 +249,7 @@ function WorkspaceContent({ workspaceId }: { workspaceId: string }) {
     );
   }
 
-  // Not on OpenAgents domain and no token — show token instructions
-  return (
-    <Empty className="min-h-screen rounded-none bg-background">
-      <EmptyHeader>
-        <EmptyTitle className="text-xl font-semibold text-destructive">{t('workspaceGate.missingToken')}</EmptyTitle>
-        <EmptyDescription>
-          {t('workspaceGate.missingTokenBefore')}{' '}
-          <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-xs text-foreground">?token=your_workspace_token</code>{' '}
-          {t('workspaceGate.missingTokenAfter')}
-        </EmptyDescription>
-      </EmptyHeader>
-    </Empty>
-  );
+  return <WorkspaceAccessGate />;
 }
 
 export default function WorkspacePage({

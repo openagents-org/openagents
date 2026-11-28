@@ -2355,6 +2355,11 @@ export const messages = {
   },
 
   workspaceGate: {
+    openWorkspace: 'Open workspace',
+    opening: 'Opening workspace…',
+    tokenLabel: 'Workspace token',
+    invalidToken: 'This token is invalid or has expired. Copy it again from your other computer.',
+    accessUnavailable: 'Could not connect to the workspace. Try again.',
     workspace: 'Workspace',
     guest: 'Guest',
     signInTitle: 'Sign in to access this workspace',

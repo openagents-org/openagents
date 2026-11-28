@@ -1,5 +1,6 @@
 'use client';
 
+import { SelfHostedEntry } from '@/components/self-hosted-entry';
 import { desktopHost, hintTabTitle } from '@/lib/desktop-host';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -927,8 +928,6 @@ export default function HomePage() {
     return <MembershipHome idToken={oa.idToken} userEmail={oa.user.email} onSignOut={oa.signOut} />;
   }
 
-  // Non-OpenAgents / self-hosted host: show the informational landing page for
-  // now. (The legacy email/password dashboard was removed in v1.0; proper
-  // self-hosted account handling is a later decision.)
-  return <LandingPage />;
+  // Self-hosted workspaces accept an existing token without a hosted account.
+  return <SelfHostedEntry />;
 }
