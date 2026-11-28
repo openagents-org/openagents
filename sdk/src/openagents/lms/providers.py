@@ -9,6 +9,64 @@ from abc import ABC, abstractmethod
 logger = logging.getLogger(__name__)
 
 
+def _to_anthropic_messages(messages: List[Dict[str, Any]]):
+    """Convert OpenAI-style chat messages to Anthropic Messages format.
+
+    Returns ``(system, messages)``. ``role=tool`` messages become ``tool_result``
+    blocks inside a user message and assistant ``tool_calls`` become ``tool_use``
+    blocks, as required by the Anthropic API.
+    """
+    system_message = None
+    out: List[Dict[str, Any]] = []
+
+    for msg in messages:
+        role = msg["role"]
+        if role == "system":
+            system_message = msg["content"]
+        elif role == "tool":
+            block = {
+                "type": "tool_result",
+                "tool_use_id": msg.get("tool_call_id", ""),
+                "content": msg.get("content", "") or "",
+            }
+            # Consecutive tool results must share one user message
+            if (
+                out
+                and out[-1]["role"] == "user"
+                and isinstance(out[-1]["content"], list)
+                and out[-1]["content"]
+                and out[-1]["content"][-1].get("type") == "tool_result"
+            ):
+                out[-1]["content"].append(block)
+            else:
+                out.append({"role": "user", "content": [block]})
+        elif role == "assistant" and msg.get("tool_calls"):
+            content = []
+            if msg.get("content"):
+                content.append({"type": "text", "text": msg["content"]})
+            for tc in msg["tool_calls"]:
+                fn = tc.get("function", {})
+                raw_args = tc.get("arguments", fn.get("arguments", "{}"))
+                if isinstance(raw_args, str):
+                    try:
+                        raw_args = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        raw_args = {}
+                content.append(
+                    {
+                        "type": "tool_use",
+                        "id": tc.get("id", ""),
+                        "name": tc.get("name", fn.get("name", "")),
+                        "input": raw_args,
+                    }
+                )
+            out.append({"role": "assistant", "content": content})
+        else:
+            out.append({"role": role, "content": msg["content"]})
+
+    return system_message, out
+
+
 class BaseModelProvider(ABC):
     """Abstract base class for model providers."""
 
@@ -173,16 +231,7 @@ class AnthropicProvider(BaseModelProvider):
     ) -> Dict[str, Any]:
         """Generate chat completion using Anthropic API."""
         # Convert messages to Anthropic format
-        anthropic_messages = []
-        system_message = None
-
-        for msg in messages:
-            if msg["role"] == "system":
-                system_message = msg["content"]
-            else:
-                anthropic_messages.append(
-                    {"role": msg["role"], "content": msg["content"]}
-                )
+        system_message, anthropic_messages = _to_anthropic_messages(messages)
 
         kwargs = {
             "model": self.model_name,
@@ -286,14 +335,7 @@ class BedrockProvider(BaseModelProvider):
             return await self._claude_bedrock_bearer(messages, tools)
 
         # Convert to Claude Bedrock format
-        claude_messages = []
-        system_message = None
-
-        for msg in messages:
-            if msg["role"] == "system":
-                system_message = msg["content"]
-            else:
-                claude_messages.append({"role": msg["role"], "content": msg["content"]})
+        system_message, claude_messages = _to_anthropic_messages(messages)
 
         body = {
             "anthropic_version": "bedrock-2023-05-31",
