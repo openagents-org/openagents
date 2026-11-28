@@ -396,7 +396,7 @@ def create_claude_config(
 
 
 def create_gemini_config(
-    model_name: str = "gemini-1.5-pro",
+    model_name: str = "gemini-3.8-flash",
     instruction: str = "You are a helpful AI assistant powered by Google's Gemini.",
     api_key: Optional[str] = None,
     system_prompt_template: Optional[str] = None,
