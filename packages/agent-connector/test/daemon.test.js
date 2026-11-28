@@ -591,6 +591,17 @@ describe('Daemon', () => {
     assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
   });
 
+  it('_buildRoster carries Kiro CLI models for the signed-in account', () => {
+    const config = new Config(tmpDir);
+    config.addAgent({ name: 'kiro-worker', type: 'kiro', env: { OPENAGENTS_AUTH_MODE: 'cli_login' } });
+    config.setAgentNetwork('kiro-worker', 'ws1');
+    const daemon = new Daemon(config, new EnvManager(tmpDir), new Registry(tmpDir));
+    seedCliModels(daemon, 'kiro-worker');
+    const roster = withProcessEnv(NO_CREDENTIALS, () => daemon._buildRoster({ workspace_slug: 'ws1' }));
+    assert.equal(roster.length, 1);
+    assert.deepEqual(roster[0].cliModels, ACCOUNT_MODELS);
+  });
+
   it('_buildRoster keeps that list from an agent on a key or a relay', () => {
     const config = new Config(tmpDir);
     config.addAgent({ name: 'keyed', type: 'codex', env: { LLM_API_KEY: 'sk-own-key-123456' } });
