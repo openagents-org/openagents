@@ -126,3 +126,33 @@ describe('agn connect --workspace', () => {
     assert.ok(!readDaemonYaml().includes('network: nope'));
   });
 });
+
+describe('two pairings of one workspace', () => {
+  function writeTwoPairings() {
+    const oaDir = path.join(tmpHome, '.openagents');
+    fs.mkdirSync(oaDir, { recursive: true });
+    const base = {
+      workspace_id: 'wid-9', workspace_slug: 'dup-ws', workspace_name: 'Dup WS',
+      endpoint: 'https://example.test', token: 't', paired_at: '2026-08-23T00:00:00Z',
+    };
+    fs.writeFileSync(path.join(oaDir, 'node.json'), JSON.stringify({
+      node_key: 'nk-1',
+      pairings: [{ ...base, node_id: 'n-1' }, { ...base, node_id: 'n-2' }],
+    }));
+  }
+
+  it('agn create prints --connection on each suggested connect command', () => {
+    writeTwoPairings();
+    const r = run('create', 'wsbot', '--type', 'nanoclaw');
+    assert.equal(r.code, 0, r.stdout);
+    assert.ok(r.stdout.includes('agn connect wsbot --workspace dup-ws --connection n-1'), r.stdout);
+    assert.ok(r.stdout.includes('agn connect wsbot --workspace dup-ws --connection n-2'), r.stdout);
+  });
+
+  it('agn device status tells the pairings apart', () => {
+    writeTwoPairings();
+    const r = run('device', 'status');
+    assert.equal(r.code, 0, r.stdout);
+    assert.ok(r.stdout.includes('[connection: n-1]') && r.stdout.includes('[connection: n-2]'), r.stdout);
+  });
+});

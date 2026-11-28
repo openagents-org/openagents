@@ -226,7 +226,10 @@ async function cmdCreate(connector, flags, positional) {
       try { pairings = require('./node-config').listPairings().filter((p) => p && p.workspace_slug); } catch {}
       if (pairings.length) {
         for (const p of pairings.slice(0, 3)) {
-          print(`  agn connect ${name} --workspace ${p.workspace_slug}${p.workspace_name ? `   (${p.workspace_name})` : ''}`);
+          // Two pairings of one workspace need --connection to tell them apart.
+          const dup = pairings.filter((q) => q.workspace_slug === p.workspace_slug).length > 1;
+          const conn = dup && p.node_id ? ` --connection ${p.node_id}` : '';
+          print(`  agn connect ${name} --workspace ${p.workspace_slug}${conn}${p.workspace_name ? `   (${p.workspace_name})` : ''}`);
         }
       } else {
         print(`  agn connect ${name} <workspace-token>`);
@@ -489,6 +492,7 @@ async function cmdConnect(connector, flags, positional) {
   if (!name) {
     print('Usage: agn connect <agent-name> <token>');
     print('       agn connect <agent-name> --workspace <slug>   (paired/known workspace, no token)');
+    print('       agn connect <agent-name> --workspace <slug> --connection <id>   (id from `agn device status` when a workspace has several pairings)');
     process.exitCode = 1;
     return;
   }
@@ -708,7 +712,8 @@ async function cmdNode(connector, flags, positional) {
     print(`Device connected to ${pairings.length} workspace(s):`);
     for (const p of pairings) {
       const slug = p.workspace_slug || p.workspace_id;
-      print(`  ${p.workspace_name || slug} (${slug}) — ${workspaceWebUrl(slug, p.endpoint)}`);
+      const dup = pairings.filter((q) => (q.workspace_slug || q.workspace_id) === slug).length > 1;
+      print(`  ${p.workspace_name || slug} (${slug}) — ${workspaceWebUrl(slug, p.endpoint)}${dup ? ` [connection: ${p.node_id}]` : ''}`);
     }
     return;
   }
@@ -1318,6 +1323,8 @@ Commands:
   join <code>                 Run from inside Claude Code, Codex, ...: connect that agent to a workspace
                               [--name <agent-name>] [--type <type>] [--path <dir>] [--no-autostart]
   connect <agent> <token>     Connect agent to workspace (or --workspace <slug> for a paired one)
+                              [--workspace <slug> [--connection <id>]]  (--connection: id from 'agn device status'
+                              when a workspace has several pairings)
   disconnect <agent>          Disconnect agent from workspace
   env <type> [--set K=V]      View/set env vars for agent type
   skills [agent] [action]     Manage agent skills (enable/disable)
