@@ -367,10 +367,19 @@ class BedrockProvider(BaseModelProvider):
                         "content": [{"text": msg.get("content", "")}]
                     }
                 }
-                converse_messages.append({
-                    "role": "user",
-                    "content": [tool_result]
-                })
+                # Consecutive tool results (parallel tool calls) must share one
+                # user message; Converse rejects consecutive same-role messages.
+                if (
+                    converse_messages
+                    and converse_messages[-1]["role"] == "user"
+                    and all("toolResult" in b for b in converse_messages[-1]["content"])
+                ):
+                    converse_messages[-1]["content"].append(tool_result)
+                else:
+                    converse_messages.append({
+                        "role": "user",
+                        "content": [tool_result]
+                    })
             elif msg["role"] == "assistant" and msg.get("tool_calls"):
                 # Convert assistant tool_calls to Converse format
                 content = []
