@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Optional
 
 from openagents.adapters.base import BaseAdapter
+from openagents.adapters.codex import _redact
 from openagents.adapters.utils import format_attachments_for_prompt
 from openagents.adapters.workspace_prompt import build_claude_system_prompt
 from openagents.workspace_client import DEFAULT_ENDPOINT
@@ -493,6 +494,7 @@ class ClaudeAdapter(BaseAdapter):
             posted_thinking = False
             idle_notified = False
             consecutive_timeouts = 0
+            error_message = ""
 
             # Read stream-json output line by line
             while True:
@@ -604,7 +606,8 @@ class ClaudeAdapter(BaseAdapter):
                         self._channel_sessions[msg_channel] = session_id
                         self._save_sessions()
                     if event.get("is_error"):
-                        logger.warning(f"Claude error: {event.get('result', '')[:200]}")
+                        error_message = str(event.get("result") or "").strip()
+                        logger.warning(f"Claude error: {error_message[:200]}")
 
                 elif event_type == "system":
                     subtype = event.get("subtype", "")
@@ -633,6 +636,7 @@ class ClaudeAdapter(BaseAdapter):
                 self._stopping_channels.discard(msg_channel)
                 return
 
+            stderr_text = ""
             if process.returncode != 0:
                 stderr = await process.stderr.read()
                 stderr_text = stderr.decode("utf-8", errors="replace").strip()
@@ -654,7 +658,18 @@ class ClaudeAdapter(BaseAdapter):
                 if full_response:
                     await self._send_response(msg_channel, full_response)
             elif not posted_thinking:
-                await self._send_response(msg_channel, "No response generated. Please try again.")
+                # Surface the real failure (result is_error, stderr, exit
+                # code) instead of a generic message.
+                detail = error_message or stderr_text
+                if not detail and process.returncode:
+                    detail = f"claude exited with code {process.returncode}"
+                if detail:
+                    await self._send_error(
+                        msg_channel,
+                        f"⚠️ **Claude couldn't respond** — {_redact(detail)[:500]}",
+                    )
+                else:
+                    await self._send_response(msg_channel, "No response generated. Please try again.")
 
         except Exception as e:
             logger.exception(f"Error handling message: {e}")
