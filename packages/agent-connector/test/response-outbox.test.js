@@ -94,6 +94,22 @@ test('an outage in one channel preserves ordering without blocking another chann
   assert.deepEqual(sent, ['independent', 'first', 'second']);
 });
 
+test('unreadable entry logs its file and error category without reply content, and valid entries still flush', async t => {
+  const sent = [];
+  const { outbox, directory, logs } = fixture(t, { send: async entry => { sent.push(entry.content); } });
+  const bad = '11111111-1111-1111-1111-111111111111.json';
+  fs.mkdirSync(directory, { recursive: true });
+  fs.writeFileSync(path.join(directory, bad), '{"content":"SECRET-REPLY-TEXT", ');
+  fs.mkdirSync(path.join(directory, '22222222-2222-2222-2222-222222222222.json'));
+  await outbox.enqueue({ channel: 'c1', content: 'good reply', metadata: {} });
+  assert.deepEqual(sent, ['good reply']);
+  const line = logs.find(l => l.includes(bad));
+  assert.ok(line, 'log names the corrupt file');
+  assert.match(line, /invalid JSON/);
+  assert.ok(logs.some(l => l.includes('22222222-2222-2222-2222-222222222222.json') && /EISDIR/.test(l)));
+  assert.ok(!logs.some(l => l.includes('SECRET-REPLY-TEXT')));
+});
+
 test('adapter captures the original trigger and retries with its current session', async t => {
   const { directory } = fixture(t);
   const adapter = new BaseAdapter({ workspaceId: 'ws', agentName: 'agent', token: 'SECRET' });
