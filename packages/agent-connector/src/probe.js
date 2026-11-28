@@ -650,6 +650,27 @@ function failureMessage(res, code, timeoutMs) {
 const CODEX_MODEL_ARG = /^[\w.:@/-]{1,128}$/;
 
 /**
+ * Codex's npm shim runs `node` from PATH. On a Windows launcher install that
+ * resolves to whatever Node the launcher process happens to sit next to, which
+ * can crash on its own (0xC0000005, "Exited with code 3221225477") where the
+ * chat adapter, which launches Codex with the portable Node under
+ * ~/.openagents/nodejs, works. Put that Node first for the probe too.
+ */
+function withPortableNodeFirst(env, home = os.homedir()) {
+  const dir = path.join(home, '.openagents', 'nodejs');
+  const nodeBin = process.platform === 'win32'
+    ? path.join(dir, 'node.exe')
+    : path.join(dir, 'bin', 'node');
+  const alt = process.platform === 'win32' ? null : path.join(dir, 'node');
+  let found = null;
+  for (const c of [nodeBin, alt]) { try { if (c && fs.existsSync(c)) { found = path.dirname(c); break; } } catch {} }
+  if (!found) return env;
+  const key = Object.keys(env).find((k) => k.toLowerCase() === 'path') || 'PATH';
+  const rest = String(env[key] || '').split(path.delimiter).filter((d) => d && d !== found);
+  return { ...env, [key]: [found, ...rest].join(path.delimiter) };
+}
+
+/**
  * Codex's probe run, cut down to the one question it asks.
  *
  * `codex exec hi` starts everything the user's ~/.codex/config.toml sets up
@@ -827,7 +848,8 @@ async function probeAgentType(connector, type, opts = {}) {
 
   const timeoutMs = opts.timeoutMs
     || (entry.probe && entry.probe.timeout_s ? entry.probe.timeout_s * 1000 : DEFAULT_TIMEOUT_MS);
-  const env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
+  let env = stripForCliLogin(type, { ...getEnhancedEnv(), ...agentEnv }, connector.registry, opts.agentEnv);
+  if (type === 'codex') env = withPortableNodeFirst(env);
   // What the CLI needs set to answer headless at all, declared per agent
   // (Gemini refuses to run in a folder it does not trust, and the probe runs
   // in the home directory). The agent's own value, if any, stands.
@@ -1041,4 +1063,4 @@ async function probeAgentType(connector, type, opts = {}) {
   });
 }
 
-module.exports = { probeAgentType, codexProbeArgs, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };
+module.exports = { probeAgentType, codexProbeArgs, withPortableNodeFirst, classifyFailure, buildGuidance, authFlavor, installCommandFor, scrub, failureMessage, CODE, DEFAULT_TIMEOUT_MS };
